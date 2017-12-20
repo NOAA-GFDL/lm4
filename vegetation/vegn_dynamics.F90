@@ -20,11 +20,11 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
-use vegn_data_mod, only : spdata, nspecies, &
+use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
-     fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, do_ppa, understory_lai_factor, min_lai, use_light_saber
+     fsc_liv, fsc_wood, fsc_froot, agf_bs, l_fract, understory_lai_factor, min_lai, &
+     use_light_saber, laimax_ceiling, laimax_floor
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -742,14 +742,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
   !ens
   real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
-  ! new constants for HML equations
-!  real ::   alpha_z = 60.97697    ! alphaHT
-!  real ::   b_z = 0.8631476       ! thetaHT
-!  real ::   gamma_z = 0.6841742   ! gammaHT
-!  real ::   alpha_ca = 243.7808   ! alphaCA
-!  real ::   b_ca = 1.18162        ! thetaCA
-!  real ::   alpha_s = 0.559       ! alphaBM
-!  real, parameter :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
 
   real, parameter :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
   real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
@@ -976,9 +968,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
      if (cc%An_newleaf_daily > 0 ) then
-         cc%laimax = cc%laimax + sp%newleaf_layer
+         cc%laimax = min(cc%laimax + sp%newleaf_layer,laimax_ceiling)
+     else if (cc%An_newleaf_daily < 0) then
+         cc%laimax = max(cc%laimax - sp%newleaf_layer,laimax_floor)
      else
-         cc%laimax = max(cc%laimax - sp%newleaf_layer,1.0)
+         ! do nothing if the derivative is zero
      endif
      cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily

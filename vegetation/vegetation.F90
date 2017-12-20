@@ -720,9 +720,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   !ppg 2017-11-03
   id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
-       (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
-  id_lai_light = register_tiled_diag_field ( module_name, 'light_comp',  &
-       (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'leaf area index at Kok effect threshold', 'm2/m2', missing_value=-1.0 )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
@@ -1148,14 +1146,14 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        rho,       & ! density of canopy air
        gaps,      & ! fraction of gaps in the canopy, used to calculate cover
        layer_gaps,& ! fraction of gaps in the canopy in a single layer, accumulator value
-       phot_co2, &  ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
-       lai_kok, An_newleaf, light_comp
+       phot_co2     ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
   real, dimension(vegn%n_cohorts) :: &
        con_v_h, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
-       RHi          ! relative humidity inside the leaf, at the point of vaporization
+       RHi, &       ! relative humidity inside the leaf, at the point of vaporization
+       lai_kok      ! LAI above 40 umoles of light
 
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
@@ -1262,8 +1260,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond(i), RHi(i), &
-        lai_kok, An_newleaf, light_comp )
+        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i))
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1427,9 +1424,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_phot_co2, phot_co2, diag)
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
   call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
-  !Kok effect ppg 2017-11-03
-  call send_tile_data(id_lai_light, light_comp, diag)
-  call send_tile_data(id_lai_kok, lai_kok, diag)
 
 
   ! plant hydraulics diagnostics
@@ -1448,6 +1442,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   ! debugging is enabled.
   call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+  !Kok effect ppg 2017-11-03
+  call send_cohort_data(id_lai_kok, diag, cc(:), lai_kok(:), weight=cc(:)%layerfrac, op=OP_SUM)
 
 end subroutine vegn_step_1
 

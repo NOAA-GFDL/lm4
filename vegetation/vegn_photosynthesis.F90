@@ -188,7 +188,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      soil_beta, soil_water_supply, con_v_v, &
 ! output:
      evap_demand, stomatal_cond, RHi, &
-     lai_kok, An_newleaf,light_comp)
+     lai_kok)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -206,8 +206,6 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
-  real, intent(out) :: An_newleaf
-  real, intent(out) :: light_comp ! LAI at which Ag=Resp
 
   select case (vegn_phot_option)
   case(VEGN_PHOT_SIMPLE)
@@ -221,7 +219,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
             soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi, &
-            lai_kok, An_newleaf, light_comp )
+            lai_kok)
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -234,7 +232,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
      evap_demand, stomatal_cond, RHi, &
-     lai_kok, An_newleaf, light_comp)
+     lai_kok)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -251,8 +249,6 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
-  real, intent(out) :: An_newleaf
-  real, intent(out) :: light_comp ! LAI at which Ag=Resp
 
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
@@ -269,12 +265,11 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
   real    :: evap_demand_old
+  real    :: An_newleaf
 
   ! set the default values for outgoing parameters, overriden by the calculations
   ! in gs_leuning
   lai_kok   = 0.0
-  An_newleaf   = 0.0
-  light_comp = 0.0
 
   if(cohort%lai <= 0) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
@@ -299,7 +294,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        cohort%layer, &
        ! output:
        stomatal_cond, psyn, resp, &
-       lai_kok, An_newleaf, light_comp)
+       lai_kok, An_newleaf)
   cohort%An_newleaf_daily = cohort%An_newleaf_daily + An_newleaf
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness
@@ -389,7 +384,7 @@ end subroutine vegn_photosynthesis_Leuning
 subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
                    p_surf, pft, ca, kappa, layer, &
                    gs, apot, acl, &
-                   lai_kok, An_newleaf, light_comp)
+                   lai_kok, An_newleaf)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
@@ -410,7 +405,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real,    intent(out)   :: lai_kok ! Lai at which kok effect is considered
   !#### Modified by PPG 2017-12-07
   real,    intent(out)   :: An_newleaf
-  real,    intent(out)   :: light_comp ! Lai at which Ag=Resp
 
   ! ---- local vars
   ! photosynthesis
@@ -619,7 +613,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
-  light_comp = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
