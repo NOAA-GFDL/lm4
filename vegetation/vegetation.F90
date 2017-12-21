@@ -61,8 +61,7 @@ use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     nitrogen_cons_tol, check_var_range
+     check_var_range
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
      co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
@@ -127,7 +126,6 @@ real    :: init_cohort_br(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of fin
 real    :: init_cohort_bsw(MAX_INIT_COHORTS)     = 0.05 ! initial biomass of sapwood, kg C/individual
 real    :: init_cohort_bwood(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of heartwood, kg C/individual
 real    :: init_cohort_bseed(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of seeds, kg C/individual
-real    :: init_cohort_nsc(MAX_INIT_COHORTS)     = 0.0  ! initial non-structural biomass, kg C/individual
 real    :: init_cohort_myc_scav(MAX_INIT_COHORTS) = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
 real    :: init_cohort_myc_mine(MAX_INIT_COHORTS) = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
 real    :: init_cohort_n_fixer(MAX_INIT_COHORTS)  = 0.0 ! initial N fixer microbe biomass, kgC/m2
@@ -171,7 +169,7 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
-    init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, &
+    init_cohort_bwood, init_cohort_bseed, &
     init_cohort_height, &
     init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
     init_cohort_stored_N_mult, &
@@ -573,7 +571,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%bsw     = init_cohort_bsw(n)
         cc%bwood   = init_cohort_bwood(n)
         cc%bseed   = init_cohort_bseed(n)
-        cc%nsc     = init_cohort_nsc(n)
         cc%scav_myc_C_reservoir = 0.0 ; cc%scav_myc_N_reservoir = 0.0
         cc%mine_myc_C_reservoir = 0.0 ; cc%mine_myc_N_reservoir = 0.0
         cc%N_fixer_C_reservoir  = 0.0 ; cc%N_fixer_N_reservoir  = 0.0
@@ -2120,7 +2117,6 @@ subroutine update_vegn_slow( )
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, nmass0
-  character(64) :: tag
   real :: dbh_max_N ! max dbh for understory; diag only
 
   ! get components of calendar dates for this and previous time step
