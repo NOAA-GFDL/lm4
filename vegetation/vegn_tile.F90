@@ -22,7 +22,7 @@ use vegn_data_mod, only : &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
+     cohorts_can_be_merged, leaf_area_from_biomass, plant_C
 
 use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
@@ -908,7 +908,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = 0
   do i = 1,vegn%n_cohorts
      carbon = carbon + &
-         biomass_of_individual(vegn%cohorts(i))*vegn%cohorts(i)%nindivs
+         plant_C(vegn%cohorts(i))*vegn%cohorts(i)%nindivs
   enddo
   carbon = carbon + sum(vegn%harv_pool_C) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &

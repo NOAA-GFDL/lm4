@@ -25,8 +25,8 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
      N_LITTER_POOLS, LEAF, l_shortname, l_longname
-use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
-     seconds_per_year, MPa_per_m
+use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
+     seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, &
@@ -73,8 +73,7 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
      vegn_reproduction_ppa
-use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
-     vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
@@ -148,6 +147,8 @@ logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
+logical :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter of soil moisture
+                                         ! in the drought-deciduous phenology
 logical :: xwilt_available      = .TRUE.
 logical :: do_biogeography      = .TRUE.
 logical :: do_seed_transport    = .TRUE.
@@ -176,7 +177,7 @@ namelist /vegn_nml/ &
     init_cohort_stored_N_mult, &
     rad_to_use, snow_rad_to_use, &
     allow_external_gaps, &
-    do_cohort_dynamics, do_patch_disturbance, do_phenology, &
+    do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
@@ -188,11 +189,13 @@ namelist /vegn_nml/ &
 logical         :: module_is_initialized =.FALSE.
 real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
+real            :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 
 ! diagnostic field ids
-integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
+integer :: id_vegn_type, id_height, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_laii, id_sai, id_leafarea, id_leaf_size, &
+   id_lai, id_lai_var, id_lai_std, id_sai, id_leafarea, id_leaf_size, &
+   id_laii, id_laimax, id_laiimax, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -220,7 +223,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_topyear, id_growth_prev_day, &
-   id_lai_kok,id_Anlayer, id_lai_light
+   id_lai_kok
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -228,7 +231,6 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
 integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
-integer, allocatable :: id_nindivs_sp(:)
 ! ==== end of module variables ===============================================
 
 contains
@@ -315,6 +317,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
 
+  ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
+  weight_av_phen = delta_time/(delta_time+tau_smooth_theta_phen*86400.0)
 
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
@@ -351,6 +355,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2,'bseed',cohort_bseed_ptr)
         call get_cohort_data(restart2,'bl_max',cohort_bl_max_ptr)
         call get_cohort_data(restart2,'br_max',cohort_br_max_ptr)
+        !ppg 20171214
+        if(field_exists(restart2,'laimax')) &
+           call get_cohort_data(restart2,'laimax',cohort_laimax_ptr)
         ! isa 201707
         if (field_exists(restart2,'bsw_max')) &
            call get_cohort_data(restart2, 'bsw_max', cohort_bsw_max_ptr)
@@ -690,12 +697,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_nindivs = register_cohort_diag_field( module_name, 'nindivs', &
        (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
 
-  allocate(id_nindivs_sp(0:nspecies-1))
-  do i = 0, nspecies-1
-     id_nindivs_sp(i) = register_cohort_diag_field( module_name, 'nindivs_'//trim(spdata(i)%name), &
-         (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
-  enddo
-
   id_nlayers = register_tiled_diag_field( module_name, 'nlayers', &
        (/id_ug/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
   id_dbh = register_cohort_diag_field( module_name, 'dbh', &
@@ -718,10 +719,10 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_height_ave = register_cohort_diag_field ( module_name, 'height_ave',  &
        (/id_ug/), time, 'average height of the trees', 'm', missing_value=-1.0)
 
-  id_height1 = register_tiled_diag_field ( module_name, 'height1',  &
-       (/id_ug/), time, 'height of first cohort', 'm', missing_value=-1.0 )
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
+  id_laimax    = register_cohort_diag_field ( module_name, 'laimax',  &
+       (/id_ug/), time, 'maximum leaf area index', 'm2/m2', missing_value=-1.0)
   id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
        (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
        missing_value=-1.0 , opt='variance')
@@ -734,6 +735,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'leaf area per individual', 'm2', missing_value=-1.0)
   id_laii   = register_cohort_diag_field ( module_name, 'laii',  &
        (/id_ug/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
+  id_laiimax = register_cohort_diag_field ( module_name, 'laiimax',  &
+       (/id_ug/), time, 'maximum leaf area index per individual', 'm2/m2', missing_value=-1.0)
 
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
        (/id_ug/), time, missing_value=-1.0 )
@@ -857,10 +860,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'drought', 'months', missing_value=-100.0)
 
   !ppg 2017-11-03
-  id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
-       (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
-  id_lai_light = register_tiled_diag_field ( module_name, 'lai_light',  &
-       (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
+  id_lai_kok = register_cohort_diag_field ( module_name, 'lai_kok',  &
+       (/id_ug/), time, 'leaf area index at Kok effect threshold', 'm2/m2', missing_value=-1.0 )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
@@ -1102,7 +1103,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'DBH_ys', cohort_DBH_ys_ptr, 'DBH at the end of previous year','m')
   call add_cohort_data(restart2,'topyear', cohort_topyear_ptr, 'time spent in the top canopy layer','years')
   call add_cohort_data(restart2,'gdd', cohort_gdd_ptr, 'growing degree days','degC day')
-
+  !ppg 20171214
+  call add_cohort_data(restart2,'laimax',cohort_laimax_ptr, 'prognostic maximum leaf area index','m2/m2')
   ! wolf restart data - psi, Kxa
   call add_cohort_data(restart2, 'psi_r', cohort_psi_r_ptr, 'psi root', 'm')
   call add_cohort_data(restart2, 'psi_x', cohort_psi_x_ptr, 'psi stem', 'm' )
@@ -1354,14 +1356,14 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        rho,       & ! density of canopy air
        gaps,      & ! fraction of gaps in the canopy, used to calculate cover
        layer_gaps,& ! fraction of gaps in the canopy in a single layer, accumulator value
-       phot_co2, &  ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
-       lai_kok, Anlayer, lai_light
+       phot_co2     ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
   real, dimension(vegn%n_cohorts) :: &
        con_v_h, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
-       RHi          ! relative humidity inside the leaf, at the point of vaporization
+       RHi, &       ! relative humidity inside the leaf, at the point of vaporization
+       lai_kok      ! LAI above 40 umoles of light
 
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
@@ -1468,8 +1470,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond(i), RHi(i), &
-        lai_kok, Anlayer, lai_light )
+        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i))
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1633,9 +1634,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_phot_co2, phot_co2, diag)
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
   call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
-  !Kok effect ppg 2017-11-03
-  call send_tile_data(id_lai_light, lai_light, diag)
-  call send_tile_data(id_lai_kok, lai_kok, diag)
 
   ! plant hydraulics diagnostics
   call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs, op=OP_AVERAGE)
@@ -1653,6 +1651,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   ! debugging is enabled.
   call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+  ! Kok effect ppg 2017-11-03
+  call send_cohort_data(id_lai_kok, diag, cc(:), lai_kok(:), weight=cc(:)%layerfrac, op=OP_SUM)
 
 end subroutine vegn_step_1
 
@@ -1807,12 +1807,13 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%Ws, weight=c(1:N)%nindivs, op=OP_SUM)
 
-  call send_tile_data(id_height1, c(1)%height, diag) ! tallest
   call send_tile_data(id_height, maxval(c(1:N)%height), diag) ! tallest
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_laimax,  diag, c(1:N), c(1:N)%laimax, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
+  call send_cohort_data(id_laiimax, diag, c(1:N), c(1:N)%laimax, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
   call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
   ! as for average LAI, but they are aggregated differently by the diagnostics
@@ -1926,7 +1927,11 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   else
      theta = soil_ave_theta0(soil,vegn%cohorts(1)%root_zeta)
   endif
-  vegn%theta_av_phen = vegn%theta_av_phen + theta
+  if (do_ppa) then
+     vegn%theta_av_phen = weight_av_phen*theta + (1-weight_av_phen)*vegn%theta_av_phen
+  else
+     vegn%theta_av_phen = vegn%theta_av_phen + theta
+  endif
   vegn%theta_av_fire = vegn%theta_av_fire + soil_ave_theta1(soil,depth_ave)
   psist = soil_psi_stress(soil,vegn%cohorts(1)%root_zeta)
   vegn%psist_av  = vegn%psist_av + psist
@@ -2110,7 +2115,6 @@ subroutine update_vegn_slow( )
   real    :: zstar ! critical depth, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
-  real, allocatable :: spmask(:) ! mask for by-species nindivs output
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
 
@@ -2168,7 +2172,11 @@ subroutine update_vegn_slow( )
         ! compute averages from accumulated monthly values
         tile%vegn%tc_av     = tile%vegn%tc_av     / tile%vegn%n_accum
         tile%vegn%tsoil_av  = tile%vegn%tsoil_av  / tile%vegn%n_accum
-        tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
+        if (do_ppa) then
+           ! do nothing -- theta_av_phen is already smoothed
+        else
+           tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
+        endif
         tile%vegn%theta_av_fire  = tile%vegn%theta_av_fire  / tile%vegn%n_accum
         tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
         tile%vegn%precip_av = tile%vegn%precip_av / tile%vegn%n_accum
@@ -2368,16 +2376,6 @@ subroutine update_vegn_slow( )
      N=tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts
      call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/), op=OP_SUM)
      call send_cohort_data(id_nindivs,  tile%diag, cc(1:N), cc(1:N)%nindivs, op=OP_SUM)
-     if (any(id_nindivs_sp(:)>0)) then
-        allocate(spmask(N))
-        do i = 0, nspecies-1
-           if (id_nindivs_sp(i)>0) then
-              spmask = 0.0; where (cc(1:N)%species == i) spmask(:) = 1.0
-              call send_cohort_data(id_nindivs_sp(i),  tile%diag, cc(1:N), cc(1:N)%nindivs, weight=spmask(:), op=OP_SUM)
-           endif
-        enddo
-        deallocate(spmask)
-     endif
 
      call send_tile_data(id_nlayers,  real(cc(N)%layer),    tile%diag)
 
@@ -2509,7 +2507,11 @@ subroutine update_vegn_slow( )
         tile%vegn%n_accum  = 0
         tile%vegn%tc_av    = 0.
         tile%vegn%tsoil_av = 0.
-        tile%vegn%theta_av_phen = 0.
+        if (do_ppa) then
+           ! do nothing -- theta_av_phen is being smoothed with low-band-pass filter
+        else
+           tile%vegn%theta_av_phen = 0.
+        endif
         tile%vegn%theta_av_fire = 0.
         tile%vegn%psist_av = 0.
         tile%vegn%precip_av= 0.
@@ -2797,6 +2799,7 @@ DEFINE_COHORT_ACCESSOR(real,bseed)
 DEFINE_COHORT_ACCESSOR(real,bsw_max)
 DEFINE_COHORT_ACCESSOR(real,bl_max)
 DEFINE_COHORT_ACCESSOR(real,br_max)
+DEFINE_COHORT_ACCESSOR(real,laimax)
 DEFINE_COHORT_ACCESSOR(real,dbh)
 DEFINE_COHORT_ACCESSOR(real,crownarea)
 DEFINE_COHORT_ACCESSOR(real,bliving)

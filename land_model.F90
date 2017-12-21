@@ -247,7 +247,7 @@ integer :: &
   id_sens,     id_sensv,    id_senss,    id_sensg,                         &
 !
   id_e_res_1,  id_e_res_2,  id_cd_m,     id_cd_t,                          &
-  id_cellarea, id_landarea, id_landfrac,                                   &
+  id_cellarea, id_landfrac,                                                &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
   id_z0m,      id_z0s,      id_con_g_h,  id_con_g_v,                       &
@@ -434,7 +434,6 @@ subroutine land_model_init &
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
   ! send some static diagnostic fields to output
-  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%ug_area,         lnd%time )
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%ug_landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%ug_lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%ug_lat*180.0/PI, lnd%time )
@@ -1084,7 +1083,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,id_area,id_z0m,id_z0s,       &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t) &
-!$OMP                                  private(i1,i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif)
+!$OMP                                  private(i1,i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)

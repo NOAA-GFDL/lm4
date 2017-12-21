@@ -11,7 +11,7 @@ use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass
 use vegn_tile_mod, only : vegn_tile_type
-use vegn_cohort_mod, only : vegn_cohort_type, biomass_of_individual, &
+use vegn_cohort_mod, only : vegn_cohort_type, plant_C, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
       init_cohort_allometry_ppa
 
@@ -324,7 +324,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor)
     call init_cohort_hydraulics(cc, soil%pars%psi_sat_ref)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
-    cc%nindivs = seed_C(i) * sp%prob_g * germ_f * sp%prob_e/biomass_of_individual(cc)
+    cc%nindivs = seed_C(i) * sp%prob_g * germ_f * sp%prob_e/plant_C(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
     ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N isn't necessarily consistent with initial C vals

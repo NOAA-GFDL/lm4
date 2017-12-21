@@ -24,7 +24,7 @@ private
 public :: vegn_cohort_type
 
 ! operations defined for cohorts
-public :: biomass_of_individual
+public :: plant_C, plant_N
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
 public :: cohort_root_properties
@@ -167,8 +167,13 @@ type :: vegn_cohort_type
   !02/08/17
   real :: brsw = 0.0
 
-! for phenology
+  ! for phenology
   real :: gdd = 0.0
+
+  ! for Light Saber
+  real :: laimax = 1.0 
+  real :: An_newleaf = 0.0
+  real :: An_newleaf_daily = 0.0
 
   ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
@@ -214,22 +219,36 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 ! returns biomass of an individual of given cohort, kgC
-! NOTE that it also includes fixers and mycorrhizae. Should it?
-real function biomass_of_individual(cohort)
-  type(vegn_cohort_type), intent(in) :: cohort
-  biomass_of_individual = &
-          cohort%bl  + cohort%blv + &
-          cohort%br  + cohort%bwood + &
-          cohort%bsw + cohort%bseed + &
-          cohort%nsc + &
-          cohort%carbon_gain + cohort%bwood_gain + &
-          cohort%growth_previous_day + &
+real function plant_C(cc)
+  type(vegn_cohort_type), intent(in) :: cc
+  plant_C = &
+          cc%bl  + cc%blv + &
+          cc%br  + cc%bwood + &
+          cc%bsw + cc%bseed + &
+          cc%nsc + &
+          cc%carbon_gain + cc%bwood_gain + &
+          cc%growth_previous_day + &
           ! Mycorrhizal and N fixer biomass added by B. Sulman
-          cohort%myc_scavenger_biomass_C + &
-          cohort%myc_miner_biomass_C + &
-          cohort%N_fixer_biomass_C + &
-          cohort%scav_myc_C_reservoir + cohort%mine_myc_C_reservoir + cohort%N_fixer_C_reservoir
-end function biomass_of_individual
+          cc%myc_scavenger_biomass_C + &
+          cc%myc_miner_biomass_C + &
+          cc%N_fixer_biomass_C + &
+          cc%scav_myc_C_reservoir + cc%mine_myc_C_reservoir + cc%N_fixer_C_reservoir
+end function plant_C
+
+! ============================================================================
+! returns nitrogen of an individual of given cohort, kgN
+real function plant_N(cc)
+  type(vegn_cohort_type), intent(in) :: cc
+  plant_N = &
+         cc%root_N + cc%sapwood_N + &
+         cc%wood_N + cc%leaf_N + cc%seed_N + &
+         cc%stored_N + &
+         ! Symbionts are counted as part of veg, not part of soil
+         cc%N_fixer_biomass_N + &
+         cc%myc_miner_biomass_N + &
+         cc%myc_scavenger_biomass_N + &
+         cc%scav_myc_N_reservoir + cc%mine_myc_N_reservoir + cc%N_fixer_N_reservoir
+end function plant_N
 
 ! ============================================================================
 ! calculates functional dependence of wet canopy function f = x**p and its
@@ -750,7 +769,8 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
      cc%bwood = 0.0
   endif
   cc%bsw   = bw - cc%bwood
-
+  ! make LAImax prognostic
+  cc%laimax=sp%LAImax
   ! update derived quantyties based on the allometry
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0
