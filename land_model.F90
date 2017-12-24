@@ -2607,7 +2607,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
              ', face='//trim(string(face))//')',FATAL)
   endif
 
-  call snow_radiation ( tile%snow%T(1), cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
   call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 
