@@ -53,7 +53,7 @@ public :: A_function
 #endif
 public :: debug_pool
 
-public :: N_C_TYPES, C_CEL, C_LIG, C_MIC
+public :: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 public :: c_shortname, c_longname
 public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 public :: adjust_pool_ncohorts
@@ -66,8 +66,8 @@ character(len=*), parameter :: module_name = 'soil_carbon_mod'
 
 integer, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
 integer, parameter :: & ! indices of carbon chemical species
-    C_CEL = 1, & ! cellulose (fast)
-    C_LIG = 2, & ! lignin (slow)
+    C_FAST = 1, & ! cellulose (fast)
+    C_SLOW = 2, & ! lignin (slow)
     C_MIC = 3    ! microbial producs
 
 ! names of the carbon types, for i/o

@@ -74,7 +74,7 @@ use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use vegn_util_mod, only : kill_small_cohorts_ppa
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, &
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_FAST, C_SLOW, &
      cull_cohorts, c_shortname, c_longname
 use soil_mod, only : redistribute_peat_carbon
 
@@ -2022,8 +2022,8 @@ subroutine update_vegn_slow( )
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
         tile%vegn%ssc_rate_bg = tile%vegn%ssc_pool_bg/ssc_pool_spending_time
 
-        tile%vegn%litter_rate_C(C_CEL,:) = tile%vegn%litter_buff_C(C_CEL,:)/fsc_pool_spending_time
-        tile%vegn%litter_rate_C(C_LIG,:) = tile%vegn%litter_buff_C(C_CEL,:)/ssc_pool_spending_time
+        tile%vegn%litter_rate_C(C_FAST,:) = tile%vegn%litter_buff_C(C_FAST,:)/fsc_pool_spending_time
+        tile%vegn%litter_rate_C(C_SLOW,:) = tile%vegn%litter_buff_C(C_SLOW,:)/ssc_pool_spending_time
         where(harvest_spending_time(:)>0)
            tile%vegn%harv_rate(:) = &
                 tile%vegn%harv_pool(:)/harvest_spending_time(:)
