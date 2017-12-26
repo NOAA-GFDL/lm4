@@ -118,7 +118,7 @@ public :: &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, &
     use_light_saber, laimax_ceiling, laimax_floor, &
-    DBH_mort, A_mort, B_mort, mortrate_s
+    DBH_mort, A_mort, B_mort
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -400,7 +400,6 @@ real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
 real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
 real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
-real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
 
 
 namelist /vegn_data_nml/ &
@@ -420,7 +419,7 @@ namelist /vegn_data_nml/ &
 
   ! PPA-related namelist values
   do_ppa, &
-  mortrate_s, cmc_eps, &
+  cmc_eps, &
   DBH_mort, A_mort, B_mort, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, &
   use_light_saber, laimax_ceiling, laimax_floor, &
