@@ -812,14 +812,9 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      !ens 02/14/17
      !update seed and sapwood biomass pools with the new growth (branches were updated above)
      NSCtarget = sp%NSC2targetbl*cc%bl_max
-     G_WF=0.0
-     if (NSCtarget < cc%nsc) then ! ens change this
-        G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
-     endif
+     G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
      ! change maturity threashold to a diameter threash-hold
      if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-        ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
-        ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
         deltaSeed=      sp%v_seed * G_WF
         deltaBSW = (1.0-sp%v_seed)* G_WF
      else
@@ -978,8 +973,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
      BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     BL_u = Bl_c * understory_lai_factor
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u

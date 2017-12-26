@@ -607,12 +607,12 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0
   cc%br      = 0.0
-  BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-  BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
   !02/08/17 ens
   cc%brsw = sp%branch_wood_frac * ( cc%bsw + cc%bwood )
   cc%brsw = min(cc%brsw, 0.6*cc%bsw)
 
+  BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+  BL_u = BL_c * understory_lai_factor
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
      cc%bsw_max = sp%rho_wood * sp%alphaBM * cc%height * cc%dbh**2
