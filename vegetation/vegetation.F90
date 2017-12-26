@@ -12,7 +12,7 @@ use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -28,7 +28,7 @@ use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
+     first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
@@ -58,12 +58,10 @@ use soil_mod, only : soil_data_beta, get_soil_litter_C
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      check_var_range
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
-     co2_for_photosynthesis, vegn_phot_co2_option, &
-     VEGN_PHOT_CO2_PRESCRIBED, VEGN_PHOT_CO2_INTERACTIVE
+     co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
@@ -1862,26 +1860,25 @@ subroutine update_vegn_slow( )
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1, doy
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  integer :: i,j,k,l ! current point indices
+  integer :: i,k,l ! current point indices
   integer :: ii ! pool and cohort iterator
   integer :: N ! number of cohorts
   integer :: steps_per_day ! number of fast time steps per day
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   type(vegn_cohort_type), pointer :: cc(:) ! shorthand for cohort array
-  real    :: zstar ! critical depth, for diag only
+  real    :: zstar ! critical height, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
-  real :: lmass1, fmass1, heat1, cmass1
-  character(64) :: tag
-  real :: dbh_max_N ! max dbh for understory; diag only
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  ! calculate day of year, to avoid re-calculating it in harvesting
+  doy = day_of_year(lnd%time)
 
   if(month0 /= month1) then
      ! heartbeat
