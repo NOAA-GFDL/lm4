@@ -157,8 +157,6 @@ type :: vegn_cohort_type
   real :: gdd = 0.0
 
   ! for Light Saber
-  real :: laimax = 1.0 
-  real :: An_newleaf = 0.0
   real :: An_newleaf_daily = 0.0
 end type vegn_cohort_type
 
@@ -601,8 +599,6 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
      cc%bwood = 0.0
   endif
   cc%bsw   = bw - cc%bwood
-  ! make LAImax prognostic
-  cc%laimax=sp%LAImax
   ! update derived quantyties based on the allometry
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0

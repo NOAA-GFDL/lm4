@@ -764,8 +764,15 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         write(*,*)'########### end of biomass_allocation_ppa input ###########'
      endif
      ! calculate the carbon spent on growth of leaves and roots
-     G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
-                            0.1*cc%nsc/(1+sp%GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+     ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+     G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
+     if (use_light_saber) then
+        if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+     else
+        ! do not grow more than bl_max, br_max of leaves and roots
+        G_LFR = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br, G_LFR))
+     endif
+     cc%An_newleaf_daily = 0.0
 
      ! and distribute it between roots and leaves
      deltaBL  = min(G_LFR, max(0.0, &
@@ -962,14 +969,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
-     if (cc%An_newleaf_daily > 0 ) then
-         cc%laimax = min(cc%laimax + sp%newleaf_layer,laimax_ceiling)
-     else if (cc%An_newleaf_daily < 0) then
-         cc%laimax = max(cc%laimax - sp%newleaf_layer,laimax_floor)
-     else
-         ! do nothing if the derivative is zero
-     endif
-     cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
@@ -990,9 +989,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      endif
      ! in case of light saber override bl_max, but the keep the value of firstlayer
      ! calculated above
-     if (use_light_saber) then
-        cc%bl_max = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
-     endif
      cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
 
      if(is_watch_point()) then
