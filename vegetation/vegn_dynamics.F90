@@ -24,7 +24,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, l_fract, understory_lai_factor, min_lai, &
-     use_light_saber, laimax_ceiling, laimax_floor
+     use_light_saber, laimax_ceiling, laimax_floor, nsc_starv_frac
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -649,7 +649,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
                  sp => spdata(vegn%cohorts(i)%species)  )  ! F2003
 
     ! Mortality due to starvation
-    if (cc%bsw<0 .or. cc%nsc < 0.01*cc%bl_max) then
+    if (cc%bsw<0 .or. cc%nsc < nsc_starv_frac*cc%bl_max) then
        deathrate = 1.0
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
