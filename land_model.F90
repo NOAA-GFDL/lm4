@@ -2359,8 +2359,9 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call send_cellfrac_cohort_data(id_c3pftFrac, any_tile, is_c3)
   call send_cellfrac_cohort_data(id_c4pftFrac, any_tile, is_c4)
 
-  call send_cellfrac_cohort_data(id_grassFrac, is_psl, is_c3grass)
-  call send_cellfrac_cohort_data(id_grassFrac, is_psl, is_c4grass)
+  call send_cellfrac_cohort_data(id_grassFrac,   is_psl, is_grass)
+  call send_cellfrac_cohort_data(id_grassFracC3, is_psl, is_c3grass)
+  call send_cellfrac_cohort_data(id_grassFracC4, is_psl, is_c4grass)
 
   ! LUMIP land use fractions
   call send_cellfrac_data(id_fracLut_psl,  is_psl,     scale=1.0)
