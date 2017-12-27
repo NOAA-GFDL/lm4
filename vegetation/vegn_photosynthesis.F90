@@ -303,7 +303,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        cohort%layer, &
        ! output:
        stomatal_cond, psyn, resp, lai_kok, An_newleaf)
-  An_newleaf1 = ((psyn0-resp0)*(cohort%lai+0.005)-(psyn-resp)*cohort%lai)/0.005
+  An_newleaf1 = (psyn0*(cohort%lai+0.005)-psyn*cohort%lai)/0.005
   cohort%An_newleaf_daily = cohort%An_newleaf_daily + An_newleaf
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness
@@ -451,7 +451,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
 
   !#### Modified by PPG 2017-12-07
-  real :: newleaf_layer
+  real, parameter :: newleaf_layer = 0.05 !This needs to be modified later
   real :: resp_opt_newleaf
   real :: resp25_newleaf
   real :: resp_newleaf
@@ -490,7 +490,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      write(*,*) '####### end of ### gs_leuning input #######'
   endif
 
-  newleaf_layer = 0.05 !This needs to be modified later
   do1=0.09 ; ! kg/kg
   if (sp%lifeform == FORM_GRASS) do1=0.15;
 
@@ -543,6 +542,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      endif
 
      Resp=Resp/TempFuncR
+     resp_newleaf=sp%gamma_resp*vm*newleaf_layer/TempFuncR
 
   case(VEGN_TRESPONSE_OPTIMAL)
      !First we will calculate the parameters at Topt.
@@ -585,7 +585,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
      Resp25_newleaf=sp%gamma_resp*vm25*newleaf_layer
      resp_opt_newleaf=Resp25_newleaf*exp(sp%Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
-     Resp_newleaf=resp_opt_newleaf*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
+     resp_newleaf=resp_opt_newleaf*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
   end select
 
   !if (layer > 1) vm=vm*sp%Vmax_understory_factor ! reduce vmax in the understory
