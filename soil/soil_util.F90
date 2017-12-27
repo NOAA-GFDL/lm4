@@ -5,7 +5,7 @@ use fms_mod, only: error_mesg, FATAL
 
 use land_data_mod, only: log_version
 use soil_carbon_mod, only: N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
-     SOILC_CORPSE, C_CEL, C_LIG, soil_carbon_option, add_litter, add_carbon_to_cohorts
+     SOILC_CORPSE, C_FAST, C_SLOW, soil_carbon_option, add_litter, add_carbon_to_cohorts
 use soil_tile_mod, only: soil_tile_type, dz, num_l, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
 use vegn_tile_mod, only: vegn_tile_type
@@ -125,27 +125,27 @@ subroutine add_soil_carbon(soil,leaf_litter,wood_litter,root_litter)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
-     fsc = leaf_litt(C_CEL) + wood_litt(C_CEL) + sum(root_litt(:,C_CEL))
-     ssc = leaf_litt(C_LIG) + wood_litt(C_LIG) + sum(root_litt(:,C_LIG))
+     fsc = leaf_litt(C_FAST) + wood_litt(C_FAST) + sum(root_litt(:,C_FAST))
+     ssc = leaf_litt(C_SLOW) + wood_litt(C_SLOW) + sum(root_litt(:,C_SLOW))
      soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
      ! for budget tracking
      soil%fsc_in(1) = soil%fsc_in(1) + fsc
      soil%ssc_in(1) = soil%ssc_in(1) + ssc
   case (SOILC_CENTURY_BY_LAYER)
-     fsc = leaf_litt(C_CEL) + wood_litt(C_CEL)
-     ssc = leaf_litt(C_LIG) + wood_litt(C_LIG)
+     fsc = leaf_litt(C_FAST) + wood_litt(C_FAST)
+     ssc = leaf_litt(C_SLOW) + wood_litt(C_SLOW)
      soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
      ! for budget tracking
      soil%fsc_in(1) = soil%fsc_in(1) + fsc
      soil%ssc_in(1) = soil%ssc_in(1) + ssc
      do l = 1,num_l
-        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt(l,C_CEL)
-        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt(l,C_LIG)
+        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt(l,C_FAST)
+        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt(l,C_SLOW)
         ! for budget tracking
-        soil%fsc_in(l) = soil%fsc_in(l) + root_litt(l,C_CEL)
-        soil%ssc_in(l) = soil%ssc_in(l) + root_litt(l,C_LIG)
+        soil%fsc_in(l) = soil%fsc_in(l) + root_litt(l,C_FAST)
+        soil%ssc_in(l) = soil%ssc_in(l) + root_litt(l,C_SLOW)
      enddo
   case (SOILC_CORPSE)
      call add_litter(soil%leafLitter,       leaf_litt)

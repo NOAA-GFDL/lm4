@@ -18,7 +18,7 @@ use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use land_io_mod, only : print_netcdf_error
 use soil_carbon_mod, only : soil_carbon_option, &
-    N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, C_CEL, C_LIG, &
+    N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
     soil_carbon_pool, combine_pools, init_soil_carbon, poolTotalCarbon, add_litter
 
 implicit none
@@ -271,7 +271,7 @@ type :: soil_tile_type
        ssc_in(:)
 
    ! For storing DOC fluxes in tiled model
-   real, allocatable :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
+   real, allocatable :: div_hlsp_DOC(:,:) ! dimension (N_C_TYPES, num_l) [kg C/m^2/s] net flux of carbon pools
                                       ! out of tile
 end type soil_tile_type
 
@@ -695,7 +695,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
             ptr%soil_C            (num_l),  &
-            ptr%div_hlsp_DOC      (n_c_types, num_l)   )
+            ptr%div_hlsp_DOC      (N_C_TYPES, num_l)   )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval

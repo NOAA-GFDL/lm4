@@ -40,8 +40,7 @@ use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
      update_pool, add_litter, add_carbon_to_cohorts, &
      carbon_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
-     C_CEL, C_LIG, C_MIC, c_shortname, c_longname, &
-     A_function, debug_pool, adjust_pool_ncohorts
+     c_shortname, c_longname, A_function, debug_pool, adjust_pool_ncohorts
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, prev_elmt, loop_over_tiles

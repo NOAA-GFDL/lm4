@@ -6,7 +6,7 @@ use constants_mod,   only : tfreeze
 use fms_mod, only : string, WARNING, FATAL
 
 use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, carbon_cons_tol
-use soil_carbon_mod, only : N_C_TYPES, C_CEL
+use soil_carbon_mod, only : N_C_TYPES, C_FAST
 use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, fsc_liv, fsc_wood, fsc_froot
@@ -96,7 +96,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
   ! add remaining lost C to soil carbon pools
   leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
   wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
-  wood_litt(C_CEL) = wood_litt(C_CEL)+cc%nsc*(1-fsmoke)*agf_bs*ndead
+  wood_litt(C_FAST) = wood_litt(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
   call cohort_root_litter_profile(cc, dz, profile)
   do l = 1, num_l
      root_litt(l,:) = root_litt(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &

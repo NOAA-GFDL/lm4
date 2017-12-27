@@ -20,11 +20,11 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
-use vegn_data_mod, only : spdata, nspecies, &
+use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
-     fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, do_ppa, understory_lai_factor
+     fsc_liv, fsc_wood, fsc_froot, agf_bs, l_fract, understory_lai_factor, min_lai, &
+     use_light_saber, laimax_ceiling, laimax_floor, nsc_starv_frac
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -649,7 +649,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
                  sp => spdata(vegn%cohorts(i)%species)  )  ! F2003
 
     ! Mortality due to starvation
-    if (cc%bsw<0 .or. cc%nsc < 0.01*cc%bl_max) then
+    if (cc%bsw<0 .or. cc%nsc < nsc_starv_frac*cc%bl_max) then
        deathrate = 1.0
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
@@ -742,14 +742,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
   !ens
   real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
-  ! new constants for HML equations
-!  real ::   alpha_z = 60.97697    ! alphaHT
-!  real ::   b_z = 0.8631476       ! thetaHT
-!  real ::   gamma_z = 0.6841742   ! gammaHT
-!  real ::   alpha_ca = 243.7808   ! alphaCA
-!  real ::   b_ca = 1.18162        ! thetaCA
-!  real ::   alpha_s = 0.559       ! alphaBM
-!  real, parameter :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
 
   real, parameter :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
   real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
@@ -820,14 +812,9 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      !ens 02/14/17
      !update seed and sapwood biomass pools with the new growth (branches were updated above)
      NSCtarget = sp%NSC2targetbl*cc%bl_max
-     G_WF=0.0
-     if (NSCtarget < cc%nsc) then ! ens change this
-        G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
-     endif
+     G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
      ! change maturity threashold to a diameter threash-hold
      if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-        ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
-        ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
         deltaSeed=      sp%v_seed * G_WF
         deltaBSW = (1.0-sp%v_seed)* G_WF
      else
@@ -975,15 +962,22 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
+     if (cc%An_newleaf_daily > 0 ) then
+         cc%laimax = min(cc%laimax + sp%newleaf_layer,laimax_ceiling)
+     else if (cc%An_newleaf_daily < 0) then
+         cc%laimax = max(cc%laimax - sp%newleaf_layer,laimax_floor)
+     else
+         ! do nothing if the derivative is zero
+     endif
+     cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
      BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     BL_u = Bl_c * understory_lai_factor
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
-        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      else
         if(cc%layer == 1)cc%topyear = cc%topyear + 1.0/365.0  ! daily step
         if(cc%layer>1)cc%firstlayer = 0 ! Just for the first year, those who were
@@ -993,8 +987,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         else
            cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
         endif
-        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      endif
+     ! in case of light saber override bl_max, but the keep the value of firstlayer
+     ! calculated above
+     if (use_light_saber) then
+        cc%bl_max = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     endif
+     cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
 
      if(is_watch_point()) then
         write(*,*)'########### biomass_allocation_ppa output ###########'
@@ -1216,36 +1215,26 @@ subroutine vegn_phenology_ppa(tile)
   ! ---- local vars
   integer :: i
   real    :: leaf_litter, leaf_litt(N_C_TYPES)
-  real    :: leaf_fall, leaf_fall_rate ! per day
-  real    :: root_mortality, root_mort_rate
-  real    :: stem_mortality, stem_mort_rate ! isa 20170705
-  real    :: BL_u,BL_c
+  real    :: leaf_fall, root_mort, stem_mort ! biomass losses from various tissues
   real    :: dheat ! heat residual due to cohort merging
+
+  ! rates of various tissues decay after leaf drop, per day
+  real, parameter :: leaf_fall_rate = 0.075
+  real, parameter :: root_mort_rate = 0.0
+  real, parameter :: stem_mort_rate = 0.075 ! isa 20170705
 
   ! isa 20170709 - note that in biomass_allocation_ppa deltaDBH is an output to
   ! subroutine vegn_growth, where it is saved ...
-  !real, intent(out) :: deltaDBH ! tendency of breast height diameter, m
-  real :: deltaDBH ! tendency of breast height diameter, m
-  real :: deltaCA ! tendency of crown area, m2/individual
-  real :: deltaHeight ! tendency of vegetation height
-  integer :: k
   real :: wilt       ! vertically-average soil moisture content at wilting point
   real :: theta_crit ! critical soil moisture for drought-deciduous phenology
   logical :: drought ! drought indicator
 
-  leaf_fall_rate = 0.075
-  root_mort_rate = 0.0
-  ! isa 20170705
-  stem_mort_rate = 0.075
 
   associate(vegn=>tile%vegn, soil=>tile%soil)
   vegn%litter = 0; leaf_litt(:) = 0.0
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
-
-!      if (sp%phent==PHEN_EVERGREEN.and.cc%status==LEAF_OFF) &
-!           call land_error_message('evergreen leaves are off', FATAL)
      if (sp%phent==PHEN_EVERGREEN) then
         cc%status = LEAF_ON
         cycle ! do nothing further for evergreens
@@ -1272,7 +1261,7 @@ subroutine vegn_phenology_ppa(tile)
            ! isa 201707215 - update target biomass at the satart of the growing season
            !                 for grasses to avoid using previous year targets
            if (sp%lifeform == FORM_GRASS) then
-              cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+              cc%bl_max = sp%LMA * sp%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
               cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
            endif
         endif
@@ -1286,34 +1275,28 @@ subroutine vegn_phenology_ppa(tile)
         if (drought) then
            cc%status = LEAF_OFF
            ! Do not reset GDD when leaves drop due to drought, because if we do then
-           ! new leaves would not appear till critical GDD is accumulated again.
+           ! new leaves would not appear until critical GDD is accumulated again.
            ! This would not make sense in many warm droughty regions, e.g. in sub-tropics.
         endif
      end select
-     ! slm: there is a potential strange corner case above, when leaves drop due to
-     !      autumn drought in a cold region, GDD is not reset and therefore it keeps
-     !      accumulating from the previous year. This will result in too-early onset of
-     !      phenology the next year, probably instantly after the drought ends.
+     ! slm: there is a potential strange corner case above: when leaves drop due to
+     ! autumn drought in a cold region, GDD is not reset, and therefore GDD keeps
+     ! accumulating from the previous year. This will result in too-early onset of
+     ! phenology the next year, probably instantly after the drought ends.
      !
-     !      On the other hand, resetting GDD every time vegn%tc_pheno < sp%tc_crit
-     !      regardless of the leaf status will not work since it prevent GDD accumulating
-     !      in temperature range gdd_base_T < T < tc_crit.
+     ! On the other hand, resetting GDD every time vegn%tc_pheno<sp%tc_crit will not work,
+     ! since it will result in GDD never accumulating in temperature range gdd_base_T<T<tc_crit.
 
      ! leaf falling at the end of a growing season
-     if(cc%status == LEAF_OFF .AND. ( cc%bl > 0. .or. ( sp%lifeform == FORM_GRASS .and. ( cc%bl > 0 .or. cc%bsw > 0. ) ) ) ) then
-         leaf_fall      = min(leaf_fall_rate * cc%bl_max, cc%bl)
-         root_mortality = min(root_mort_rate * cc%br_max, cc%br)
-         ! isa 20170705
-         stem_mortality = 0.0
+     if(cc%status == LEAF_OFF) then
+         leaf_fall = leaf_fall_rate * max(cc%bl,0.0)
+         root_mort = root_mort_rate * max(cc%br,0.0)
+         stem_mort = 0.0 ! isa 20170705
          if (sp%lifeform == FORM_GRASS) then
-            if (is_watch_point()) then
-               write (*,*) '#### vegn_phenology_ppa resetting grasses ####'
-               write (*,'(a)',advance='NO') 'before : '
-               __DEBUG3__(cc%height,cc%dbh,cc%crownarea)
-            endif
-            stem_mortality = min(stem_mort_rate * cc%bsw_max, &
+            ! grasses also lose their stems
+            stem_mort = min(stem_mort_rate * cc%bsw, &
                    cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
-            stem_mortality = max(stem_mortality,0.0)
+            stem_mort = max(stem_mort,0.0)
             ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
             !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
             !        biomass and its dimensions
@@ -1321,84 +1304,42 @@ subroutine vegn_phenology_ppa(tile)
             cc%height = sp%seedling_height
             cc%dbh = (sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT)
             cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
-            ! slm 20170804: reconcile bl_max and crownarea, and drop excess leaf biomass
-            !               immediately
-            cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+            ! slm 20170804: reconcile bl_max and crownarea, and drop excess leaf biomass immediately
+            cc%bl_max = sp%LMA * sp%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
             leaf_fall = max(leaf_fall, cc%bl-cc%bl_max)
-
-            if (is_watch_point()) then
-               write (*,'(a)',advance='NO') 'after  : '
-               __DEBUG3__(cc%height,cc%dbh,cc%crownarea)
-            endif
          endif
+         ! drop all leaves if LAI is below certain small minimum
+         if (cc%lai<min_lai) leaf_fall = cc%bl
 
-         cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mortality + stem_mortality) ! isa 20170705
+         cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mort + stem_mort) ! isa 20170705
          cc%bl  = cc%bl - leaf_fall
-         cc%br  = cc%br - root_mortality
-         cc%bsw = cc%bsw - stem_mortality ! isa 20170705
+         cc%br  = cc%br - root_mort
+         cc%bsw = cc%bsw - stem_mort ! isa 20170705
          cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
                                         (cc%crownarea *(1.0-sp%internal_gap_frac))
-         if(cc%bl == 0.)cc%leaf_age = 0.0
+         if(cc%bl == 0.0) cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality+stem_mortality) * cc%nindivs ! isa20170705, stem and roots become leaf litter
+         leaf_litter = (1.0-l_fract) * (leaf_fall+root_mort+stem_mort) * cc%nindivs ! isa20170705, stem and roots become leaf litter
          ! call check_var_range(leaf_litter,0.0,HUGE(1.0),'vegn_phenology_ppa','leaf_litter',FATAL)
-         leaf_litt(:) = leaf_litt(:)+(/fsc_liv,1-fsc_liv,0.0/)*leaf_litter
-         vegn%litter = vegn%litter + leaf_litter
-         soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter
-         vegn%veg_out = vegn%veg_out + leaf_litter
+         leaf_litt(:) = leaf_litt(:)+[fsc_liv,1-fsc_liv,0.0]*leaf_litter
+
+         vegn%litter    = vegn%litter     + leaf_litter
+         soil%fsc_in(1) = soil%fsc_in(1)  + leaf_litter
+         vegn%veg_out   = vegn%veg_out    + leaf_litter
      endif
      end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
   call add_soil_carbon(soil, leaf_litter=leaf_litt)
   ! phenology can change cohort heights if the grass dies, and therefore change
-  ! layers -- need to relayer lest cohorts remain in wrong order
+  ! layers -- therefore we need to relayer, lest cohorts remain in a wrong order
   call vegn_relayer_cohorts_ppa(vegn)
   ! merge similar cohorts, otherwise their number proliferates due to re-layering
   call vegn_mergecohorts_ppa(vegn, dheat)
   tile%e_res_2 = tile%e_res_2 - dheat
   end associate ! vegn, soil
 end subroutine vegn_phenology_ppa
-
-
-! ===========================================================================
-! leaf falling at LEAF_OFF -- it is unused; why is it here? is there anything
-! in new Ensheng's code that uses it?
-  subroutine vegn_leaf_fall_ppa(vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-
-  ! ---- local vars
-  integer :: i
-  real    :: leaf_litt(N_C_TYPES)
-  real    :: leaf_fall, leaf_fall_rate ! per day
-
-  vegn%litter = 0 ! slm: why is it set to 0 here?
-  leaf_fall_rate = 0.075
-  leaf_litt(:) = 0.0
-  do i = 1,vegn%n_cohorts
-     associate ( cc => vegn%cohorts(i),   &
-                 sp => spdata(vegn%cohorts(i)%species) )
-     if(cc%status == LEAF_OFF)then
-        cc%nsc = cc%nsc + cc%carbon_gain
-        leaf_fall = MIN(leaf_fall_rate * cc%bl_max, cc%bl)
-        cc%nsc = cc%nsc + l_fract * leaf_fall
-        cc%bl  = cc%bl - leaf_fall
-        cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
-                                       (cc%crownarea *(1.0-sp%internal_gap_frac))
-        if(cc%bl == 0.)cc%leaf_age = 0.0
-        cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
-
-        leaf_litt(:) = leaf_litt(:) + [fsc_liv,1-fsc_liv,0.0]*(1-l_fract) * leaf_fall * cc%nindivs
-     endif
-     end associate
-  enddo
-  vegn%litter  = vegn%litter  + sum(leaf_litt)
-  vegn%veg_out = vegn%veg_out + sum(leaf_litt)
-  call add_soil_carbon(soil, leaf_litter=leaf_litt)
-end subroutine vegn_leaf_fall_ppa
-
 
 ! =============================================================================
 subroutine vegn_biogeography(vegn)

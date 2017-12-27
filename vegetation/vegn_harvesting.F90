@@ -30,7 +30,7 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_tile_lai, vegn_mergecoh
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, C_MIC
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST, C_SLOW, C_MIC
 
 implicit none
 private
@@ -702,8 +702,8 @@ subroutine vegn_harvest_crop_ppa(tile)
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
      ! add litter to intermediate carbon pools
-     vegn%fsc_pool_ag = vegn%fsc_pool_ag + wood_litt_C(C_CEL) + leaf_litt_C(C_CEL)
-     vegn%ssc_pool_ag = vegn%ssc_pool_ag + wood_litt_C(C_LIG) + leaf_litt_C(C_LIG)
+     vegn%fsc_pool_ag = vegn%fsc_pool_ag + wood_litt_C(C_FAST) + leaf_litt_C(C_FAST)
+     vegn%ssc_pool_ag = vegn%ssc_pool_ag + wood_litt_C(C_SLOW) + leaf_litt_C(C_SLOW)
      ! note that we assume microbial biomass is zero
   case (SOILC_CORPSE)
      vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + wood_litt_C(:)
@@ -712,8 +712,8 @@ subroutine vegn_harvest_crop_ppa(tile)
      call error_mesg('vegn_harvest_crop_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 
-  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_CEL))+sum(root_litt_C(:,C_MIC))
-  vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt_C(:,C_LIG))
+  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_FAST))+sum(root_litt_C(:,C_MIC))
+  vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt_C(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
   call vegn_mergecohorts_ppa(vegn, dheat)
@@ -797,9 +797,9 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
      ! add litter to intermediate carbon pools
      vegn%fsc_pool_ag = vegn%fsc_pool_ag + &
-         wood_harv(C_CEL)*frac_wood_wasted + wood_litt(C_CEL) + leaf_litt(C_CEL)
+         wood_harv(C_FAST)*frac_wood_wasted + wood_litt(C_FAST) + leaf_litt(C_FAST)
      vegn%ssc_pool_ag = vegn%ssc_pool_ag + &
-         wood_harv(C_LIG)*frac_wood_wasted + wood_litt(C_LIG) + leaf_litt(C_LIG)
+         wood_harv(C_SLOW)*frac_wood_wasted + wood_litt(C_SLOW) + leaf_litt(C_SLOW)
      ! note that we assume microbial biomass is zero
   case (SOILC_CORPSE)
      vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
@@ -809,8 +809,8 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   case default
      call error_mesg('vegn_cut_forest_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
-  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt(:,C_CEL))
-  vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt(:,C_LIG))
+  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt(:,C_FAST))
+  vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
   call vegn_mergecohorts_ppa(vegn, dheat)

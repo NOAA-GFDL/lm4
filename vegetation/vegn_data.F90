@@ -107,7 +107,6 @@ public :: &
     mcv_min, mcv_lai, &
     use_bucket, use_mcm_masking, vegn_index_constant, &
     critical_root_density, &
-    ! vegetation data, imported from LM3V
     spdata, &
     min_cosz, &
     agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
@@ -117,11 +116,11 @@ public :: &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, &
-    DBH_mort, A_mort, B_mort, mortrate_s
+    b0_growth, tau_seed, understory_lai_factor, min_lai, &
+    use_light_saber, laimax_ceiling, laimax_floor, &
+    DBH_mort, A_mort, B_mort, nsc_starv_frac
 
 logical, public :: do_ppa = .FALSE.
-logical, public :: do_alt_allometry = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
 
@@ -277,6 +276,8 @@ type spec_data_type
   real    :: Hd_gam = 200.0! Inactivation Energy for gamma star
   real    :: Ea_resp = 46.39! Activation Energy for resp
   real    :: Hd_resp = 200.0! Inactivation Energy for resp
+  !for Light Saber, ppg, 17/12/07
+  real    ::  newleaf_layer = 0.05
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
@@ -364,7 +365,7 @@ real :: harvest_spending_time(N_HARV_POOLS) = &
      ! time (yrs) during which intermediate pool of harvested carbon is completely
      ! released to the atmosphere.
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
-real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
+real :: l_fract      = 0.5 ! fraction of the leaf biomass re-translocated when leaves fall
 real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enabled
                            ! 0 means no limit, lm3v value is 268.0
 ! Ensheng's growth parameters:
@@ -373,7 +374,15 @@ real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, yea
 real :: wood_fract_min = 0.33
 
 ! reduction of bl_max and br_max for the understory vegetation, unitless
-real :: understory_lai_factor = 0.25
+real, protected :: understory_lai_factor = 0.25
+
+real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
+    ! below this threshold, bl is set to zero
+logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
+    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
+    ! cut off.
+real, protected :: laimax_ceiling = 20.0, laimax_floor = 1.0 ! max and min values imposed
+    ! on laimax calculated by "light saber" treatment
 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
@@ -391,7 +400,7 @@ real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
 real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
 real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
-real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
+real, protected :: nsc_starv_frac = 0.01 ! if NSC drops below bl_max multiplied by this value, cohort dies
 
 
 namelist /vegn_data_nml/ &
@@ -411,10 +420,11 @@ namelist /vegn_data_nml/ &
 
   ! PPA-related namelist values
   do_ppa, &
-  mortrate_s, cmc_eps, &
-  DBH_mort, A_mort, B_mort, &
-  b0_growth, tau_seed, understory_lai_factor, &
-  do_alt_allometry, nat_mortality_splits_tiles
+  cmc_eps, &
+  DBH_mort, A_mort, B_mort, nsc_starv_frac, &
+  b0_growth, tau_seed, understory_lai_factor, min_lai, &
+  use_light_saber, laimax_ceiling, laimax_floor, &
+  nat_mortality_splits_tiles
 
 contains ! ###################################################################
 
@@ -788,6 +798,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(Hd_gam)
   __GET_SPDATA_REAL__(Ea_resp)
   __GET_SPDATA_REAL__(Hd_resp)
+  !for Light Saber, ppg,17/12/07
+  __GET_SPDATA_REAL__(newleaf_layer)
+
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -1048,6 +1061,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'Hd_gam', spdata(:)%Hd_gam)
   call add_row(table, 'Ea_resp', spdata(:)%Ea_resp)
   call add_row(table, 'Hd_resp', spdata(:)%Hd_resp)
+
+  !for light Saberr, ppg, 17/12/07
+  call add_row(table,'newleaf_layer', spdata(:)%newleaf_layer)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))
