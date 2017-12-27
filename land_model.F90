@@ -50,6 +50,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
+use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -268,6 +269,14 @@ integer :: &
   id_parnet, id_grnd_rh, id_cana_rh
 
 ! IDs of CMOR/CMIP variables
+integer :: id_sftlf, id_sftgif ! static fractions
+integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
+  id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
+  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, &
+! various fractions
+  id_vegFrac, id_cropFrac, id_pastureFrac, id_residualFrac, &
+  id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
+  id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
@@ -276,10 +285,6 @@ integer :: &
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
 ! real, parameter :: init_value = Z'FFF0000000000001'
 real, parameter :: init_value = 0.0
-integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
-  id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
-  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, &
-  id_vegFrac, id_treeFrac, id_c3pftFrac, id_c4pftFrac
 
 
 ! ---- global clock IDs
@@ -433,6 +438,10 @@ subroutine land_model_init &
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%ug_landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%ug_lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%ug_lat*180.0/PI, lnd%time )
+
+  ! CMOR variables
+  if ( id_sftgif > 0 ) call send_cellfrac_data(id_sftgif,is_glacier)
+  if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%ug_landfrac*100, lnd%time)
 
   ! [7] initialize individual sub-models
   call hlsp_init ( id_ug ) ! Must be called before soil_init
@@ -2336,10 +2345,20 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
+  call send_cellfrac_data(id_cropFrac,     is_crop)
+  call send_cellfrac_data(id_pastureFrac,  is_pasture)
+  call send_cellfrac_data(id_residualFrac, is_residual)
+
   call send_cellfrac_cohort_data(id_vegFrac, any_vegn)
   call send_cellfrac_cohort_data(id_treeFrac, is_tree)
   call send_cellfrac_cohort_data(id_c3pftFrac, is_c3)
   call send_cellfrac_cohort_data(id_c4pftFrac, is_c4)
+  ! LUMIP land use fractions
+  call send_cellfrac_data(id_fracLut_psl,  is_psl,     scale=1.0)
+  call send_cellfrac_data(id_fracLut_crp,  is_crop,    scale=1.0)
+  call send_cellfrac_data(id_fracLut_pst,  is_pasture, scale=1.0)
+  call send_cellfrac_data(id_fracLut_urb,  is_urban,   scale=1.0)
+
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -3869,11 +3888,60 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
       'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
       standard_name='surface_snow_and_ice_sublimation_flux')
 
+  id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
+             'Land Area Fraction','%', standard_name='land_area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_sftlf,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_sftlf,'ocean_fillvalue',0.0)
+
+  id_sftgif = register_static_field ( cmor_name, 'sftgif', axes, &
+             'Fraction of Grid Cell Covered with Glacier','%', standard_name='land_ice_area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_sftgif,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_sftgif,'ocean_fillvalue',0.0)
+
+  id_cropFrac = register_diag_field ( cmor_name, 'cropFrac', axes, time, &
+             'Crop Fraction','%', standard_name='area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_cropFrac,'ocean_fillvalue',0.0)
+
+  id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
+             'Anthropogenic Pasture Fraction','%', standard_name='area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_pastureFrac,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_pastureFrac,'ocean_fillvalue',0.0)
+
+  id_residualFrac = register_static_field ( cmor_name, 'residualFrac', axes, &
+             'Fraction of Grid Cell that is Land but Neither Vegetation-Covered nor Bare Soil','%', &
+             standard_name='area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_residualFrac,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_residualFrac,'ocean_fillvalue',0.0)
+
   id_vegFrac  = register_cmor_fraction_field('vegFrac',  'Total vegetated fraction', axes)
   id_treeFrac = register_cmor_fraction_field('treeFrac', 'Tree Cover Fraction', axes)
 
   id_c3pftFrac = register_cmor_fraction_field('c3PftFrac', 'Total C3 PFT Cover Fraction', axes)
   id_c4pftFrac = register_cmor_fraction_field('c4PftFrac', 'Total C4 PFT Cover Fraction', axes)
+  ! LUMIP land fractions
+  id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  id_fracLut_crp = register_diag_field ( cmor_name, 'fracLut_crop', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  id_fracLut_pst = register_diag_field ( cmor_name, 'fracLut_past', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  id_fracLut_urb = register_diag_field ( cmor_name, 'fracLut_urbn', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  call diag_field_add_attribute(id_fracLut_psl,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_fracLut_crp,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_fracLut_pst,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_fracLut_urb,'cell_methods','area: mean')
+
 end subroutine land_diag_init
 
 
@@ -3917,6 +3985,64 @@ subroutine send_cellfrac_data(id, f, scale)
   enddo
   used = send_data(id, frac, lnd%time)
 end subroutine send_cellfrac_data
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_crop(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_CROP)
+end function is_crop
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_pasture(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_PAST)
+end function is_pasture
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_urban(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_URBN)
+end function is_urban
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_psl(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_NTRL.or.tile%vegn%landuse == LU_SCND)
+end function is_psl
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_residual(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  answer = (associated(tile%glac).or.associated(tile%lake))
+end function is_residual
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_glacier(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  answer = associated(tile%glac)
+end function is_glacier
 
 ! ==============================================================================
 subroutine send_cellfrac_cohort_data(id, f, scale)
