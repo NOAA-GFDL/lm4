@@ -3890,13 +3890,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   call add_tiled_diag_field_alias(id_transp, cmor_name, 'tran', axes, time, &
       'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
-      standard_name='transpiration_flux')
+      standard_name='transpiration_flux', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
       'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
       standard_name='surface_upward_sensible_heat_flux')
   call add_tiled_diag_field_alias(id_fevaps, cmor_name, 'sbl', axes, time, &
       'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
-      standard_name='surface_snow_and_ice_sublimation_flux')
+      standard_name='surface_snow_and_ice_sublimation_flux', fill_missing=.TRUE.)
 
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
              'Land Area Fraction','%', standard_name='land_area_fraction', &
