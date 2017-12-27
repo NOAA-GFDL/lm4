@@ -78,7 +78,7 @@ public :: print_land_tile_info
 public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
-public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
+public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
 public :: land_tile_map ! array of tile lists
 ! ==== end of public interfaces ==============================================
@@ -194,10 +194,10 @@ abstract interface
   ! the following interface describes the "detector function", which is passed
   ! through the argument list and must return true for any tile to be written
   ! to the specific restart, false otherwise
-  logical function tile_exists_func(tile)
+  logical function tile_test_func(tile)
      import land_tile_type
      type(land_tile_type), pointer :: tile
-  end function tile_exists_func
+  end function tile_test_func
   ! the following interfaces describe various accessor subroutines, used to access
   ! data im massive operations on tiles, such as i/o or (sometimes) diagnostics
 

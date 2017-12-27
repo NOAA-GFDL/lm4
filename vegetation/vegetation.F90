@@ -99,7 +99,7 @@ public :: update_vegn_slow
 
 public :: cohort_area_frac
 public :: cohort_test_func
-public :: any_vegn, is_tree, is_grass, is_c3, is_c4
+public :: any_vegn, is_tree, is_grass, is_c3, is_c4, is_c3grass, is_c4grass
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -2354,10 +2354,10 @@ subroutine read_remap_species(restart)
 end subroutine read_remap_species
 
 ! =====================================================================================
-! given vegetation tile and cohort test function, returns the fraction of tile area 
+! given vegetation tile and cohort test function, returns the fraction of tile area
 ! occupied by the cohorts selected by the test function, as visible from above.
 
-! This is for CMOR/CMIP diagnostic output, e.g. treeFrac 
+! This is for CMOR/CMIP diagnostic output, e.g. treeFrac
 
 ! Calculations are very similar to the layerfrac calculations in update_derived_vegn_data,
 ! except that we do not count internal gaps in the canopy.
@@ -2389,7 +2389,7 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
   if (allow_external_gaps) then
      norm_area(:) = max(1.0,layer_area(:))
   else
-     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area 
+     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area
      ! is occupied by the vegetation canopies
      norm_area(:) = layer_area(:)
      layer_area(:) = 1.0 ! to disallow gaps
@@ -2438,23 +2438,33 @@ function any_vegn(cc) result(answer); logical answer
 end function
 
 function is_tree(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc   
+   type(vegn_cohort_type), intent(in) :: cc
    answer = (spdata(cc%species)%lifeform == FORM_WOODY)
 end function
 
 function is_grass(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc   
+   type(vegn_cohort_type), intent(in) :: cc
    answer = (spdata(cc%species)%lifeform == FORM_GRASS)
 end function
 
 function is_c3(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc   
+   type(vegn_cohort_type), intent(in) :: cc
    answer = (spdata(cc%species)%pt == PT_C3)
 end function
 
 function is_c4(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc   
+   type(vegn_cohort_type), intent(in) :: cc
    answer = (spdata(cc%species)%pt == PT_C4)
+end function
+
+function is_c3grass(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%lifeform == FORM_GRASS.and.spdata(cc%species)%pt == PT_C3)
+end function
+
+function is_c4grass(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%lifeform == FORM_GRASS.and.spdata(cc%species)%pt == PT_C4)
 end function
 
 ! ============================================================================

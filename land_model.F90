@@ -54,7 +54,8 @@ use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
-     cohort_test_func, cohort_area_frac, any_vegn, is_tree, is_grass, is_c3, is_c4
+     cohort_test_func, cohort_area_frac, any_vegn, is_tree, is_grass, is_c3, is_c4, &
+     is_c3grass, is_c4grass
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
@@ -83,7 +84,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_tags, get_tile_water, land_tile_heat, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
-     merge_land_tile_into_list, tile_exists_func
+     merge_land_tile_into_list, tile_test_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -274,7 +275,9 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
   id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, &
 ! various fractions
-  id_vegFrac, id_cropFrac, id_pastureFrac, id_residualFrac, &
+  id_vegFrac, id_pastureFrac, id_residualFrac, &
+  id_cropFrac, id_cropFracC3, id_cropFracC4, &
+  id_grassFrac, id_grassFracC3, id_grassFracC4, &
   id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
   id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 
@@ -2345,14 +2348,20 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
-  call send_cellfrac_data(id_cropFrac,     is_crop)
+  call send_cellfrac_data(id_cropFrac, is_crop)
+  call send_cellfrac_cohort_data(id_cropFracC3, is_crop, is_c3)
+  call send_cellfrac_cohort_data(id_cropFracC4, is_crop, is_c4)
   call send_cellfrac_data(id_pastureFrac,  is_pasture)
   call send_cellfrac_data(id_residualFrac, is_residual)
 
-  call send_cellfrac_cohort_data(id_vegFrac, any_vegn)
-  call send_cellfrac_cohort_data(id_treeFrac, is_tree)
-  call send_cellfrac_cohort_data(id_c3pftFrac, is_c3)
-  call send_cellfrac_cohort_data(id_c4pftFrac, is_c4)
+  call send_cellfrac_cohort_data(id_vegFrac,   any_tile, any_vegn)
+  call send_cellfrac_cohort_data(id_treeFrac,  any_tile, is_tree)
+  call send_cellfrac_cohort_data(id_c3pftFrac, any_tile, is_c3)
+  call send_cellfrac_cohort_data(id_c4pftFrac, any_tile, is_c4)
+
+  call send_cellfrac_cohort_data(id_grassFrac, is_psl, is_c3grass)
+  call send_cellfrac_cohort_data(id_grassFrac, is_psl, is_c4grass)
+
   ! LUMIP land use fractions
   call send_cellfrac_data(id_fracLut_psl,  is_psl,     scale=1.0)
   call send_cellfrac_data(id_fracLut_crp,  is_crop,    scale=1.0)
@@ -3906,6 +3915,18 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_cropFrac,'ocean_fillvalue',0.0)
 
+  id_cropFracC3 = register_diag_field ( cmor_name, 'cropFracC3', axes, time, &
+             'C3 Crop Fraction','%', standard_name='area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFracC3,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_cropFracC3,'ocean_fillvalue',0.0)
+
+  id_cropFracC4 = register_diag_field ( cmor_name, 'cropFracC4', axes, time, &
+             'C4 Crop Fraction','%', standard_name='area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFracC4,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_cropFracC4,'ocean_fillvalue',0.0)
+
   id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
              'Anthropogenic Pasture Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
@@ -3922,8 +3943,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_vegFrac  = register_cmor_fraction_field('vegFrac',  'Total vegetated fraction', axes)
   id_treeFrac = register_cmor_fraction_field('treeFrac', 'Tree Cover Fraction', axes)
 
-  id_c3pftFrac = register_cmor_fraction_field('c3PftFrac', 'Total C3 PFT Cover Fraction', axes)
-  id_c4pftFrac = register_cmor_fraction_field('c4PftFrac', 'Total C4 PFT Cover Fraction', axes)
+  id_grassFrac   = register_cmor_fraction_field ('grassFrac', 'Natural Grass Fraction', axes)
+  id_grassFracC3 = register_cmor_fraction_field ('grassFracC3', 'C3 Natural Grass Fraction', axes)
+  id_grassFracC4 = register_cmor_fraction_field ('grassFracC4', 'C4 Natural Grass Fraction', axes)
+  id_c3pftFrac   = register_cmor_fraction_field ('c3PftFrac', 'Total C3 PFT Cover Fraction', axes)
+  id_c4pftFrac   = register_cmor_fraction_field ('c4PftFrac', 'Total C4 PFT Cover Fraction', axes)
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','fraction', &
@@ -3960,7 +3984,7 @@ end function register_cmor_fraction_field
 ! ==============================================================================
 subroutine send_cellfrac_data(id, f, scale)
   integer, intent(in) :: id ! id of the diagnostic field
-  procedure(tile_exists_func) :: f ! existence detector function
+  procedure(tile_test_func) :: f ! existence detector function
   real, intent(in), optional  :: scale ! scaling factor, for unit conversions
 
   ! ---- local vars
@@ -3985,6 +4009,13 @@ subroutine send_cellfrac_data(id, f, scale)
   enddo
   used = send_data(id, frac, lnd%time)
 end subroutine send_cellfrac_data
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function any_tile(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .TRUE.
+end function any_tile
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_crop(tile) result(answer); logical :: answer
@@ -4045,9 +4076,15 @@ function is_glacier(tile) result(answer); logical :: answer
 end function is_glacier
 
 ! ==============================================================================
-subroutine send_cellfrac_cohort_data(id, f, scale)
+! given two test functions -- for tiles and for cohorts -- sends to the diagnostics
+! the fraction of area covered by the vegetation that matches both criteria.
+! For example, tile test might return TRUE for natural vegetation only, and
+! cohort test -- for grass, giving fraction of natural grass as a result.
+! NOTE that non-vegetated tiles are always skipped by this function.
+subroutine send_cellfrac_cohort_data(id, ttest, ctest, scale)
   integer, intent(in) :: id ! id of the diagnostic field
-  procedure(cohort_test_func) :: f ! returns TRUE if cohort fraction is counted
+  procedure(tile_test_func)   :: ttest ! returns TRUE for tiles whose fraction is counted
+  procedure(cohort_test_func) :: ctest ! returns TRUE for cohorts whose fraction is counted
   real, intent(in), optional  :: scale ! scaling factor, for unit conversions
 
   ! ---- local vars
@@ -4065,9 +4102,10 @@ subroutine send_cellfrac_cohort_data(id, f, scale)
   frac(:) = 0.0
   ce = first_elmt(land_tile_map, ls=lnd%ls)
   do while (loop_over_tiles(ce, tile, l))
-     if (.not.associated(tile%vegn)) cycle
-     ! calculate fraction of area covered by suitable cohorts
-     frac(l) = frac(l) + cohort_area_frac(tile%vegn,f)
+     if (associated(tile%vegn).and.ttest(tile)) then
+        ! calculate fraction of area covered by suitable cohorts
+        frac(l) = frac(l) + tile%frac*scale_*cohort_area_frac(tile%vegn,ctest)
+     endif
   enddo
   used = send_data(id, frac, lnd%time)
 end subroutine send_cellfrac_cohort_data
