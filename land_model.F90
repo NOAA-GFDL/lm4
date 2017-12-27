@@ -3909,30 +3909,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   call diag_field_add_attribute(id_sftgif,'cell_methods','area: mean')
   call diag_field_add_attribute(id_sftgif,'ocean_fillvalue',0.0)
 
-  id_cropFrac = register_diag_field ( cmor_name, 'cropFrac', axes, time, &
-             'Crop Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_cropFrac,'ocean_fillvalue',0.0)
-
-  id_cropFracC3 = register_diag_field ( cmor_name, 'cropFracC3', axes, time, &
-             'C3 Crop Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_cropFracC3,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_cropFracC3,'ocean_fillvalue',0.0)
-
-  id_cropFracC4 = register_diag_field ( cmor_name, 'cropFracC4', axes, time, &
-             'C4 Crop Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_cropFracC4,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_cropFracC4,'ocean_fillvalue',0.0)
-
-  id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
-             'Anthropogenic Pasture Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_pastureFrac,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_pastureFrac,'ocean_fillvalue',0.0)
-
   id_residualFrac = register_static_field ( cmor_name, 'residualFrac', axes, &
              'Fraction of Grid Cell that is Land but Neither Vegetation-Covered nor Bare Soil','%', &
              standard_name='area_fraction', &
@@ -3940,8 +3916,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   call diag_field_add_attribute(id_residualFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_residualFrac,'ocean_fillvalue',0.0)
 
-  id_vegFrac  = register_cmor_fraction_field('vegFrac',  'Total vegetated fraction', axes)
-  id_treeFrac = register_cmor_fraction_field('treeFrac', 'Tree Cover Fraction', axes)
+  id_cropFrac    = register_cmor_fraction_field ('cropFrac', 'Crop Fraction', axes)
+  id_cropFracC3  = register_cmor_fraction_field ('cropFracC3', 'C3 Crop Fraction', axes)
+  id_cropFracC4  = register_cmor_fraction_field ('cropFracC4', 'C4 Crop Fraction', axes)
+
+  id_pastureFrac = register_cmor_fraction_field ('pastureFrac', 'Anthropogenic Pasture Fraction', axes)
+  id_vegFrac     = register_cmor_fraction_field ('vegFrac',  'Total vegetated fraction', axes)
+  id_treeFrac    = register_cmor_fraction_field ('treeFrac', 'Tree Cover Fraction', axes)
 
   id_grassFrac   = register_cmor_fraction_field ('grassFrac', 'Natural Grass Fraction', axes)
   id_grassFracC3 = register_cmor_fraction_field ('grassFracC3', 'C3 Natural Grass Fraction', axes)
