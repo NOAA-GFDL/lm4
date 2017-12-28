@@ -273,7 +273,7 @@ integer :: &
 integer :: id_sftlf, id_sftgif ! static fractions
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
-  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_cLand, &
+  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_cLand, id_nbp, &
 ! various fractions
   id_vegFrac, id_pastureFrac, id_residualFrac, &
   id_cropFrac, id_cropFracC3, id_cropFracC4, &
@@ -2328,6 +2328,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
+  if (id_nbp>0) call send_tile_data(id_nbp,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3953,6 +3954,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   ! add alias for compatibility with older diag tables
   call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
      'total land carbon', 'kg C/m2', missing_value=-1.0)
+
+  id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
+             'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &
+             'kg m-2 s-1', missing_value=-1.0, &
+             standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
+             fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_nbp, cmor_name, 'netAtmosLandCO2Flux', axes, time, &
+             'Net flux of CO2 between atmosphere and land (positive into land) as a result of all processes.', &
+             'kg m-2 s-1', missing_value=-1.0, &
+             standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
+             fill_missing=.TRUE. )
 end subroutine land_diag_init
 
 
