@@ -57,6 +57,7 @@ integer, public, parameter :: & ! water limitation options
 
 real, parameter :: gs_lim = 0.25 ! maximum stomatal cond for Leuning, mol/(m2 s)
 real, parameter :: b      = 0.01 ! minimum stomatal cond for Leuning, mol/(m2 s)
+real, parameter :: delta_lai = 0.05 ! LAI increment for An derivative calculations
 
 ! ==== module variables ======================================================
 integer :: vegn_phot_option     = -1 ! selector of the photosynthesis option
@@ -293,7 +294,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ds = max(leaf_q-cana_q,0.0)
 
   ! calculate non-water-limited stomatal conductance, photosynthesis, and respiration
-  call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, ds, cohort%lai+0.005, &
+  call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, ds, cohort%lai+delta_lai, &
        cohort%leaf_age, p_surf, sp, cana_co2, cohort%extinct, &
        cohort%layer, &
        ! output:
@@ -303,7 +304,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        cohort%layer, &
        ! output:
        stomatal_cond, psyn, resp, lai_kok, An_newleaf)
-  An_newleaf1 = (psyn0*(cohort%lai+0.005)-psyn*cohort%lai)/0.005
+  An_newleaf1 = (psyn0*(cohort%lai+delta_lai)-psyn*cohort%lai)/delta_lai
   cohort%An_newleaf_daily = cohort%An_newleaf_daily + An_newleaf
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness
@@ -451,7 +452,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
 
   !#### Modified by PPG 2017-12-07
-  real, parameter :: newleaf_layer = 0.05 !This needs to be modified later
   real :: resp_opt_newleaf
   real :: resp25_newleaf
   real :: resp_newleaf
@@ -542,7 +542,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      endif
 
      Resp=Resp/TempFuncR
-     resp_newleaf=sp%gamma_resp*vm*newleaf_layer/TempFuncR
+     resp_newleaf=sp%gamma_resp*vm*delta_lai/TempFuncR
 
   case(VEGN_TRESPONSE_OPTIMAL)
      !First we will calculate the parameters at Topt.
@@ -583,7 +583,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      resp_opt=Resp25*exp(sp%Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
      Resp=resp_opt*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
 
-     Resp25_newleaf=sp%gamma_resp*vm25*newleaf_layer
+     Resp25_newleaf=sp%gamma_resp*vm25*delta_lai
      resp_opt_newleaf=Resp25_newleaf*exp(sp%Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
      resp_newleaf=resp_opt_newleaf*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
   end select
@@ -668,10 +668,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
            !#### MODIFIED BY PPG 2017-12-07
            !write(*,*) 'par_net', par_net
-           newleaf_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+newleaf_layer)))/(1-exp(-(lai+newleaf_layer)*kappa))
+           newleaf_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))/(1-exp(-(lai+delta_lai)*kappa))
 		   !write(*,*) 'layer light', newleaf_light
 		   Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
-           !An_newleaf=(Ag_newleaf-resp_newleaf)/newleaf_layer
+           !An_newleaf=(Ag_newleaf-resp_newleaf)/delta_lai
 
 
            if(anbar>0.0) then
@@ -720,10 +720,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
            !#### Modified by PPG 2017-12-07
            !write(*,*) 'par_net', par_net
-           newleaf_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+newleaf_layer)))/(1-exp(-(lai+newleaf_layer)*kappa))
+           newleaf_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))/(1-exp(-(lai+delta_lai)*kappa))
 		   !write(*,*) 'layer light', newleaf_light
 		   Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
-           !An_newleaf=(Ag_newleaf-resp_newleaf)/newleaf_layer
+           !An_newleaf=(Ag_newleaf-resp_newleaf)/delta_lai
 
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
@@ -736,7 +736,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   gs   = gsbar
   acl  = -Resp/lai
 
-  An_newleaf=(Ag_newleaf-resp_newleaf)/newleaf_layer
+  An_newleaf=(Ag_newleaf-resp_newleaf)/delta_lai
 
   if (is_watch_point()) then
      __DEBUG4__(gs, apot, acl, ds)
