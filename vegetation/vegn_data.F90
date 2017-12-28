@@ -117,8 +117,7 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, &
-    use_light_saber, laimax_ceiling, laimax_floor, &
-    DBH_mort, A_mort, B_mort, nsc_starv_frac
+    use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -381,8 +380,6 @@ real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
 logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
     ! of the canopy that cannot support themselves by photosynthesis are mercilessly
     ! cut off.
-real, protected :: laimax_ceiling = 20.0, laimax_floor = 1.0 ! max and min values imposed
-    ! on laimax calculated by "light saber" treatment
 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
@@ -423,7 +420,7 @@ namelist /vegn_data_nml/ &
   cmc_eps, &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, &
-  use_light_saber, laimax_ceiling, laimax_floor, &
+  use_light_saber, &
   nat_mortality_splits_tiles
 
 contains ! ###################################################################
