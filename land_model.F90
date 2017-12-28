@@ -265,7 +265,7 @@ integer :: &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
-  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
+  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
   id_water_cons,    id_carbon_cons,   id_DOCrunf,                          &
   id_parnet, id_grnd_rh, id_cana_rh
 
@@ -273,7 +273,7 @@ integer :: &
 integer :: id_sftlf, id_sftgif ! static fractions
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
-  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, &
+  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_cLand, &
 ! various fractions
   id_vegFrac, id_pastureFrac, id_residualFrac, &
   id_cropFrac, id_cropFracC3, id_cropFracC4, &
@@ -2173,8 +2173,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
-  call send_tile_data(id_total_C, cmass1,                             tile%diag)
-
   call send_tile_data(id_frac,    tile%frac,                          tile%diag)
   call send_tile_data(id_ntiles,  1.0,                                tile%diag)
   call send_tile_data(id_precip,  precip_l+precip_s,                  tile%diag)
@@ -2328,6 +2326,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
   if (id_tslsiLut>0) &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
+  if (id_cLand > 0) &
+      call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3816,8 +3816,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
   id_grnd_rh = register_tiled_diag_field ( module_name, 'rh_grnd', axes, time, &
        'explicit ground relative humidity', missing_value=-1.0 )
-  id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
-       'total land carbon', 'kg C/m2', missing_value=-1.0 )
 
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
@@ -3948,6 +3946,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   call diag_field_add_attribute(id_fracLut_pst,'cell_methods','area: mean')
   call diag_field_add_attribute(id_fracLut_urb,'cell_methods','area: mean')
 
+  id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
+             'Total Carbon in All Terrestrial Carbon Pools', 'kg m-2', &
+             standard_name='total_land_carbon', &
+             missing_value=-1.0, fill_missing=.TRUE. )
+  ! add alias for compatibility with older diag tables
+  call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
+     'total land carbon', 'kg C/m2', missing_value=-1.0)
 end subroutine land_diag_init
 
 

@@ -29,10 +29,10 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, cmor_name, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
-     set_default_diag_filter
+     set_default_diag_filter, add_tiled_diag_field_alias
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_utils_mod, only : check_conservation_1, check_conservation_2
@@ -42,7 +42,7 @@ use land_tile_io_mod, only: land_restart_type, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
 use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
-     LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, C2B, &
+     LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_CLEARED, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
@@ -219,6 +219,8 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
    id_lai_kok, id_DanDlai
+! CMOR/CMIP variables
+integer :: id_lai_cmor, id_cVeg, id_cAnt, id_cProduct, id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
 
 contains
@@ -848,6 +850,51 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_zstar_1 = register_tiled_diag_field (module_name, 'zstar:C',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
+
+  ! CMOR/CMIP variables
+  call set_default_diag_filter('land')
+
+  id_lai_cmor = register_tiled_diag_field(cmor_name, 'lai', (/id_ug/), time, &
+       'Leaf Area Index', '1.0', standard_name = 'leaf_area_index', &
+       missing_value = -1.0, fill_missing = .TRUE.)
+  call add_tiled_diag_field_alias(id_lai_cmor, cmor_name, 'laiLut', (/id_ug/), time, &
+       'leaf area index on land use tile', '1.0', standard_name = 'leaf_area_index', &
+       missing_value = -1.0, fill_missing = .FALSE.)
+
+  id_cVeg = register_tiled_diag_field (cmor_name, 'cVeg', (/id_ug/), time, &
+       'Carbon Mass in Vegetation', 'kg m-2', standard_name='vegetation_carbon_content', &
+       missing_value = -1.0, fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_cVeg, cmor_name, 'cVegLut', (/id_ug/), time, &
+       'Carbon Mass in Vegetation', 'kg m-2', standard_name='vegetation_carbon_content', &
+       missing_value = -1.0, fill_missing=.FALSE.)
+
+  id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_ug/), &
+       time, 'Carbon Mass in Leaves', 'kg m-2', missing_value=-1.0, &
+       standard_name='leaf_carbon_content', fill_missing=.TRUE.)
+  id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_ug/), &
+       time, 'Carbon Mass in Wood', 'kg m-2', missing_value=-1.0, &
+       standard_name='wood_carbon_content', fill_missing=.TRUE.)
+  id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_ug/), &
+       time, 'Carbon Mass in Roots', 'kg m-2', missing_value=-1.0, &
+       standard_name='root_carbon_content', fill_missing=.TRUE.)
+  id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
+       time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
+       standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
+
+  id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
+       time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
+       standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
+  id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
+       time, 'Carbon in Anthropogenic Pool', 'kg m-2', missing_value=-999.0, &
+       fill_missing=.TRUE.) ! standard_name not known at this time
+  call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
+       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
+       missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
+
+  call add_tiled_diag_field_alias(id_height, cmor_name, 'vegHeight', (/id_ug/), &
+       time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
+       'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
+
 end subroutine
 
 
@@ -1621,6 +1668,9 @@ subroutine vegn_step_2 ( vegn, diag, &
 !  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
   call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
+  ! CMOR/CMIP variables
+  if (id_lai_cmor>0) call send_tile_data(id_lai_cmor, sum(c(1:N)%nindivs*c(1:N)%leafarea), diag)
+
   end associate
   ! TODO: fix the diagnostics below
 !  call send_tile_data(id_leaf_size, cc%leaf_size, diag)
@@ -2132,6 +2182,7 @@ subroutine update_vegn_slow( )
                  cc(1:N)%bseed + &
                  cc(1:N)%nsc
      call send_cohort_data(id_btot,   tile%diag, cc(1:N),  btot, weight=cc(1:N)%nindivs, op=OP_SUM)
+     if (id_cVeg>0) call send_tile_data(id_cVeg, sum(cc(1:N)%nindivs*btot(1:N)), tile%diag) ! CMOR/CMIP diagnostics
      deallocate(btot)
 
      call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
@@ -2173,6 +2224,26 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
+
+     ! CMOR/CMIP variables
+     if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(cc(1:N)%bl*cc(1:N)%nindivs), tile%diag)
+     if (id_cWood>0) call send_tile_data(id_cWood, &
+         sum((cc(1:N)%bwood+cc(1:N)%bsw)*cc(1:N)%nindivs)*agf_bs, tile%diag)
+     if (id_cRoot>0) call send_tile_data(id_cRoot, &
+         sum(((cc(1:N)%bwood+cc(1:N)%bsw)*(1-agf_bs)+cc(1:N)%br)*cc(1:N)%nindivs), tile%diag)
+     if (id_cMisc>0) call send_tile_data(id_cMisc, sum((cc(1:N)%blv+cc(1:N)%nsc+cc(1:N)%bseed)*cc(1:N)%nindivs), tile%diag)
+
+     if (id_cProduct>0) then
+        cmass0 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass0 = cmass0 + tile%vegn%harv_pool(i)
+        enddo
+        call send_tile_data(id_cProduct, cmass0, tile%diag)
+     endif
+     if (id_cAnt>0) then
+        call send_tile_data(id_cAnt, sum(tile%vegn%harv_pool(:)), tile%diag)
+     endif
+
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
