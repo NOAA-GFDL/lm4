@@ -42,7 +42,9 @@ use land_tile_io_mod, only: land_restart_type, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
 use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
-     LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_CLEARED, C2B, &
+     LEAF_ON, LU_NTRL, C2B, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, &
+     HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
+     HARV_POOL_PAST, HARV_POOL_CROP, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
@@ -220,7 +222,9 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_brsw, id_growth_prev_day, &
    id_lai_kok, id_DanDlai
 ! CMOR/CMIP variables
-integer :: id_lai_cmor, id_cVeg, id_cAnt, id_cProduct, id_cLeaf, id_cWood, id_cRoot, id_cMisc
+integer :: id_lai_cmor, &
+   id_cVeg, id_cAnt, id_cProduct, id_cLeaf, id_cWood, id_cRoot, id_cMisc, &
+   id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp
 ! ==== end of module variables ===============================================
 
 contains
@@ -881,6 +885,10 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
 
+  call add_tiled_diag_field_alias(id_height, cmor_name, 'vegHeight', (/id_ug/), &
+       time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
+       'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
+
   id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
        time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
        standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
@@ -891,9 +899,30 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
        missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
 
-  call add_tiled_diag_field_alias(id_height, cmor_name, 'vegHeight', (/id_ug/), &
-       time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
-       'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
+  id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Grazing on Land', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_grazing', &
+       fill_missing=.TRUE.)
+  id_fHarvest = register_tiled_diag_field( cmor_name, 'fHarvest', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Crop Harvesting', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_crop_harvesting', &
+       fill_missing=.TRUE.)
+  id_fProductDecomp = register_tiled_diag_field( cmor_name, 'fProductDecomp', (/id_ug/), &
+       time, 'decomposition out of product pools to CO2 in atmos', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='Carbon_flux_out_of_storage_product_pools_into_atmos', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_fProductDecomp, cmor_name, 'fProductDecompLut', (/id_ug/), &
+       time, 'flux from wood and agricultural product pools on land use tile into atmosphere', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='tendency_of_atmospheric_mass_content_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_wood_and_agricultural_product_pool', &
+       fill_missing=.FALSE.)
+  id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_ug/), &
+       time, 'Net Carbon Mass Flux into Atmosphere due to Land Use Change', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
+  id_fAnthDisturb = register_tiled_diag_field( cmor_name, 'fAnthDisturb', (/id_ug/), &
+       time, 'carbon mass flux into atmosphere due to any human activity', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_anthrogpogenic_emission', &
+       fill_missing=.TRUE.)
 
 end subroutine
 
@@ -2243,6 +2272,24 @@ subroutine update_vegn_slow( )
      if (id_cAnt>0) then
         call send_tile_data(id_cAnt, sum(tile%vegn%harv_pool(:)), tile%diag)
      endif
+
+     if (id_fGrazing>0) call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
+     if (id_fHarvest)   call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     if (id_fProductDecomp>0) then
+        cmass0 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass0 = cmass0 + tile%vegn%harv_rate(i)
+        enddo
+        call send_tile_data(id_fProductDecomp, cmass0/seconds_per_year, tile%diag)
+     endif
+     if (id_fLuc>0) call send_tile_data(id_fLuc, &
+            (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
+            +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
+            +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
+            +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
+            )/seconds_per_year, tile%diag)
+     if (id_fAnthDisturb>0) &
+            call send_tile_data(id_fAnthDisturb, sum(tile%vegn%harv_rate(:))/seconds_per_year, tile%diag)
 
      ! ---- end of diagnostic section
 
