@@ -17,8 +17,8 @@ use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, 
      do_check_conservation, carbon_cons_tol, set_current_point, land_error_message
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_carbon
-use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
-     register_tiled_diag_field, send_tile_data, diag_buff_type, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, &
+     register_tiled_diag_field, add_tiled_diag_field_alias, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
@@ -72,7 +72,8 @@ real :: atot ! global land area for normalization in conservation checks, m2
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
 integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age, id_exudate, id_dbh_growth
-
+! CMIP/CMOR diagnostic field IDs
+integer :: id_gpp_cmor, id_npp_cmor, id_nep_cmor, id_ra, id_rgrowth
 
 contains
 
@@ -162,6 +163,41 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        missing_value=-100.0)
   id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
        time, 'carbon root exudates', 'kg C/(m2 year)', missing_value=-100.0)
+
+  ! set the default sub-sampling filter for CMOR variables
+  call set_default_diag_filter('land')
+  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Gross Primary Production on Land', &
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
+       standard_name='gross_primary_productivity_of_biomass_expressed_as_carbon')
+  call add_tiled_diag_field_alias ( id_gpp_cmor, cmor_name, 'gppLut', (/id_ug/), &
+       time, 'Gross Primary Productivity on Land Use Tile', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='gross_primary_productivity_of_biomass_expressed_as_carbon', fill_missing=.FALSE.)
+  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
+       standard_name='net_primary_productivity_of_biomass_expressed_as_carbon')
+  call add_tiled_diag_field_alias ( id_npp_cmor, cmor_name, 'nppLut', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.FALSE., &
+       standard_name='net_primary_productivity_of_biomass_expressed_as_carbon')
+  id_nep_cmor = register_tiled_diag_field ( cmor_name, 'nep', (/id_ug/), &
+       time, 'Net Carbon Mass Flux out of Atmophere due to Net Ecosystem Productivity on Land.', &
+       'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
+  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
+       'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='plant_respiration_carbon_flux', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
+       'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='plant_respiration_carbon_flux', fill_missing=.FALSE.)
+  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_ug/), &
+       time, 'Growth Autotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_carbon_mass_flux_due_to_plant_respiration_for_biomass_growth',&
+       fill_missing=.TRUE.)
 end subroutine vegn_dynamics_init
 
 ! ============================================================================
@@ -323,6 +359,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
+
+  ! ---- CMOR diagnostics
+  if (id_gpp_cmor>0) call send_tile_data(id_gpp_cmor, sum(gpp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_npp_cmor>0) call send_tile_data(id_npp_cmor, sum(npp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_nep_cmor>0) call send_tile_data(id_nep_cmor, vegn%nep/seconds_per_year, diag)
+  if (id_ra>0) call send_tile_data(id_ra, sum((resp(1:N)-resg(1:N))*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_rgrowth>0) call send_tile_data(id_rgrowth, sum(resg(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
 
 end subroutine vegn_carbon_int_lm3
 
@@ -523,8 +566,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_tile_data(id_theta,theta,diag)
   call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_exudate, diag, c(1:N), root_exudate_C(1:N), weight=c(1:N)%nindivs, op=OP_AVERAGE)
+
+  ! ---- CMOR diagnostics
+  if (id_gpp_cmor>0) call send_tile_data(id_gpp_cmor, sum(gpp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_npp_cmor>0) call send_tile_data(id_npp_cmor, sum(npp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_nep_cmor>0) call send_tile_data(id_nep_cmor, vegn%nep/seconds_per_year, diag)
+  if (id_ra>0) call send_tile_data(id_ra, sum((resp(1:N)-resg(1:N))*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_rgrowth>0) call send_tile_data(id_rgrowth, sum(resg(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+
 end subroutine vegn_carbon_int_ppa
-!*****************************************************************************
 
 
 ! ============================================================================
