@@ -38,31 +38,39 @@ subroutine soil_util_init(r)
 end subroutine soil_util_init
 
 ! ============================================================================
-! Spread new root C through profile, using vertical root profile from vegn_uptake_profile
-subroutine add_root_litter_0(soil, litterC)
+! Spread new root C through profile, using vertical root profile from vegn_uptake_profile.
+! If there are negative values in input litter, they are not added to soil pools, but
+! accumulated in negativeInput argument. This should be taken into account by the caller
+! to avoid carbon conservation issues.
+subroutine add_root_litter_0(soil, litterC, negativeInput)
   type(soil_tile_type) , intent(inout) :: soil
-  real                 , intent(in)    :: litterC(num_l,n_c_types) ! kg C/(m2 of soil)
+  real                 , intent(in)    :: litterC(num_l,N_C_TYPES) ! kg C/(m2 of soil)
+  real, optional       , intent(inout) :: negativeInput(N_C_TYPES)
 
   integer :: l
 
   do l = 1,num_l
-     call add_litter(soil%soil_C(l), litterC(l,:))
+     call add_litter(soil%soil_C(l), litterC(l,:), negativeInput)
   enddo
 end subroutine add_root_litter_0
 
 
 ! ============================================================================
-subroutine add_root_litter_1(soil, cohort, newlitterC)
+! if there are negative values in input litter, they are not added to soil pools, but
+! accumulated in negativeInput argument. This should be taken into account by the caller
+! to avoid carbon conservation issues.
+subroutine add_root_litter_1(soil, cohort, newlitterC, negativeInput)
   type(soil_tile_type)   , intent(inout) :: soil
   type(vegn_cohort_type) , intent(in)    :: cohort
-  real                   , intent(in)    :: newlitterC(:) ! kg C/m2 of tile
+  real                   , intent(in)    :: newlitterC(N_C_TYPES) ! kg C/m2 of tile
+  real, optional         , intent(inout) :: negativeInput(N_C_TYPES)
 
   real    :: profile(num_l)
   integer :: n
 
   call cohort_root_litter_profile (cohort, dz(1:num_l), profile)
   do n=1,num_l
-      call add_litter(soil%soil_C(n), newLitterC*profile(n))
+      call add_litter(soil%soil_C(n), newLitterC*profile(n), negativeInput)
   enddo
 end subroutine add_root_litter_1
 
@@ -148,12 +156,29 @@ subroutine add_soil_carbon(soil,leaf_litter,wood_litter,root_litter)
         soil%ssc_in(l) = soil%ssc_in(l) + root_litt(l,C_SLOW)
      enddo
   case (SOILC_CORPSE)
-     call add_litter(soil%leafLitter,       leaf_litt)
-     call add_litter(soil%coarseWoodLitter, wood_litt)
+     call borrow_to_negatives(wood_litt,soil%neg_litt_C) ! borrow from wood litter first
+     call borrow_to_negatives(leaf_litt,soil%neg_litt_C) ! and from leaf litter second
+     call add_litter(soil%leafLitter,       leaf_litt, soil%neg_litt_C)
+     call add_litter(soil%coarseWoodLitter, wood_litt, soil%neg_litt_C)
+     ! we do not borrow negatives from soil carbon input, because it might do something
+     ! bad to slow processes, even if the amounts are tiny.
      do l = 1,num_l
-        call add_litter(soil%soil_C(l), root_litt(l,:))
+        call add_litter(soil%soil_C(l), root_litt(l,:), soil%neg_litt_C)
      enddo
   end select
+
+contains
+
+  ! given litter and amount of negative litter from previous time step, attempts to borrow
+  ! positive carbon to reduce the amount of negativs
+  subroutine borrow_to_negatives(litt, negatives)
+    real, intent(inout) :: litt(:), negatives(:)
+
+    litt      = litt + negatives
+    negatives = min(litt,0.0)
+    litt      = max(litt,0.0)
+  end subroutine borrow_to_negatives
+
 end subroutine add_soil_carbon
 
 end module soil_util_mod

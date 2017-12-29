@@ -779,16 +779,26 @@ subroutine add_cohort(pool,newCohort)
 end subroutine add_cohort
 
 
-!Adds litter as a new cohort
-subroutine add_litter(pool,newLitterC)
+! Adds litter as a new cohort.
+! if there are negative values in input litter, they are not added to soil pools, but
+! accumulated in negativeInput argument. This should be taken into account by the caller
+! to avoid carbon conservation issues.
+subroutine add_litter(pool, litterC, negativeInput)
   type(soil_carbon_pool), intent(inout) :: pool
-  real                  , intent(in)    :: newLitterC(n_c_types)
+  real                  , intent(in)    :: litterC(N_C_TYPES)
+  real, optional        , intent(inout) :: negativeInput(N_C_TYPES)
 
-  type(litterCohort)::newCohort
-  real::initialMicrobeC
+  type(litterCohort) :: newCohort
+  real :: newLitterC(N_C_TYPES)
+  real :: initialMicrobeC
 
-  ! new carbon must be non-negative
-  call check_var_range(newLitterC, 0.0, HUGE(1.0), 'add_litter', 'newLitterC', FATAL)
+  if (present(negativeInput)) then
+     negativeInput(:) = negativeInput + min(newLitterC,0.0)
+  else
+     ! new carbon must be non-negative
+     call check_var_range(litterC, 0.0, HUGE(1.0), 'add_litter', 'newLitterC', FATAL)
+  endif
+  newLitterC = max(litterC, 0.0)
 
   initialMicrobeC=sum(newLitterC*minMicrobeC)
 
