@@ -793,7 +793,7 @@ subroutine add_litter(pool, litterC, negativeInput)
   real :: initialMicrobeC
 
   if (present(negativeInput)) then
-     negativeInput(:) = negativeInput + min(newLitterC,0.0)
+     negativeInput(:) = negativeInput + min(litterC,0.0)
   else
      ! new carbon must be non-negative
      call check_var_range(litterC, 0.0, HUGE(1.0), 'add_litter', 'newLitterC', FATAL)
