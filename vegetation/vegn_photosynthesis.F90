@@ -615,6 +615,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
+  Ag_newleaf = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
