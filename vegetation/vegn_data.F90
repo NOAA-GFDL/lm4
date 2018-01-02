@@ -163,6 +163,7 @@ type spec_data_type
   real    :: root_perm  = 5.0e-7 ! fine root membrane permeability per unit area, kg/(m3 s)
 
   real    :: LMA        = 0.036  ! leaf mass per unit area, kg C/m2
+  real    :: LMA_understory_factor = 0.5 ! Resp multiplier for understory
   real    :: leaf_size  = 0.04   ! characteristic leaf size
 
   real    :: alpha_phot = 0.06   ! photosynthesis efficiency
@@ -740,6 +741,7 @@ subroutine read_species_data(name, sp, errors_found)
 
   __GET_SPDATA_REAL__(smoke_fraction)
   __GET_SPDATA_REAL__(LMA)
+  __GET_SPDATA_REAL__(LMA_understory_factor)
 
   __GET_SPDATA_REAL__(dat_height)
   __GET_SPDATA_REAL__(dat_lai)
@@ -1019,6 +1021,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'mortrate_d_c', spdata(:)%mortrate_d_c)
   call add_row(table, 'mortrate_d_u', spdata(:)%mortrate_d_u)
   call add_row(table, 'LMA', spdata(:)%LMA)
+  call add_row(table, 'LMA_understory_factor', spdata(:)%LMA_understory_factor)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)
