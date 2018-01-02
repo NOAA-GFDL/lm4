@@ -12,7 +12,7 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
-     FORM_GRASS, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s
+     FORM_GRASS, LEAF_OFF, DBH_mort, A_mort, B_mort
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
      vegn_mergecohorts_ppa
 use soil_tile_mod,   only : soil_tile_type, num_l, dz

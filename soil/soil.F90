@@ -50,7 +50,7 @@ use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, set_default_diag_filter, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
-     send_tile_data_i0d_fptr, &
+     send_tile_data_i0d_fptr, cmor_name, cmor_mrsos_depth, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
      send_cohort_data, register_cohort_diag_field, OP_SUM
 use land_data_mod, only : lnd, log_version
@@ -281,15 +281,19 @@ integer :: &
     id_total_denitrification_rate,id_soil_denitrification_rate,id_NO3_div_loss,&
     id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,id_total_nitrification_rate
 
-        ! diag IDs of CMOR variables
-    integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-        id_mrro, id_mrros, id_csoil, id_rh, &
-        id_csoilfast, id_csoilmedium, id_csoilslow
-
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
-integer, allocatable, dimension(:,:), private :: soil_tags ! module copy of soil tags for cold start
+! diag IDs of CMOR variables
+integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
+    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
+    id_csoilfast, id_csoilmedium, id_csoilslow
+
+! variables for calculations of CMOR/CMIP diagnostics
+real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
+real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
+
+integer, allocatable :: soil_tags(:,:) ! module copy of soil tags for cold start
 
 ! ==== end of module variables ===============================================
 
@@ -359,6 +363,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   real, allocatable :: gw_param(:), gw_param2(:), gw_param3(:), albedo(:,:)
   real, allocatable :: f_iso(:,:), f_vol(:,:), f_geo(:,:), refl_dif(:,:)
 
+  real :: total_soil_depth ! for diagnostics only, m
   real :: local_wt_depth ! [m] water table depth for tile (+ for below surface)
   real, allocatable :: ref_soil_t(:) ! reference soil temperature (based on 5 m or surface air temperature)
                                      ! for cold-start initialization
@@ -787,6 +792,14 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   call send_tile_data_r1d_fptr(id_f_vol_sat,    soil_f_vol_sat_ptr)
   call send_tile_data_r1d_fptr(id_f_geo_sat,    soil_f_geo_sat_ptr)
   call send_tile_data_i0d_fptr(id_type,         soil_tag_ptr)
+  if (id_mrsofc>0) then
+     total_soil_depth = sum(dz(1:num_l))
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce,tile))
+        if (associated(tile%soil)) &
+           call send_tile_data(id_mrsofc, tile%soil%pars%vwc_sat*total_soil_depth*dens_h2o, tile%diag)
+     end do
+  endif
 end subroutine soil_init
 
 
@@ -904,7 +917,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   ! ---- local vars
   integer :: axes(2)
   integer :: id_zhalf
-  integer :: i
+  integer :: i, l
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -1319,6 +1332,94 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
       lnd%time, 'soil Temperature difference after advection with tridiagonal solution', &
       'K', missing_value=-100.0 )
 #endif
+
+  ! CMOR variables
+  ! tsl (soil temperature) should be reported as missing for the non-soil grid cells;
+  ! also averaging over non-soil tiles does not make sense and therefore is not done.
+  ! The only difference with soil_T is metadata (units and standard_name).
+  call add_tiled_diag_field_alias ( id_temp, cmor_name, 'tsl', axes(1:2),  &
+       lnd%time, 'Temperature of Soil', 'K', missing_value=-100.0, &
+       standard_name='soil_temperature', fill_missing=.FALSE.)
+  ! set up weights for mrsos averaging
+  allocate(mrsos_weight(num_l), mrs1m_weight(num_l))
+  do l = 1,num_l
+     mrsos_weight(l) = min(1.0,max(0.0,(cmor_mrsos_depth-zhalf(l))/dz(l)))
+     mrs1m_weight(l) = min(1.0,max(0.0,(1.0             -zhalf(l))/dz(l)))
+  enddo
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+  id_mrsofc = register_tiled_static_field ( cmor_name, 'mrsofc', axes(1:1),  &
+       'Capacity of Soil to Store Water', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content_at_field_capacity', fill_missing=.TRUE.)
+  id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
+       lnd%time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrsfl = register_tiled_diag_field ( cmor_name, 'mrsfl', axes,  &
+       lnd%time, 'Frozen Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='frozen_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrsll = register_tiled_diag_field ( cmor_name, 'mrsll', axes,  &
+       lnd%time, 'Liquid Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
+       lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:1),  &
+       lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_mrso, cmor_name, 'mrsoLut', axes(1:1),  &
+       lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content', fill_missing=.FALSE.)
+  id_mrsos  = register_tiled_diag_field ( cmor_name, 'mrsos', axes(1:1),  &
+       lnd%time, 'Moisture in Upper Portion of Soil Column', &
+       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       fill_missing=.TRUE.)
+  call  add_tiled_diag_field_alias ( id_mrsos, cmor_name, 'mrsosLut', axes(1:1),  &
+       lnd%time, 'Moisture in Upper Portion of Soil Column of Land Use Tile', &
+       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       fill_missing=.FALSE.)
+  id_mrfso = register_tiled_diag_field ( cmor_name, 'mrfso', axes(1:1),  &
+       lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
+  id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:1),  &
+       lnd%time, 'Soil Liquid Water Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_liquid_water_content', fill_missing=.TRUE.)
+  id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:1),  &
+       lnd%time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='surface_runoff_flux', fill_missing=.TRUE.)
+  id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:1),  &
+       lnd%time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='runoff_flux', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_mrro, cmor_name, 'mrroLut',  axes(1:1),  &
+       lnd%time, 'Total Runoff From Land Use Tile', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='runoff_flux', fill_missing=.FALSE.)
+
+  id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:1),  &
+       lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:1),  &
+       lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content', fill_missing=.FALSE.)
+
+  id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
+       lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='fast_soil_pool_carbon_content', fill_missing=.TRUE.)
+  id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:1),  &
+       lnd%time, 'Carbon Mass in Medium Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='medium_soil_pool_carbon_content', fill_missing=.TRUE.)
+  id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
+       lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
+  id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
+       lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
+       lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
+       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
+       missing_value=-100.0)
+  id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', axes(1:1), &
+       lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
+       missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       fill_missing=.FALSE.)
 
 end subroutine soil_diag_init
 
@@ -2847,6 +2948,20 @@ end subroutine soil_step_1
   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
   if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
+
+  ! CMOR variables
+  if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
+  if (id_mrsfl > 0) call send_tile_data(id_mrsfl, soil%ws, diag)
+  if (id_mrsll > 0) call send_tile_data(id_mrsll, soil%wl, diag)
+  if (id_mrsol > 0) call send_tile_data(id_mrsol, soil%wl+soil%ws, diag)
+  if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
+  if (id_mrsos > 0) call send_tile_data(id_mrsos, sum((soil%wl+soil%ws)*mrsos_weight), diag)
+  if (id_mrs1mLut > 0) call send_tile_data(id_mrs1mLut, sum((soil%wl+soil%ws)*mrs1m_weight), diag)
+  if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
+  if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
+  call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
+  call send_tile_data(id_mrro,  lrunf_ie+lrunf_sn+lrunf_bf+lrunf_nu, diag)
+
   ! ZMS uncomment for back-compatibility with diag tables
   if (gw_option == GW_TILED) then
      call send_tile_data(id_deficit, deficit, diag)
@@ -2966,6 +3081,12 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
      call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
+     ! --- CMOR vars
+     if (id_csoilfast>0)   call send_tile_data(id_csoilfast,   sum(soil%fast_soil_C(:)), diag)
+     if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
+     call send_tile_data(id_csoilslow, 0.0, diag)
+     if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
+     ! --- end of CMOR vars
   case (SOILC_CORPSE, SOILC_CORPSE_N)
 !     total_carbon=0.0
 
@@ -3062,6 +3183,12 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_dissolved_total_N, sum(total_diss_N), diag)
      call send_tile_data(id_total_soil_C, sum(total_C+total_diss_C+total_prot_C)+total_livemic_C, diag)
      call send_tile_data(id_total_soil_N, sum(total_N+total_diss_N+total_prot_N)+total_livemic_N, diag)
+     ! --- CMOR vars
+     call send_tile_data(id_csoilfast,   total_C(C_FAST), diag)
+     call send_tile_data(id_csoilmedium, total_C(C_SLOW), diag)
+     call send_tile_data(id_csoilslow,   0.0,             diag)
+     call send_tile_data(id_csoil, total_C(C_FAST)+total_C(C_SLOW), diag)
+     ! --- end of CMOR vars
   case default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
@@ -3085,6 +3212,8 @@ subroutine Dsdt(vegn, soil, diag, soilt, theta)
   case default
      call error_mesg('Dsdt','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
+  ! CMOR diag
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
 end subroutine Dsdt
 
 

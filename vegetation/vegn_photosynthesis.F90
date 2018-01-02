@@ -188,7 +188,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      soil_beta, soil_water_supply, con_v_v, &
 ! output:
      evap_demand, stomatal_cond, RHi, &
-     lai_kok)
+     lai_kok, An_newleaf)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -206,6 +206,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
+  real, intent(out) :: An_newleaf  ! derivative of An wrt LAI, for diagnostics only
 
   select case (vegn_phot_option)
   case(VEGN_PHOT_SIMPLE)
@@ -215,11 +216,12 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      cohort%An_cl  = 0
      RHi = 1.0
      evap_demand   = 0
+     An_newleaf    = 0
   case(VEGN_PHOT_LEUNING)
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
             soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi, &
-            lai_kok)
+            lai_kok, An_newleaf)
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -232,7 +234,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
      evap_demand, stomatal_cond, RHi, &
-     lai_kok)
+     lai_kok, An_newleaf)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -249,6 +251,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
+  real, intent(out) :: An_newleaf  ! derivative of An wrt LAI, for diagnostics only
 
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
@@ -265,7 +268,6 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
   real    :: evap_demand_old
-  real    :: An_newleaf
 
   ! set the default values for outgoing parameters, overriden by the calculations
   ! in gs_leuning
@@ -278,6 +280,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      stomatal_cond = 0
      evap_demand   = 0
      RHi           = 1.0
+     An_newleaf    = 0
      ! TODO: call vegn_hydraulics?
      return
   endif
@@ -441,7 +444,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
 
   !#### Modified by PPG 2017-12-07
-  real :: newleaf_layer
+  real, parameter :: newleaf_layer = 0.05 !This needs to be modified later
   real :: resp_opt_newleaf
   real :: resp25_newleaf
   real :: resp_newleaf
@@ -480,7 +483,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      write(*,*) '####### end of ### gs_leuning input #######'
   endif
 
-  newleaf_layer = 0.05 !This needs to be modified later
   do1=0.09 ; ! kg/kg
   if (sp%lifeform == FORM_GRASS) do1=0.15;
 
@@ -533,6 +535,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      endif
 
      Resp=Resp/TempFuncR
+     resp_newleaf=sp%gamma_resp*vm*newleaf_layer/TempFuncR
 
   case(VEGN_TRESPONSE_OPTIMAL)
      !First we will calculate the parameters at Topt.
@@ -575,7 +578,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
      Resp25_newleaf=sp%gamma_resp*vm25*newleaf_layer
      resp_opt_newleaf=Resp25_newleaf*exp(sp%Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
-     Resp_newleaf=resp_opt_newleaf*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
+     resp_newleaf=resp_opt_newleaf*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
   end select
 
   !if (layer > 1) vm=vm*sp%Vmax_understory_factor ! reduce vmax in the understory
@@ -612,6 +615,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
+  Ag_newleaf = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive

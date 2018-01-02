@@ -334,7 +334,7 @@ type :: soil_tile_type
    real :: coarsewoodlitter_deadmic_N_in
 
    ! For storing DOC fluxes in tiled model
-   real, allocatable :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
+   real, allocatable :: div_hlsp_DOC(:,:) ! dimension (N_C_TYPES, num_l) [kg C/m^2/s] net flux of carbon pools
                                       ! out of tile
    real, allocatable :: div_hlsp_DON(:,:) ! dimension (n_c_types, num_l) [kg N/m^2/s] net flux of nitrogen pools
                                      ! out of tile

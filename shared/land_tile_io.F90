@@ -26,7 +26,7 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, &
-     tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
+     tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map
 
 use land_data_mod, only  : lnd
@@ -135,7 +135,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine init_land_restart(restart,filename,tile_exists,tile_dim_length)
   type(land_restart_type), intent(out) :: restart
   character(*),            intent(in)  :: filename ! name of the file to create
-  procedure(tile_exists_func) :: tile_exists ! existence detector function:
+  procedure(tile_test_func) :: tile_exists ! existence detector function:
       ! returns true if specific tile exists (hence should be written to restart)
   integer,                 intent(in)  :: tile_dim_length ! length of the tile dimension
       ! in the output file
@@ -1181,7 +1181,7 @@ end subroutine create_tile_out_file_idx_new
 ! ============================================================================
 ! given a tile existence detection function, allocates and fills the tile index vector
 subroutine gather_tile_index(tile_exists,idx)
-  procedure(tile_exists_func) :: tile_exists   ! existence detector function:
+  procedure(tile_test_func) :: tile_exists   ! existence detector function:
          ! returns true if specific tile exists (hence should be written to restart)
   integer, allocatable,  intent(out) :: idx(:) ! rank local tile index vector
 

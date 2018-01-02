@@ -119,7 +119,7 @@ public :: &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, &
     use_light_saber, laimax_ceiling, laimax_floor, &
-    DBH_mort, A_mort, B_mort, mortrate_s, &
+    DBH_mort, A_mort, B_mort, nsc_starv_frac, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -127,7 +127,6 @@ public :: &
     c2n_N_fixer, N_limits_live_biomass, &
     excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan, &
     et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
-
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -408,7 +407,7 @@ real :: harvest_spending_time(N_HARV_POOLS) = &
      ! time (yrs) during which intermediate pool of harvested carbon is completely
      ! released to the atmosphere.
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
-real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
+real :: l_fract      = 0.5 ! fraction of the leaf biomass re-translocated when leaves fall
 real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enabled
                            ! 0 means no limit, lm3v value is 268.0
 ! Ensheng's growth parameters:
@@ -443,7 +442,7 @@ real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
 real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
 real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
-real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
+real, protected :: nsc_starv_frac = 0.01 ! if NSC drops below bl_max multiplied by this value, cohort dies
 
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
@@ -478,8 +477,8 @@ namelist /vegn_data_nml/ &
 
   ! PPA-related namelist values
   do_ppa, &
-  mortrate_s, cmc_eps, &
-  DBH_mort, A_mort, B_mort, &
+  cmc_eps, &
+  DBH_mort, A_mort, B_mort, nsc_starv_frac, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, &
   use_light_saber, laimax_ceiling, laimax_floor, &
   nat_mortality_splits_tiles, &

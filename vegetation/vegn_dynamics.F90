@@ -18,14 +18,14 @@ use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, 
      land_error_message
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_carbon, land_tile_nitrogen
-use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
-     register_tiled_diag_field, send_tile_data, diag_buff_type, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
+     register_tiled_diag_field, add_tiled_diag_field_alias, send_tile_data, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      agf_bs, l_fract, understory_lai_factor, min_lai, &
-     use_light_saber, laimax_ceiling, laimax_floor, &
+     use_light_saber, laimax_ceiling, laimax_floor, nsc_starv_frac, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -77,7 +77,7 @@ real :: atot ! global land area for normalization in conservation checks, m2
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
 integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
-integer :: id_resp, id_resl, id_resr, id_ress, id_resg, id_asoil
+integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age, id_dbh_growth
 integer :: &
     id_mycorrhizal_scav_allocation, id_mycorrhizal_scav_immobilization, &
@@ -93,6 +93,8 @@ integer :: &
     id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
     id_Nfix_C_res, id_Nfix_N_res, &
     id_N_fix_alloc_smoothed, id_myc_mine_alloc_smoothed, id_myc_scav_alloc_smoothed
+! CMIP/CMOR diagnostic field IDs
+integer :: id_gpp_cmor, id_npp_cmor, id_nep_cmor, id_ra, id_rgrowth
 
 contains
 
@@ -254,6 +256,41 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        (/id_ug/), time, 'Plant C allocation to N miners smoothed', 'kg N/m2/year', missing_value=-1.0 )
   id_myc_scav_alloc_smoothed = register_tiled_diag_field ( module_name, 'myc_scav_alloc_smoothed',  &
        (/id_ug/), time, 'C allocation to N scavengers smoothed', 'kg N/m2/year', missing_value=-1.0 )
+
+  ! set the default sub-sampling filter for CMOR variables
+  call set_default_diag_filter('land')
+  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Gross Primary Production on Land', &
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
+       standard_name='gross_primary_productivity_of_biomass_expressed_as_carbon')
+  call add_tiled_diag_field_alias ( id_gpp_cmor, cmor_name, 'gppLut', (/id_ug/), &
+       time, 'Gross Primary Productivity on Land Use Tile', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='gross_primary_productivity_of_biomass_expressed_as_carbon', fill_missing=.FALSE.)
+  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
+       standard_name='net_primary_productivity_of_biomass_expressed_as_carbon')
+  call add_tiled_diag_field_alias ( id_npp_cmor, cmor_name, 'nppLut', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.FALSE., &
+       standard_name='net_primary_productivity_of_biomass_expressed_as_carbon')
+  id_nep_cmor = register_tiled_diag_field ( cmor_name, 'nep', (/id_ug/), &
+       time, 'Net Carbon Mass Flux out of Atmophere due to Net Ecosystem Productivity on Land.', &
+       'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
+  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
+       'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='plant_respiration_carbon_flux', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
+       'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='plant_respiration_carbon_flux', fill_missing=.FALSE.)
+  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_ug/), &
+       time, 'Growth Autotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_carbon_mass_flux_due_to_plant_respiration_for_biomass_growth',&
+       fill_missing=.TRUE.)
 end subroutine vegn_dynamics_init
 
 ! ============================================================================
@@ -899,6 +936,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_myc_mine_alloc_smoothed, diag, c(1:N), c(1:N)%max_mine_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_scav_alloc_smoothed, diag, c(1:N), c(1:N)%max_scav_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
 
+  ! ---- CMOR diagnostics
+  if (id_gpp_cmor>0) call send_tile_data(id_gpp_cmor, sum(gpp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_npp_cmor>0) call send_tile_data(id_npp_cmor, sum(npp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_nep_cmor>0) call send_tile_data(id_nep_cmor, vegn%nep/seconds_per_year, diag)
+  if (id_ra>0) call send_tile_data(id_ra, sum((resp(1:N)-resg(1:N))*c(1:N)%nindivs)/seconds_per_year, diag)
+  if (id_rgrowth>0) call send_tile_data(id_rgrowth, sum(resg(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
+
 end subroutine vegn_carbon_int_lm3
 
 
@@ -1232,6 +1276,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_N_fix_alloc_smoothed,        diag, c(1:M), c(1:M)%max_Nfix_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_mine_alloc_smoothed,     diag, c(1:M), c(1:M)%max_mine_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_scav_alloc_smoothed,     diag, c(1:M), c(1:M)%max_scav_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_age,                         diag, c(1:M), c(1:M)%age,                                weight=c(1:M)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_exudate,                     diag, c(1:M), root_exudate_C(1:M),                       weight=c(1:M)%nindivs, op=OP_AVERAGE)
+
+  ! ---- CMOR diagnostics
+  if (id_gpp_cmor>0) call send_tile_data(id_gpp_cmor, sum(gpp(1:M)*c(1:M)%nindivs)/seconds_per_year, diag)
+  if (id_npp_cmor>0) call send_tile_data(id_npp_cmor, sum(npp(1:M)*c(1:M)%nindivs)/seconds_per_year, diag)
+  if (id_nep_cmor>0) call send_tile_data(id_nep_cmor, vegn%nep/seconds_per_year, diag)
+  if (id_ra>0) call send_tile_data(id_ra, sum((resp(1:M)-resg(1:M))*c(1:M)%nindivs)/seconds_per_year, diag)
+  if (id_rgrowth>0) call send_tile_data(id_rgrowth, sum(resg(1:M)*c(1:M)%nindivs)/seconds_per_year, diag)
 
 end subroutine vegn_carbon_int_ppa
 
@@ -1353,7 +1406,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
                  sp => spdata(vegn%cohorts(i)%species)  )  ! F2003
 
     ! Mortality due to starvation
-    if (cc%bsw<0 .or. cc%nsc < 0.01*cc%bl_max) then
+    if (cc%bsw<0 .or. cc%nsc < nsc_starv_frac*cc%bl_max) then
        deathrate = 1.0
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
@@ -1755,8 +1808,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
      BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     BL_u = Bl_c * understory_lai_factor
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u

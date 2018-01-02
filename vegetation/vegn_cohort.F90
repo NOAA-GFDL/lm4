@@ -171,7 +171,7 @@ type :: vegn_cohort_type
   real :: gdd = 0.0
 
   ! for Light Saber
-  real :: laimax = 1.0 
+  real :: laimax = 1.0
   real :: An_newleaf = 0.0
   real :: An_newleaf_daily = 0.0
 
@@ -197,7 +197,7 @@ type :: vegn_cohort_type
   real :: N_fixer_N_reservoir = 0.0
   real :: N_fixer_C_reservoir = 0.0
 
-  ! Allows cohorts to remember previous marginal gains so shifts in N allocation 
+  ! Allows cohorts to remember previous marginal gains so shifts in N allocation
   ! can have time scales
   real :: myc_scav_marginal_gain_smoothed = 0.0
   real :: myc_mine_marginal_gain_smoothed = 0.0
@@ -775,12 +775,12 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0
   cc%br      = 0.0
-  BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-  BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
   !02/08/17 ens
   cc%brsw = sp%branch_wood_frac * ( cc%bsw + cc%bwood )
   cc%brsw = min(cc%brsw, 0.6*cc%bsw)
 
+  BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+  BL_u = BL_c * understory_lai_factor
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
      cc%bsw_max = sp%rho_wood * sp%alphaBM * cc%height * cc%dbh**2
