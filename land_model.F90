@@ -262,7 +262,7 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
   id_water_cons,    id_carbon_cons,   id_DOCrunf,                          &
-  id_parnet, id_grnd_rh, id_cana_rh
+  id_grnd_rh, id_cana_rh
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -2235,13 +2235,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call qscomp(tile%cana%T, p_surf, cana_qsat)
      call send_tile_data(id_cana_rh, tile%cana%tr(isphum)/cana_qsat, tile%diag)
   endif
-
-  if(associated(tile%vegn)) then
-     associate(c=>tile%vegn%cohorts)
-     call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac, op=OP_SUM)
-     end associate
-  endif
-
 end subroutine update_land_model_fast_0d
 
 
@@ -3711,9 +3704,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
-
-  id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
-             'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
 end subroutine land_diag_init
 
 ! ============================================================================

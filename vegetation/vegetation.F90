@@ -204,7 +204,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
-   id_lai_kok, id_DanDlai, id_DanDlai1
+   id_lai_kok, id_DanDlai, id_DanDlai1, id_PAR_dn, id_PAR_net
 ! ==== end of module variables ===============================================
 
 contains
@@ -707,6 +707,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'derivative of photosynthesis w.r.t. LAI', missing_value=-1.0 )
   id_DanDlai1 = register_cohort_diag_field ( module_name, 'DanDlai1',  &
        (/id_ug/), time, 'derivative of photosynthesis w.r.t. LAI', missing_value=-1.0 )
+
+  id_PAR_dn = register_cohort_diag_field ( module_name, 'PAR_dn',  &
+       (/id_ug/), time, 'downward flux of photosynthetically-active radiation on top of the canopy', &
+       'W/m2', missing_value=-1.0 )
+  id_PAR_net = register_cohort_diag_field ( module_name, 'PAR_net',  &
+       (/id_ug/), time, 'net flux of photosynthetically-active radiation to the canopy', &
+       'W/m2', missing_value=-1.0 )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
@@ -1432,6 +1439,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
 
   call send_cohort_data(id_DanDlai, diag, cc(:), An_newleaf(:), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_DanDlai1, diag, cc(:), An_newleaf1(:), weight=cc(:)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_PAR_dn,  diag, cc(:), SWdn(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_PAR_net, diag, cc(:), RSv(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
 
 end subroutine vegn_step_1
 
