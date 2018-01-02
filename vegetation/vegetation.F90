@@ -29,10 +29,10 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, cmor_name, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
-     set_default_diag_filter
+     set_default_diag_filter, add_tiled_diag_field_alias
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_utils_mod, only : check_conservation_1, check_conservation_2
@@ -41,8 +41,10 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
-use vegn_data_mod, only : read_vegn_data_namelist, &
-     LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, C2B, &
+use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
+     LEAF_ON, LU_NTRL, C2B, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, &
+     HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
+     HARV_POOL_PAST, HARV_POOL_CROP, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
@@ -96,6 +98,10 @@ public :: vegn_step_3
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
 
 public :: update_vegn_slow
+
+public :: cohort_area_frac
+public :: cohort_test_func
+public :: any_vegn, is_tree, is_grass, is_c3, is_c4, is_c3grass, is_c4grass
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -105,6 +111,15 @@ character(len=*), parameter :: module_name = 'vegn'
 ! size of cohort initial condition array
 integer, parameter :: MAX_INIT_COHORTS = 10
 
+abstract interface
+  ! the following interface describes the "detector function", which is passed
+  ! through the argument list and must return TRUE for any cohort that meets
+  ! specific condition (e.g. is tree), FALSE otherwise
+  logical function cohort_test_func(cc)
+     import vegn_cohort_type
+     type(vegn_cohort_type), intent(in) :: cc
+  end function cohort_test_func
+end interface
 
 ! ==== module variables ======================================================
 
@@ -205,6 +220,11 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_DanDlai1, id_PAR_dn, id_PAR_net
+
+! CMOR/CMIP variables
+integer :: id_lai_cmor, &
+   id_cVeg, id_cAnt, id_cProduct, id_cLeaf, id_cWood, id_cRoot, id_cMisc, &
+   id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp
 ! ==== end of module variables ===============================================
 
 contains
@@ -836,6 +856,76 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_zstar_1 = register_tiled_diag_field (module_name, 'zstar:C',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
+
+  ! CMOR/CMIP variables
+  call set_default_diag_filter('land')
+
+  id_lai_cmor = register_tiled_diag_field(cmor_name, 'lai', (/id_ug/), time, &
+       'Leaf Area Index', '1.0', standard_name = 'leaf_area_index', &
+       missing_value = -1.0, fill_missing = .TRUE.)
+  call add_tiled_diag_field_alias(id_lai_cmor, cmor_name, 'laiLut', (/id_ug/), time, &
+       'leaf area index on land use tile', '1.0', standard_name = 'leaf_area_index', &
+       missing_value = -1.0, fill_missing = .FALSE.)
+
+  id_cVeg = register_tiled_diag_field (cmor_name, 'cVeg', (/id_ug/), time, &
+       'Carbon Mass in Vegetation', 'kg m-2', standard_name='vegetation_carbon_content', &
+       missing_value = -1.0, fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_cVeg, cmor_name, 'cVegLut', (/id_ug/), time, &
+       'Carbon Mass in Vegetation', 'kg m-2', standard_name='vegetation_carbon_content', &
+       missing_value = -1.0, fill_missing=.FALSE.)
+
+  id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_ug/), &
+       time, 'Carbon Mass in Leaves', 'kg m-2', missing_value=-1.0, &
+       standard_name='leaf_carbon_content', fill_missing=.TRUE.)
+  id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_ug/), &
+       time, 'Carbon Mass in Wood', 'kg m-2', missing_value=-1.0, &
+       standard_name='wood_carbon_content', fill_missing=.TRUE.)
+  id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_ug/), &
+       time, 'Carbon Mass in Roots', 'kg m-2', missing_value=-1.0, &
+       standard_name='root_carbon_content', fill_missing=.TRUE.)
+  id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
+       time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
+       standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
+
+  call add_tiled_diag_field_alias(id_height, cmor_name, 'vegHeight', (/id_ug/), &
+       time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
+       'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
+
+  id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
+       time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
+       standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
+  id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
+       time, 'Carbon in Anthropogenic Pool', 'kg m-2', missing_value=-999.0, &
+       fill_missing=.TRUE.) ! standard_name not known at this time
+  call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
+       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
+       missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
+
+  id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Grazing on Land', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_grazing', &
+       fill_missing=.TRUE.)
+  id_fHarvest = register_tiled_diag_field( cmor_name, 'fHarvest', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Crop Harvesting', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_crop_harvesting', &
+       fill_missing=.TRUE.)
+  id_fProductDecomp = register_tiled_diag_field( cmor_name, 'fProductDecomp', (/id_ug/), &
+       time, 'decomposition out of product pools to CO2 in atmos', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='Carbon_flux_out_of_storage_product_pools_into_atmos', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_fProductDecomp, cmor_name, 'fProductDecompLut', (/id_ug/), &
+       time, 'flux from wood and agricultural product pools on land use tile into atmosphere', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='tendency_of_atmospheric_mass_content_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_wood_and_agricultural_product_pool', &
+       fill_missing=.FALSE.)
+  id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_ug/), &
+       time, 'Net Carbon Mass Flux into Atmosphere due to Land Use Change', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
+  id_fAnthDisturb = register_tiled_diag_field( cmor_name, 'fAnthDisturb', (/id_ug/), &
+       time, 'carbon mass flux into atmosphere due to any human activity', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_anthrogpogenic_emission', &
+       fill_missing=.TRUE.)
+
 end subroutine
 
 
@@ -1608,6 +1698,9 @@ subroutine vegn_step_2 ( vegn, diag, &
 !  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
   call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
+  ! CMOR/CMIP variables
+  if (id_lai_cmor>0) call send_tile_data(id_lai_cmor, sum(c(1:N)%nindivs*c(1:N)%leafarea), diag)
+
   end associate
   ! TODO: fix the diagnostics below
 !  call send_tile_data(id_leaf_size, cc%leaf_size, diag)
@@ -2119,6 +2212,7 @@ subroutine update_vegn_slow( )
                  cc(1:N)%bseed + &
                  cc(1:N)%nsc
      call send_cohort_data(id_btot,   tile%diag, cc(1:N),  btot, weight=cc(1:N)%nindivs, op=OP_SUM)
+     if (id_cVeg>0) call send_tile_data(id_cVeg, sum(cc(1:N)%nindivs*btot(1:N)), tile%diag) ! CMOR/CMIP diagnostics
      deallocate(btot)
 
      call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
@@ -2160,6 +2254,44 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
+
+     ! CMOR/CMIP variables
+     if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(cc(1:N)%bl*cc(1:N)%nindivs), tile%diag)
+     if (id_cWood>0) call send_tile_data(id_cWood, &
+         sum((cc(1:N)%bwood+cc(1:N)%bsw)*cc(1:N)%nindivs)*agf_bs, tile%diag)
+     if (id_cRoot>0) call send_tile_data(id_cRoot, &
+         sum(((cc(1:N)%bwood+cc(1:N)%bsw)*(1-agf_bs)+cc(1:N)%br)*cc(1:N)%nindivs), tile%diag)
+     if (id_cMisc>0) call send_tile_data(id_cMisc, sum((cc(1:N)%blv+cc(1:N)%nsc+cc(1:N)%bseed)*cc(1:N)%nindivs), tile%diag)
+
+     if (id_cProduct>0) then
+        cmass0 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass0 = cmass0 + tile%vegn%harv_pool(i)
+        enddo
+        call send_tile_data(id_cProduct, cmass0, tile%diag)
+     endif
+     if (id_cAnt>0) then
+        call send_tile_data(id_cAnt, sum(tile%vegn%harv_pool(:)), tile%diag)
+     endif
+
+     if (id_fGrazing>0) call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
+     if (id_fHarvest)   call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     if (id_fProductDecomp>0) then
+        cmass0 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass0 = cmass0 + tile%vegn%harv_rate(i)
+        enddo
+        call send_tile_data(id_fProductDecomp, cmass0/seconds_per_year, tile%diag)
+     endif
+     if (id_fLuc>0) call send_tile_data(id_fLuc, &
+            (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
+            +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
+            +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
+            +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
+            )/seconds_per_year, tile%diag)
+     if (id_fAnthDisturb>0) &
+            call send_tile_data(id_fAnthDisturb, sum(tile%vegn%harv_rate(:))/seconds_per_year, tile%diag)
+
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
@@ -2340,6 +2472,62 @@ subroutine read_remap_species(restart)
   deallocate(text, spnames, sptable)
 end subroutine read_remap_species
 
+! =====================================================================================
+! given vegetation tile and cohort test function, returns the fraction of tile area
+! occupied by the cohorts selected by the test function, as visible from above.
+
+! This is for CMOR/CMIP diagnostic output, e.g. treeFrac
+
+! Calculations are very similar to the layerfrac calculations in update_derived_vegn_data,
+! except that we do not count internal gaps in the canopy.
+function cohort_area_frac(vegn,test) result(frac); real :: frac
+  type(vegn_tile_type), intent(in) :: vegn
+  procedure(cohort_test_func) :: test ! returns TRUE if cohort fraction is counted
+
+  integer :: n_layers ! number of layers in vegetation
+  real, allocatable :: &
+        layer_area(:), & ! area of _all_ cohorts in the layer
+        c_area(:),     & ! area of _all suitable_ cohorts in the layer
+        norm_area(:)     ! normalisation layer area
+  real :: visible  ! fraction of layer visible from top
+  integer :: k, l
+
+  n_layers = maxval(vegn%cohorts(:)%layer)
+  allocate(layer_area(n_layers),c_area(n_layers),norm_area(n_layers))
+
+  layer_area(:) = 0; c_area(:) = 0.0
+  associate(cc=>vegn%cohorts)
+  do k = 1, vegn%n_cohorts
+     l = cc(k)%layer
+     layer_area(l) = layer_area(l) + cc(k)%crownarea*cc(k)%nindivs
+     if (test(cc(k))) &
+         c_area(l) = c_area(l)     + cc(k)%crownarea*cc(k)%nindivs
+  enddo
+  end associate
+
+  if (allow_external_gaps) then
+     norm_area(:) = max(1.0,layer_area(:))
+  else
+     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area
+     ! is occupied by the vegetation canopies
+     norm_area(:) = layer_area(:)
+     layer_area(:) = 1.0 ! to disallow gaps
+  endif
+
+  ! protect from zero layer area situation: this can happen if all cohorts die
+  ! due to mortality or starvation. In this case n_layers is 1, of course.
+  do k = 1,n_layers
+     if (layer_area(k)<=0) layer_area(k) = 1.0
+  enddo
+
+  visible = 1.0; frac = 0.0
+  do k = 1,n_layers
+     frac = frac + visible*c_area(k)/norm_area(k)
+     visible = visible*max(1.0-layer_area(k), 0.0)
+  enddo
+
+  deallocate(layer_area,c_area,norm_area)
+end function cohort_area_frac
 
 ! ============================================================================
 ! converts character array to string
@@ -2358,11 +2546,45 @@ end subroutine array2str
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component
 ! model tile exists or not
-logical function vegn_tile_exists(tile)
+function vegn_tile_exists(tile) result(answer); logical answer
    type(land_tile_type), pointer :: tile
-   vegn_tile_exists = associated(tile%vegn)
+   answer = associated(tile%vegn)
 end function vegn_tile_exists
 
+function any_vegn(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = .TRUE.
+end function
+
+function is_tree(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%lifeform == FORM_WOODY)
+end function
+
+function is_grass(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%lifeform == FORM_GRASS)
+end function
+
+function is_c3(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%pt == PT_C3)
+end function
+
+function is_c4(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%pt == PT_C4)
+end function
+
+function is_c3grass(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%lifeform == FORM_GRASS.and.spdata(cc%species)%pt == PT_C3)
+end function
+
+function is_c4grass(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = (spdata(cc%species)%lifeform == FORM_GRASS.and.spdata(cc%species)%pt == PT_C4)
+end function
 
 ! ============================================================================
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a

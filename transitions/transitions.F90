@@ -45,6 +45,7 @@ use land_tile_mod, only : land_tile_map, &
      empty, erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
+use land_tile_diag_mod, only : cmor_name
 
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
@@ -301,12 +302,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   enddo
   ! register CMIP/LUMIP transition fields
   do k1 = 1,N_LUMIP_TYPES
-     id_frac_in(k1) = register_diag_field ('cmor_land', &
+     id_frac_in(k1) = register_diag_field(cmor_name, &
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
          units='fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
-     id_frac_out(k1) = register_diag_field('cmor_land', &
+     id_frac_out(k1) = register_diag_field(cmor_name, &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
          units='fraction', area = id_cellarea)
