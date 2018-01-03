@@ -25,12 +25,11 @@ use snow_tile_mod, only : snow_tile_stock_pe
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
-use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data
+use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tracers_mod, only : ntcana, isphum
-use land_tile_diag_mod, only: set_default_diag_filter
-use land_debug_mod, only : is_watch_point
+use land_debug_mod, only : is_watch_point, check_conservation
 use table_printer_mod
 
 
@@ -105,16 +104,16 @@ real, allocatable :: dust_source(:) ! geographically-dependent dust source
 real, save    :: dt     ! fast time step, s
 
 !---- diag field IDs -----------------------------------------------------------
-integer :: id_soil_wetness, id_soil_iceness, id_dust_emis, id_dust_source, &
-           id_ddep_tot, id_wdep_tot, id_fatm_tot, id_cana_dens, id_u_ts, &
-           id_bareness
+integer :: id_soil_wetness, id_soil_iceness, id_dust_source, &
+           id_ddep_tot, id_wdep_tot, id_fatm_tot, id_emis_tot, &
+           id_cana_dens, id_u_ts, id_bareness, id_w10m, id_snow_f
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-subroutine land_dust_init (mask, id_ug)
+subroutine land_dust_init (id_ug, mask)
+  integer, intent(in) :: id_ug
   logical,intent(inout) :: mask(:)
-  integer,intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
   logical :: used ! return value from send_data
@@ -246,27 +245,28 @@ subroutine land_dust_init (mask, id_ug)
        lnd%time, 'soil wetness for dust emission calculations', 'unitless', missing_value=-1.0)
   id_soil_iceness = register_tiled_diag_field(diag_name, 'soil_iceness', (/id_ug/),  &
        lnd%time, 'soil ice content for dust emission calculations', 'unitless', missing_value=-1.0)
-  id_dust_emis = register_tiled_diag_field(diag_name, 'dust_emis', (/id_ug/),  &
-       lnd%time, 'dust emission', 'kg/(m2 s)', missing_value=-1.0)
   id_u_ts = register_tiled_diag_field(diag_name, 'u_ts', (/id_ug/),  &
        lnd%time, 'threshold of wind erosion', 'm/s', missing_value=-1.0)
   id_bareness = register_tiled_diag_field(diag_name, 'bareness', (/id_ug/),  &
        lnd%time, 'bareness measure', 'unitless', missing_value=-1.0)
+  id_w10m     = register_tiled_diag_field(diag_name, 'w10m', (/id_ug/),  &
+       lnd%time, 'ustar equivalent 10 meter wind speed', 'unitless', missing_value=-1.0)
+  id_snow_f   = register_tiled_diag_field(diag_name, 'snow_fmass', (/id_ug/),  &
+       lnd%time, 'frozen water mass', 'kg/m2', missing_value=-1.0)
   id_ddep_tot = register_tiled_diag_field(diag_name, 'dust_ddep', (/id_ug/),  &
        lnd%time, 'total dust dry deposition', 'kg/(m2 s)', missing_value=-1.0)
   id_wdep_tot = register_tiled_diag_field(diag_name, 'dust_wdep', (/id_ug/),  &
        lnd%time, 'total dust wet deposition in canopy air', 'kg/(m2 s)', missing_value=-1.0)
   id_fatm_tot = register_tiled_diag_field(diag_name, 'dust_fatm', (/id_ug/),  &
        lnd%time, 'total dust flux to the atmosphere', 'kg/(m2 s)', missing_value=-1.0)
+  id_emis_tot = register_tiled_diag_field(diag_name, 'dust_emis', (/id_ug/),  &
+       lnd%time, 'dust emission', 'kg/(m2 s)', missing_value=-1.0)
   id_cana_dens = register_tiled_diag_field(diag_name, 'cana_dens', (/id_ug/),  &
        lnd%time, 'density of canopy air', 'kg/m3', missing_value=-1.0)
 
   id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_ug/), &
        'topographical dust source', missing_value = -1.0 )
-
-  if (id_dust_source .gt. 0) then
-      used = send_data(id_dust_source, dust_source, lnd%time)
-  endif
+  if (id_dust_source > 0 ) used = send_data( id_dust_source, dust_source, lnd%time )
 
   do i = 1,n_dust_tracers
      name = trdata(i)%name
@@ -280,7 +280,7 @@ subroutine land_dust_init (mask, id_ug)
        (/id_ug/),  lnd%time, trim(name)//' wet deposition in canopy air', 'kg/(m2 s)', &
        missing_value=-1.0)
      trdata(i)%id_flux_atm = &
-       register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
+       register_tiled_diag_field(diag_name, trim(name)//'_fatm', &
        (/id_ug/),  lnd%time, trim(name)//' flux to the atmosphere', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_dfdtr = &
@@ -369,7 +369,7 @@ end function laminar_conductance
 subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
      precip_l, precip_s, p_surf, ustar, con_g, con_v )
   type(land_tile_type), intent(inout) :: tile
-  integer :: l ! unstructure grid cell indices (global)
+  integer :: l ! grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
   real, intent(in) :: dfdtr  (:) ! derivatives of tracer fluxes w.r.t. concentrations
   real, intent(in) :: precip_l   ! liquid precipitation, kg/(m2 s)
@@ -404,19 +404,29 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   real    :: ddep    ! dry deposition of the dust, kg/(m2 s)
   real    :: wdep    ! wet deposition of the dust, kg/(m2 s)
   real    :: scav    ! rain and snow scavenging coefficent, 1/s
-  real    :: wdep_tot, ddep_tot, fatm_tot ! total values of wet dep., dry dep., and atm. flux
+  real    :: wdep_tot, ddep_tot, fatm_tot, emis_tot ! total values of wet dep., dry dep., and atm. flux
   real    :: LAI     ! leaf area index, m2/m2
   real    :: wind10  ! wind at 10 m above displacement height, m/s
   real    :: ustar_s ! friction velocity at the top of quasi-laminar layer
 
+  real    :: mass0, mass1 ! variables for conservation checking
+
   if (.not.do_dust) return ! no dust, do nothing in this case
   wind10 = 10.0*ustar
 
+  ! + conservation check, part 1: calculate totals at the beginning of time step
+  mass0 = 0.0
+  do tr = 1, n_dust_tracers
+     idx = trdata(tr)%tr_cana
+     mass0 = mass0 + canopy_air_mass_for_tracers*tile%cana%tr(idx)
+  enddo
+  ! - end of conservation check, part 1
+  
   ! calculate dust sources
   call update_dust_source(tile,l,ustar,wind10,emis)
 
   rho = p_surf/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum))) ! air density
-  wdep_tot = 0.0; ddep_tot = 0.0 ; fatm_tot = 0.0 ! initialize total fluxes to zero for accumulation
+  wdep_tot = 0.0; ddep_tot = 0.0 ; fatm_tot = 0.0 ; emis_tot = 0.0 ! initialize total fluxes to zero for accumulation
   if (associated(tile%vegn)) LAI = vegn_tile_LAI(tile%vegn)
   do tr = 1, n_dust_tracers
      idx = trdata(tr)%tr_cana
@@ -479,18 +489,33 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
      wdep_tot = wdep_tot + wdep
      ddep_tot = ddep_tot + ddep
      fatm_tot = fatm_tot + f_atm
+     emis_tot = emis_tot + emis(tr)
   enddo
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
   call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
+  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)  
   call send_tile_data(id_cana_dens, rho,       tile%diag)
+
+  ! + conservation check, part 2: calculate totals in final state, and compare
+  !   with previous totals
+  mass1 = 0.0
+  do tr = 1, n_dust_tracers
+     idx = trdata(tr)%tr_cana
+     mass1 = mass1 + canopy_air_mass_for_tracers*tile%cana%tr(idx)
+  enddo
+  call check_conservation('update_land_dust','total dust',&
+       mass0+(emis_tot-wdep_tot-ddep_tot-fatm_tot)*dt, mass1, &
+       1e-14)
+  ! - end of conservation check, part 2
+
 end subroutine update_land_dust
 
 
 ! ==============================================================================
 subroutine update_dust_source(tile, l, ustar, wind10, emis)
   type(land_tile_type), intent(inout) :: tile ! it is only "inout" because diagnostics is sent to it
-  integer :: l ! unstructure grid indices 
+  integer :: l ! grid cell indices (global)
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(inout) :: emis(:)
@@ -500,7 +525,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real, parameter :: sigma = 1.0
   real, parameter :: beta = 100.0
   real :: soil_wetness, soil_iceness ! soil properties for dust source calculations
-  real :: snow_lmass, snow_fmass ! snow liquid and frozen water mass
+  real :: snow_lmass, snow_fmass ! snow liquid and frozen water mass (kg/m2)
   real :: bareness ! barenes factor, unitless
   real :: lambda, drag
   real :: u_ts, u_thresh ! wind erosion threshold, m/s
@@ -548,6 +573,8 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
     endif
   endif
 
+  if (lnd%ug_landfrac(l)<0.9) dust_emis = 0
+
   ! distribute dust emission among dust tracers
   do tr = 1,n_dust_tracers
      if (trdata(tr)%do_emission) &
@@ -557,9 +584,10 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   ! send data to diagnostics
   call send_tile_data(id_soil_wetness, soil_wetness, tile%diag)
   call send_tile_data(id_soil_iceness, soil_iceness, tile%diag)
-  call send_tile_data(id_dust_emis,    dust_emis,    tile%diag)
   call send_tile_data(id_u_ts,         u_ts,         tile%diag)
   call send_tile_data(id_bareness,     bareness,     tile%diag)
+  call send_tile_data(id_w10m,         wind10,       tile%diag)
+  call send_tile_data(id_snow_f,       snow_fmass,   tile%diag)
 
 end subroutine update_dust_source
 
