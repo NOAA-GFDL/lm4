@@ -241,6 +241,7 @@ type spec_data_type
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
   real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
   real    :: mortrate_d_u  = 0.2    ! daily mortality rate in understory
+  real    :: Tmin_mort     = 0.0    ! cold mortality threshold, degK; default zero value turns it off
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
@@ -767,6 +768,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(prob_e)
   __GET_SPDATA_REAL__(mortrate_d_c)
   __GET_SPDATA_REAL__(mortrate_d_u)
+  __GET_SPDATA_REAL__(Tmin_mort)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
@@ -1020,6 +1022,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'prob_e', spdata(:)%prob_e)
   call add_row(table, 'mortrate_d_c', spdata(:)%mortrate_d_c)
   call add_row(table, 'mortrate_d_u', spdata(:)%mortrate_d_u)
+  call add_row(table, 'Tmin_mort', spdata(:)%Tmin_mort)
   call add_row(table, 'LMA', spdata(:)%LMA)
   call add_row(table, 'LMA_understory_factor', spdata(:)%LMA_understory_factor)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
