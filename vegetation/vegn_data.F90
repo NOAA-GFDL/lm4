@@ -225,9 +225,12 @@ type spec_data_type
   real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area allometry parameters
   real    :: alphaBM = 0.559, thetaBM = 2.5 ! biomass allometry parameters
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 !
+
   real    :: maturalage    = 1.0    ! the age that can reproduce
-  real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
+  logical :: reproduces_in_understory = .FALSE. ! if true, plant can reproduce in the understory,
+                                    ! otherwise only in top layer
+
   ! seed dispersal and transport: obviously the fraction of seed dispersed to other tiles
   ! and grid cells would depend on the size of the tiles grid cells. In future, we should
   ! calculate those fractions, given dispersal radius of seeds for given species, and
@@ -687,6 +690,10 @@ subroutine read_species_data(name, sp, errors_found)
      call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
   end select
 
+  call add_known_name('reproduces_in_understory')
+  sp%reproduces_in_understory = fm_util_get_logical('reproduces_in_understory', &
+        caller=module_name, default_value=sp%reproduces_in_understory, scalar=.true.)
+
 #define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
   __GET_SPDATA_REAL__(treefall_disturbance_rate)
 
@@ -1014,6 +1021,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
+  call add_row(table, 'reproduces_in_understory', spdata(:)%reproduces_in_understory)
   call add_row(table, 'frac_seed_dispersed', spdata(:)%frac_seed_dispersed)
   call add_row(table, 'frac_seed_transported', spdata(:)%frac_seed_transported)
   call add_row(table, 'seedling_height', spdata(:)%seedling_height)

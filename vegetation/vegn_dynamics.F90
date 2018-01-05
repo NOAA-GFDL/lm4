@@ -870,14 +870,12 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      !update seed and sapwood biomass pools with the new growth (branches were updated above)
      NSCtarget = sp%NSC2targetbl*cc%bl_max
      G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
-     ! change maturity threashold to a diameter threash-hold
-     if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-        deltaSeed=      sp%v_seed * G_WF
-        deltaBSW = (1.0-sp%v_seed)* G_WF
+     if (cohort_can_reproduce(cc)) then
+        deltaSeed = sp%v_seed * G_WF
      else
-        deltaSeed= 0.0
-        deltaBSW = G_WF
+        deltaSeed = 0.0
      endif
+     deltaBSW = G_WF - deltaSeed
 
      if (sp%lifeform == FORM_GRASS) then ! isa 20170705
         ! 20170724 - new scheme
@@ -888,13 +886,12 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
         G_WF = min(G_WF, G_WF_max)
-        if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-           deltaSeed=      sp%v_seed * G_WF
-           deltaBSW = (1.0-sp%v_seed)* G_WF
+        if (cohort_can_reproduce(cc)) then
+           deltaSeed = sp%v_seed * G_WF
         else
-           deltaSeed= 0.0
-           deltaBSW = G_WF
+           deltaSeed = 0.0
         endif
+        deltaBSW = G_WF - deltaSeed
 
         nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
 
@@ -1492,10 +1489,11 @@ end subroutine update_soil_pools
 
 
 ! ============================================================================
-function cohort_can_reproduce(cc); logical cohort_can_reproduce
+logical function cohort_can_reproduce(cc)
   type(vegn_cohort_type), intent(in) :: cc
 
-  cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
+  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
+                         .and. cc%age > spdata(cc%species)%maturalage
 end function cohort_can_reproduce
 
 ! ============================================================================
