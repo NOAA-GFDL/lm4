@@ -822,7 +822,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         ! do not grow more than bl_max, br_max of leaves and roots
         G_LFR = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br, G_LFR))
      endif
-     cc%An_newleaf_daily = 0.0
 
      ! and distribute it between roots and leaves
      deltaBL  = min(G_LFR, max(0.0, &
@@ -1073,6 +1072,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! reset carbon accumulation terms
   cc%carbon_gain = 0
   cc%carbon_loss = 0
+  ! reset accumulated dAn/dLAI derivative
+  cc%An_newleaf_daily = 0.0
 
   end associate ! F2003
 
