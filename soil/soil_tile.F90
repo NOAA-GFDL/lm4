@@ -1185,6 +1185,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
   call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
   call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2

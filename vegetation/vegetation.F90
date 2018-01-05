@@ -1906,16 +1906,17 @@ subroutine update_derived_vegn_data(vegn)
     cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
     if (is_watch_point()) then
        write(*,'(i2.2,2x,":")',advance='NO') k
+       call dpri('height',cc%height)
        call dpri('LAI',cc%lai)
 
        call dpri('bl',cc%bl)
        call dpri('leafarea',cc%leafarea)
        call dpri('crownarea',cc%crownarea)
        call dpri('nindivs',cc%nindivs)
-       call dpri('gapfrac',spdata(sp)%internal_gap_frac)
-       call dpri('layerarea',layer_area(cc%layer))
+       ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
+       ! call dpri('layerarea',layer_area(cc%layer))
        call dpri('layer',cc%layer)
-       call dpri('species',cc%species)
+       call dpri('species',spdata(sp)%name)
 
        write(*,*)
     endif
