@@ -171,8 +171,6 @@ type :: vegn_cohort_type
   real :: gdd = 0.0
 
   ! for Light Saber
-  real :: laimax = 1.0
-  real :: An_newleaf = 0.0
   real :: An_newleaf_daily = 0.0
 
   ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
@@ -584,7 +582,7 @@ function leaf_area_from_biomass(bl,species,layer,firstlayer) result (area)
   integer, intent(in) :: layer, firstlayer
 
   if (layer > 1 .AND. firstlayer == 0) then
-     area = bl/(0.5*spdata(species)%LMA) ! half thickness for leaves in understory
+     area = bl/(spdata(species)%LMA_understory_factor*spdata(species)%LMA) ! half thickness for leaves in understory
   else
      area = bl/spdata(species)%LMA
   endif
@@ -769,8 +767,6 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
      cc%bwood = 0.0
   endif
   cc%bsw   = bw - cc%bwood
-  ! make LAImax prognostic
-  cc%laimax=sp%LAImax
   ! update derived quantyties based on the allometry
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0

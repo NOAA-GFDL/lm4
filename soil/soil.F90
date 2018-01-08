@@ -39,7 +39,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 
 use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
-     update_pool, add_litter, tracer_leaching_with_litter,transfer_pool_fraction, N_C_TYPES, &
+     update_pool, tracer_leaching_with_litter,transfer_pool_fraction, N_C_TYPES, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility
@@ -256,7 +256,9 @@ integer :: &
     id_protected_N, id_livemic_total_N, id_deadmic_total_N, id_fsn, id_ssn, &
     id_livemic_C, id_total_soil_C, id_dissolved_total_C, id_total_C_layered, &
     id_livemic_N, id_total_soil_N, id_dissolved_total_N, id_total_N_layered, &
-    id_tile_N_gain, id_tile_N_loss
+    id_tile_N_gain, id_tile_N_loss, &
+    id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C, &
+    id_negative_litter_N(N_C_TYPES), id_tot_negative_litter_N
 
 integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, id_litter_total_C_leaching, id_litter_total_ON_leaching, id_litter_NO3_leaching, id_litter_NH4_leaching,&
@@ -279,7 +281,8 @@ integer :: &
     id_total_NH4,id_total_NO3,&
     id_soil_NO3,id_soil_NH4,&
     id_total_denitrification_rate,id_soil_denitrification_rate,id_NO3_div_loss,&
-    id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,id_total_nitrification_rate
+    id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
+    id_total_nitrification_rate
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -289,7 +292,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
-! variables for calculations of CMOR/CMIP diagnostics
+! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
 real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 
@@ -723,6 +726,14 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_denitrif', sc_litter_denitrif_ptr,k)
         enddo
      endif
+     do i = 1, N_C_TYPES
+        if(field_exists(restart, 'negative_litter_C_'//trim(c_shortname(i)))) then
+           call get_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i)
+        endif
+        if(field_exists(restart, 'negative_litter_N_'//trim(c_shortname(i)))) then
+           call get_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i)
+        endif
+     enddo
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
@@ -1538,6 +1549,11 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case default
      call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
+  do i = 1, N_C_TYPES
+     call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i,'accumulated negative '//trim(c_longname(i))//' C litter input','kg/m2')
+     call add_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i,'accumulated negative '//trim(c_longname(i))//' N litter input','kg/m2')
+  enddo
+
   call save_land_restart(restart)
   call free_land_restart(restart)
 
@@ -3338,11 +3354,17 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif/dt_fast_yr/dz, diag)
   if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
              (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
- if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
+  if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
                 (sum(soil_N_immobilization)+sum(litter_N_immobilization))/dt_fast_yr,diag)
   if (id_total_nitrification_rate>0) call send_tile_data(id_total_nitrification_rate, &
           (sum(soil_nitrif)+sum(litter_nitrif))/dt_fast_yr,diag)
 
+  do i = 1, N_C_TYPES
+     if (id_negative_litter_C(i)>0) call send_tile_data(id_negative_litter_C(i),soil%neg_litt_C(i),diag)
+     if (id_negative_litter_N(i)>0) call send_tile_data(id_negative_litter_N(i),soil%neg_litt_N(i),diag)
+  enddo
+  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soil%neg_litt_C),diag)
+  if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soil%neg_litt_N),diag)
 end subroutine Dsdt_CORPSE
 
 
@@ -4512,6 +4534,20 @@ subroutine sc_soil_C_ptr(t,i,j,k,p)
   p=>NULL()
   if(associated(t)) then
      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterC(k)
+  endif
+end subroutine
+
+subroutine sc_negative_litter_C_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL()
+  if(associated(t))then
+     if(associated(t%soil))p=>t%soil%neg_litt_C(i)
+  endif
+end subroutine
+
+subroutine sc_negative_litter_N_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL()
+  if(associated(t))then
+     if(associated(t%soil))p=>t%soil%neg_litt_N(i)
   endif
 end subroutine
 

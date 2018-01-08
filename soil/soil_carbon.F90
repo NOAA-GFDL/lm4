@@ -1691,20 +1691,36 @@ end subroutine add_cohort
 
 
 ! Adds litter as a new cohort
-subroutine add_litter(pool,newLitterC,newLitterN_,rhizosphere_frac)
-  type(soil_pool),intent(inout)::pool
-  real,intent(in) :: newLitterC(N_C_TYPES),newLitterN_(N_C_TYPES)
-  real,intent(in),optional :: rhizosphere_frac
+subroutine add_litter(pool,litterC,litterN,rhizosphere_frac,&
+                      negativeInputC,negativeInputN)
+  type(soil_pool), intent(inout) :: pool
+  real,            intent(in)    :: litterC(N_C_TYPES), litterN(N_C_TYPES)
+  real, optional,  intent(in)    :: rhizosphere_frac
+  real, optional,  intent(inout) :: negativeInputC(N_C_TYPES), negativeInputN(N_C_TYPES)
 
-  type(litterCohort)::newCohort,tempCohort
-  real::initialMicrobeC,initialMicrobeN
-  real::rhiz_frac
-  real,dimension(N_C_TYPES)::N_type_fracs,C_type_fracs
+  type(litterCohort) :: newCohort, tempCohort
+  real :: initialMicrobeC, initialMicrobeN
+  real :: rhiz_frac
+  real, dimension(N_C_TYPES) :: N_type_fracs, C_type_fracs
 
-  real :: newLitterN(N_C_TYPES)
+  real :: newLitterC(N_C_TYPES), newLitterN(N_C_TYPES)
+
+  if (present(negativeInputC)) then
+     negativeInputC(:) = negativeInputC(:) + min(litterC,0.0)
+  else
+     ! new carbon must be non-negative
+     call check_var_range(litterC, 0.0, HUGE(1.0), 'add_litter', 'litterC', FATAL)
+  endif
+  newLitterC = max(litterC, 0.0)
 
   if (soil_carbon_option==SOILC_CORPSE_N) then
-     newLitterN = newLitterN_
+     if (present(negativeInputN)) then
+        negativeInputN(:) = negativeInputN + min(litterN,0.0)
+     else
+        ! new carbon must be non-negative
+        call check_var_range(litterN, 0.0, HUGE(1.0), 'add_litter', 'litterN', FATAL)
+     endif
+     newLitterN = max(litterN, 0.0)
   else
      newLitterN = 0.0
   endif

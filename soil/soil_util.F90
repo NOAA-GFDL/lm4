@@ -45,11 +45,12 @@ end subroutine soil_util_init
 
 ! ============================================================================
 ! Spread new root C through profile
-subroutine add_root_litter(soil, vegn, litterC, litterN)
+subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativeInputN)
   type(soil_tile_type)   , intent(inout) :: soil
   type(vegn_tile_type) , intent(in)    :: vegn
   real, intent(in) :: litterC(num_l,N_C_TYPES) ! kg C/(m2 of soil)
   real, intent(in) :: litterN(num_l,N_C_TYPES) ! kg C/(m2 of soil)
+  real, intent(inout), optional :: negativeInputC(N_C_TYPES), negativeInputN(N_C_TYPES)
 
   integer :: i,k
   real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
@@ -57,7 +58,8 @@ subroutine add_root_litter(soil, vegn, litterC, litterN)
   call rhizosphere_frac(vegn, rhiz_frac)
 
   do k = 1,num_l
-     call add_litter(soil%soil_organic_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k))
+     call add_litter(soil%soil_organic_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k), &
+                     negativeInputC, negativeInputN)
   enddo
 end subroutine add_root_litter
 
@@ -189,15 +191,33 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
         soil%ssc_in(l) = soil%ssc_in(l) + root_litt_C(l,C_SLOW)
      enddo
   case (SOILC_CORPSE, SOILC_CORPSE_N)
-     call add_litter(soil%litter(LEAF),  leaf_litt_C, leaf_litt_N)
-     call add_litter(soil%litter(CWOOD), wood_litt_C, wood_litt_N)
+     call borrow_to_negatives(wood_litt_C,soil%neg_litt_C) ! borrow from wood litter first
+     call borrow_to_negatives(wood_litt_N,soil%neg_litt_N) ! borrow from wood litter first
+     call borrow_to_negatives(leaf_litt_C,soil%neg_litt_C) ! and from leaf litter second
+     call borrow_to_negatives(leaf_litt_N,soil%neg_litt_N) ! and from leaf litter second
+     call add_litter(soil%litter(LEAF),  leaf_litt_C, leaf_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
+     call add_litter(soil%litter(CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      call rhizosphere_frac(vegn, rhiz_frac)
      do l = 1,num_l
-        call add_litter(soil%soil_organic_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l))
+        call add_litter(soil%soil_organic_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l), &
+                        negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      enddo
   case default
      call error_mesg('add_soil_carbon','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
+
+contains
+
+  ! given litter and amount of negative litter from previous time step, attempts to borrow
+  ! positive carbon to reduce the amount of negativs
+  subroutine borrow_to_negatives(litt, negatives)
+    real, intent(inout) :: litt(:), negatives(:)
+
+    litt      = litt + negatives
+    negatives = min(litt,0.0)
+    litt      = max(litt,0.0)
+  end subroutine borrow_to_negatives
+
 end subroutine add_soil_carbon
 
 ! ============================================================================

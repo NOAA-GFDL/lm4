@@ -70,7 +70,6 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
   real :: lost_wood, lost_alive, burned_wood, burned_alive, burned_N
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: l
-  real :: bp, bn ! positive and negative amounts of litter, used in adjusting litter pools if one is negative
 
   call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
   call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
@@ -120,28 +119,6 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
 
   ! leaf_litt_C can be below zero if biomasses are very small and carbon_gain is negative:
   ! try to borrow carbon from wood litter.
-  do l = 1,N_C_TYPES
-     if (leaf_litt_C(l)<0) then
-        wood_litt_C(l) = wood_litt_C(l) + leaf_litt_C(l)
-        leaf_litt_C(l) = 0.0
-     endif
-  enddo
-  call check_var_range(wood_litt_C, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt_C',  WARNING)
-  if (any(wood_litt_C<0.0)) then
-     ! if some wood litter components are negative, try to borrow carbon
-     ! from positive components so that the total carbon is conserved
-     bp = 0.0; bn=0.0
-     do l = 1, N_C_TYPES
-        if (wood_litt_C(l)>0) bp = bp+wood_litt_C(l)
-        if (wood_litt_C(l)<0) bn = bn+abs(wood_litt_C(l))
-     enddo
-     if (bp<bn) call land_error_message(&
-        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt_C))//'), rescaling', FATAL)
-     do l = 1, N_C_TYPES
-        if (wood_litt_C(l)>0) wood_litt_C(l) = wood_litt_C(l)*(bp-bn)/bp
-        if (wood_litt_C(l)<0) wood_litt_C(l) = 0.0
-     enddo
-  endif
 
   ! accumulate root litter
   call cohort_root_litter_profile(cc, dz, profile)

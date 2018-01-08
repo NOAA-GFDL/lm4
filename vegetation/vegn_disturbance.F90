@@ -395,7 +395,7 @@ subroutine vegn_nat_mortality_ppa ( )
         ! calculate death rate for each of the cohorts
         allocate(ndead(t0%vegn%n_cohorts))
         do k = 1,t0%vegn%n_cohorts
-           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, ndead(k))
+           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, t0%vegn%t_cold, ndead(k))
         enddo
         ! given death numbers for each cohort, update tile
         call tile_nat_mortality_ppa(t0,ndead,t1)
@@ -448,9 +448,10 @@ end subroutine vegn_nat_mortality_ppa
 ! ============================================================================
 ! for a given cohort and time interval, calculates how many individuals die
 ! naturally during this interval
-subroutine cohort_nat_mortality_ppa(cc, deltat, ndead)
+subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, ndead)
   type(vegn_cohort_type), intent(in)  :: cc     ! cohort
   real,                   intent(in)  :: deltat ! time interval, s
+  real,                   intent(in)  :: coldest_month_T ! temperature of coldest month, degK
   real,                   intent(out) :: ndead  ! number of individuals to die, indiv/m2
 
   real :: deathrate ! mortality rate, 1/year
@@ -476,6 +477,9 @@ subroutine cohort_nat_mortality_ppa(cc, deltat, ndead)
          deathrate = sp%mortrate_d_c
      endif
   endif
+
+  ! cold mortality
+  if (coldest_month_T < sp%Tmin_mort) deathrate = max(deathrate, 2.0) ! at least 1-exp(-2) trees die per year
 
   ndead = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
   end associate

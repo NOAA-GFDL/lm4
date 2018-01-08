@@ -333,6 +333,9 @@ type :: soil_tile_type
    real :: coarsewoodlitter_ssn_in
    real :: coarsewoodlitter_deadmic_N_in
 
+   real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
+   real :: neg_litt_N(N_C_TYPES) = 0.0 ! cumulative value of negative N litter input to soil
+
    ! For storing DOC fluxes in tiled model
    real, allocatable :: div_hlsp_DOC(:,:) ! dimension (N_C_TYPES, num_l) [kg C/m^2/s] net flux of carbon pools
                                       ! out of tile
@@ -1341,6 +1344,8 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   do i = 1, N_LITTER_POOLS
      call combine_pools(s1%litter(i),s2%litter(i),w1,w2)
   enddo
+  s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
+  s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
@@ -2174,7 +2179,7 @@ end function soil_tile_heat
 
 ! ============================================================================
 ! returns soil tile carbon content, kg C/m2
-function soil_tile_carbon (soil); real soil_tile_carbon
+real function soil_tile_carbon (soil)
   type(soil_tile_type),  intent(in)  :: soil
 
   real    :: temp
@@ -2182,7 +2187,7 @@ function soil_tile_carbon (soil); real soil_tile_carbon
 
   select case (soil_carbon_option)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
-     soil_tile_carbon = 0.0
+     soil_tile_carbon = sum(soil%neg_litt_C)
      do i=1,num_l
         call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
@@ -2199,7 +2204,7 @@ end function soil_tile_carbon
 ! ============================================================================
 ! returns soil tile nitrogen content, kg N/m2
 ! this should return zero if soil_carbon_option is not SOILC_CORPSE_N
-function soil_tile_nitrogen (soil); real soil_tile_nitrogen
+real function soil_tile_nitrogen (soil)
   type(soil_tile_type),  intent(in)  :: soil
 
   real    :: temp
@@ -2207,7 +2212,7 @@ function soil_tile_nitrogen (soil); real soil_tile_nitrogen
 
   select case (soil_carbon_option)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
-     soil_tile_nitrogen = 0.0
+     soil_tile_nitrogen = sum(soil%neg_litt_N)
      do i=1,num_l
         call poolTotals(soil%soil_organic_matter(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp

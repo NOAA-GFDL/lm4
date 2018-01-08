@@ -25,7 +25,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      agf_bs, l_fract, understory_lai_factor, min_lai, &
-     use_light_saber, laimax_ceiling, laimax_floor, nsc_starv_frac, &
+     use_light_saber, nsc_starv_frac, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -1506,6 +1506,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   !ens
   real, parameter :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
   real, parameter :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
+  real, parameter :: deltaLAI_max = 1.0  ! max leaf growth rate, m2/(m2 day)
   real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
@@ -1629,8 +1630,12 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         endif
 
         ! calculate carbon spent on growth of leaves and roots
-        G_LFR = max(0.0, min(cc%bl_max+br_max_Nstress-cc%bl-cc%br,  &
-                             0.1*cc%nsc/(1+sp%GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+        G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
+        if (use_light_saber) then
+           if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+        else
+           G_LFR = max(0.0, min(cc%bl_max+br_max_Nstress-cc%bl-cc%br, G_LFR))
+        endif
 
         ! and distribute it between roots and leaves
         deltaBL  = min(G_LFR, max(0.0, &
@@ -1646,13 +1651,12 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
         G_WF = min(G_WF, G_WF_max)
-        if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-           deltaSeed=      sp%v_seed * G_WF
-           deltaBSW = (1.0-sp%v_seed)* G_WF
+        if (cohort_can_reproduce(cc)) then
+           deltaSeed = sp%v_seed * G_WF
         else
-           deltaSeed= 0.0
-           deltaBSW = G_WF
+           deltaSeed = 0.0
         endif
+        deltaBSW = G_WF - deltaSeed
 
         if (deltaBSW/sp%sapwood_c2n>0.1*cc%stored_N.and.N_limits_live_biomass) then
            deltaBSW = 0.1*cc%stored_N*sp%sapwood_c2n
@@ -1661,15 +1665,19 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
         ! Allocation to leaves and fine root growth
         nsctmp = cc%nsc - G_WF * (1+sp%GROWTH_RESP)
-        G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
-                              0.1*nsctmp/(1+sp%GROWTH_RESP)))
-        ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+        G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
+        if (use_light_saber) then
+           if (cc%bl>0 .and. cc%An_newleaf_daily<=0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+        else
+           G_LFR = max(0.0, min(cc%bl_max - cc%bl + max(0.0, cc%br_max - cc%br), G_LFR))
+        endif
 
         if ( cc%br > cc%br_max ) then      ! roots larger than target
             deltaBL = G_LFR
         else                               ! standard scheme
             deltaBL = min(G_LFR, max(0.0, &
-                         (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
+                         (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
+                         ))
         end if
         deltaBR  = G_LFR - deltaBL
      end select
@@ -1797,14 +1805,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
-     if (cc%An_newleaf_daily > 0 ) then
-         cc%laimax = min(cc%laimax + sp%newleaf_layer,laimax_ceiling)
-     else if (cc%An_newleaf_daily < 0) then
-         cc%laimax = max(cc%laimax - sp%newleaf_layer,laimax_floor)
-     else
-         ! do nothing if the derivative is zero
-     endif
-     cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
@@ -1825,9 +1825,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      endif
      ! in case of light saber override bl_max, but the keep the value of firstlayer
      ! calculated above
-     if (use_light_saber) then
-        cc%bl_max = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
-     endif
      cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
 
      if(is_watch_point()) then
@@ -1853,6 +1850,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! use for other vegetation fluxes
 
   if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%stored_N',FATAL)
+  ! reset accumulated dAn/dLAI derivative
+  cc%An_newleaf_daily = 0.0
 
   if (do_check_conservation) then
      b1 = plant_C(cc); n1=plant_N(cc)
@@ -2363,10 +2362,11 @@ end subroutine update_soil_pools
 
 
 ! ============================================================================
-function cohort_can_reproduce(cc); logical cohort_can_reproduce
+logical function cohort_can_reproduce(cc)
   type(vegn_cohort_type), intent(in) :: cc
 
-  cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
+  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
+                         .and. cc%age > spdata(cc%species)%maturalage
 end function cohort_can_reproduce
 
 ! ============================================================================
