@@ -1668,6 +1668,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
         if (use_light_saber) then
            if (cc%bl>0 .and. cc%An_newleaf_daily<=0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+           G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
         else
            G_LFR = max(0.0, min(cc%bl_max - cc%bl + max(0.0, cc%br_max - cc%br), G_LFR))
         endif
