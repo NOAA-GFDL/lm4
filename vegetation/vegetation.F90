@@ -194,8 +194,7 @@ real            :: weight_av_phen  ! weight for low-band-pass soil moisture smoo
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_sai, id_leafarea, id_leaf_size, &
-   id_laii, id_laimax, id_laiimax, &
+   id_lai, id_lai_var, id_lai_std, id_sai, id_leafarea, id_leaf_size, id_laii, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -220,7 +219,8 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
-   id_lai_kok, id_DanDlai
+   id_lai_kok, id_DanDlai, id_DanDlai1, id_PAR_dn, id_PAR_net
+
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, &
    id_cVeg, id_cAnt, id_cProduct, id_cLeaf, id_cWood, id_cRoot, id_cMisc, &
@@ -349,9 +349,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2,'bseed',cohort_bseed_ptr)
         call get_cohort_data(restart2,'bl_max',cohort_bl_max_ptr)
         call get_cohort_data(restart2,'br_max',cohort_br_max_ptr)
-        !ppg 20171214
-        if(field_exists(restart2,'laimax')) &
-           call get_cohort_data(restart2,'laimax',cohort_laimax_ptr)
         ! isa 201707
         if (field_exists(restart2,'bsw_max')) &
            call get_cohort_data(restart2, 'bsw_max', cohort_bsw_max_ptr)
@@ -630,8 +627,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
-  id_laimax    = register_cohort_diag_field ( module_name, 'laimax',  &
-       (/id_ug/), time, 'maximum leaf area index', 'm2/m2', missing_value=-1.0)
   id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
        (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
        missing_value=-1.0 , opt='variance')
@@ -644,8 +639,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'leaf area per individual', 'm2', missing_value=-1.0)
   id_laii   = register_cohort_diag_field ( module_name, 'laii',  &
        (/id_ug/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
-  id_laiimax = register_cohort_diag_field ( module_name, 'laiimax',  &
-       (/id_ug/), time, 'maximum leaf area index per individual', 'm2/m2', missing_value=-1.0)
 
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
        (/id_ug/), time, missing_value=-1.0 )
@@ -732,6 +725,15 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_DanDlai = register_cohort_diag_field ( module_name, 'DanDlai',  &
        (/id_ug/), time, 'derivative of photosynthesis w.r.t. LAI', missing_value=-1.0 )
+  id_DanDlai1 = register_cohort_diag_field ( module_name, 'DanDlai1',  &
+       (/id_ug/), time, 'derivative of photosynthesis w.r.t. LAI', missing_value=-1.0 )
+
+  id_PAR_dn = register_cohort_diag_field ( module_name, 'PAR_dn',  &
+       (/id_ug/), time, 'downward flux of photosynthetically-active radiation on top of the canopy', &
+       'W/m2', missing_value=-1.0 )
+  id_PAR_net = register_cohort_diag_field ( module_name, 'PAR_net',  &
+       (/id_ug/), time, 'net flux of photosynthetically-active radiation to the canopy', &
+       'W/m2', missing_value=-1.0 )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
@@ -1026,8 +1028,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'DBH_ys', cohort_DBH_ys_ptr, 'DBH at the end of previous year','m')
   call add_cohort_data(restart2,'topyear', cohort_topyear_ptr, 'time spent in the top canopy layer','years')
   call add_cohort_data(restart2,'gdd', cohort_gdd_ptr, 'growing degree days','degC day')
-  !ppg 20171214
-  call add_cohort_data(restart2,'laimax',cohort_laimax_ptr, 'prognostic maximum leaf area index','m2/m2')
   ! wolf restart data - psi, Kxa
   call add_cohort_data(restart2, 'psi_r', cohort_psi_r_ptr, 'psi root', 'm')
   call add_cohort_data(restart2, 'psi_x', cohort_psi_x_ptr, 'psi stem', 'm' )
@@ -1235,7 +1235,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
        RHi, &       ! relative humidity inside the leaf, at the point of vaporization
        lai_kok, &   ! LAI above 40 umoles of light
-       An_newleaf   ! derivative of An w.r.t. LAI, for diagnostics only
+       An_newleaf, An_newleaf1   ! derivative of An w.r.t. LAI, for diagnostics only
 
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
@@ -1342,7 +1342,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i), An_newleaf(i))
+        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i), An_newleaf(i), An_newleaf1(i))
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1528,6 +1528,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_lai_kok, diag, cc(:), lai_kok(:), weight=cc(:)%layerfrac, op=OP_SUM)
 
   call send_cohort_data(id_DanDlai, diag, cc(:), An_newleaf(:), weight=cc(:)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_DanDlai1, diag, cc(:), An_newleaf1(:), weight=cc(:)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_PAR_dn,  diag, cc(:), SWdn(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_PAR_net, diag, cc(:), RSv(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
 
 end subroutine vegn_step_1
 
@@ -1686,9 +1689,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
-  call send_cohort_data(id_laimax,  diag, c(1:N), c(1:N)%laimax, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
-  call send_cohort_data(id_laiimax, diag, c(1:N), c(1:N)%laimax, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
   call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
   ! as for average LAI, but they are aggregated differently by the diagnostics
@@ -1905,16 +1906,17 @@ subroutine update_derived_vegn_data(vegn)
     cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
     if (is_watch_point()) then
        write(*,'(i2.2,2x,":")',advance='NO') k
+       call dpri('height',cc%height)
        call dpri('LAI',cc%lai)
 
        call dpri('bl',cc%bl)
        call dpri('leafarea',cc%leafarea)
        call dpri('crownarea',cc%crownarea)
        call dpri('nindivs',cc%nindivs)
-       call dpri('gapfrac',spdata(sp)%internal_gap_frac)
-       call dpri('layerarea',layer_area(cc%layer))
+       ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
+       ! call dpri('layerarea',layer_area(cc%layer))
        call dpri('layer',cc%layer)
-       call dpri('species',cc%species)
+       call dpri('species',spdata(sp)%name)
 
        write(*,*)
     endif
@@ -2659,7 +2661,6 @@ DEFINE_COHORT_ACCESSOR(real,bseed)
 DEFINE_COHORT_ACCESSOR(real,bsw_max)
 DEFINE_COHORT_ACCESSOR(real,bl_max)
 DEFINE_COHORT_ACCESSOR(real,br_max)
-DEFINE_COHORT_ACCESSOR(real,laimax)
 DEFINE_COHORT_ACCESSOR(real,dbh)
 DEFINE_COHORT_ACCESSOR(real,crownarea)
 DEFINE_COHORT_ACCESSOR(real,bliving)

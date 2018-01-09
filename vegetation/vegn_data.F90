@@ -117,8 +117,7 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, &
-    use_light_saber, laimax_ceiling, laimax_floor, &
-    DBH_mort, A_mort, B_mort, nsc_starv_frac
+    use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -164,6 +163,7 @@ type spec_data_type
   real    :: root_perm  = 5.0e-7 ! fine root membrane permeability per unit area, kg/(m3 s)
 
   real    :: LMA        = 0.036  ! leaf mass per unit area, kg C/m2
+  real    :: LMA_understory_factor = 0.5 ! Resp multiplier for understory
   real    :: leaf_size  = 0.04   ! characteristic leaf size
 
   real    :: alpha_phot = 0.06   ! photosynthesis efficiency
@@ -225,9 +225,12 @@ type spec_data_type
   real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area allometry parameters
   real    :: alphaBM = 0.559, thetaBM = 2.5 ! biomass allometry parameters
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 !
+
   real    :: maturalage    = 1.0    ! the age that can reproduce
-  real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
+  logical :: reproduces_in_understory = .FALSE. ! if true, plant can reproduce in the understory,
+                                    ! otherwise only in top layer
+
   ! seed dispersal and transport: obviously the fraction of seed dispersed to other tiles
   ! and grid cells would depend on the size of the tiles grid cells. In future, we should
   ! calculate those fractions, given dispersal radius of seeds for given species, and
@@ -241,6 +244,7 @@ type spec_data_type
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
   real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
   real    :: mortrate_d_u  = 0.2    ! daily mortality rate in understory
+  real    :: Tmin_mort     = 0.0    ! cold mortality threshold, degK; default zero value turns it off
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
@@ -381,8 +385,6 @@ real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
 logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
     ! of the canopy that cannot support themselves by photosynthesis are mercilessly
     ! cut off.
-real, protected :: laimax_ceiling = 20.0, laimax_floor = 1.0 ! max and min values imposed
-    ! on laimax calculated by "light saber" treatment
 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
@@ -423,7 +425,7 @@ namelist /vegn_data_nml/ &
   cmc_eps, &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, &
-  use_light_saber, laimax_ceiling, laimax_floor, &
+  use_light_saber, &
   nat_mortality_splits_tiles
 
 contains ! ###################################################################
@@ -688,6 +690,10 @@ subroutine read_species_data(name, sp, errors_found)
      call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
   end select
 
+  call add_known_name('reproduces_in_understory')
+  sp%reproduces_in_understory = fm_util_get_logical('reproduces_in_understory', &
+        caller=module_name, default_value=sp%reproduces_in_understory, scalar=.true.)
+
 #define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
   __GET_SPDATA_REAL__(treefall_disturbance_rate)
 
@@ -743,6 +749,7 @@ subroutine read_species_data(name, sp, errors_found)
 
   __GET_SPDATA_REAL__(smoke_fraction)
   __GET_SPDATA_REAL__(LMA)
+  __GET_SPDATA_REAL__(LMA_understory_factor)
 
   __GET_SPDATA_REAL__(dat_height)
   __GET_SPDATA_REAL__(dat_lai)
@@ -768,6 +775,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(prob_e)
   __GET_SPDATA_REAL__(mortrate_d_c)
   __GET_SPDATA_REAL__(mortrate_d_u)
+  __GET_SPDATA_REAL__(Tmin_mort)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
@@ -1013,6 +1021,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
+  call add_row(table, 'reproduces_in_understory', spdata(:)%reproduces_in_understory)
   call add_row(table, 'frac_seed_dispersed', spdata(:)%frac_seed_dispersed)
   call add_row(table, 'frac_seed_transported', spdata(:)%frac_seed_transported)
   call add_row(table, 'seedling_height', spdata(:)%seedling_height)
@@ -1021,7 +1030,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'prob_e', spdata(:)%prob_e)
   call add_row(table, 'mortrate_d_c', spdata(:)%mortrate_d_c)
   call add_row(table, 'mortrate_d_u', spdata(:)%mortrate_d_u)
+  call add_row(table, 'Tmin_mort', spdata(:)%Tmin_mort)
   call add_row(table, 'LMA', spdata(:)%LMA)
+  call add_row(table, 'LMA_understory_factor', spdata(:)%LMA_understory_factor)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)

@@ -267,7 +267,7 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
   id_water_cons,    id_carbon_cons,   id_DOCrunf,                          &
-  id_parnet, id_grnd_rh, id_cana_rh
+  id_grnd_rh, id_cana_rh
 
 ! IDs of CMOR/CMIP variables
 integer :: id_sftlf, id_sftgif ! static fractions
@@ -288,7 +288,6 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
 ! real, parameter :: init_value = Z'FFF0000000000001'
 real, parameter :: init_value = 0.0
-
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -2282,12 +2281,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_tile_data(id_cana_rh, tile%cana%tr(isphum)/cana_qsat, tile%diag)
   endif
 
-  if(associated(tile%vegn)) then
-     associate(c=>tile%vegn%cohorts)
-     call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac, op=OP_SUM)
-     end associate
-  endif
-
   ! CMOR/CMIP variables
   call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
   call send_tile_data(id_prra,   precip_l,                            tile%diag)
@@ -2328,8 +2321,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
-  if (id_nbp>0) call send_tile_data(id_nbp,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
-
+  if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_co2, tile%diag)
 end subroutine update_land_model_fast_0d
 
 
@@ -2369,7 +2361,6 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call send_cellfrac_data(id_fracLut_crp,  is_crop,    scale=1.0)
   call send_cellfrac_data(id_fracLut_pst,  is_pasture, scale=1.0)
   call send_cellfrac_data(id_fracLut_urb,  is_urban,   scale=1.0)
-
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -3823,9 +3814,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
-
-  id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
-             'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
 
   ! CMOR/CMIP variables
   id_pcp = register_tiled_diag_field ( cmor_name, 'pcp', axes, time, &

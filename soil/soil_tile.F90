@@ -269,6 +269,7 @@ type :: soil_tile_type
        asoil_in(:), &
        fsc_in(:), &
        ssc_in(:)
+   real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative litter input to soil
 
    ! For storing DOC fluxes in tiled model
    real, allocatable :: div_hlsp_DOC(:,:) ! dimension (N_C_TYPES, num_l) [kg C/m^2/s] net flux of carbon pools
@@ -1184,6 +1185,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
   call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
   call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
@@ -1945,7 +1947,7 @@ end function soil_tile_heat
 
 ! ============================================================================
 ! returns soil tile carbon content, kg C/m2
-function soil_tile_carbon (soil); real soil_tile_carbon
+real function soil_tile_carbon (soil)
   type(soil_tile_type),  intent(in)  :: soil
 
   real    :: temp
@@ -1953,7 +1955,7 @@ function soil_tile_carbon (soil); real soil_tile_carbon
 
   select case (soil_carbon_option)
   case (SOILC_CORPSE)
-     soil_tile_carbon = 0.0
+     soil_tile_carbon = sum(soil%neg_litt_C)
      do i=1,num_l
         call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp

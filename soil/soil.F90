@@ -37,7 +37,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 
 use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
-     update_pool, add_litter, add_carbon_to_cohorts, &
+     update_pool, add_carbon_to_cohorts, &
      carbon_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
      c_shortname, c_longname, A_function, debug_pool, adjust_pool_ncohorts
@@ -251,7 +251,8 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_coarsewoodlitter_fast_C_leaching,id_coarsewoodlitter_slow_C_leaching,id_coarsewoodlitter_deadmic_C_leaching,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
     id_slomtot, id_wet_frac, id_macro_infilt, &
-    id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
+    id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, &
+    id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
@@ -260,11 +261,12 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
+! variables for CMOR/CMIP diagnostic calculations
+real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
+real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 
 integer, allocatable :: soil_tags(:,:) ! module copy of soil tags for cold start
 
-real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
-real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 ! ==== end of module variables ===============================================
 
 contains
@@ -665,6 +667,11 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
         endif
      endif
+     do i = 1, N_C_TYPES
+        if(field_exists(restart, 'negative_litter_C_'//trim(c_shortname(i)))) then
+           call get_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i)
+        endif
+     enddo
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
@@ -848,7 +855,14 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
      id_coarsewoodlitter_deposited(i) = register_tiled_diag_field ( module_name, 'coarsewoodlitter_'//trim(c_shortname(i))//'_deposition_rate',  &
           axes(1:1), lnd%time, trim(c_longname(i))//' coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
           missing_value=-100.0 )
+     id_negative_litter_C(i) = register_tiled_diag_field ( module_name, 'negative_litter_C_'//trim(c_shortname(i)),  &
+          axes(1:1), lnd%time, trim(c_longname(i))//' accumulated negative C input to all soil pools', 'kg C', &
+          missing_value=-100.0 )
   enddo
+  id_tot_negative_litter_C = register_tiled_diag_field ( module_name, 'negative_litter_C',  &
+          axes(1:1), lnd%time, 'accumulated negative C input to all soil pools', 'kg C', &
+          missing_value=-100.0 )
+
   id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_ug/), &
        lnd%time, 'Total soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_Qmax = register_tiled_diag_field ( module_name, 'Qmax', axes(1:1),  &
@@ -1353,6 +1367,10 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case default
      call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
   end select
+  do i = 1, N_C_TYPES
+     call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i,'accumulated negative '//trim(c_longname(i))//' C litter input','kg/m2')
+  enddo
+
   call save_land_restart(restart)
   call free_land_restart(restart)
 
@@ -3037,7 +3055,10 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      if (id_coarsewoodlitter_deposited(k)>0) call send_tile_data(id_coarsewoodlitter_deposited(k),coarsewoodlitter_C_deposited(k)/dt_fast_yr,diag)
 
      if (id_deposited(k)>0) call send_tile_data(id_deposited(k),C_deposited(k,:)/dt_fast_yr/dz(1:num_l),diag)
+
+     if (id_negative_litter_C(k)>0) call send_tile_data(id_negative_litter_C(k),soil%neg_litt_C(k),diag)
   enddo
+  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soil%neg_litt_C),diag)
 end subroutine Dsdt_CORPSE
 
 
@@ -3943,6 +3964,12 @@ DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
 
+subroutine sc_negative_litter_C_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
+  if(associated(t))then
+     if(associated(t%soil))p=>t%soil%neg_litt_C(i)
+  endif
+end subroutine
 subroutine sc_leaflitter_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then

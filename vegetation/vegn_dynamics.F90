@@ -5,7 +5,14 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, FATAL, WARNING
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod, only: file_exist, check_nml_error, open_namelist_file, close_file, &
+     check_nml_error, stdlog, error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
 use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
 use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
@@ -24,7 +31,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, l_fract, understory_lai_factor, min_lai, &
-     use_light_saber, laimax_ceiling, laimax_floor, nsc_starv_frac
+     use_light_saber, nsc_starv_frac
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -62,6 +69,14 @@ character(len=*), parameter :: module_name = 'vegn_dynamics_mod'
 character(len=*), parameter :: diag_mod_name = 'vegn'
 
 ! ==== module data ===========================================================
+! ---- namelist
+real :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
+real :: deltaLAI_max = 1.0  ! max leaf growth rate, m2/(m2 day)
+namelist /vegn_dynamics_nml/ &
+   deltaDBH_max, deltaLAI_max
+
+! ---- end of namelist
+
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
   ! normalization in seed transort
@@ -86,9 +101,31 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: l ! grid cell index on unstructured gris
+  integer :: io, ierr, unit
 
   call log_version(version, module_name, &
   __FILE__)
+
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=vegn_dynamics_nml, iostat=io)
+    ierr = check_nml_error(io, 'vegn_dynamics_nml')
+#else
+  if (file_exist('input.nml')) then
+     unit = open_namelist_file()
+     ierr = 1;
+     do while (ierr /= 0)
+        read (unit, nml=vegn_dynamics_nml, iostat=io, end=10)
+        ierr = check_nml_error (io, 'vegn_dynamics_nml')
+     enddo
+10   continue
+     call close_file (unit)
+  endif
+#endif
+
+  if (mpp_pe() == mpp_root_pe()) then
+     unit = stdlog()
+     write(unit, nml=vegn_dynamics_nml)
+  endif
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
@@ -793,7 +830,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   !ens
   real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
 
-  real, parameter :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
   real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
@@ -814,8 +850,14 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         write(*,*)'########### end of biomass_allocation_ppa input ###########'
      endif
      ! calculate the carbon spent on growth of leaves and roots
-     G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
-                            0.1*cc%nsc/(1+sp%GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+     ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+     G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
+     if (use_light_saber) then
+        if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+     else
+        ! do not grow more than bl_max, br_max of leaves and roots
+        G_LFR = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br, G_LFR))
+     endif
 
      ! and distribute it between roots and leaves
      deltaBL  = min(G_LFR, max(0.0, &
@@ -863,14 +905,12 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      !update seed and sapwood biomass pools with the new growth (branches were updated above)
      NSCtarget = sp%NSC2targetbl*cc%bl_max
      G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
-     ! change maturity threashold to a diameter threash-hold
-     if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-        deltaSeed=      sp%v_seed * G_WF
-        deltaBSW = (1.0-sp%v_seed)* G_WF
+     if (cohort_can_reproduce(cc)) then
+        deltaSeed = sp%v_seed * G_WF
      else
-        deltaSeed= 0.0
-        deltaBSW = G_WF
+        deltaSeed = 0.0
      endif
+     deltaBSW = G_WF - deltaSeed
 
      if (sp%lifeform == FORM_GRASS) then ! isa 20170705
         ! 20170724 - new scheme
@@ -881,20 +921,26 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
         G_WF = min(G_WF, G_WF_max)
-        if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-           deltaSeed=      sp%v_seed * G_WF
-           deltaBSW = (1.0-sp%v_seed)* G_WF
+        if (cohort_can_reproduce(cc)) then
+           deltaSeed = sp%v_seed * G_WF
         else
-           deltaSeed= 0.0
-           deltaBSW = G_WF
+           deltaSeed = 0.0
         endif
+        deltaBSW = G_WF - deltaSeed
 
         nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
 
         ! Allocation to leaves and fine root growth
-        G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
-                              0.1*nsctmp/(1+sp%GROWTH_RESP)))
+!         G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
+!                               0.1*nsctmp/(1+sp%GROWTH_RESP)))
         ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+        G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
+        if (use_light_saber) then
+           if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+           G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
+        else
+           G_LFR = max(0.0, min(cc%bl_max-cc%bl+max(0.0, cc%br_max-cc%br), G_LFR))
+        endif
 
         if ( cc%br > cc%br_max ) then      ! roots larger than target
             deltaBL = G_LFR
@@ -1012,14 +1058,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
-     if (cc%An_newleaf_daily > 0 ) then
-         cc%laimax = min(cc%laimax + sp%newleaf_layer,laimax_ceiling)
-     else if (cc%An_newleaf_daily < 0) then
-         cc%laimax = max(cc%laimax - sp%newleaf_layer,laimax_floor)
-     else
-         ! do nothing if the derivative is zero
-     endif
-     cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
@@ -1040,9 +1078,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      endif
      ! in case of light saber override bl_max, but the keep the value of firstlayer
      ! calculated above
-     if (use_light_saber) then
-        cc%bl_max = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
-     endif
      cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
 
      if(is_watch_point()) then
@@ -1071,6 +1106,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! reset carbon accumulation terms
   cc%carbon_gain = 0
   cc%carbon_loss = 0
+  ! reset accumulated dAn/dLAI derivative
+  cc%An_newleaf_daily = 0.0
 
   end associate ! F2003
 
@@ -1487,10 +1524,11 @@ end subroutine update_soil_pools
 
 
 ! ============================================================================
-function cohort_can_reproduce(cc); logical cohort_can_reproduce
+logical function cohort_can_reproduce(cc)
   type(vegn_cohort_type), intent(in) :: cc
 
-  cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
+  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
+                         .and. cc%age > spdata(cc%species)%maturalage
 end function cohort_can_reproduce
 
 ! ============================================================================
