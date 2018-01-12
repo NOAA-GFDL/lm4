@@ -1970,6 +1970,7 @@ subroutine update_vegn_slow( )
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
+  real :: tc_daily ! daly temperature for dormancy detection, degK
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
@@ -2010,6 +2011,7 @@ subroutine update_vegn_slow( )
            end associate ! F2003
         enddo
         tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
+        tc_daily = tile%vegn%tc_daily ! save daily temperature for dormancy detection
         ! reset the accumulated values for the next day
         tile%vegn%tc_daily    = 0.0
         tile%vegn%daily_t_max = -HUGE(1.0)
@@ -2087,7 +2089,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
 
-        call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
+        call vegn_growth(tile%vegn, tc_daily, tile%diag) ! selects lm3 or ppa inside
 
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
 

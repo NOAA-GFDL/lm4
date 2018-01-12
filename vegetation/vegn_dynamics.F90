@@ -459,7 +459,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   endif
   ! update plant carbon for all cohorts
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
-  ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp;
+  ! TODO: add root exudates to the balance. in LM3 it is a fraction of npp;
   !       in PPA perhaps it might be proportional to NSC, with some decay
   !       time?
   do i = 1, vegn%n_cohorts
@@ -553,7 +553,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
-     ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
+     ! resg(i) = 0 ! slm: that does not make much sense to me... why?
      end associate
   enddo
 
@@ -617,8 +617,9 @@ end subroutine vegn_carbon_int_ppa
 ! ============================================================================
 ! updates cohort biomass pools, LAI, SAI, and height using accumulated
 ! carbon_gain and bwood_gain
-subroutine vegn_growth (vegn, diag)
+subroutine vegn_growth (vegn, temp, diag)
   type(vegn_tile_type), intent(inout) :: vegn
+  real,                 intent(in)    :: temp ! temperature for dormancy detection, degK
   type(diag_buff_type), intent(inout) :: diag
 
   ! ---- local vars
@@ -659,7 +660,7 @@ subroutine vegn_growth (vegn, diag)
            ! tissues to compensate carbon loss
            cc%nsc = cc%nsc+cc%carbon_gain+borrowed
         endif
-        call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
+        call biomass_allocation_ppa(cc,temp, wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
         if(is_watch_point()) then
            write(*,*)"############## in vegn_growth after allocation PPA #################"
            __DEBUG2__(cc%nsc, cc%carbon_gain)
@@ -674,7 +675,7 @@ subroutine vegn_growth (vegn, diag)
            cc%bwood    = cc%bwood+cc%bliving
            cc%bliving  = 0
            if (cc%bwood < 0) &
-                cc%bwood = 0 ! in principle, that's not conserving carbon
+                cc%bwood = 0 ! in principle, that is not conserving carbon
         endif
 
         call update_biomass_pools(cc)
@@ -777,7 +778,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
      if (k==0) then
         ! Most of the code assumes that there is at least one cohort present.
         ! So if all cohorts die, preserve single cohort with zero individuals.
-        ! It probably doesn't matter which, but let's pick the shortest here.
+        ! It probably does not matter which, but let us pick the shortest here.
         cc(1) = vegn%cohorts(vegn%n_cohorts)
         cc(1)%nindivs = 0.0
         vegn%n_cohorts = 1
@@ -799,8 +800,9 @@ end subroutine vegn_starvation_ppa
 ! ==============================================================================
 ! updates cohort vegetation structure, biomass pools, LAI, SAI, and height
 ! using accumulated carbon_gain
-subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
+subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
   type(vegn_cohort_type), intent(inout) :: cc
+  real, intent(in)  :: temp ! temperature for dormancy detection, degK
   real, intent(out) :: wood_prod ! wood production, kgC/year per individual, diagnostic output
   real, intent(out) :: leaf_root_gr! allocation to leaf and fine root, kgC/year
   real, intent(out) :: sw_seed_gr! allocation to sapwood and seed, kgC/year
@@ -837,9 +839,9 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
   !delta_wood_branch  = 0.
-  ! set init values for diag output, to be returned when the actual calulations are bypassed:
+  ! set init values for diag output, to be returned when the actual calculations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
-  if (cc%status == LEAF_ON) then
+  if (cc%status == LEAF_ON.and.temp>sp%T_dorm) then
      if(is_watch_point()) then
         write(*,*)'########### biomass_allocation_ppa input ###########'
         call dpri('species:',sp%name)
@@ -850,7 +852,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         write(*,*)'########### end of biomass_allocation_ppa input ###########'
      endif
      ! calculate the carbon spent on growth of leaves and roots
-     ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+     ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
      G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
      if (use_light_saber) then
         if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
@@ -887,7 +889,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
      ! 02/07/17
      ! should this delta_bsw be updated after updating dbh and height?
-     ! check if daily branch increase is nt too abrupt
+     ! check if daily branch increase is not too abrupt
      select case (sp%allomt)
      case (ALLOM_EW,ALLOM_EW1)
         delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**sp%thetaBM - cc%brsw
@@ -933,7 +935,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         ! Allocation to leaves and fine root growth
 !         G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
 !                               0.1*nsctmp/(1+sp%GROWTH_RESP)))
-        ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+        ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
         G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
         if (use_light_saber) then
            if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
@@ -1018,7 +1020,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
         cc%bsw_max = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
      end select
-     ! isa 20170705 - grasses don't form heartwood
+     ! isa 20170705 - grasses do not form heartwood
      if (sp%lifeform == FORM_GRASS) then
        cc%bsw_max = cc%bsw
        CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
@@ -1031,7 +1033,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      case (ALLOM_HML)
         deltaCSAsw = CSAsw - sp%phiCSA * (cc%DBH - deltaDBH)**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)**sp%thetaHT)
      end select
-     ! isa 20170705 - grasses don't form heartwood
+     ! isa 20170705 - grasses do not form heartwood
      if (sp%lifeform == FORM_GRASS) then
         deltaCSAsw = CSAsw - (PI * (cc%DBH - deltaDBH) * (cc%DBH - deltaDBH) / 4.0 )
      endif
@@ -1042,7 +1044,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
      ! ens 02/14/17 replace wood allocation function
      ! slm 06/28/17 Why are we retiring sapwood to wood only if the leaves are displayed?
-     !              shouldn't it also happen in leaf-off season?
+     !              should not it also happen in leaf-off season?
 !     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
      if (cc%bsw>0) then
         deltaBwood = cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*cc%bsw_max
@@ -1345,7 +1347,7 @@ subroutine vegn_phenology_ppa(tile)
             vegn%tc_pheno >= sp%tc_crit .and. &
             .not.drought) then
            cc%status = LEAF_ON
-           ! isa 201707215 - update target biomass at the satart of the growing season
+           ! isa 201707215 - update target biomass at the start of the growing season
            !                 for grasses to avoid using previous year targets
            if (sp%lifeform == FORM_GRASS) then
               cc%bl_max = sp%LMA * sp%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
@@ -1384,7 +1386,7 @@ subroutine vegn_phenology_ppa(tile)
             stem_mort = min(stem_mort_rate * cc%bsw, &
                    cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
             stem_mort = max(stem_mort,0.0)
-            ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
+            ! ToDo - it is necessary to implement an online adjustment of dbh, height and crown area as the plant shrinks
             !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
             !        biomass and its dimensions
             ! just set initial height
@@ -1693,7 +1695,7 @@ subroutine transport_seeds(ug_bseed)
      enddo
   enddo
   enddo
-  ! tendency and updated seed amount are only valid within compute domain, but that's OK
+  ! tendency and updated seed amount are only valid within compute domain, but that is OK
   ! because we only use them there.
   sg_bseed = sg_bseed + tend
 
