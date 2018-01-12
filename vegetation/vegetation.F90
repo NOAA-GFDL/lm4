@@ -150,8 +150,8 @@ logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
-logical :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter of soil moisture
-                                         ! in the drought-deciduous phenology
+real :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter of soil moisture
+                                      ! in the drought-deciduous phenology
 logical :: xwilt_available      = .TRUE.
 logical :: do_biogeography      = .TRUE.
 logical :: do_seed_transport    = .TRUE.

@@ -1173,34 +1173,34 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
   ! register tiled diag field for each of the samplings
   diag_ids(:) = -1
   do i = 1,size(cohort_filter)
-     associate (cf=>cohort_filter(i))
-     select case (cf%extra_axes)
+!     associate (cf=>cohort_filter(i))
+     select case (cohort_filter(i)%extra_axes)
      case (CAXES_SPECIES) ! this is by-species diagnostics
         nax = size(axes)+1 ! we have an extra axis for by-species diagnostics
         axes_(nax) = id_species_axis
      case (CAXES_NONE)
         nax = size(axes)
      case default
-        call error_mesg('register_cohort_diag_field', 'unknown extra cohort axes tag'//string(cf%extra_axes), FATAL)
+        call error_mesg('register_cohort_diag_field', 'unknown extra cohort axes tag'//string(cohort_filter(i)%extra_axes), FATAL)
      ! IN FUTURE: other cases may include DBH axis, age axis, etc.
      end select
 
      if(present(long_name)) then
-         long_name_ = trim(long_name)//trim(cf%longname)
-         call add_tiled_diag_field_alias(diag_ids(cf%tag), module_name, &
-               trim(field_name)//trim(cf%suffix), axes_(1:nax), init_time, long_name_, &
+         long_name_ = trim(long_name)//trim(cohort_filter(i)%longname)
+         call add_tiled_diag_field_alias(diag_ids(cohort_filter(i)%tag), module_name, &
+               trim(field_name)//trim(cohort_filter(i)%suffix), axes_(1:nax), init_time, long_name_, &
                units, missing_value, range, opt, standard_name, fill_missing, &
                do_not_log=.TRUE.)
      else
-         call add_tiled_diag_field_alias(diag_ids(cf%tag), module_name, &
-               trim(field_name)//trim(cf%suffix), axes_(1:nax), init_time, long_name, &
+         call add_tiled_diag_field_alias(diag_ids(cohort_filter(i)%tag), module_name, &
+               trim(field_name)//trim(cohort_filter(i)%suffix), axes_(1:nax), init_time, long_name, &
                units, missing_value, range, opt, standard_name, fill_missing, &
                do_not_log=.TRUE.)
      endif
      ! call error_mesg('register_cohort_diag_field', &
-     !     'registered cohort field "'//trim(module_name)//'/'//trim(field_name)//trim(cf%suffix)//'" ID='//string(diag_ids(cf%tag)), &
+     !     'registered cohort field "'//trim(module_name)//'/'//trim(field_name)//trim(cohort_filter(i)%suffix)//'" ID='//string(diag_ids(cohort_filter(i)%tag)), &
      !     NOTE)
-     end associate ! cf
+!     end associate ! cf
   enddo
   id = 0
   if (any(diag_ids(:)>0)) then

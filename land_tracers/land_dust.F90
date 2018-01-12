@@ -362,7 +362,7 @@ elemental real function laminar_conductance(T,p,sphum,ustar,r,rho,vdep) result(c
    rho_air = p/(rdgas*T *(1+d608*sphum))
    Sc = viscosity/(rho_air*diff)
    St = vdep*ustar**2*rho_air/(grav*viscosity)
-   cond = ustar*(Sc**(-2.0/3.0)+exp10(-3.0/St))
+   cond = ustar*(Sc**(-2.0/3.0)+10.0**(-3.0/St))
 end function laminar_conductance
 
 ! ==============================================================================
