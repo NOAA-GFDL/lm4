@@ -1329,8 +1329,9 @@ end subroutine vegn_carbon_int_ppa
 ! ============================================================================
 ! updates cohort biomass pools, LAI, SAI, and height using accumulated
 ! carbon_gain and bwood_gain
-subroutine vegn_growth (vegn, diag)
+subroutine vegn_growth (vegn, temp, diag)
   type(vegn_tile_type), intent(inout) :: vegn
+  real,                 intent(in)    :: temp ! temperature for dormancy detection, degK
   type(diag_buff_type), intent(inout) :: diag
 
   ! ---- local vars
@@ -1372,7 +1373,7 @@ subroutine vegn_growth (vegn, diag)
            ! tissues to compensate carbon loss
            cc%nsc = cc%nsc+cc%carbon_gain+borrowed
         endif
-        call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
+        call biomass_allocation_ppa(cc,temp, wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
         if(is_watch_point()) then
            write(*,*)"############## in vegn_growth after allocation PPA #################"
            __DEBUG2__(cc%nsc, cc%carbon_gain)
@@ -1387,7 +1388,7 @@ subroutine vegn_growth (vegn, diag)
            cc%bwood    = cc%bwood+cc%bliving
            cc%bliving  = 0
            if (cc%bwood < 0) &
-                cc%bwood = 0 ! in principle, that's not conserving carbon
+                cc%bwood = 0 ! in principle, that is not conserving carbon
         endif
 
         call update_biomass_pools(cc)
@@ -1486,7 +1487,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
      if (k==0) then
         ! Most of the code assumes that there is at least one cohort present.
         ! So if all cohorts die, preserve single cohort with zero individuals.
-        ! It probably doesn't matter which, but let's pick the shortest here.
+        ! It probably does not matter which, but let us pick the shortest here.
         cc(1) = vegn%cohorts(vegn%n_cohorts)
         cc(1)%nindivs = 0.0
         vegn%n_cohorts = 1
@@ -1508,8 +1509,9 @@ end subroutine vegn_starvation_ppa
 
 ! ==============================================================================
 ! updates cohort vegetation structure, biomass pools, LAI, SAI, and height spending nsc
-subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
+subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
   type(vegn_cohort_type), intent(inout) :: cc
+  real, intent(in)  :: temp ! temperature for dormancy detection, degK
   real, intent(out) :: wood_prod ! wood production, kgC/year per individual, diagnostic output
   real, intent(out) :: leaf_root_gr! allocation to leaf and fine root, kgC/year
   real, intent(out) :: sw_seed_gr! allocation to sapwood and seed, kgC/year
@@ -1588,7 +1590,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! typical in lm3?)
   ! set init values for diag output, to be returned when the actual calulations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
-  if (cc%status == LEAF_ON) then
+  if (cc%status == LEAF_ON.and.temp>sp%T_dorm) then
      if(is_watch_point()) then
         write(*,*)'########### biomass_allocation_ppa input ###########'
         call dpri('species:',sp%name)
@@ -1614,7 +1616,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
      ! 02/07/17
      ! should this delta_bsw be updated after updating dbh and height?
-     ! check if daily branch increase is nt too abrupt
+     ! check if daily branch increase is not too abrupt
      select case (sp%allomt)
      case (ALLOM_EW,ALLOM_EW1)
         delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**sp%thetaBM - cc%brsw
@@ -1797,7 +1799,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
         cc%bsw_max = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
      end select
-     ! isa 20170705 - grasses don't form heartwood
+     ! isa 20170705 - grasses do not form heartwood
      if (sp%lifeform == FORM_GRASS) then
        cc%bsw_max = cc%bsw
        CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
@@ -1810,7 +1812,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      case (ALLOM_HML)
         deltaCSAsw = CSAsw - sp%phiCSA * (cc%DBH - deltaDBH)**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)**sp%thetaHT)
      end select
-     ! isa 20170705 - grasses don't form heartwood
+     ! isa 20170705 - grasses do not form heartwood
      if (sp%lifeform == FORM_GRASS) then
         deltaCSAsw = CSAsw - (PI * (cc%DBH - deltaDBH) * (cc%DBH - deltaDBH) / 4.0 )
      endif
@@ -1821,7 +1823,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
      ! ens 02/14/17 replace wood allocation function
      ! slm 06/28/17 Why are we retiring sapwood to wood only if the leaves are displayed?
-     !              shouldn't it also happen in leaf-off season?
+     !              should not it also happen in leaf-off season?
 !     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
      if (cc%bsw>0) then
         deltaBwood = cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*cc%bsw_max
@@ -2125,7 +2127,7 @@ subroutine vegn_phenology_ppa(tile)
             vegn%tc_pheno >= sp%tc_crit .and. &
             .not.drought) then
            cc%status = LEAF_ON
-           ! isa 201707215 - update target biomass at the satart of the growing season
+           ! isa 201707215 - update target biomass at the start of the growing season
            !                 for grasses to avoid using previous year targets
            if (sp%lifeform == FORM_GRASS) then
               cc%bl_max = sp%LMA * sp%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
@@ -2604,7 +2606,7 @@ subroutine transport_seeds(ug_bseed)
      enddo
   enddo
   enddo
-  ! tendency and updated seed amount are only valid within compute domain, but that's OK
+  ! tendency and updated seed amount are only valid within compute domain, but that is OK
   ! because we only use them there.
   sg_bseed = sg_bseed + tend
 

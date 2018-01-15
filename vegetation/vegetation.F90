@@ -160,8 +160,8 @@ logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
-logical :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter of soil moisture
-                                         ! in the drought-deciduous phenology
+real :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter of soil moisture
+                                      ! in the drought-deciduous phenology
 logical :: xwilt_available      = .TRUE.
 logical :: do_biogeography      = .TRUE.
 logical :: do_seed_transport    = .TRUE.
@@ -2205,6 +2205,7 @@ subroutine update_vegn_slow( )
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
+  real :: tc_daily ! daly temperature for dormancy detection, degK
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, nmass0
@@ -2246,6 +2247,7 @@ subroutine update_vegn_slow( )
            end associate ! F2003
         enddo
         tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
+        tc_daily = tile%vegn%tc_daily ! save daily temperature for dormancy detection
         ! reset the accumulated values for the next day
         tile%vegn%tc_daily    = 0.0
         tile%vegn%daily_t_max = -HUGE(1.0)
@@ -2353,7 +2355,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_Ngain,sum(cc(1:N)%nitrogen_gain*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
 
-        call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
+        call vegn_growth(tile%vegn, tc_daily, tile%diag) ! selects lm3 or ppa inside
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0,nmass0)
 
         if (do_ppa) then

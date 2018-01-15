@@ -263,6 +263,7 @@ type spec_data_type
   !  for PPA, IMC, 1/8/2017
   real    :: growth_resp   = 0.333  ! fraction of NPP lost as growth respiration
   real    :: NSC2targetbl  = 4.0    ! ratio of NSC to target biomass of leaves
+  real    :: T_dorm        = TFREEZE  ! dormancy temperature threshold, degK
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
 
@@ -270,7 +271,7 @@ type spec_data_type
   real    :: inib_factor = 0.0 ! default rate of inhibition for leaf respiration
   real    :: light_kok = 0.00004 ! Light intensity above which light inhibition occurs, umol/m2/s
 
-  ! for Temperature response
+  ! Temperatures for photosynthesis and respiration response, degC
   real    :: ToptP = 35.0
   real    :: TminP = 5.0
   real    :: TmaxP = 45.0
@@ -851,6 +852,7 @@ subroutine read_species_data(name, sp, errors_found)
   !  for PPA, IMC, 1/8/2017
   __GET_SPDATA_REAL__(growth_resp)
   __GET_SPDATA_REAL__(NSC2targetbl)
+  __GET_SPDATA_REAL__(T_dorm)
   ! for Kok effect, ppg, 17/11/07
   __GET_SPDATA_REAL__(inib_factor)
   __GET_SPDATA_REAL__(light_kok)
@@ -1148,6 +1150,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'SRA', spdata(:)%SRA)
   call add_row(table, 'growth_resp', spdata(:)%growth_resp)
   call add_row(table, 'NSC2targetbl', spdata(:)%NSC2targetbl)
+  call add_row(table, 'T_dorm', spdata(:)%T_dorm)
 
   call add_row(table, 'Klam', spdata(:)%Klam)
   call add_row(table, 'dl', spdata(:)%dl)
