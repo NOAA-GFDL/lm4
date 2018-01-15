@@ -1682,7 +1682,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      case (FORM_GRASS) ! isa 20170705
         ! 20170724 - new scheme
         NSCtarget = sp%NSC2targetbl*cc%bl_max
-        G_WF = max(0.0, fsf*(nsctmp - NSCtarget)/(1+sp%GROWTH_RESP))
+        G_WF = max(0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
         ! note that it is only for HML allometry now
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
