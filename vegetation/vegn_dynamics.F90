@@ -1706,14 +1706,14 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
            if (cc%bl>0 .and. cc%An_newleaf_daily<=0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
            G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
         else
-           G_LFR = max(0.0, min(cc%bl_max - cc%bl + max(0.0, cc%br_max - cc%br), G_LFR))
+           G_LFR = max(0.0, min(cc%bl_max - cc%bl + max(0.0, br_max_Nstress - cc%br), G_LFR))
         endif
 
-        if ( cc%br > cc%br_max ) then      ! roots larger than target
+        if ( cc%br > br_max_Nstress ) then ! roots larger than target
             deltaBL = G_LFR
         else                               ! standard scheme
             deltaBL = min(G_LFR, max(0.0, &
-                         (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
+                         (G_LFR*cc%bl_max + cc%bl_max*cc%br - br_max_Nstress*cc%bl)/(cc%bl_max + br_max_Nstress) &
                          ))
         end if
         deltaBR  = G_LFR - deltaBL
