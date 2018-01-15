@@ -1687,7 +1687,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
         G_WF = min(G_WF, G_WF_max)
-        if (cohort_can_reproduce(cc)) then
+        if (cohort_makes_seeds(cc, G_WF)) then
            deltaSeed = sp%v_seed * G_WF
         else
            deltaSeed = 0.0
@@ -2408,19 +2408,16 @@ end function cohort_can_reproduce
 
 ! ============================================================================
 ! returns TRUE if cohort can allocate carbon to seeds.
-! currently it is the same as cohort_can_reproduce, but it will be different
-! in ppa-N
-function cohort_makes_seeds(cc, G_WF) result(answer); logical answer
+logical function cohort_makes_seeds(cc, G_WF) result(answer)
   type(vegn_cohort_type), intent(in) :: cc
   real, intent(in) :: G_WF ! amount of carbon spent on new sapwood growth and seeds
 
-  answer = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
+  answer = (cc%layer == 1.or.spdata(cc%species)%reproduces_in_understory) &
+           .and. cc%age > spdata(cc%species)%maturalage
   if (soil_carbon_option==SOILC_CORPSE_N.AND.N_limits_live_biomass) then
-     associate(sp=>spdata(cc%species))
      answer = answer .AND. &
-        .NOT.(cc%nitrogen_stress > sp%max_n_stress_for_seed_production &
-              .OR. sp%v_seed*G_WF/sp%seed_c2n>0.1*cc%stored_N )
-     end associate
+        .NOT.(cc%nitrogen_stress > spdata(cc%species)%max_n_stress_for_seed_production &
+              .OR. spdata(cc%species)%v_seed*G_WF/spdata(cc%species)%seed_c2n>0.1*cc%stored_N )
   endif
 end function cohort_makes_seeds
 
