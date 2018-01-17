@@ -8,7 +8,7 @@ use land_data_mod,      only : log_version
 use vegn_data_mod,      only : spdata, min_cosz
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
-use snow_mod,           only : snow_radiation
+use snow_tile_mod,      only : snow_radiation
 
 use land_debug_mod,     only : is_watch_point
 use land_data_mod,      only : log_version
@@ -238,7 +238,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   end select
 
   ! get the snow radiative properties for current canopy temperature
-  call snow_radiation ( cohort%Tv, cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  call snow_radiation ( cohort%Tv, cosz, .FALSE., snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
 
   sp = cohort%species
   do i = 1, NBANDS
