@@ -72,8 +72,12 @@ character(len=*), parameter :: diag_mod_name = 'vegn'
 ! ---- namelist
 real :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
 real :: deltaLAI_max = 1.0  ! max leaf growth rate, m2/(m2 day)
+logical :: limit_tussock_R = .FALSE. ! if true, impose limit on tussock crown radius and area
+real :: tussock_Ra  = 0.1, tussock_Rb  = 0.3  ! max diameter of tussock crown is calculated
+     ! as tussock_Ra + tussock_Rb*height
 namelist /vegn_dynamics_nml/ &
-   deltaDBH_max, deltaLAI_max
+   deltaDBH_max, deltaLAI_max, &
+   limit_tussock_R, tussock_Ra, tussock_Rb
 
 ! ---- end of namelist
 
@@ -998,6 +1002,9 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      cc%DBH       = cc%DBH       + deltaDBH
      cc%height    = cc%height    + deltaHeight
      cc%crownarea = cc%crownarea + deltaCA
+     if (sp%lifeform==FORM_GRASS.and.limit_tussock_R) then
+        cc%crownarea = min(cc%crownarea,PI*(tussock_Ra+cc%height*tussock_Rb)**2)
+     endif
 
      ! calculate DBH, BLmax, BRmax, BSWmax using allometric relationships
      ! Weng 2012-01-31 update_bio_living_fraction
