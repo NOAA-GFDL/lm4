@@ -225,6 +225,9 @@ type spec_data_type
   real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area allometry parameters
   real    :: alphaBM = 0.559, thetaBM = 2.5 ! biomass allometry parameters
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 !
+  logical :: limit_tussock_R = .FALSE. ! if true, impose limit on tussock crown radius and area
+  real    :: tussock_Ra=0.1, tussock_Rb=0.3 ! max diameter of tussock crown is calculated
+     ! as tussock_Ra + tussock_Rb*height
 
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
@@ -695,6 +698,10 @@ subroutine read_species_data(name, sp, errors_found)
   sp%reproduces_in_understory = fm_util_get_logical('reproduces_in_understory', &
         caller=module_name, default_value=sp%reproduces_in_understory, scalar=.true.)
 
+  call add_known_name('limit_tussock_R')
+  sp%limit_tussock_R = fm_util_get_logical('limit_tussock_R', &
+        caller=module_name, default_value=sp%limit_tussock_R, scalar=.true.)
+
 #define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
   __GET_SPDATA_REAL__(treefall_disturbance_rate)
 
@@ -766,6 +773,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(alphaCA)
   __GET_SPDATA_REAL__(thetaCA)
   __GET_SPDATA_REAL__(alphaBM)
+  __GET_SPDATA_REAL__(tussock_Ra)
+  __GET_SPDATA_REAL__(tussock_Rb)
   __GET_SPDATA_REAL__(maturalage)
   __GET_SPDATA_REAL__(v_seed)
   __GET_SPDATA_REAL__(seedling_height)
@@ -1021,6 +1030,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaBM', spdata(:)%thetaBM)
   call add_row(table, 'alphaCSASW', spdata(:)%alphaCSASW)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
+  call add_row(table, 'limit_tussock_R', spdata(:)%limit_tussock_R)
+  call add_row(table, 'tussock_Ra', spdata(:)%tussock_Ra)
+  call add_row(table, 'tussock_Rb', spdata(:)%tussock_Rb)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
   call add_row(table, 'reproduces_in_understory', spdata(:)%reproduces_in_understory)
