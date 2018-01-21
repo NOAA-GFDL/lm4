@@ -13,7 +13,7 @@ use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, fsc_liv, fsc_wood,
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, biomass_of_individual, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
-      init_cohort_allometry_ppa
+      init_cohort_allometry_ppa, cohort_can_reproduce
 
 implicit none
 private
@@ -82,7 +82,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
 
   ! calculate total carbon losses, kgC/m2
   lost_wood  = ndead * (cc%bwood+cc%bsw+cc%bwood_gain)
-  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
+  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
   ! loss to fire: note that we are burning roots, which we probably should not (slm).
   burned_wood  = fsmoke*lost_wood
   burned_alive = fsmoke*lost_alive
@@ -94,7 +94,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
   vegn%csmoke_pool = vegn%csmoke_pool + burned_wood + burned_alive
 
   ! add remaining lost C to soil carbon pools
-  leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
+  leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
   wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
   wood_litt(C_FAST) = wood_litt(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
   call cohort_root_litter_profile(cc, dz, profile)
@@ -105,30 +105,13 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
           0.0/)
   enddo
 
-  ! leaf_litt can be below zero if biomasses are very small and carbon_gain is negative:
-  ! try to borrow carbon from wood litter.
-!   do l = 1,N_C_TYPES
-!      if (leaf_litt(l)<0) then
-!         wood_litt(l) = wood_litt(l) + leaf_litt(l)
-!         leaf_litt(l) = 0.0
-!      endif
-!   enddo
-!   call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  WARNING)
-!   if (any(wood_litt<0.0)) then
-!      ! if some wood litter components are negative, try to borrow carbon
-!      ! from positive components so that the total carbon is conserved
-!      bp = 0.0; bn=0.0
-!      do l = 1, N_C_TYPES
-!         if (wood_litt(l)>0) bp = bp+wood_litt(l)
-!         if (wood_litt(l)<0) bn = bn+abs(wood_litt(l))
-!      enddo
-!      if (bp<bn) call land_error_message(&
-!         'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//')', FATAL)
-!      do l = 1, N_C_TYPES
-!         if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)*(bp-bn)/bp
-!         if (wood_litt(l)<0) wood_litt(l) = 0.0
-!      enddo
-!   endif
+  if ((.not.spdata(cc%species)%mortality_kills_seeds).and.cohort_can_reproduce(cc)) then
+     ! save seeds in a temporary tile-level buffer
+     vegn%drop_seed_C(cc%species) = vegn%drop_seed_C(cc%species) + cc%bseed*(1-fsmoke)*ndead 
+  else
+     ! seeds are killed: add them to leaf litter 
+     leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*cc%bseed*(1-fsmoke)*ndead
+  endif
 
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead

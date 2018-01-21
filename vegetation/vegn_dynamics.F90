@@ -37,7 +37,8 @@ use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
-     leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile
+     leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
+     cohort_can_reproduce
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
@@ -1527,15 +1528,6 @@ subroutine update_soil_pools(vegn, soil)
   end select
 end subroutine update_soil_pools
 
-
-! ============================================================================
-logical function cohort_can_reproduce(cc)
-  type(vegn_cohort_type), intent(in) :: cc
-
-  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
-                         .and. cc%age > spdata(cc%species)%maturalage
-end function cohort_can_reproduce
-
 ! ============================================================================
 subroutine vegn_reproduction_ppa(do_seed_transport)
   logical, intent(in) :: do_seed_transport
@@ -1578,6 +1570,7 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   ce = first_elmt(land_tile_map, lnd%ls); k = 1
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle
+     bseed(k,:) = tile%vegn%drop_seed_C(:); tile%vegn%drop_seed_C(:) = 0.0
      do i = 1,tile%vegn%n_cohorts
         associate(cc=>tile%vegn%cohorts(i))
         if (cohort_can_reproduce(cc)) then

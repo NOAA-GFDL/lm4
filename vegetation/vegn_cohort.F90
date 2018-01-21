@@ -39,6 +39,7 @@ public :: update_biomass_pools
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
+public :: cohort_can_reproduce ! returns true if cohort can reproduce
 ! ==== end of public interfaces ==============================================
 
 ! ==== types =================================================================
@@ -699,5 +700,13 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    cohorts_can_be_merged = &
         sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)
 end function cohorts_can_be_merged
+
+! ============================================================================
+logical function cohort_can_reproduce(cc)
+  type(vegn_cohort_type), intent(in) :: cc
+
+  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
+                         .and. cc%age > spdata(cc%species)%maturalage
+end function cohort_can_reproduce
 
 end module vegn_cohort_mod

@@ -388,6 +388,11 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
           call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
 
+     do i = 0,nspecies-1
+        if (field_exists(restart2,'drop_seed_C_'//trim(spdata(i)%name))) &
+             call get_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i)
+     enddo
+
      if(field_exists(restart2,'landuse')) &
           call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
      call get_tile_data(restart2,'age',vegn_age_ptr)
@@ -1048,6 +1053,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
   call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
   call add_cohort_data(restart2,'brsw', cohort_brsw_ptr, 'biomass of branches (only sapwood)','kg C/individual')
+
+  do i = 0,nspecies-1
+     call add_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
+                        'seed carbon dropped by dying plants', 'kgC/m2')
+  enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -2647,6 +2657,7 @@ DEFINE_VEGN_ACCESSOR_0D(real,drop_hs)
 
 DEFINE_VEGN_ACCESSOR_1D(real,harv_pool)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_rate)
+DEFINE_VEGN_ACCESSOR_1D(real,drop_seed_C)
 
 DEFINE_COHORT_ACCESSOR(real,Tv)
 DEFINE_COHORT_ACCESSOR(real,Wl)
