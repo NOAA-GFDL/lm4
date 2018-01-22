@@ -238,9 +238,7 @@ subroutine land_dust_init (id_ug, mask)
   call read_field( input_file_name, input_field_name, dust_source, interp='bilinear' )
 
   ! set the default sub-sampling filter for the fields below
-  call set_default_diag_filter('land')
-
-  ! initialize diagnostic fields
+  call set_default_diag_filter('soil')
   id_soil_wetness = register_tiled_diag_field(diag_name, 'soil_wetness', (/id_ug/),  &
        lnd%time, 'soil wetness for dust emission calculations', 'unitless', missing_value=-1.0)
   id_soil_iceness = register_tiled_diag_field(diag_name, 'soil_iceness', (/id_ug/),  &
@@ -253,6 +251,11 @@ subroutine land_dust_init (id_ug, mask)
        lnd%time, 'ustar equivalent 10 meter wind speed', 'unitless', missing_value=-1.0)
   id_snow_f   = register_tiled_diag_field(diag_name, 'snow_fmass', (/id_ug/),  &
        lnd%time, 'frozen water mass', 'kg/m2', missing_value=-1.0)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+
+  ! initialize diagnostic fields
   id_ddep_tot = register_tiled_diag_field(diag_name, 'dust_ddep', (/id_ug/),  &
        lnd%time, 'total dust dry deposition', 'kg/(m2 s)', missing_value=-1.0)
   id_wdep_tot = register_tiled_diag_field(diag_name, 'dust_wdep', (/id_ug/),  &
@@ -551,11 +554,11 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   soil_wetness = 0.0 ; soil_iceness = 0.0 ! for glaciers and lakes
   dust_emis = 0.0 ! default value
   u_thresh = u_min
+  call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
   if (associated(tile%soil)) then
     ! calculate soil average wetness and "iceness"
     call soil_ave_wetness(tile%soil, soil_depth, soil_wetness, soil_iceness)
     ! calculate snow properties
-    call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
     if (associated(tile%vegn)) then
        if (tile%vegn%landuse .eq. LU_PAST ) then
           u_thresh = u_min_past
