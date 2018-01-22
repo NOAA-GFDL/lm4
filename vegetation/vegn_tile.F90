@@ -13,7 +13,7 @@ use land_tile_selectors_mod, only : tile_selector_type
 
 use soil_carbon_mod, only : N_C_TYPES
 use vegn_data_mod, only : &
-     MSPECIES, spdata, &
+     MSPECIES, nspecies, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
      BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
@@ -81,6 +81,8 @@ type :: vegn_tile_type
    ! buffers holding amounts of stuff dropped by dead trees, etc
    real :: drop_wl=0, drop_ws=0 ! buffer accumulating amount of dropped water, kg/m2
    real :: drop_hl=0, drop_hs=0 ! buffer accumulating heat of dropped water, J/m2
+   real, allocatable :: drop_seed_C(:), drop_seed_N(:) ! by species, seeds dropped 
+                                ! by dying plants, kgC/m2
 
    real :: age=0.0 ! tile age
 
@@ -210,6 +212,8 @@ function vegn_tile_ctor(tag) result(ptr)
   integer, intent(in)  :: tag ! kind of tile
 
   allocate(ptr)
+  allocate(ptr%drop_seed_C(0:nspecies-1), ptr%drop_seed_N(0:nspecies-1))
+  ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0 
   ptr%tag = tag
 end function vegn_tile_ctor
 
@@ -231,6 +235,7 @@ subroutine delete_vegn_tile(vegn)
   type(vegn_tile_type), pointer :: vegn
 
   deallocate(vegn%cohorts)
+  deallocate(vegn%drop_seed_C, vegn%drop_seed_N)
   deallocate(vegn)
 end subroutine delete_vegn_tile
 
@@ -311,6 +316,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(drop_ws)
   __MERGE__(drop_hl)
   __MERGE__(drop_hs)
+  __MERGE__(drop_seed_C)
+  __MERGE__(drop_seed_N)
 
   __MERGE__(age);
 
@@ -910,7 +917,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
      carbon = carbon + &
          plant_C(vegn%cohorts(i))*vegn%cohorts(i)%nindivs
   enddo
-  carbon = carbon + sum(vegn%harv_pool_C) + &
+  carbon = carbon + sum(vegn%harv_pool_C) + sum(vegn%drop_seed_C) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
 
@@ -938,7 +945,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
             vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
            )*vegn%cohorts(i)%nindivs
   enddo
-  nitrogen = nitrogen  + sum(vegn%harv_pool_N) + &
+  nitrogen = nitrogen  + sum(vegn%harv_pool_N) + sum(vegn%drop_seed_N) + &
            vegn%fsn_pool_bg + vegn%ssn_pool_bg + vegn%nsmoke_pool
 
   ! Pools associated with aboveground litter CORPSE pools

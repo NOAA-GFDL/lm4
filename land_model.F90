@@ -49,7 +49,7 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
-     snow_radiation, snow_get_depth_area, snow_step_1, snow_step_2, &
+     snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
@@ -74,7 +74,7 @@ use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
                           glac_tile_stock_pe, glac_tile_heat, glac_roughness
-use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness
+use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, snow_radiation
 use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
@@ -459,7 +459,7 @@ subroutine land_model_init &
   call vegn_init ( id_ug, id_band, id_cellarea )
   call lake_init ( id_ug )
   call glac_init ( id_ug )
-  call snow_init ( id_ug )
+  call snow_init ()
   call cana_init ()
   call nitrogen_sources_init ( lnd%time, id_ug )
   call topo_rough_init( lnd%time, lnd%sg_lonb, lnd%sg_latb, lnd%sg_domain, lnd%ug_domain, id_ug)
@@ -3079,7 +3079,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
              ', face='//trim(string(face))//')',FATAL)
   endif
 
-  call snow_radiation ( tile%snow%T(1), cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
   call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 

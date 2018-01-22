@@ -41,6 +41,8 @@ public :: update_biomass_pools
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
+public :: cohort_makes_seeds ! returns true if cohort can allocate to seeds
+public :: cohort_can_reproduce ! returns true if cohort can reproduce
 ! ==== end of public interfaces ==============================================
 
 ! ==== types =================================================================
@@ -907,5 +909,28 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    cohorts_can_be_merged = &
         sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)
 end function cohorts_can_be_merged
+
+! ============================================================================
+! returns TRUE if cohort can allocate carbon to seeds.
+logical function cohort_makes_seeds(cc, G_WF) result(answer)
+  type(vegn_cohort_type), intent(in) :: cc
+  real, intent(in) :: G_WF ! amount of carbon spent on new sapwood growth and seeds
+
+  answer = (cc%layer == 1.or.spdata(cc%species)%reproduces_in_understory) &
+           .and. cc%age > spdata(cc%species)%maturalage
+  if (soil_carbon_option==SOILC_CORPSE_N.AND.N_limits_live_biomass) then
+     answer = answer .AND. &
+        .NOT.(cc%nitrogen_stress > spdata(cc%species)%max_n_stress_for_seed_production &
+              .OR. spdata(cc%species)%v_seed*G_WF/spdata(cc%species)%seed_c2n>0.1*cc%stored_N )
+  endif
+end function cohort_makes_seeds
+
+! ============================================================================
+logical function cohort_can_reproduce(cc)
+  type(vegn_cohort_type), intent(in) :: cc
+
+  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
+                         .and. cc%age > spdata(cc%species)%maturalage
+end function cohort_can_reproduce
 
 end module vegn_cohort_mod

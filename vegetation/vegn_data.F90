@@ -233,6 +233,9 @@ type spec_data_type
   real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area allometry parameters
   real    :: alphaBM = 0.559, thetaBM = 2.5 ! biomass allometry parameters
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 !
+  logical :: limit_tussock_R = .FALSE. ! if true, impose limit on tussock crown radius and area
+  real    :: tussock_Ra=0.1, tussock_Rb=0.3 ! max diameter of tussock crown is calculated
+     ! as tussock_Ra + tussock_Rb*height
 
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
@@ -253,6 +256,7 @@ type spec_data_type
   real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
   real    :: mortrate_d_u  = 0.2    ! daily mortality rate in understory
   real    :: Tmin_mort     = 0.0    ! cold mortality threshold, degK; default zero value turns it off
+  logical :: mortality_kills_seeds = .FALSE. ! if true, mortality kills seeds; otherwise seeds survive and used for reproduction later.
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
@@ -698,9 +702,6 @@ subroutine read_species_data(name, sp, errors_found)
   call add_known_name('long_name')
   sp%longname = fm_util_get_string('long_name', caller = module_name, default_value = '', scalar = .true.)
 
-  call add_known_name('mortality_kills_balive')
-  sp%mortality_kills_balive = fm_util_get_logical('mortality_kills_balive', &
-        caller=module_name, default_value=sp%mortality_kills_balive, scalar=.true.)
   call add_known_name('leaf_refl')
   call add_known_name('leaf_tran')
   do j = 1, NBANDS
@@ -755,10 +756,6 @@ subroutine read_species_data(name, sp, errors_found)
   case default
      call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
   end select
-
-  call add_known_name('reproduces_in_understory')
-  sp%reproduces_in_understory = fm_util_get_logical('reproduces_in_understory', &
-        caller=module_name, default_value=sp%reproduces_in_understory, scalar=.true.)
 
 #define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
 #define __GET_SPDATA_LOGICAL__(v) sp%v = get_spdata_logical(#v, sp%v)
@@ -832,8 +829,12 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(alphaCA)
   __GET_SPDATA_REAL__(thetaCA)
   __GET_SPDATA_REAL__(alphaBM)
+  __GET_SPDATA_LOGICAL__(limit_tussock_R)
+  __GET_SPDATA_REAL__(tussock_Ra)
+  __GET_SPDATA_REAL__(tussock_Rb)
   __GET_SPDATA_REAL__(maturalage)
   __GET_SPDATA_REAL__(v_seed)
+  __GET_SPDATA_LOGICAL__(reproduces_in_understory)
   __GET_SPDATA_REAL__(seedling_height)
   __GET_SPDATA_REAL__(seedling_nsc_frac)
   __GET_SPDATA_REAL__(frac_seed_dispersed)
@@ -843,6 +844,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(mortrate_d_c)
   __GET_SPDATA_REAL__(mortrate_d_u)
   __GET_SPDATA_REAL__(Tmin_mort)
+  __GET_SPDATA_LOGICAL__(mortality_kills_balive)
+  __GET_SPDATA_LOGICAL__(mortality_kills_seeds)
+
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
@@ -978,20 +982,19 @@ contains
      n_names = n_names+1
    end subroutine add_known_name
 
-   function get_spdata_real(name,dflt) result (v) ; real :: v
+   real function get_spdata_real(name,dflt) result (v)
       character(*), intent(in) :: name ! name of the field
       real        , intent(in) :: dflt ! default value
       v = fm_util_get_real(name, default_value=dflt, scalar=.true.)
       call add_known_name(name)
    end function get_spdata_real
 
-   function get_spdata_logical(name,dflt) result (v) ; logical :: v
+   logical function get_spdata_logical(name,dflt) result (v) 
       character(*), intent(in) :: name ! name of the field
       logical     , intent(in) :: dflt ! default value
       v = fm_util_get_logical(name, default_value=dflt, scalar=.true.)
       call add_known_name(name)
    end function get_spdata_logical
-
 end subroutine read_species_data
 
 ! ============================================================================
@@ -1128,6 +1131,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaBM', spdata(:)%thetaBM)
   call add_row(table, 'alphaCSASW', spdata(:)%alphaCSASW)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
+  call add_row(table, 'limit_tussock_R', spdata(:)%limit_tussock_R)
+  call add_row(table, 'tussock_Ra', spdata(:)%tussock_Ra)
+  call add_row(table, 'tussock_Rb', spdata(:)%tussock_Rb)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
   call add_row(table, 'reproduces_in_understory', spdata(:)%reproduces_in_understory)
@@ -1140,6 +1146,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'mortrate_d_c', spdata(:)%mortrate_d_c)
   call add_row(table, 'mortrate_d_u', spdata(:)%mortrate_d_u)
   call add_row(table, 'Tmin_mort', spdata(:)%Tmin_mort)
+  call add_row(table, 'mortality_kills_seeds', spdata(:)%mortality_kills_seeds)
   call add_row(table, 'LMA', spdata(:)%LMA)
   call add_row(table, 'LMA_understory_factor', spdata(:)%LMA_understory_factor)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)

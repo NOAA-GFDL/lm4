@@ -13,7 +13,7 @@ use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biom
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
-      init_cohort_allometry_ppa
+      init_cohort_allometry_ppa, cohort_can_reproduce
 
 implicit none
 private
@@ -99,26 +99,24 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
 
   ! add remaining lost C to soil carbon pools
   associate(sp=>spdata(cc%species))
-  ! BNS: When leaves are off, carbon_gain can be <0 making this litter <0 and crashing CORPSE
-  ! In this case, lump it in with nsc instead
-  ! Maybe it would also make sense for growth_previous_day to go with nsc instead of leaves all the time?
-  ! Hopefully nsc will not be less than daily growth respiration
-  if(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day>0) then
-    leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
-  else
-    leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed)*(1-fsmoke)*ndead
-    wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+(cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
-  endif
+  leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
   wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
   wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
 
-  leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%leaf_N+cc%seed_N)*(1-fsmoke)*ndead
+  leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N*(1-fsmoke)*ndead
 
   wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
   wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
 
-  ! leaf_litt_C can be below zero if biomasses are very small and carbon_gain is negative:
-  ! try to borrow carbon from wood litter.
+  if ((.not.spdata(cc%species)%mortality_kills_seeds).and.cohort_can_reproduce(cc)) then
+     ! save seeds in a temporary tile-level buffer
+     vegn%drop_seed_C(cc%species) = vegn%drop_seed_C(cc%species) + cc%bseed*(1-fsmoke)*ndead 
+     vegn%drop_seed_N(cc%species) = vegn%drop_seed_N(cc%species) + cc%seed_N*(1-fsmoke)*ndead 
+  else
+     ! seeds are killed: add them to leaf litter 
+     leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%bseed*(1-fsmoke)*ndead
+     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%seed_N*(1-fsmoke)*ndead
+  endif
 
   ! accumulate root litter
   call cohort_root_litter_profile(cc, dz, profile)

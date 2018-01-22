@@ -43,7 +43,7 @@ use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
-     plant_C, plant_N
+     plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
@@ -1777,6 +1777,9 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      cc%DBH       = cc%DBH       + deltaDBH
      cc%height    = cc%height    + deltaHeight
      cc%crownarea = cc%crownarea + deltaCA
+     if (sp%lifeform==FORM_GRASS.and.sp%limit_tussock_R) then
+        cc%crownarea = min(cc%crownarea,PI*(sp%tussock_Ra+cc%height*sp%tussock_Rb)**2)
+     endif
 
      ! calculate DBH, BLmax, BRmax, BSWmax using allometric relationships
      ! Weng 2012-01-31 update_bio_living_fraction
@@ -2399,30 +2402,6 @@ subroutine update_soil_pools(vegn, soil)
   end select
 end subroutine update_soil_pools
 
-
-! ============================================================================
-logical function cohort_can_reproduce(cc)
-  type(vegn_cohort_type), intent(in) :: cc
-
-  cohort_can_reproduce = (cc%layer==1.or.spdata(cc%species)%reproduces_in_understory) &
-                         .and. cc%age > spdata(cc%species)%maturalage
-end function cohort_can_reproduce
-
-! ============================================================================
-! returns TRUE if cohort can allocate carbon to seeds.
-logical function cohort_makes_seeds(cc, G_WF) result(answer)
-  type(vegn_cohort_type), intent(in) :: cc
-  real, intent(in) :: G_WF ! amount of carbon spent on new sapwood growth and seeds
-
-  answer = (cc%layer == 1.or.spdata(cc%species)%reproduces_in_understory) &
-           .and. cc%age > spdata(cc%species)%maturalage
-  if (soil_carbon_option==SOILC_CORPSE_N.AND.N_limits_live_biomass) then
-     answer = answer .AND. &
-        .NOT.(cc%nitrogen_stress > spdata(cc%species)%max_n_stress_for_seed_production &
-              .OR. spdata(cc%species)%v_seed*G_WF/spdata(cc%species)%seed_c2n>0.1*cc%stored_N )
-  endif
-end function cohort_makes_seeds
-
 ! ============================================================================
 subroutine vegn_reproduction_ppa(do_seed_transport)
   logical, intent(in) :: do_seed_transport
@@ -2468,6 +2447,8 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   ce = first_elmt(land_tile_map, lnd%ls); k = 1
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle
+     seed_C(k,:) = tile%vegn%drop_seed_C(:); tile%vegn%drop_seed_C(:) = 0.0
+     seed_N(k,:) = tile%vegn%drop_seed_N(:); tile%vegn%drop_seed_N(:) = 0.0
      do i = 1,tile%vegn%n_cohorts
         associate(cc=>tile%vegn%cohorts(i))
         if (cohort_can_reproduce(cc)) then
