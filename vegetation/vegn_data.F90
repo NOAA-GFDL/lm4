@@ -470,8 +470,6 @@ subroutine read_vegn_data_namelist()
   unit=stdlog()
   write (unit, nml=vegn_data_nml)
 
-! TODO: possibly create a set of default species parameters, and set them through
-!       the namelist
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
      call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)
 
@@ -499,7 +497,7 @@ subroutine read_vegn_data_namelist()
   call fm_init_loop('/land_mod/species',iter)
   do while (fm_loop_over_list(iter, name, ftype, n))
      if (trim(name) == 'default' ) then
-        i = species_slot(name)
+        i = ubound(spdata,1)
         ! write(*,*) 'found default =',i
         call read_species_data(name, spdata(i), species_errors)
         ! write(*,*) 'read default data =',i, species_errors
