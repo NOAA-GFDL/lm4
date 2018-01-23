@@ -203,7 +203,7 @@ subroutine vegn_harvesting_init(id_ug)
   end select
 
   id_crop_harvest_day = register_static_field ( 'vegn', 'crop_harvest_day', (/id_ug/), &
-         'day of year when cropa are harvested', 'day', missing_value = -1.0 )
+         'day of year when crops are harvested', 'day', missing_value = -1.0 )
   id_crop_planting_day = register_static_field ( 'vegn', 'crop_planting_day', (/id_ug/), &
          'day of year when crops are planted', 'day', missing_value = -1.0 )
 

@@ -108,7 +108,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
   wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
   wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
 
-  if ((.not.spdata(cc%species)%mortality_kills_seeds).and.cohort_can_reproduce(cc)) then
+  if ((.not.sp%mortality_kills_seeds).and.cohort_can_reproduce(cc)) then
      ! save seeds in a temporary tile-level buffer
      vegn%drop_seed_C(cc%species) = vegn%drop_seed_C(cc%species) + cc%bseed*(1-fsmoke)*ndead 
      vegn%drop_seed_N(cc%species) = vegn%drop_seed_N(cc%species) + cc%seed_N*(1-fsmoke)*ndead 
