@@ -95,8 +95,8 @@ integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
 integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age, id_dbh_growth
 integer :: &
-    id_mycorrhizal_scav_allocation, id_mycorrhizal_scav_immobilization, &
-    id_mycorrhizal_mine_allocation, id_mycorrhizal_mine_immobilization, &
+    id_myc_scav_alloc, id_myc_scav_immob, &
+    id_myc_mine_alloc, id_myc_mine_immob, &
     id_N_fixer_allocation, id_total_plant_N_uptake, &
     id_N_fix_marginal_gain, id_myc_scav_marginal_gain, &
     id_myc_mine_marginal_gain, id_rhiz_exudation, id_nitrogen_stress, &
@@ -104,8 +104,8 @@ integer :: &
     id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake,&
     id_scav_plant_N_uptake, id_mine_plant_N_uptake, id_fix_plant_N_uptake,&
     id_exudate, &
-    id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, &
-    id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
+    id_myc_scav_C_res, id_myc_scav_N_res, &
+    id_myc_mine_C_res, id_myc_mine_N_res, &
     id_Nfix_C_res, id_Nfix_N_res, &
     id_N_fix_alloc_smoothed, id_myc_mine_alloc_smoothed, id_myc_scav_alloc_smoothed
 ! CMIP/CMOR diagnostic field IDs
@@ -221,17 +221,17 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        missing_value=-100.0)
   id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
        time, 'carbon root exudates', 'kg C/(m2 year)', missing_value=-100.0)
-! FIXME slm: perhaps the the following fields need to be cohort fields?
-  id_mycorrhizal_scav_allocation = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_scav_allocation',  &
+
+  id_myc_scav_alloc = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_scav_allocation',  &
        (/id_ug/), time, 'C allocation to scavenger mycorrhizae', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_mycorrhizal_scav_immobilization = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_scav_immobilization',  &
+  id_myc_scav_immob = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_scav_immobilization',  &
         (/id_ug/), time, 'N immobilization by scavenger mycorrhizae', 'kg N/(m2 year)', &
         missing_value=-100.0 )
-  id_mycorrhizal_mine_allocation = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_mine_allocation',  &
+  id_myc_mine_alloc = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_mine_allocation',  &
        (/id_ug/), time, 'C allocation to miner mycorrhizae', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_mycorrhizal_mine_immobilization = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_mine_immobilization',  &
+  id_myc_mine_immob = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_mine_immobilization',  &
        (/id_ug/), time, 'N immobilization by miner mycorrhizae', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_N_fixer_allocation = register_cohort_diag_field ( diag_mod_name, 'N_fixer_allocation',  &
@@ -274,24 +274,24 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_active_root_N_uptake = register_cohort_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
        (/id_ug/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
 
-  id_mycorrhizal_scav_C_res = register_tiled_diag_field ( diag_mod_name, 'myc_scavenger_C_res',  &
+  id_myc_scav_C_res = register_cohort_diag_field ( diag_mod_name, 'myc_scavenger_C_res',  &
        (/id_ug/), time, 'Scavenger mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_mycorrhizal_scav_N_res = register_tiled_diag_field ( diag_mod_name, 'myc_scavenger_N_res',  &
+  id_myc_scav_N_res = register_cohort_diag_field ( diag_mod_name, 'myc_scavenger_N_res',  &
        (/id_ug/), time, 'Scavenger mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
-  id_mycorrhizal_mine_C_res = register_tiled_diag_field ( diag_mod_name, 'myc_miner_C_res',  &
+  id_myc_mine_C_res = register_cohort_diag_field ( diag_mod_name, 'myc_miner_C_res',  &
        (/id_ug/), time, 'Miner mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_mycorrhizal_mine_N_res = register_tiled_diag_field ( diag_mod_name, 'myc_miner_N_res',  &
+  id_myc_mine_N_res = register_cohort_diag_field ( diag_mod_name, 'myc_miner_N_res',  &
        (/id_ug/), time, 'Miner mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
-  id_Nfix_C_res = register_tiled_diag_field ( diag_mod_name, 'N_fixer_C_res',  &
+  id_Nfix_C_res = register_cohort_diag_field ( diag_mod_name, 'N_fixer_C_res',  &
        (/id_ug/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_Nfix_N_res = register_tiled_diag_field ( diag_mod_name, 'N_fixer_N_res',  &
+  id_Nfix_N_res = register_cohort_diag_field ( diag_mod_name, 'N_fixer_N_res',  &
        (/id_ug/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
 
-  id_N_fix_alloc_smoothed = register_tiled_diag_field ( diag_mod_name, 'N_fix_alloc_smoothed',  &
+  id_N_fix_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'N_fix_alloc_smoothed',  &
        (/id_ug/), time, 'Plant C allocation to N fixers smoothed', 'kg N/m2/year', missing_value=-1.0 )
-  id_myc_mine_alloc_smoothed = register_tiled_diag_field ( diag_mod_name, 'myc_mine_alloc_smoothed',  &
+  id_myc_mine_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'myc_miner_alloc_smoothed',  &
        (/id_ug/), time, 'Plant C allocation to N miners smoothed', 'kg N/m2/year', missing_value=-1.0 )
-  id_myc_scav_alloc_smoothed = register_tiled_diag_field ( diag_mod_name, 'myc_scav_alloc_smoothed',  &
+  id_myc_scav_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'myc_scavenger_alloc_smoothed',  &
        (/id_ug/), time, 'C allocation to N scavengers smoothed', 'kg N/m2/year', missing_value=-1.0 )
 
   ! set the default sub-sampling filter for CMOR variables
@@ -357,7 +357,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   real, intent(out):: N_fixation, total_plant_N_uptake
   real, intent(out):: myc_turnover_C,myc_turnover_N
 
-  real :: myc_scav_marginal_gain,myc_mine_marginal_gain,N_fix_marginal_gain,rhiz_exud_marginal_gain ! kgN/kgC allocated
+  real :: myc_scav_mgain,myc_mine_mgain,N_fix_mgain,rhiz_exud_mgain ! kgN/kgC allocated
   real :: myc_scav_exudate_frac,myc_mine_exudate_frac,N_fixer_exudate_frac,rhiz_exud_frac
   real :: scavenger_myc_N_allocated,miner_myc_N_allocated,N_fixer_N_allocated
   real :: d_scav_C_reservoir,d_scav_N_reservoir,d_mine_C_reservoir,d_mine_N_reservoir,d_N_fixer_C_reservoir,d_N_fixer_N_reservoir
@@ -531,61 +531,61 @@ subroutine  update_mycorrhizae(cc, soilT, &
 
      ! Calculate return on investment for each strategy
      ! Scavenging (AM-style)
-     ! slm: *_marginal_gain variables have units [kgN/kgC]
+     ! slm: *_mgain (marginal gain) variables have units [kgN/kgC]
      if(myc_scav_C_efficiency == 0 .OR. .NOT. sp%do_N_scavenging_strategy) then
-        myc_scav_marginal_gain = 0
+        myc_scav_mgain = 0
         scav_N_to_plant = 0.0
      else
         if (cc%myc_scavenger_biomass_C > 0) then
-           myc_scav_marginal_gain = (max(0.0,scav_N_to_plant)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
+           myc_scav_mgain = (max(0.0,scav_N_to_plant)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
         else ! Use the mycorrhizal N uptake efficiency from myc_scavenger_N_uptake, units of (kgN/kg myc biomass C)
-           myc_scav_marginal_gain = myc_scav_efficiency/(dt_fast_yr*myc_scav_C_efficiency*mycorrhizal_turnover_time)
+           myc_scav_mgain = myc_scav_efficiency/(dt_fast_yr*myc_scav_C_efficiency*mycorrhizal_turnover_time)
         endif
      endif
      cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir - scav_N_to_plant
 
      ! Mycorrhizal N mining (ECM-style)
      if(myc_mine_C_efficiency==0 .OR. .NOT. sp%do_N_mining_strategy) then
-        myc_mine_marginal_gain = 0.0
+        myc_mine_mgain = 0.0
         mine_N_to_plant = 0.0
      else
         if(cc%myc_miner_biomass_C>0) then
-           myc_mine_marginal_gain = (max(0.0,mine_N_to_plant)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
+           myc_mine_mgain = (max(0.0,mine_N_to_plant)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
         else
-           myc_mine_marginal_gain = myc_mine_efficiency/(dt_fast_yr*myc_mine_C_efficiency*mycorrhizal_turnover_time)
+           myc_mine_mgain = myc_mine_efficiency/(dt_fast_yr*myc_mine_C_efficiency*mycorrhizal_turnover_time)
         endif
      endif
      cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir - mine_N_to_plant
 
      ! Root uptake of nitrogen
      if (C_allocation_to_N_acq>0) then
-        rhiz_exud_marginal_gain = max(0.001,(root_N_uptake/dt_fast_yr)/(C_allocation_to_N_acq))!+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+        rhiz_exud_mgain = max(0.001,(root_N_uptake/dt_fast_yr)/(C_allocation_to_N_acq))!+(myc_mine_mgain+myc_scav_mgain)*0.5
      else
-        rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.25
+        rhiz_exud_mgain = (myc_mine_mgain+myc_scav_mgain)*0.25
      endif
 
      ! N fixer
      if(N_fixer_C_efficiency == 0 .OR. .NOT. sp%do_N_fixation_strategy) then
-        N_fix_marginal_gain = 0.0
+        N_fix_mgain = 0.0
         fix_N_to_plant = 0.0
      else
         if(cc%N_fixer_biomass_C>0) then
-           N_fix_marginal_gain = (fix_N_to_plant/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
+           N_fix_mgain = (fix_N_to_plant/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
         else
-           N_fix_marginal_gain = sp%N_fixation_rate*N_fixer_C_efficiency*N_fixer_turnover_time
+           N_fix_mgain = sp%N_fixation_rate*N_fixer_C_efficiency*N_fixer_turnover_time
         endif
      endif
      cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir-fix_N_to_plant
 
      ! Apply a smoothing filter to marginal gains, so we can control how fast N strategies change at the ecosystem level
      w = 1.0/(1+sp%tau_smooth_marginal_gain/dt_fast_yr)
-     cc%myc_scav_marginal_gain_smoothed  = cc%myc_scav_marginal_gain_smoothed*(1-w)  + myc_scav_marginal_gain*w
-     cc%myc_mine_marginal_gain_smoothed  = cc%myc_mine_marginal_gain_smoothed*(1-w)  + myc_mine_marginal_gain*w
-     cc%N_fix_marginal_gain_smoothed     = cc%N_fix_marginal_gain_smoothed*(1-w)     + N_fix_marginal_gain*w
-     cc%rhiz_exud_marginal_gain_smoothed = cc%rhiz_exud_marginal_gain_smoothed*(1-w) + rhiz_exud_marginal_gain*w
+     cc%myc_scav_marginal_gain_smoothed  = cc%myc_scav_marginal_gain_smoothed*(1-w)  + myc_scav_mgain*w
+     cc%myc_mine_marginal_gain_smoothed  = cc%myc_mine_marginal_gain_smoothed*(1-w)  + myc_mine_mgain*w
+     cc%N_fix_marginal_gain_smoothed     = cc%N_fix_marginal_gain_smoothed*(1-w)     + N_fix_mgain*w
+     cc%rhiz_exud_marginal_gain_smoothed = cc%rhiz_exud_marginal_gain_smoothed*(1-w) + rhiz_exud_mgain*w
 
      ! Calculate relative fractions
-     if (myc_scav_marginal_gain+N_fix_marginal_gain+myc_mine_marginal_gain+rhiz_exud_marginal_gain>0) then
+     if (myc_scav_mgain+N_fix_mgain+myc_mine_mgain+rhiz_exud_mgain>0) then
         mgain = cc%myc_scav_marginal_gain_smoothed  &
               + cc%myc_mine_marginal_gain_smoothed  &
               + cc%N_fix_marginal_gain_smoothed     &
@@ -942,8 +942,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
 
-  call send_cohort_data(id_mycorrhizal_scav_allocation,diag,c(1:N),scavenger_myc_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_mine_allocation,diag,c(1:N),miner_myc_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_alloc,diag,c(1:N),scavenger_myc_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_alloc,diag,c(1:N),miner_myc_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_N_fixer_allocation,diag,c(1:N),N_fixer_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_scav_marginal_gain,diag,c(1:N),c(1:N)%myc_scav_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_mine_marginal_gain,diag,c(1:N),c(1:N)%myc_mine_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
@@ -958,14 +958,14 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_symbiotic_N_fixation,diag,c(1:N),N_fixation(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_active_root_N_uptake,diag,c(1:N), root_active_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_scav_plant_N_uptake,diag,c(1:N),scav_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mine_plant_N_uptake,diag,c(1:N),mine_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_fix_plant_N_uptake,diag,c(1:N),fix_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_scav_plant_N_uptake,     diag, c(1:N), scav_N_to_plant(1:N)/dt_fast_yr, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mine_plant_N_uptake,     diag, c(1:N), mine_N_to_plant(1:N)/dt_fast_yr, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_fix_plant_N_uptake,      diag, c(1:N), fix_N_to_plant(1:N)/dt_fast_yr,  weight=c(1:N)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_mycorrhizal_scav_N_res,  diag, c(1:N), c(1:N)%scav_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_scav_C_res,  diag, c(1:N), c(1:N)%scav_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_mine_N_res,  diag, c(1:N), c(1:N)%mine_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_mine_C_res,  diag, c(1:N), c(1:N)%mine_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_N_res,          diag, c(1:N), c(1:N)%scav_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_C_res,          diag, c(1:N), c(1:N)%scav_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_N_res,          diag, c(1:N), c(1:N)%mine_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_C_res,          diag, c(1:N), c(1:N)%mine_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_N_res,              diag, c(1:N), c(1:N)%N_fixer_N_reservoir,  weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_C_res,              diag, c(1:N), c(1:N)%N_fixer_C_reservoir,  weight=c(1:N)%nindivs, op=OP_SUM)
 
@@ -1010,7 +1010,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
       resp, resl, resr, ress, resg, gpp, npp, &
       scavenger_myc_C_allocated,miner_myc_C_allocated, N_fixer_C_allocated, &
       myc_scav_N_uptake, myc_mine_N_uptake, myc_mine_C_uptake, root_active_N_uptake, &
-      myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain, rhiz_exud_marginal_gain, &
+      myc_scav_mgain,myc_mine_mgain, N_fix_mgain, rhiz_exud_mgain, &
       N_fixation, root_exudate_C, root_exudate_N, myc_CO2_prod, &
       total_plant_N_uptake, scav_N_to_plant, mine_N_to_plant, fix_N_to_plant
   real, dimension(num_l) :: &
@@ -1283,8 +1283,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_tile_data(id_theta,theta,diag)
   call send_cohort_data(id_age, diag, c(1:M), c(1:M)%age, weight=c(1:M)%nindivs, op=OP_AVERAGE)
 
-  call send_cohort_data(id_mycorrhizal_scav_allocation, diag, c(1:M), scavenger_myc_C_allocated(1:M)/dt_fast_yr, weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_mine_allocation, diag, c(1:M), miner_myc_C_allocated(1:M)/dt_fast_yr,     weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_alloc,              diag, c(1:M), scavenger_myc_C_allocated(1:M)/dt_fast_yr, weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_alloc,              diag, c(1:M), miner_myc_C_allocated(1:M)/dt_fast_yr,     weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_N_fixer_allocation,          diag, c(1:M), N_fixer_C_allocated(1:M)/dt_fast_yr,       weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_scav_marginal_gain,      diag, c(1:M), c(1:M)%myc_scav_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_mine_marginal_gain,      diag, c(1:M), c(1:M)%myc_mine_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
@@ -1303,10 +1303,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mine_plant_N_uptake,         diag, c(1:M), mine_N_to_plant(1:M)/dt_fast_yr,           weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_fix_plant_N_uptake,          diag, c(1:M), fix_N_to_plant(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_mycorrhizal_scav_N_res,      diag, c(1:M), c(1:M)%scav_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_scav_C_res,      diag, c(1:M), c(1:M)%scav_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_mine_N_res,      diag, c(1:M), c(1:M)%mine_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mycorrhizal_mine_C_res,      diag, c(1:M), c(1:M)%mine_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_N_res,              diag, c(1:M), c(1:M)%scav_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_C_res,              diag, c(1:M), c(1:M)%scav_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_N_res,              diag, c(1:M), c(1:M)%mine_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_C_res,              diag, c(1:M), c(1:M)%mine_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_N_res,                  diag, c(1:M), c(1:M)%N_fixer_N_reservoir,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_C_res,                  diag, c(1:M), c(1:M)%N_fixer_C_reservoir,                weight=c(1:M)%nindivs, op=OP_SUM)
 
