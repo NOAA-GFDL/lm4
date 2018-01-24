@@ -122,20 +122,17 @@ integer, parameter, public ::   &
 
 ! litter pool constants
 integer, parameter, public :: &
-     N_LITTER_POOLS    = 3, &
+     N_LITTER_POOLS    = 2, &
      LEAF              = 1, & ! leaf litter
-     CWOOD             = 2, & ! coarse wood litter
-     FWOOD             = 3    ! fine wood litter
+     CWOOD             = 2    ! coarse wood litter
 
 character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
      'leaf            ', &
-     'coarsewood      ', &
-     'finewood        '  ]
+     'cwood            '  ]
 
 character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
      'leaf            ', &
-     'coarse wood     ', &
-     'fine wood       '  ]
+     'coarse wood     '  ]
 
 ! ==== types =================================================================
 type :: soil_pars_type
