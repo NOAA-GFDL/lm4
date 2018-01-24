@@ -645,21 +645,21 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_laii   = register_cohort_diag_field ( module_name, 'laii',  &
        (/id_ug/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
 
-  id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
+  id_leaf_size = register_cohort_diag_field ( module_name, 'leaf_size',  &
        (/id_ug/), time, missing_value=-1.0 )
-  id_root_density = register_tiled_diag_field ( module_name, 'root_density',  &
+  id_root_density = register_cohort_diag_field ( module_name, 'root_density',  &
        (/id_ug/), time, 'total biomass below ground', 'kg/m2', missing_value=-1.0 )
-  id_root_zeta = register_tiled_diag_field ( module_name, 'root_zeta',  &
+  id_root_zeta = register_cohort_diag_field ( module_name, 'root_zeta',  &
        (/id_ug/), time, 'e-folding depth of root biomass', 'm',missing_value=-1.0 )
-  id_rs_min = register_tiled_diag_field ( module_name, 'rs_min',  &
+  id_rs_min = register_cohort_diag_field ( module_name, 'rs_min',  &
        (/id_ug/), time, missing_value=-1.0 )
-  id_leaf_refl = register_tiled_diag_field ( module_name, 'leaf_refl',  &
-       (/id_ug,id_band/), time, 'reflectivity of leaf', missing_value=-1.0 )
-  id_leaf_tran = register_tiled_diag_field ( module_name, 'leaf_tran',  &
-       (/id_ug,id_band/), time, 'transmittance of leaf', missing_value=-1.0 )
-  id_leaf_emis = register_tiled_diag_field ( module_name, 'leaf_emis',  &
+!   id_leaf_refl = register_cohort_diag_field ( module_name, 'leaf_refl',  &
+!        (/id_ug,id_band/), time, 'reflectivity of leaf', missing_value=-1.0 )
+!   id_leaf_tran = register_cohort_diag_field ( module_name, 'leaf_tran',  &
+!        (/id_ug,id_band/), time, 'transmittance of leaf', missing_value=-1.0 )
+  id_leaf_emis = register_cohort_diag_field ( module_name, 'leaf_emis',  &
        (/id_ug/), time, 'leaf emissivity', missing_value=-1.0 )
-  id_snow_crit = register_tiled_diag_field ( module_name, 'snow_crit',  &
+  id_snow_crit = register_cohort_diag_field ( module_name, 'snow_crit',  &
        (/id_ug/), time, missing_value=-1.0 )
   id_stomatal = register_tiled_diag_field ( module_name, 'stomatal_cond',  &
        (/id_ug/), time, 'vegetation stomatal conductance', 'm/s', missing_value=-1.0 )
@@ -1708,20 +1708,22 @@ subroutine vegn_step_2 ( vegn, diag, &
 !  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
   call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
+  ! leaf size averaging weight is the number of leaves in cohort
+  call send_cohort_data(id_leaf_size,    diag, c(1:N), c(1:N)%leaf_size,    weight=c(1:N)%nindivs*c(1:N)%leafarea/c(1:N)%leaf_size, op=OP_AVERAGE)
+  call send_cohort_data(id_root_density, diag, c(1:N), c(1:N)%root_density, weight=c(1:N)%nindivs,                 op=OP_SUM)
+  call send_cohort_data(id_root_zeta,    diag, c(1:N), c(1:N)%root_zeta,    weight=c(1:N)%nindivs*c(1:N)%br,       op=OP_AVERAGE)
+  call send_cohort_data(id_rs_min,       diag, c(1:N), c(1:N)%rs_min,       weight=c(1:N)%nindivs*c(1:N)%leafarea, op=OP_AVERAGE)
+!   TODO: implement sending multi-dimensional cohort data and enable leaf_refl, leaf_tran diagnostics
+!   call send_cohort_data(id_leaf_refl,    diag, c(1:N), c(1:N)%leaf_refl,    weight=c(1:N)%nindivs*c(1:N)%leafarea, op=OP_AVERAGE)
+!   call send_cohort_data(id_leaf_tran,    diag, c(1:N), c(1:N)%leaf_tran,    weight=c(1:N)%nindivs*c(1:N)%leafarea, op=OP_AVERAGE)
+  call send_cohort_data(id_leaf_emis,    diag, c(1:N), c(1:N)%leaf_emis,    weight=c(1:N)%nindivs*c(1:N)%leafarea, op=OP_AVERAGE)
+  ! snow_crit averaging weight is the cohort leaf area
+  call send_cohort_data(id_snow_crit,    diag, c(1:N), c(1:N)%snow_crit,    weight=c(1:N)%nindivs*c(1:N)%leafarea, op=OP_AVERAGE)
+
   ! CMOR/CMIP variables
   if (id_lai_cmor>0) call send_tile_data(id_lai_cmor, sum(c(1:N)%nindivs*c(1:N)%leafarea), diag)
 
   end associate
-  ! TODO: fix the diagnostics below
-!  call send_tile_data(id_leaf_size, cc%leaf_size, diag)
-!  call send_tile_data(id_root_density, sum(vegn%cohorts(1:N)%root_density), diag)
-!  call send_tile_data(id_root_zeta, cc%root_zeta, diag)
-!  call send_tile_data(id_rs_min, cc%rs_min, diag)
-!  call send_tile_data(id_leaf_refl, cc%leaf_refl, diag)
-!  call send_tile_data(id_leaf_tran, cc%leaf_tran, diag)
-!  call send_tile_data(id_leaf_emis, cc%leaf_emis, diag)
-!  call send_tile_data(id_snow_crit, cc%snow_crit, diag)
-
 end subroutine vegn_step_2
 
 
