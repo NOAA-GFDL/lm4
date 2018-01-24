@@ -874,7 +874,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'theta for phenology', missing_value=-1.0 )
   id_psiph = register_tiled_diag_field ( module_name, 'psiph',  &
        (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )
-  id_leaf_age = register_tiled_diag_field ( module_name, 'leaf_age',  &
+  id_leaf_age = register_cohort_diag_field ( module_name, 'leaf_age',  &
        (/id_ug/), time, 'age of leaves since bud burst', 'days', missing_value=-1.0 )!ens
 
   id_con_v_h = register_tiled_diag_field ( module_name, 'con_v_h', (/id_ug/), &
@@ -2535,11 +2535,12 @@ subroutine update_vegn_slow( )
 
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
 
-     ! TODO: generalize gdd diagnostics, other diagnostics
+     ! TODO: generalize gdd diagnostics
      call send_tile_data(id_gdd, cc(1)%gdd, tile%diag)
      call send_tile_data(id_species, real(cc(1)%species), tile%diag)
      call send_tile_data(id_status,  real(cc(1)%status),  tile%diag)
-     call send_tile_data(id_leaf_age,real(cc(1)%leaf_age),  tile%diag)!ens
+
+     call send_cohort_data(id_leaf_age, tile%diag, cc(1:N), cc(1:N)%leaf_age, weight=cc(1:N)%nindivs*cc(1:N)%leafarea, op=OP_AVERAGE)
 
      ! carbon budget tracking
      call send_tile_data(id_fsc_in,  sum(tile%soil%fsc_in(:)),  tile%diag)

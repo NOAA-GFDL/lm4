@@ -66,7 +66,7 @@ integer, public, protected :: fire_option = FIRE_NONE
 character(len=*), parameter :: module_name = 'fire'
 #include "../shared/version_variable.inc"
 
-character(len=*), parameter  :: diag_mod_name = 'vegn'
+character(len=*), parameter  :: diag_mod_name = 'fire'
 
 ! slm: from vegn_data:
 integer, parameter :: &
