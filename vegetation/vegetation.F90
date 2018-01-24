@@ -212,9 +212,9 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, id_bsw_max, &
-   id_leaf_N,id_root_N,id_wood_N,id_sapwood_N,id_seed_N,id_stored_N,id_veg_total_N,id_Ngain,id_Nloss,&
-   id_myc_scavenger_C,id_myc_miner_C,id_N_fixer_C,&
-   id_myc_scavenger_N,id_myc_miner_N,id_N_fixer_N,&
+   id_leaf_N,id_root_N,id_wood_N,id_sapwood_N,id_seed_N,id_stored_N,id_Ntot,id_Ngain,id_Nloss,&
+   id_mrz_scav_C,id_mrz_mine_C,id_Nfix_C,&
+   id_mrz_scav_N,id_mrz_mine_N,id_Nfix_N,&
    id_species, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool_C(N_HARV_POOLS), id_harv_pool_N(N_HARV_POOLS), &
    id_harv_rate_C(N_HARV_POOLS), id_tot_harv_pool_C, id_tot_harv_rate_C, id_tot_harv_pool_N, &
@@ -812,26 +812,26 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'nitrogen content of wood', 'kg N/m2', missing_value=-1.0 )
   id_sapwood_N = register_cohort_diag_field ( module_name, 'sapwood_N',  &
        (/id_ug/), time, 'nitrogen content of sapwood', 'kg N/m2', missing_value=-1.0 )
-  id_stored_N = register_cohort_diag_field ( module_name, 'veg_stored_N',  &
+  id_stored_N = register_cohort_diag_field ( module_name, 'stored_N',  &
        (/id_ug/), time, 'veg nitrogen storage', 'kg N/m2', missing_value=-1.0 )
-  id_veg_total_N = register_cohort_diag_field ( module_name, 'veg_total_N',  &
+  id_Ntot = register_cohort_diag_field ( module_name, 'Ntot',  &
        (/id_ug/), time, 'veg total nitrogen', 'kg N/m2', missing_value=-1.0 )
   id_seed_N = register_cohort_diag_field ( module_name, 'seed_N',  &
        (/id_ug/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
 
 
-  id_myc_scavenger_C = register_cohort_diag_field ( module_name, 'myc_scavenger_biomass_C',  &
+  id_mrz_scav_C = register_cohort_diag_field ( module_name, 'mrz_scav_biomass_C',  &
        (/id_ug/), time, 'scavenger mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_myc_miner_C = register_cohort_diag_field ( module_name, 'myc_miner_biomass_C',  &
+  id_mrz_mine_C = register_cohort_diag_field ( module_name, 'mrz_mine_biomass_C',  &
        (/id_ug/), time, 'miner mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_N_fixer_C = register_cohort_diag_field ( module_name, 'N_fixer_biomass_C',  &
+  id_Nfix_C = register_cohort_diag_field ( module_name, 'Nfix_biomass_C',  &
        (/id_ug/), time, 'symbiotic N fixer biomass C', 'kg C/m2', missing_value=-1.0 )
-   id_myc_scavenger_N = register_cohort_diag_field ( module_name, 'myc_scavenger_biomass_N',  &
-        (/id_ug/), time, 'scavenger mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
-   id_myc_miner_N = register_cohort_diag_field ( module_name, 'myc_miner_biomass_N',  &
-        (/id_ug/), time, 'miner mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
-   id_N_fixer_N = register_cohort_diag_field ( module_name, 'N_fixer_biomass_N',  &
-        (/id_ug/), time, 'symbiotic N fixer biomass N', 'kg N/m2', missing_value=-1.0 )
+  id_mrz_scav_N = register_cohort_diag_field ( module_name, 'mrz_scav_biomass_N',  &
+       (/id_ug/), time, 'scavenger mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
+  id_mrz_mine_N = register_cohort_diag_field ( module_name, 'mrz_mine_biomass_N',  &
+       (/id_ug/), time, 'miner mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
+  id_Nfix_N = register_cohort_diag_field ( module_name, 'Nfix_biomass_N',  &
+       (/id_ug/), time, 'symbiotic N fixer biomass N', 'kg N/m2', missing_value=-1.0 )
 
   id_bsw_max = register_cohort_diag_field ( module_name, 'bsw_max',  &
        (/id_ug/), time, 'max biomass of sapwood', 'kg C/m2', missing_value=-1.0)
@@ -2475,20 +2475,20 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_leaf_N,     tile%diag, cc(1:N), cc(1:N)%leaf_N,     weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_stored_N,    tile%diag, cc(1:N), cc(1:N)%stored_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_root_N,     tile%diag, cc(1:N), cc(1:N)%root_N,     weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_sapwood_N,    tile%diag, cc(1:N), cc(1:N)%sapwood_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_wood_N,  tile%diag, cc(1:N), cc(1:N)%wood_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_seed_N,  tile%diag, cc(1:N), cc(1:N)%seed_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_veg_total_N, tile%diag, cc(1:N), cc(1:N)%total_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_leaf_N,      tile%diag, cc(1:N), cc(1:N)%leaf_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_stored_N,    tile%diag, cc(1:N), cc(1:N)%stored_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_root_N,      tile%diag, cc(1:N), cc(1:N)%root_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_sapwood_N,   tile%diag, cc(1:N), cc(1:N)%sapwood_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_wood_N,      tile%diag, cc(1:N), cc(1:N)%wood_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_seed_N,      tile%diag, cc(1:N), cc(1:N)%seed_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Ntot,        tile%diag, cc(1:N), cc(1:N)%total_N,   weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_myc_scavenger_C,tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_myc_miner_C,tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_N_fixer_C,tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_myc_scavenger_N,tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_myc_miner_N,tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_N_fixer_N,tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_scav_C, tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_mine_C, tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Nfix_C,     tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_scav_N, tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_mine_N, tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Nfix_N,     tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
 
      ! ens 021517
      call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
