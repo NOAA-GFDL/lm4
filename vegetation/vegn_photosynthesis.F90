@@ -189,7 +189,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      soil_beta, soil_water_supply, con_v_v, &
 ! output:
      evap_demand, stomatal_cond, RHi, &
-     lai_kok, An_newleaf, An_newleaf1)
+     lai_kok, An_newleaf)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -207,7 +207,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
-  real, intent(out) :: An_newleaf, An_newleaf1  ! derivative of An wrt LAI, for diagnostics only
+  real, intent(out) :: An_newleaf  ! derivative of An wrt LAI, for diagnostics only
 
   select case (vegn_phot_option)
   case(VEGN_PHOT_SIMPLE)
@@ -217,12 +217,12 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      cohort%An_cl  = 0
      RHi = 1.0
      evap_demand   = 0
-     An_newleaf    = 0; An_newleaf1 = 0
+     An_newleaf    = 0
   case(VEGN_PHOT_LEUNING)
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
             soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi, &
-            lai_kok, An_newleaf, An_newleaf1)
+            lai_kok, An_newleaf)
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -235,7 +235,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
      evap_demand, stomatal_cond, RHi, &
-     lai_kok, An_newleaf, An_newleaf1)
+     lai_kok, An_newleaf)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -252,7 +252,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
-  real, intent(out) :: An_newleaf, An_newleaf1  ! derivative of An wrt LAI, for diagnostics only
+  real, intent(out) :: An_newleaf  ! derivative of An wrt LAI, for diagnostics only
 
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
@@ -269,7 +269,6 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
   real    :: evap_demand_old
-  real :: psyn0, resp0
 
   ! set the default values for outgoing parameters, overriden by the calculations
   ! in gs_leuning
@@ -282,7 +281,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      stomatal_cond = 0
      evap_demand   = 0
      RHi           = 1.0
-     An_newleaf    = 0 ; An_newleaf1 = 0
+     An_newleaf    = 0
      ! TODO: call vegn_hydraulics?
      return
   endif
@@ -294,17 +293,11 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ds = max(leaf_q-cana_q,0.0)
 
   ! calculate non-water-limited stomatal conductance, photosynthesis, and respiration
-  call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, ds, cohort%lai+delta_lai, &
-       cohort%leaf_age, p_surf, sp, cana_co2, cohort%extinct, &
-       cohort%layer, &
-       ! output:
-       stomatal_cond, psyn0, resp0, lai_kok, An_newleaf)
   call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, ds, cohort%lai, &
        cohort%leaf_age, p_surf, sp, cana_co2, cohort%extinct, &
        cohort%layer, &
        ! output:
        stomatal_cond, psyn, resp, lai_kok, An_newleaf)
-  An_newleaf1 = (psyn0*(cohort%lai+delta_lai)-psyn*cohort%lai)/delta_lai
   cohort%An_newleaf_daily = cohort%An_newleaf_daily + An_newleaf
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness

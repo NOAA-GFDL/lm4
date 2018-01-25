@@ -219,7 +219,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
-   id_lai_kok, id_DanDlai, id_DanDlai1, id_PAR_dn, id_PAR_net
+   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net
 
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, &
@@ -729,8 +729,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'leaf area index at Kok effect threshold', 'm2/m2', missing_value=-1.0 )
 
   id_DanDlai = register_cohort_diag_field ( module_name, 'DanDlai',  &
-       (/id_ug/), time, 'derivative of photosynthesis w.r.t. LAI', missing_value=-1.0 )
-  id_DanDlai1 = register_cohort_diag_field ( module_name, 'DanDlai1',  &
        (/id_ug/), time, 'derivative of photosynthesis w.r.t. LAI', missing_value=-1.0 )
 
   id_PAR_dn = register_cohort_diag_field ( module_name, 'PAR_dn',  &
@@ -1245,7 +1243,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
        RHi, &       ! relative humidity inside the leaf, at the point of vaporization
        lai_kok, &   ! LAI above 40 umoles of light
-       An_newleaf, An_newleaf1   ! derivative of An w.r.t. LAI, for diagnostics only
+       An_newleaf   ! derivative of An w.r.t. LAI, for diagnostics only
 
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
@@ -1352,7 +1350,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i), An_newleaf(i), An_newleaf1(i))
+        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i), An_newleaf(i))
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1538,7 +1536,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_lai_kok, diag, cc(:), lai_kok(:), weight=cc(:)%layerfrac, op=OP_SUM)
 
   call send_cohort_data(id_DanDlai, diag, cc(:), An_newleaf(:), weight=cc(:)%layerfrac, op=OP_SUM)
-  call send_cohort_data(id_DanDlai1, diag, cc(:), An_newleaf1(:), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_PAR_dn,  diag, cc(:), SWdn(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_PAR_net, diag, cc(:), RSv(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
 
