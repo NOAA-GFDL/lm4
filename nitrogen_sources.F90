@@ -279,40 +279,40 @@ subroutine nitrogen_sources_init(time, id_ug)
   ! ---- initialize the diagnostics --------------------------------------------
   call set_default_diag_filter('soil')
 
-  id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'ndep_nit', (/id_ug/), &
+  id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'Ndep_nit', (/id_ug/), &
        time, 'nitrate deposition', 'kg N/(m2 year)', missing_value=-999.0)
-  id_ndep_amm = register_tiled_diag_field (diag_mod_name, 'ndep_amm', (/id_ug/), &
+  id_ndep_amm = register_tiled_diag_field (diag_mod_name, 'Ndep_amm', (/id_ug/), &
        time, 'ammonium deposition', 'kg N/(m2 year)', missing_value=-999.0)
-  id_ndep_org = register_tiled_diag_field (diag_mod_name, 'ndep_org', (/id_ug/), &
+  id_ndep_org = register_tiled_diag_field (diag_mod_name, 'Ndep_org', (/id_ug/), &
        time, 'organic nitrogen deposition', 'kg N/(m2 year)', missing_value=-999.0)
-  id_ndep    = register_tiled_diag_field (diag_mod_name, 'ndep', (/id_ug/), &
+  id_ndep    = register_tiled_diag_field (diag_mod_name, 'Ndep', (/id_ug/), &
        time, 'total nitrogen deposition', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_nfert_nit = register_tiled_diag_field (diag_mod_name, 'nfert_nit', (/id_ug/), &
+  id_nfert_nit = register_tiled_diag_field (diag_mod_name, 'Nfert_nit', (/id_ug/), &
        time, 'nitrate fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfert_amm = register_tiled_diag_field (diag_mod_name, 'nfert_amm', (/id_ug/), &
+  id_nfert_amm = register_tiled_diag_field (diag_mod_name, 'Nfert_amm', (/id_ug/), &
        time, 'ammonium fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfert_org = register_tiled_diag_field (diag_mod_name, 'nfert_org', (/id_ug/), &
+  id_nfert_org = register_tiled_diag_field (diag_mod_name, 'Nfert_org', (/id_ug/), &
        time, 'organic nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfert     = register_tiled_diag_field (diag_mod_name, 'nfert', (/id_ug/), &
+  id_nfert     = register_tiled_diag_field (diag_mod_name, 'Nfert', (/id_ug/), &
        time, 'total nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_nmanure_nit = register_tiled_diag_field (diag_mod_name, 'nmanure_nit', (/id_ug/), &
+  id_nmanure_nit = register_tiled_diag_field (diag_mod_name, 'Nmanure_nit', (/id_ug/), &
        time, 'manure nitrate', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nmanure_amm = register_tiled_diag_field (diag_mod_name, 'nmanure_amm', (/id_ug/), &
+  id_nmanure_amm = register_tiled_diag_field (diag_mod_name, 'Nmanure_amm', (/id_ug/), &
        time, 'manure ammonium', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nmanure_org = register_tiled_diag_field (diag_mod_name, 'nmanure_org', (/id_ug/), &
+  id_nmanure_org = register_tiled_diag_field (diag_mod_name, 'Nmanure_org', (/id_ug/), &
        time, 'manure organic nitrogen', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nmanure    = register_tiled_diag_field (diag_mod_name, 'nmanure', (/id_ug/), &
+  id_nmanure    = register_tiled_diag_field (diag_mod_name, 'Nmanure', (/id_ug/), &
        time, 'total manure nitrogen deposition', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_nfml_nit = register_tiled_diag_field (diag_mod_name, 'nfml_nit', (/id_ug/), &
+  id_nfml_nit = register_tiled_diag_field (diag_mod_name, 'Nfml_nit', (/id_ug/), &
        time, 'nitrate fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfml_amm = register_tiled_diag_field (diag_mod_name, 'nfml_amm', (/id_ug/), &
+  id_nfml_amm = register_tiled_diag_field (diag_mod_name, 'Nfml_amm', (/id_ug/), &
        time, 'ammonium fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfml_org = register_tiled_diag_field (diag_mod_name, 'nfml_org', (/id_ug/), &
+  id_nfml_org = register_tiled_diag_field (diag_mod_name, 'Nfml_org', (/id_ug/), &
        time, 'organic nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfml     = register_tiled_diag_field (diag_mod_name, 'nfml', (/id_ug/), &
+  id_nfml     = register_tiled_diag_field (diag_mod_name, 'Nfml', (/id_ug/), &
        time, 'total nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
 
   id_amm_volat = register_tiled_diag_field (diag_mod_name, 'amm_volat', (/id_ug/), &

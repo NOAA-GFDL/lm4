@@ -964,7 +964,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_csmoke_rate = register_tiled_diag_field ( module_name, 'csmoke_rate', (/id_ug/), &
        time, 'rate of release of carbon lost through fire to the atmosphere', &
        'kg C/(m2 yr)', missing_value=-999.0)
-  id_nsmoke_pool = register_tiled_diag_field ( module_name, 'nsmoke', (/id_ug/), &
+  id_nsmoke_pool = register_tiled_diag_field ( module_name, 'Nsmoke', (/id_ug/), &
        time, 'nitrogen lost through fire', 'kg N/m2', missing_value=-999.0)
 
   id_ssc_in = register_tiled_diag_field ( module_name, 'ssc_in',  (/id_ug/), &
