@@ -99,11 +99,10 @@ integer :: &
     id_mrz_mine_alloc, id_mrz_mine_immob, &
     id_Nfix_alloc, id_total_plant_N_uptake, &
     id_Nfix_mgain, id_mrz_scav_mgain, &
-    id_mrz_mine_mgain, id_rhiz_exudation, id_nitrogen_stress, &
+    id_mrz_mine_mgain, id_rhiz_exud_C, id_rhiz_exud_N, id_nitrogen_stress, &
     id_rhiz_exud_mgain,id_mrz_scav_N_uptake,&
     id_mrz_mine_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake,&
     id_scav_plant_N_uptake, id_mine_plant_N_uptake, id_fix_plant_N_uptake,&
-    id_exudate, &
     id_mrz_scav_C_res, id_mrz_scav_N_res, &
     id_mrz_mine_C_res, id_mrz_mine_N_res, &
     id_Nfix_C_res, id_Nfix_N_res, &
@@ -219,8 +218,6 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_age = register_cohort_diag_field ( diag_mod_name, 'age',  &
        (/id_ug/), time, 'average cohort age', 'years', &
        missing_value=-100.0)
-  id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
-       time, 'carbon root exudates', 'kg C/(m2 year)', missing_value=-100.0)
 
   id_mrz_scav_alloc = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_alloc',  &
        (/id_ug/), time, 'C allocation to scavenger mycorrhizae', 'kg C/(m2 year)', &
@@ -246,8 +243,11 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_mrz_mine_mgain = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_mgain',  &
        (/id_ug/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', 'kg N/(m2 year)/kg C', &
        missing_value=-100.0 )
-  id_rhiz_exudation = register_cohort_diag_field ( diag_mod_name, 'rhiz_exud',  &
+  id_rhiz_exud_C = register_cohort_diag_field ( diag_mod_name, 'rhiz_exud_C',  &
        (/id_ug/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_rhiz_exud_N = register_cohort_diag_field ( diag_mod_name, 'rhiz_exud_N',  &
+       (/id_ug/), time, 'N allocation to rhizosphere exudation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_nitrogen_stress = register_cohort_diag_field ( diag_mod_name, 'nitrogen_stress',  &
        (/id_ug/), time, 'Nitrogen stress index', 'Dimensionless', &
@@ -949,7 +949,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_mrz_mine_mgain,diag,c(1:N),c(1:N)%myc_mine_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_mgain,diag,c(1:N),c(1:N)%N_fix_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_mgain,diag,c(1:N),c(1:N)%rhiz_exud_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_rhiz_exudation,diag,c(1:N),root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_C,diag,c(1:N),root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_N,diag,c(1:N),root_exudate_N(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_nitrogen_stress,diag,c(1:N),c(1:N)%nitrogen_stress,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_total_plant_N_uptake,diag,c(1:N),total_plant_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
 
@@ -1290,7 +1291,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mrz_mine_mgain,              diag, c(1:M), c(1:M)%myc_mine_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_mgain,                  diag, c(1:M), c(1:M)%N_fix_marginal_gain_smoothed,       weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_mgain,             diag, c(1:M), c(1:M)%rhiz_exud_marginal_gain_smoothed,   weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_rhiz_exudation,              diag, c(1:M), root_exudate_C(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_C,                 diag, c(1:M), root_exudate_C(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_N,                 diag, c(1:M), root_exudate_N(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_nitrogen_stress,             diag, c(1:M), c(1:M)%nitrogen_stress,                    weight=c(1:M)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_total_plant_N_uptake,        diag, c(1:M), total_plant_N_uptake(1:M)/dt_fast_yr,      weight=c(1:M)%nindivs, op=OP_SUM)
 
@@ -1314,7 +1316,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mrz_mine_alloc_smoothed,     diag, c(1:M), c(1:M)%max_mine_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_scav_alloc_smoothed,     diag, c(1:M), c(1:M)%max_scav_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_age,                         diag, c(1:M), c(1:M)%age,                                weight=c(1:M)%nindivs, op=OP_AVERAGE)
-  call send_cohort_data(id_exudate,                     diag, c(1:M), root_exudate_C(1:M),                       weight=c(1:M)%nindivs, op=OP_AVERAGE)
 
   ! ---- CMOR diagnostics
   if (id_gpp_cmor>0) call send_tile_data(id_gpp_cmor, sum(gpp(1:M)*c(1:M)%nindivs)/seconds_per_year, diag)
