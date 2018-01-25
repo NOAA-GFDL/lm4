@@ -804,19 +804,19 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_nsc = register_cohort_diag_field ( module_name, 'nsc',  &
        (/id_ug/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
 
-  id_leaf_N = register_cohort_diag_field ( module_name, 'leaf_N',  &
+  id_leaf_N = register_cohort_diag_field ( module_name, 'Nl',  &
        (/id_ug/), time, 'nitrogen content of leaves', 'kg N/m2', missing_value=-1.0 )
-  id_root_N = register_cohort_diag_field ( module_name, 'root_N',  &
+  id_root_N = register_cohort_diag_field ( module_name, 'Nr',  &
        (/id_ug/), time, 'nitrogen content of fine roots', 'kg N/m2', missing_value=-1.0 )
-  id_wood_N = register_cohort_diag_field ( module_name, 'wood_N',  &
+  id_wood_N = register_cohort_diag_field ( module_name, 'Nwood',  &
        (/id_ug/), time, 'nitrogen content of wood', 'kg N/m2', missing_value=-1.0 )
-  id_sapwood_N = register_cohort_diag_field ( module_name, 'sapwood_N',  &
+  id_sapwood_N = register_cohort_diag_field ( module_name, 'Nsw',  &
        (/id_ug/), time, 'nitrogen content of sapwood', 'kg N/m2', missing_value=-1.0 )
-  id_stored_N = register_cohort_diag_field ( module_name, 'stored_N',  &
+  id_stored_N = register_cohort_diag_field ( module_name, 'Nstore',  &
        (/id_ug/), time, 'veg nitrogen storage', 'kg N/m2', missing_value=-1.0 )
   id_Ntot = register_cohort_diag_field ( module_name, 'Ntot',  &
        (/id_ug/), time, 'veg total nitrogen', 'kg N/m2', missing_value=-1.0 )
-  id_seed_N = register_cohort_diag_field ( module_name, 'seed_N',  &
+  id_seed_N = register_cohort_diag_field ( module_name, 'Nseed',  &
        (/id_ug/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
 
 
