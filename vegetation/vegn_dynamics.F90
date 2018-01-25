@@ -274,17 +274,17 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_active_root_N_uptake = register_cohort_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
        (/id_ug/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
 
-  id_mrz_scav_C_res = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_C_res',  &
+  id_mrz_scav_C_res = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_res_C',  &
        (/id_ug/), time, 'Scavenger mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_scav_N_res = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_N_res',  &
+  id_mrz_scav_N_res = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_res_N',  &
        (/id_ug/), time, 'Scavenger mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
-  id_mrz_mine_C_res = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_C_res',  &
+  id_mrz_mine_C_res = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_res_C',  &
        (/id_ug/), time, 'Miner mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_mine_N_res = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_N_res',  &
+  id_mrz_mine_N_res = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_res_N',  &
        (/id_ug/), time, 'Miner mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
-  id_Nfix_C_res = register_cohort_diag_field ( diag_mod_name, 'Nfix_C_res',  &
+  id_Nfix_C_res = register_cohort_diag_field ( diag_mod_name, 'Nfix_res_C',  &
        (/id_ug/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_Nfix_N_res = register_cohort_diag_field ( diag_mod_name, 'Nfix_N_res',  &
+  id_Nfix_N_res = register_cohort_diag_field ( diag_mod_name, 'Nfix_res_N',  &
        (/id_ug/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
 
   id_Nfix_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'Nfix_alloc_smoothed',  &

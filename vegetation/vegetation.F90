@@ -813,9 +813,9 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_sapwood_N = register_cohort_diag_field ( module_name, 'Nsw',  &
        (/id_ug/), time, 'nitrogen content of sapwood', 'kg N/m2', missing_value=-1.0 )
   id_stored_N = register_cohort_diag_field ( module_name, 'Nstore',  &
-       (/id_ug/), time, 'veg nitrogen storage', 'kg N/m2', missing_value=-1.0 )
-  id_Ntot = register_cohort_diag_field ( module_name, 'Ntot',  &
-       (/id_ug/), time, 'veg total nitrogen', 'kg N/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'vegetation nitrogen storage', 'kg N/m2', missing_value=-1.0 )
+  id_Ntot = register_cohort_diag_field ( module_name, 'Nvegtot',  &
+       (/id_ug/), time, 'total vegetation nitrogen content', 'kg N/m2', missing_value=-1.0 )
   id_seed_N = register_cohort_diag_field ( module_name, 'Nseed',  &
        (/id_ug/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
 
