@@ -684,7 +684,7 @@ end subroutine init_cohort_hydraulics
 function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    type(vegn_cohort_type), intent(in) :: c1,c2
 
-   logical :: sameSpecies, sameLayer, sameSize, lowDensity
+   logical :: sameSpecies, sameLayer, sameSize
 
    sameSpecies = c1%species == c2%species
    sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
@@ -695,7 +695,7 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    endif
 
    cohorts_can_be_merged = &
-        sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)
+        sameSpecies .and. sameLayer .and. sameSize
 end function cohorts_can_be_merged
 
 ! ============================================================================
