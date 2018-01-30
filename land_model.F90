@@ -1322,7 +1322,8 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
    )
   type (land_tile_type), pointer :: tile
   type(land_data_type), intent(inout) :: land2cplr
-  integer, intent(in) :: l,k ! coordinates
+  integer, intent(in) :: l ! grid cell index in unstructured grid
+  integer, intent(in) :: k ! tile index with in grid cell
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
        atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
@@ -2607,7 +2608,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
              ', face='//trim(string(face))//')',FATAL)
   endif
 
-  call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), l, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
   call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 
