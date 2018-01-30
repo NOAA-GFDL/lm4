@@ -893,6 +893,8 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
            __DEBUG1__(psi_r)
         endif
      endif
+     psi_r = min(psi_r,0.0) ! make sure psi_r is within physical limits
+!     call check_var_range(psi_r,-HUGE(1.0),0.0,'vegn_hydraulics','psi_r',FATAL)
 
      ! calculate stem flow and its derivatives
      ! isa and es 201701 - CSAsw different for ALLOM_HML
