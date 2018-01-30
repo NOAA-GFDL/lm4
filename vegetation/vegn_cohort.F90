@@ -11,7 +11,7 @@ use vegn_data_mod, only : PT_C3, PT_C4, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, understory_lai_factor, &
-   do_ppa
+   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 use soil_tile_mod, only : max_lev
 
 implicit none
@@ -684,18 +684,15 @@ end subroutine init_cohort_hydraulics
 function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    type(vegn_cohort_type), intent(in) :: c1,c2
 
-   real, parameter :: mindensity = 1.0E-4
    logical :: sameSpecies, sameLayer, sameSize, lowDensity
 
    sameSpecies = c1%species == c2%species
    sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
-   sameSize    = (abs(c1%DBH - c2%DBH) <= 0.15*max(abs(c1%DBH),abs(c2%DBH))) .or.  &
-                 (abs(c1%DBH - c2%DBH) <  0.003)
+   sameSize    = (abs(c1%DBH - c2%DBH) <= DBH_merge_rel*max(abs(c1%DBH),abs(c2%DBH))) .or.  &
+                 (abs(c1%DBH - c2%DBH) <  DBH_merge_abs)
    if (spdata(c1%species)%lifeform == FORM_GRASS) then
-      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc) <= 0.15*max(abs(c1%nsc), abs(c2%nsc)))
+      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc) <= NSC_merge_rel*max(abs(c1%nsc), abs(c2%nsc)))
    endif
-   lowDensity  = .FALSE. ! c1%nindivs < mindensity
-                         ! Weng, 2014-01-27, turned off
 
    cohorts_can_be_merged = &
         sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)

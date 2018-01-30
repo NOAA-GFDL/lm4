@@ -117,7 +117,8 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, &
-    use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac
+    use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac, &
+    DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -409,6 +410,10 @@ real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correcti
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real, protected :: nsc_starv_frac = 0.01 ! if NSC drops below bl_max multiplied by this value, cohort dies
 
+real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that permits merge of two cohorts
+real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
+real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allows merge of grass cohorts
+
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -431,7 +436,9 @@ namelist /vegn_data_nml/ &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, &
   use_light_saber, &
-  nat_mortality_splits_tiles
+  nat_mortality_splits_tiles, &
+  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
+
 
 contains ! ###################################################################
 
