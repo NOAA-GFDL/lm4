@@ -2027,7 +2027,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
   endif
 
-  call update_cana_tracers(tile, tr_flux, dfdtr, &
+  call update_cana_tracers(tile, l, tr_flux, dfdtr, &
            precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, stomatal_cond )
 
   call update_land_bc_fast (tile, l, k, land2cplr)
@@ -2607,7 +2607,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
              ', face='//trim(string(face))//')',FATAL)
   endif
 
-  call snow_radiation ( tile%snow%T(1), cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
   call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 
