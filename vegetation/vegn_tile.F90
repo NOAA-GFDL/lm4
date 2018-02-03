@@ -134,6 +134,10 @@ type :: vegn_tile_type
    real :: t_cold_acm = 0.0 ! temperature of the coldest month in current year
    real :: p_ann_acm  = 0.0 ! accumulated annual precipitation for p_ann
    real :: ncm_acm    = 0.0 ! accumulated number of cold months
+   real :: treeline_T_accum = 0.0 ! accumulated temperature for tree line calculations, degC
+           ! it is in degC to improve the accuracy of averaging
+   real :: treeline_N_accum = 0.0 ! number of samples of tree line temperature.
+           ! it is real because we merge it when merging tiles
 
    ! averaged quantities for PPA phenology
    real :: tc_daily = 0.0
@@ -384,6 +388,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(t_cold)     ! average temperature of the coldest month, degK
   __MERGE__(p_ann)      ! annual mean precipitation
   __MERGE__(ncm)        ! number of cold months
+  __MERGE__(treeline_T_accum) ! accumulated temperature for tree line
+  __MERGE__(treeline_N_accum) ! number of samples
 
   ! annual accumulated values
   __MERGE__(t_ann_acm)  ! accumulated annual temperature for t_ann

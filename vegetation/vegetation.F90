@@ -22,7 +22,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
-use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
+use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
      N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
@@ -47,6 +47,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3
      HARV_POOL_PAST, HARV_POOL_CROP, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
+     treeline_base_T, treeline_T_depth, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
 
 use vegn_cohort_mod, only : vegn_cohort_type, &
@@ -186,10 +187,11 @@ namelist /vegn_nml/ &
 
 !---- end of namelist --------------------------------------------------------
 
-logical         :: module_is_initialized =.FALSE.
-real            :: delta_time      ! fast time step
-real            :: dt_fast_yr      ! fast time step in years
-real            :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
+logical :: module_is_initialized =.FALSE.
+real    :: delta_time      ! fast time step
+real    :: dt_fast_yr      ! fast time step in years
+real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
+integer :: treeline_soil_layer ! index of soil layer for tree line temperature calculations
 
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height_ave, &
@@ -304,6 +306,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   logical :: did_read_biodata
   integer :: i,j,l,n ! indices of current tile
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
+  real    :: z ! current depth, m
 
   module_is_initialized = .TRUE.
 
@@ -313,6 +316,16 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
   ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
   weight_av_phen = delta_time/(delta_time+tau_smooth_theta_phen*86400.0)
+
+  ! find soil layer index for tree line soil T calculations
+  z = 0.0
+  do i = 1, num_l
+     if (z+dz(i)>treeline_T_depth) then
+        treeline_soil_layer = i
+        exit
+     endif
+     z = z+dz(i)
+  enddo
 
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
@@ -441,6 +454,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_tile_data(restart2,'t_cold', vegn_t_cold_ptr)
      call get_tile_data(restart2,'p_ann', vegn_p_ann_ptr)
      call get_tile_data(restart2,'ncm', vegn_ncm_ptr)
+     call get_tile_data(restart2,'treeline_T_accum',vegn_treeline_T_accum_ptr)
+     call get_tile_data(restart2,'treeline_N_accum',vegn_treeline_N_accum_ptr)
      ! accumulated values for annual averaging
      call get_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr)
      call get_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr)
@@ -1099,6 +1114,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'t_cold', vegn_t_cold_ptr,'average canopy air temperature of coldest month','degK')
   call add_tile_data(restart2,'p_ann', vegn_p_ann_ptr,'average annual precipitation','kg/(m2 s)')
   call add_tile_data(restart2,'ncm', vegn_ncm_ptr,'number of cold months')
+  call add_tile_data(restart2,'treeline_T_accum', vegn_treeline_T_accum_ptr,'accumulated temperature for tree line calculations','degC')
+  call add_tile_data(restart2,'treeline_N_accum', vegn_treeline_N_accum_ptr,'number of temperature samples for tree line calculations')
   ! accumulated values for annual averaging
   call add_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr,'accumulated annual canopy air temperature','degK')
   call add_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr,'accumulated temperature of coldest month','degK')
@@ -1806,6 +1823,12 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   ! ---- update daily min and max temperature, for GDD calculations
   vegn%daily_t_max = max(vegn%daily_t_max, cana_T)
   vegn%daily_t_min = min(vegn%daily_t_min, cana_T)
+
+  ! accumulate average soil T over growing season, for treeline/mortality calculations
+  if (soil%T(treeline_soil_layer)>treeline_base_T) then
+     vegn%treeline_T_accum = vegn%treeline_T_accum + (soil%T(treeline_soil_layer)-Tfreeze)
+     vegn%treeline_N_accum = vegn%treeline_N_accum + 1
+  endif
 
   call send_tile_data(id_theph, theta, diag)
   call send_tile_data(id_psiph, psist, diag)
@@ -2647,6 +2670,9 @@ DEFINE_VEGN_ACCESSOR_0D(real,t_ann_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,p_ann_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,t_cold_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,ncm_acm)
+DEFINE_VEGN_ACCESSOR_0D(real,treeline_T_accum)
+DEFINE_VEGN_ACCESSOR_0D(real,treeline_N_accum)
+
 DEFINE_VEGN_ACCESSOR_0D(real,tc_pheno)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
