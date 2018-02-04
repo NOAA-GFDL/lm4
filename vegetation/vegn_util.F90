@@ -9,7 +9,8 @@ use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, 
 use soil_carbon_mod, only : N_C_TYPES, C_FAST
 use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_util_mod, only : add_soil_carbon
-use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, fsc_liv, fsc_wood, fsc_froot
+use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, fsc_liv, fsc_wood, fsc_froot, &
+      min_cohort_nindivs
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, biomass_of_individual, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
@@ -107,9 +108,9 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
 
   if ((.not.spdata(cc%species)%mortality_kills_seeds).and.cohort_can_reproduce(cc)) then
      ! save seeds in a temporary tile-level buffer
-     vegn%drop_seed_C(cc%species) = vegn%drop_seed_C(cc%species) + cc%bseed*(1-fsmoke)*ndead 
+     vegn%drop_seed_C(cc%species) = vegn%drop_seed_C(cc%species) + cc%bseed*(1-fsmoke)*ndead
   else
-     ! seeds are killed: add them to leaf litter 
+     ! seeds are killed: add them to leaf litter
      leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*cc%bseed*(1-fsmoke)*ndead
   endif
 
@@ -126,8 +127,6 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
-  real, parameter :: mindensity = 1.0e-10 ! individuals/m2, 1 individual per 10,000 km2
-
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
   real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
@@ -141,7 +140,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
  ! calculate the number of remaining cohorts
   k = 0
   do i = 1, vegn%n_cohorts
-     if (vegn%cohorts(i)%nindivs >  mindensity) k=k+1
+     if (vegn%cohorts(i)%nindivs >  min_cohort_nindivs) k=k+1
   enddo
 
   ! do nothing if there are no cohorts below minimum density
@@ -155,7 +154,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      allocate(cc(max(k,1)))
      k=0
      do i = 1,vegn%n_cohorts
-        if (vegn%cohorts(i)%nindivs > mindensity) then
+        if (vegn%cohorts(i)%nindivs > min_cohort_nindivs) then
            k=k+1
            cc(k) = vegn%cohorts(i)
         else

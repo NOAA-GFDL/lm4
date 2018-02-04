@@ -2192,14 +2192,17 @@ subroutine update_vegn_slow( )
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
         tile%e_res_2 = tile%e_res_2 - dheat
         call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
-        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
-        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
         ! update DBH_ys
         do ii = 1, tile%vegn%n_cohorts
            tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
            tile%vegn%cohorts(ii)%BM_ys  = tile%vegn%cohorts(ii)%bsw + &
                                           tile%vegn%cohorts(ii)%bwood
         enddo
+     endif
+
+     if (do_ppa.and.day1 /= day0) then
+        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
+        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      endif
 
      ! ---- diagnostic section

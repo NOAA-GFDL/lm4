@@ -117,7 +117,7 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     treeline_T_depth, treeline_thresh_T, treeline_base_T, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, min_lai, &
+    b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
     use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
@@ -393,6 +393,8 @@ logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at th
     ! of the canopy that cannot support themselves by photosynthesis are mercilessly
     ! cut off.
 
+real, protected :: min_cohort_nindivs = 1e-12 ! minimum allowed cohort density, individuals per m2
+
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
 ! ORDER.
@@ -440,7 +442,7 @@ namelist /vegn_data_nml/ &
   do_ppa, &
   cmc_eps, &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, &
-  b0_growth, tau_seed, understory_lai_factor, min_lai, &
+  b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
   use_light_saber, &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
@@ -904,7 +906,7 @@ contains
       call add_known_name(name)
    end function get_spdata_real
 
-   logical function get_spdata_logical(name,dflt) result (v) 
+   logical function get_spdata_logical(name,dflt) result (v)
       character(*), intent(in) :: name ! name of the field
       logical     , intent(in) :: dflt ! default value
       v = fm_util_get_logical(name, default_value=dflt, scalar=.true.)
