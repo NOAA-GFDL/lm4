@@ -25,6 +25,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
      N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
+use snow_tile_mod, only: snow_active
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -47,7 +48,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3
      HARV_POOL_PAST, HARV_POOL_CROP, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
-     treeline_base_T, treeline_T_depth, &
+     treeline_base_T, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
 
 use vegn_cohort_mod, only : vegn_cohort_type, &
@@ -221,7 +222,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
-   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net
+   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, id_treeline_T, id_treeline_season
 
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, &
@@ -306,7 +307,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   logical :: did_read_biodata
   integer :: i,j,l,n ! indices of current tile
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
-  real    :: z ! current depth, m
 
   module_is_initialized = .TRUE.
 
@@ -316,16 +316,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
   ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
   weight_av_phen = delta_time/(delta_time+tau_smooth_theta_phen*86400.0)
-
-  ! find soil layer index for tree line soil T calculations
-  z = 0.0
-  do i = 1, num_l
-     if (z+dz(i)>treeline_T_depth) then
-        treeline_soil_layer = i
-        exit
-     endif
-     z = z+dz(i)
-  enddo
 
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
@@ -874,6 +864,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_zstar_1 = register_tiled_diag_field (module_name, 'zstar:C',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
+
+  id_treeline_T = register_tiled_diag_field (module_name, 'treeline_T',(/id_ug/), &
+       time, 'average temperature of growing season for treeline calculations', 'degK', &
+       missing_value=-999.0)
+  id_treeline_season = register_tiled_diag_field (module_name, 'treeline_season',(/id_ug/), &
+       time, 'length of growing season for treeline calculations', 'degK', &
+       missing_value=-999.0)
 
   ! CMOR/CMIP variables
   call set_default_diag_filter('land')
@@ -1824,12 +1821,6 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   vegn%daily_t_max = max(vegn%daily_t_max, cana_T)
   vegn%daily_t_min = min(vegn%daily_t_min, cana_T)
 
-  ! accumulate average soil T over growing season, for treeline/mortality calculations
-  if (soil%T(treeline_soil_layer)>treeline_base_T) then
-     vegn%treeline_T_accum = vegn%treeline_T_accum + (soil%T(treeline_soil_layer)-Tfreeze)
-     vegn%treeline_N_accum = vegn%treeline_N_accum + 1
-  endif
-
   call send_tile_data(id_theph, theta, diag)
   call send_tile_data(id_psiph, psist, diag)
 
@@ -2043,6 +2034,13 @@ subroutine update_vegn_slow( )
            end associate ! F2003
         enddo
         tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
+        if (tile%vegn%tc_daily > treeline_base_T.and..not.snow_active(tile%snow)) then
+           ! accumulate average T over growing season, for treeline/mortality calculations
+           tile%vegn%treeline_T_accum = tile%vegn%treeline_T_accum + tile%vegn%tc_daily
+           tile%vegn%treeline_N_accum = tile%vegn%treeline_N_accum + 1
+        endif
+        call send_tile_data(id_treeline_T, tile%vegn%treeline_T_accum/max(1.0,tile%vegn%treeline_N_accum), tile%diag)
+        call send_tile_data(id_treeline_season, tile%vegn%treeline_N_accum, tile%diag)
         tc_daily = tile%vegn%tc_daily ! save daily temperature for dormancy detection
         ! reset the accumulated values for the next day
         tile%vegn%tc_daily    = 0.0

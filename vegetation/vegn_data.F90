@@ -115,7 +115,7 @@ public :: &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
-    treeline_T_depth, treeline_thresh_T, treeline_base_T, &
+    treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
     use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac, &
@@ -405,10 +405,11 @@ real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/deciduous
 real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
                        ! the same value is used for liquid and snow
 
-! tree line parameters from Korner and Paulsen (2004)
-real, protected :: treeline_T_depth  = 0.1 ! soil depth at which tree line temperature is taken, m
-real, protected :: treeline_base_T   = Tfreeze + 3.2 ! base temperature for growing season calculations for tree line, degK
-real, protected :: treeline_thresh_T = Tfreeze + 6.7 ! threshold temperature for tree line, degK
+! tree line parameters from Paulsen and Korner (2014) A climate-based model to predict
+! potential treeline position around the globe, Alpine Botany, 124, Issue 1, pp 1–12
+real, protected :: treeline_base_T   = Tfreeze + 0.9 ! base temperature for growing season calculations for tree line, degK
+real, protected :: treeline_thresh_T = Tfreeze + 6.4 ! threshold temperature for tree line, degK
+real, protected :: treeline_season_length = 94.0     ! minimum season length for the trees to survive
 ! Weng, 7/25/2011
 ! for understory mortality rate is calculated as:
 ! deathrate = mortrate_d_u * ( 1 + A * exp(B*(DBH_mort-DBH))/(1 + exp(B*(DBH_mort-DBH)))
@@ -435,7 +436,7 @@ namelist /vegn_data_nml/ &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, wood_fract_min, T_transp_min, &
   phen_ev1, phen_ev2, &
-  treeline_T_depth, treeline_base_T, treeline_thresh_T, &
+  treeline_base_T, treeline_thresh_T, treeline_season_length, &
   scnd_biomass_bins, &
 
   ! PPA-related namelist values

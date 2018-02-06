@@ -14,7 +14,7 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      heat_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, nat_mortality_splits_tiles, &
-       treeline_thresh_T, FORM_GRASS, FORM_WOODY
+       treeline_thresh_T, treeline_season_length, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
@@ -345,18 +345,20 @@ subroutine vegn_nat_mortality_ppa ( )
      ts = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ts,t0))
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated cycles
-        ! calculate average soil T in growing season, for tree line calculations
+        ! calculate average T in growing season, for tree line calculations
         if (t0%vegn%treeline_N_accum>0) then
-            treeline_T = t0%vegn%treeline_T_accum/t0%vegn%treeline_N_accum + Tfreeze ! treeline_T_accum is in degC, for accuracy
+            treeline_T = t0%vegn%treeline_T_accum/t0%vegn%treeline_N_accum
         else
             treeline_T = Tfreeze
         endif
-        t0%vegn%treeline_T_accum = 0.0; t0%vegn%treeline_N_accum = 0
         ! calculate death rate for each of the cohorts
         allocate(ndead(t0%vegn%n_cohorts))
         do k = 1,t0%vegn%n_cohorts
-           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, t0%vegn%t_cold, treeline_T, ndead(k))
+           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, t0%vegn%t_cold, &
+                treeline_T, real(t0%vegn%treeline_N_accum), ndead(k))
         enddo
+        ! reset treeline_T_accum and treeline_N_accum for the next year
+        t0%vegn%treeline_T_accum = 0.0; t0%vegn%treeline_N_accum = 0
         ! given death numbers for each cohort, update tile
         call tile_nat_mortality_ppa(t0,ndead,t1)
         deallocate(ndead)
@@ -408,11 +410,12 @@ end subroutine vegn_nat_mortality_ppa
 ! ============================================================================
 ! for a given cohort and time interval, calculates how many individuals die
 ! naturally during this interval
-subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, treeline_T, ndead)
+subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, treeline_T, treeline_season, ndead)
   type(vegn_cohort_type), intent(in)  :: cc     ! cohort
   real,                   intent(in)  :: deltat ! time interval, s
   real,                   intent(in)  :: coldest_month_T ! temperature of coldest month, degK
   real,                   intent(in)  :: treeline_T ! temperature for treeline calculations, degK
+  real,                   intent(in)  :: treeline_season ! growing season length for treeline calculations, days
   real,                   intent(out) :: ndead  ! number of individuals to die, indiv/m2
 
   real :: deathrate ! mortality rate, 1/year
@@ -443,7 +446,8 @@ subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, treeline_T, nde
   if (coldest_month_T < sp%Tmin_mort) &
         deathrate = max(deathrate, 2.0) ! at least 1-exp(-2) trees die per year
   ! tree line
-  if (sp%lifeform == FORM_WOODY .and. treeline_T < treeline_thresh_T) &
+  if (sp%lifeform == FORM_WOODY .and. &
+        (treeline_T < treeline_thresh_T.or.treeline_season < treeline_season_length)) &
         deathrate = max(deathrate, 2.0) ! at least 1-exp(-2) trees die per year
 
   ndead = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
