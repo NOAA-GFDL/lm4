@@ -1404,7 +1404,7 @@ subroutine vegn_phenology_ppa(tile)
          ! drop all leaves if LAI is below certain small minimum
          if (cc%lai<min_lai) leaf_fall = cc%bl
 
-         cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mort + stem_mort) ! isa 20170705
+         cc%nsc = cc%nsc + l_fract * (leaf_fall + root_mort) ! isa 20170705
          cc%bl  = cc%bl - leaf_fall
          cc%br  = cc%br - root_mort
          cc%bsw = cc%bsw - stem_mort ! isa 20170705
@@ -1413,7 +1413,8 @@ subroutine vegn_phenology_ppa(tile)
          if(cc%bl == 0.0) cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter = (1.0-l_fract) * (leaf_fall+root_mort+stem_mort) * cc%nindivs ! isa20170705, stem and roots become leaf litter
+         ! isa20170705, stem and roots become leaf litter
+         leaf_litter = ((1.0-l_fract) * (leaf_fall+root_mort) + stem_mort) * cc%nindivs
          ! call check_var_range(leaf_litter,0.0,HUGE(1.0),'vegn_phenology_ppa','leaf_litter',FATAL)
          leaf_litt(:) = leaf_litt(:)+[fsc_liv,1-fsc_liv,0.0]*leaf_litter
 
