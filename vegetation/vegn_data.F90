@@ -257,10 +257,13 @@ type spec_data_type
   real    :: phiRL         = 2.69   ! ratio of fine root to leaf area
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
-  real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
   !  for PPA, IMC, 1/8/2017
   real    :: growth_resp   = 0.333  ! fraction of NPP lost as growth respiration
+  ! target NSC is calculated as blending between bl_max*NSC2targetbl and bl_max*NSC2targetbl0
+  ! between DBH=0 and DBH=NSC2targetbl_dbh, provided the latter is above 0
   real    :: NSC2targetbl  = 4.0    ! ratio of NSC to target biomass of leaves
+  real    :: NSC2targetbl0 = 1.5    ! ratio of NSC to target biomass of leaves for zero-size seedlings
+  real    :: NSC2targetbl_dbh = -1.0  ! blending diameter for NSC target calculations
   real    :: T_dorm        = TFREEZE  ! dormancy temperature threshold, degK
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
@@ -287,8 +290,6 @@ type spec_data_type
   real    :: Hd_gam = 200.0! Inactivation Energy for gamma star
   real    :: Ea_resp = 46.39! Activation Energy for resp
   real    :: Hd_resp = 200.0! Inactivation Energy for resp
-  !for Light Saber, ppg, 17/12/07
-  real    ::  newleaf_layer = 0.05
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
@@ -799,12 +800,13 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
-  __GET_SPDATA_REAL__(tauNSC)
   __GET_SPDATA_REAL__(phiRL)
   __GET_SPDATA_REAL__(phiCSA)
   !  for PPA, IMC, 1/8/2017
   __GET_SPDATA_REAL__(growth_resp)
   __GET_SPDATA_REAL__(NSC2targetbl)
+  __GET_SPDATA_REAL__(NSC2targetbl0)
+  __GET_SPDATA_REAL__(NSC2targetbl_dbh)
   __GET_SPDATA_REAL__(T_dorm)
   ! for Kok effect, ppg, 17/11/07
   __GET_SPDATA_REAL__(inib_factor)
@@ -827,8 +829,6 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(Hd_gam)
   __GET_SPDATA_REAL__(Ea_resp)
   __GET_SPDATA_REAL__(Hd_resp)
-  !for Light Saber, ppg,17/12/07
-  __GET_SPDATA_REAL__(newleaf_layer)
 
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
@@ -1068,11 +1068,12 @@ subroutine print_species_data(unit)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)
-  call add_row(table, 'tauNSC', spdata(:)%tauNSC)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
   call add_row(table, 'growth_resp', spdata(:)%growth_resp)
   call add_row(table, 'NSC2targetbl', spdata(:)%NSC2targetbl)
+  call add_row(table, 'NSC2targetbl0', spdata(:)%NSC2targetbl0)
+  call add_row(table, 'NSC2targetbl_dbh', spdata(:)%NSC2targetbl_dbh)
   call add_row(table, 'T_dorm', spdata(:)%T_dorm)
 
   call add_row(table, 'Klam', spdata(:)%Klam)
@@ -1105,9 +1106,6 @@ subroutine print_species_data(unit)
   call add_row(table, 'Hd_gam', spdata(:)%Hd_gam)
   call add_row(table, 'Ea_resp', spdata(:)%Ea_resp)
   call add_row(table, 'Hd_resp', spdata(:)%Hd_resp)
-
-  !for light Saberr, ppg, 17/12/07
-  call add_row(table,'newleaf_layer', spdata(:)%newleaf_layer)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))
