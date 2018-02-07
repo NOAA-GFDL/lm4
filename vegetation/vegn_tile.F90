@@ -574,13 +574,20 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   real    :: frac ! fraction of the layer covered so far by the canopies
   type(vegn_cohort_type), pointer :: cc(:),new(:)
   real    :: nindivs
+  real, allocatable :: effective_height(:) ! effective height for relayering, m
 
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
 
-  ! rank cohorts in descending order by height. For now, assume that they are
-  ! in order
+  ! rank cohorts in descending order by effective height. "effective" hight reflects
+  ! the point that grasses bend under the wind, exposing tree seedlings to light
+  ! and interaction with the atmosphere even if the seedlings are shorter.
   N0 = vegn%n_cohorts; cc=>vegn%cohorts
-  call rank_descending(cc(1:N0)%height,idx)
+  allocate(effective_height(N0))
+  do k = 1, N0
+     effective_height(k) = cc(k)%height * spdata(cc(k)%species)%layer_height_factor
+  enddo
+  call rank_descending(effective_height,idx)
+  deallocate(effective_height)
 
   ! calculate max possible number of new cohorts : it is equal to the number of
   ! old cohorts, plus the number of layers -- since the number of full layers is

@@ -230,6 +230,10 @@ type spec_data_type
   logical :: limit_tussock_R = .FALSE. ! if true, impose limit on tussock crown radius and area
   real    :: tussock_Ra=0.1, tussock_Rb=0.3 ! max diameter of tussock crown is calculated
      ! as tussock_Ra + tussock_Rb*height
+  real    :: layer_height_factor = 1.0  ! scaling of height for cohort relayering.
+     ! Grasses bend under the wind, exposing the tree seedlings to light even if the
+     ! seedlings are shorter; therefore we can scale the effective height of the grasses
+     ! down for the purposes of assigning layers to the vegetation cohorts.
 
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
@@ -782,6 +786,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_LOGICAL__(limit_tussock_R)
   __GET_SPDATA_REAL__(tussock_Ra)
   __GET_SPDATA_REAL__(tussock_Rb)
+  __GET_SPDATA_REAL__(layer_height_factor)
   __GET_SPDATA_REAL__(maturalage)
   __GET_SPDATA_REAL__(v_seed)
   __GET_SPDATA_LOGICAL__(reproduces_in_understory)
@@ -1050,6 +1055,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'limit_tussock_R', spdata(:)%limit_tussock_R)
   call add_row(table, 'tussock_Ra', spdata(:)%tussock_Ra)
   call add_row(table, 'tussock_Rb', spdata(:)%tussock_Rb)
+  call add_row(table, 'layer_height_factor', spdata(:)%layer_height_factor)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
   call add_row(table, 'reproduces_in_understory', spdata(:)%reproduces_in_understory)
