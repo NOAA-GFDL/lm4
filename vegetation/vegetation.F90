@@ -444,8 +444,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_tile_data(restart2,'t_cold', vegn_t_cold_ptr)
      call get_tile_data(restart2,'p_ann', vegn_p_ann_ptr)
      call get_tile_data(restart2,'ncm', vegn_ncm_ptr)
-     call get_tile_data(restart2,'treeline_T_accum',vegn_treeline_T_accum_ptr)
-     call get_tile_data(restart2,'treeline_N_accum',vegn_treeline_N_accum_ptr)
+     if (field_exists(restart2,'treeline_T_accum')) then
+        call get_tile_data(restart2,'treeline_T_accum',vegn_treeline_T_accum_ptr)
+        call get_tile_data(restart2,'treeline_N_accum',vegn_treeline_N_accum_ptr)
+     endif
      ! accumulated values for annual averaging
      call get_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr)
      call get_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr)
