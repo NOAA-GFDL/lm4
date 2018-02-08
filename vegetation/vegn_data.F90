@@ -261,7 +261,7 @@ type spec_data_type
   logical :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
     ! of the canopy that cannot support themselves by photosynthesis are mercilessly
     ! cut off.
-  real    :: light_saber_LAImin = 0.0 ! LAI below which light_saber is not applied.
+  real    :: light_saber_Hmin = 0.0 ! height below which light_saber is not applied, m.
   real    :: phiRL         = 2.69   ! ratio of fine root to leaf area
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
@@ -806,7 +806,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
   __GET_SPDATA_LOGICAL__(use_light_saber)
-  __GET_SPDATA_REAL__(light_saber_LAImin)
+  __GET_SPDATA_REAL__(light_saber_Hmin)
   __GET_SPDATA_REAL__(phiRL)
   __GET_SPDATA_REAL__(phiCSA)
   !  for PPA, IMC, 1/8/2017
@@ -1077,7 +1077,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)
   call add_row(table, 'use_light_saber', spdata(:)%use_light_saber)
-  call add_row(table, 'light_saber_LAImin', spdata(:)%light_saber_LAImin)
+  call add_row(table, 'light_saber_Hmin', spdata(:)%light_saber_Hmin)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
   call add_row(table, 'growth_resp', spdata(:)%growth_resp)

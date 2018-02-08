@@ -856,7 +856,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      ! calculate the carbon spent on growth of leaves and roots
      ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
      G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
-     if (sp%use_light_saber .and. cc%lai>sp%light_saber_LAImin) then
+     if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
         if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
      else
         ! do not grow more than bl_max, br_max of leaves and roots
@@ -943,7 +943,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
 !                               0.1*nsctmp/(1+sp%GROWTH_RESP)))
         ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
         G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
-        if (sp%use_light_saber .and. cc%lai>sp%light_saber_LAImin) then
+        if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
            if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
            G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
         else
