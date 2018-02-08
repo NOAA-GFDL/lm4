@@ -118,7 +118,7 @@ public :: &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
-    use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac, &
+    DBH_mort, A_mort, B_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
 logical, public :: do_ppa = .FALSE.
@@ -258,6 +258,10 @@ type spec_data_type
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
+  logical :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
+    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
+    ! cut off.
+  real    :: light_saber_LAImin = 0.0 ! LAI below which light_saber is not applied.
   real    :: phiRL         = 2.69   ! ratio of fine root to leaf area
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
@@ -394,9 +398,6 @@ real, protected :: understory_lai_factor = 0.25
 
 real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
     ! below this threshold, bl is set to zero
-logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
-    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
-    ! cut off.
 
 real, protected :: min_cohort_nindivs = 1e-12 ! minimum allowed cohort density, individuals per m2
 
@@ -449,7 +450,6 @@ namelist /vegn_data_nml/ &
   cmc_eps, &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
-  use_light_saber, &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
@@ -805,6 +805,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
+  __GET_SPDATA_LOGICAL__(use_light_saber)
+  __GET_SPDATA_REAL__(light_saber_LAImin)
   __GET_SPDATA_REAL__(phiRL)
   __GET_SPDATA_REAL__(phiCSA)
   !  for PPA, IMC, 1/8/2017
@@ -1074,6 +1076,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)
+  call add_row(table, 'use_light_saber', spdata(:)%use_light_saber)
+  call add_row(table, 'light_saber_LAImin', spdata(:)%light_saber_LAImin)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
   call add_row(table, 'growth_resp', spdata(:)%growth_resp)

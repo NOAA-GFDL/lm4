@@ -31,7 +31,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, l_fract, understory_lai_factor, min_lai, &
-     use_light_saber, nsc_starv_frac
+     nsc_starv_frac
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -856,7 +856,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      ! calculate the carbon spent on growth of leaves and roots
      ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
      G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
-     if (use_light_saber) then
+     if (sp%use_light_saber .and. cc%lai>sp%light_saber_LAImin) then
         if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
      else
         ! do not grow more than bl_max, br_max of leaves and roots
@@ -943,7 +943,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
 !                               0.1*nsctmp/(1+sp%GROWTH_RESP)))
         ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
         G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
-        if (use_light_saber) then
+        if (sp%use_light_saber .and. cc%lai>sp%light_saber_LAImin) then
            if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
            G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
         else
