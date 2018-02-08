@@ -663,13 +663,14 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            anbar=An/lai;
 
            !#### MODIFIED BY PPG 2017-12-07
-           !write(*,*) 'par_net', par_net
-!           newleaf_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))/(1-exp(-(lai+delta_lai)*kappa))
            newleaf_light=light_top*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))
-		   !write(*,*) 'layer light', newleaf_light
-		   Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
-           !An_newleaf=(Ag_newleaf-resp_newleaf)/delta_lai
-
+           if (lai+delta_lai>lai_eq) then
+              Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
+           else
+              Ag_newleaf = dum2*delta_lai
+           endif
+           if (vegn_Tresponse_option==VEGN_TRESPONSE_LM3) &
+                 Ag_newleaf = Ag_newleaf/TempFuncP
 
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
@@ -716,12 +717,14 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            anbar=An/lai;
 
            !#### Modified by PPG 2017-12-07
-           !write(*,*) 'par_net', par_net
-!           newleaf_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))/(1-exp(-(lai+delta_lai)*kappa))
            newleaf_light=light_top*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))
-		   !write(*,*) 'layer light', newleaf_light
-		   Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
-           !An_newleaf=(Ag_newleaf-resp_newleaf)/delta_lai
+           if (lai+delta_lai>lai_eq) then
+              Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
+           else
+              Ag_newleaf = dum2*delta_lai
+           endif
+           if (vegn_Tresponse_option==VEGN_TRESPONSE_LM3) &
+                 Ag_newleaf = Ag_newleaf/TempFuncP
 
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
