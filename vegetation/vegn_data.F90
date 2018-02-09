@@ -258,6 +258,8 @@ type spec_data_type
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
+  real    :: f_NSC         = 0.1    ! max rate of NSC spending on leaf and fine root growth, 1/day, eq.A7 in Weng et al. 2015
+  real    :: f_WF          = 0.2    ! max rate of NSC excess spending on sapwood and fruit growth, 1/day, eq. A12 Weng et al 2015
   logical :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
     ! of the canopy that cannot support themselves by photosynthesis are mercilessly
     ! cut off.
@@ -805,6 +807,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
+  __GET_SPDATA_REAL__(f_NSC)
+  __GET_SPDATA_REAL__(f_WF)
   __GET_SPDATA_LOGICAL__(use_light_saber)
   __GET_SPDATA_REAL__(light_saber_Hmin)
   __GET_SPDATA_REAL__(phiRL)
@@ -1076,6 +1080,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)
+  call add_row(table, 'f_NSC', spdata(:)%f_NSC)
+  call add_row(table, 'f_WF', spdata(:)%f_WF)
   call add_row(table, 'use_light_saber', spdata(:)%use_light_saber)
   call add_row(table, 'light_saber_Hmin', spdata(:)%light_saber_Hmin)
   call add_row(table, 'phiRL', spdata(:)%phiRL)

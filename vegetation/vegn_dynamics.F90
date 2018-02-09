@@ -421,8 +421,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: md_bsw, md_bsw_branch ! we are also overturning sapwood in grasses
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
   integer :: i, l, N
-  real :: NSC_supply,LR_demand,LR_deficit
-  real :: R_days,fNSC,fLFR,fStem,fSeed
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   ! accumulators of total input to root litter and soil carbon
   real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
@@ -828,13 +826,9 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
   real :: blend ! factor for blending of seedlings NSC target
   real :: delta_bsw_branch
   real :: delta_wood_branch
+  real :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   real, parameter :: DBHtp = 0.8 ! m
-
-  !ens
-  real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
-
-  real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
 
@@ -855,7 +849,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      endif
      ! calculate the carbon spent on growth of leaves and roots
      ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
-     G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
+     G_LFR = max(0.0, sp%f_NSC*cc%nsc/(1+sp%GROWTH_RESP))
      if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
         if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
      else
@@ -913,7 +907,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      else
         nsc_target = sp%NSC2targetbl*cc%bl_max
      endif
-     G_WF = max (0.0, fsf*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
+     G_WF = max (0.0, sp%f_WF*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
      if (cohort_can_reproduce(cc)) then
         deltaSeed = sp%v_seed * G_WF
      else
@@ -924,7 +918,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      if (sp%lifeform == FORM_GRASS) then ! isa 20170705
         ! 20170724 - new scheme
         nsctmp = cc%nsc
-        G_WF = max(0.0, fsf*(nsctmp - nsc_target)/(1+sp%GROWTH_RESP))
+        G_WF = max(0.0, sp%f_WF*(nsctmp - nsc_target)/(1+sp%GROWTH_RESP))
         ! note that it is only for HML allometry now
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
