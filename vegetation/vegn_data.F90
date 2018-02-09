@@ -118,7 +118,7 @@ public :: &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
-    DBH_mort, A_mort, B_mort, nsc_starv_frac, &
+    DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
 logical, public :: do_ppa = .FALSE.
@@ -421,10 +421,12 @@ real, protected :: treeline_season_length = 94.0     ! minimum season length for
 ! Weng, 7/25/2011
 ! for understory mortality rate is calculated as:
 ! deathrate = mortrate_d_u * ( 1 + A * exp(B*(DBH_mort-DBH))/(1 + exp(B*(DBH_mort-DBH)))
-real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
-real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
-real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
+real, protected :: DBH_mort   = 0.025 ! characteristic DBH for mortality
+real, protected :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
+real, protected :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real, protected :: nsc_starv_frac = 0.01 ! if NSC drops below bl_max multiplied by this value, cohort dies
+real, protected :: cold_mort = 2.0 ! mortality rate due to coldest month below Tmin_mort threshold, 1/year
+real, protected :: treeline_mort = 2.0 ! mortality rate above treeline, 1/year
 
 real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that permits merge of two cohorts
 real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
@@ -450,7 +452,7 @@ namelist /vegn_data_nml/ &
   ! PPA-related namelist values
   do_ppa, &
   cmc_eps, &
-  DBH_mort, A_mort, B_mort, nsc_starv_frac, &
+  DBH_mort, A_mort, B_mort, nsc_starv_frac, cold_mort, treeline_mort, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel

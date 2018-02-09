@@ -18,7 +18,7 @@ use land_debug_mod,     only : is_watch_point, check_var_range
 use land_data_mod,      only : log_version
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
-use vegn_data_mod,      only : PT_C4, PT_C3, FORM_GRASS, spdata, T_transp_min, &
+use vegn_data_mod,      only : PT_C4, PT_C3, FORM_GRASS, spdata, &
                                ALLOM_EW, ALLOM_EW1, ALLOM_HML
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 use uptake_mod,         only : darcy2d_uptake, darcy2d_uptake_solver

@@ -13,8 +13,9 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
-       do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, nat_mortality_splits_tiles, &
-       treeline_thresh_T, treeline_season_length, FORM_GRASS, FORM_WOODY
+     do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, nat_mortality_splits_tiles, &
+     treeline_thresh_T, treeline_season_length, FORM_GRASS, FORM_WOODY, &
+     cold_mort, treeline_mort
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
@@ -444,11 +445,11 @@ subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, treeline_T, tre
 
   ! cold mortality
   if (coldest_month_T < sp%Tmin_mort) &
-        deathrate = max(deathrate, 2.0) ! at least 1-exp(-2) trees die per year
+        deathrate = max(deathrate, cold_mort) ! at least 1-exp(-cold_mort) trees die per year
   ! tree line
   if (sp%lifeform == FORM_WOODY .and. &
         (treeline_T < treeline_thresh_T.or.treeline_season < treeline_season_length)) &
-        deathrate = max(deathrate, 2.0) ! at least 1-exp(-2) trees die per year
+        deathrate = max(deathrate, treeline_mort) ! at least 1-exp(-treeline_mort) trees die per year
 
   ndead = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
   end associate
