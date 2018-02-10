@@ -9,14 +9,17 @@ use fms_mod,         only : error_mesg, WARNING, FATAL
 use time_manager_mod,only : get_date, operator(-)
 use constants_mod,   only : Tfreeze
 use land_constants_mod, only : seconds_per_year
+use land_data_mod,   only : lnd
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
      do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, nat_mortality_splits_tiles, &
-     treeline_thresh_T, treeline_season_length, FORM_GRASS, FORM_WOODY, &
+     treeline_base_T, treeline_thresh_T, treeline_season_length, FORM_GRASS, FORM_WOODY, &
      cold_mort, treeline_mort
+use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa
+use snow_tile_mod,   only : snow_active
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -33,6 +36,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: vegn_disturbance_init
 public :: vegn_nat_mortality_lm3
 public :: vegn_nat_mortality_ppa
 public :: vegn_disturbance
@@ -49,12 +53,27 @@ real, parameter :: &
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)
 
+! IDs of diagnostic variables
+integer :: id_treeline_T, id_treeline_season
+
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! =============================================================================
-subroutine vegn_disturbance_init()
+subroutine vegn_disturbance_init(id_ug)
+  integer, intent(in) :: id_ug   !<Unstructured axis id.
+
   call log_version(version, module_name, &
   __FILE__)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
+
+  id_treeline_T = register_tiled_diag_field ('vegn', 'treeline_T',(/id_ug/), &
+       lnd%time, 'average temperature of growing season for treeline calculations', 'degK', &
+       missing_value=-999.0)
+  id_treeline_season = register_tiled_diag_field ('vegn', 'treeline_season',(/id_ug/), &
+       lnd%time, 'length of growing season for treeline calculations', 'degK', &
+       missing_value=-999.0)
 end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
@@ -318,8 +337,23 @@ subroutine vegn_nat_mortality_ppa ( )
   character(*),parameter :: tag = 'vegn_nat_mortality_ppa'
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+
+  ! update accumulated values for tree line calculations
+  if (day0/=day1) then
+     ts = first_elmt(land_tile_map)
+     do while (loop_over_tiles(ts,t0))
+        if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated tiles
+        if (t0%vegn%tc_daily > treeline_base_T.and..not.snow_active(t0%snow)) then
+           ! accumulate average T over growing season, for treeline/mortality calculations
+           t0%vegn%treeline_T_accum = t0%vegn%treeline_T_accum + t0%vegn%tc_daily
+           t0%vegn%treeline_N_accum = t0%vegn%treeline_N_accum + 1
+        endif
+        call send_tile_data(id_treeline_T, t0%vegn%treeline_T_accum/max(1.0,t0%vegn%treeline_N_accum), t0%diag)
+        call send_tile_data(id_treeline_season, t0%vegn%treeline_N_accum, t0%diag)
+     enddo
+  endif
 
   if (.not.(do_ppa.and.year1 /= year0)) return  ! do nothing
 

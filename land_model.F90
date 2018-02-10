@@ -211,6 +211,7 @@ logical  :: module_is_initialized = .FALSE.
 logical  :: stock_warning_issued  = .FALSE.
 logical  :: update_cana_co2 ! if false, cana_co2 is not updated during the model run.
 real     :: delta_time ! duration of main land time step (s)
+real     :: steps_per_day ! number of fast time steps per day
 
 ! ---- indices of river tracers
 integer  :: n_river_tracers
@@ -406,6 +407,8 @@ subroutine land_model_init &
   call read_cana_namelist()
 
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
+  steps_per_day = 86400.0/delta_time
+
   call init_tile_map()
 
   ! initialize subgrid tile distribution
@@ -2363,8 +2366,17 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call send_cellfrac_data(id_fracLut_urb,  is_urban,   scale=1.0)
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+
+  if (day0/=day1) then
+     ! calculate daily average canopy air temperature
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce,tile))
+         if (associated(tile%vegn)) &
+            tile%vegn%tc_daily = tile%vegn%tc_daily/steps_per_day
+     enddo
+  endif
 
   ! invoke any processes that potentially change tiling
   call vegn_nat_mortality_ppa( )
@@ -2416,6 +2428,20 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   enddo
 
   call update_land_bc_slow( land2cplr )
+
+  ! reset daily accumulated values
+  if (day0/=day1) then
+     ! reset daily air temperatures accumulators
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce,tile))
+         if(associated(tile%vegn)) then
+            ! reset the accumulated values for the next day
+            tile%vegn%tc_daily    =  0.0
+            tile%vegn%daily_T_max = -HUGE(1.0)
+            tile%vegn%daily_T_min =  HUGE(1.0)
+         endif
+     enddo
+  endif
 
   call mpp_clock_end(landClock)
   call mpp_clock_end(landSlowClock)

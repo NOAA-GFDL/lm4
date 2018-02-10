@@ -375,13 +375,16 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(fuel)       ! fuel over dry months
   __MERGE__(litter)     ! litter flux
 
-  ! monthly accumulated/averaged values
+  ! accumulated/averaged values
   __MERGE__(theta_av_phen)   ! relative soil_moisture availability not soil moisture
   __MERGE__(theta_av_fire)
   __MERGE__(psist_av)   ! water potential divided by permanent wilting potential
   __MERGE__(tsoil_av)   ! bulk soil temperature
   __MERGE__(tc_av)      ! leaf temperature
   __MERGE__(precip_av)  ! precipitation
+  __MERGE__(tc_daily)   ! daily canopy air temperature
+  __MERGE__(daily_T_max)! max canopy air temperature
+  __MERGE__(daily_T_min)! min canopy air temperature
 
   ! annual-mean values
   __MERGE__(t_ann)      ! annual mean T, degK

@@ -25,7 +25,6 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
      N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
-use snow_tile_mod, only: snow_active
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -48,7 +47,6 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3
      HARV_POOL_PAST, HARV_POOL_CROP, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
-     treeline_base_T, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
 
 use vegn_cohort_mod, only : vegn_cohort_type, &
@@ -73,7 +71,7 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
      vegn_reproduction_ppa
-use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
@@ -191,6 +189,7 @@ namelist /vegn_nml/ &
 logical :: module_is_initialized =.FALSE.
 real    :: delta_time      ! fast time step
 real    :: dt_fast_yr      ! fast time step in years
+real    :: steps_per_day   ! number of fast time steps per day
 real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 integer :: treeline_soil_layer ! index of soil layer for tree line temperature calculations
 
@@ -222,7 +221,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
-   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, id_treeline_T, id_treeline_season
+   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net
 
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, &
@@ -312,6 +311,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
   ! ---- make module copy of time and calculate time step ------------------
   delta_time = time_type_to_real(lnd%dt_fast)
+  steps_per_day = 86400.0/delta_time
   dt_fast_yr = delta_time/seconds_per_year
 
   ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
@@ -566,6 +566,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
   ! initialize carbon integrator
   call vegn_dynamics_init ( id_ug, lnd%time, delta_time )
+  call vegn_disturbance_init ( id_ug )
 
   ! initialize static vegetation
   call static_vegn_init ()
@@ -866,13 +867,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_zstar_1 = register_tiled_diag_field (module_name, 'zstar:C',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
-
-  id_treeline_T = register_tiled_diag_field (module_name, 'treeline_T',(/id_ug/), &
-       time, 'average temperature of growing season for treeline calculations', 'degK', &
-       missing_value=-999.0)
-  id_treeline_season = register_tiled_diag_field (module_name, 'treeline_season',(/id_ug/), &
-       time, 'length of growing season for treeline calculations', 'degK', &
-       missing_value=-999.0)
 
   ! CMOR/CMIP variables
   call set_default_diag_filter('land')
@@ -1988,21 +1982,19 @@ subroutine update_vegn_slow( )
   integer :: i,k,l ! current point indices
   integer :: ii ! pool and cohort iterator
   integer :: N ! number of cohorts
-  integer :: steps_per_day ! number of fast time steps per day
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   type(vegn_cohort_type), pointer :: cc(:) ! shorthand for cohort array
   real    :: zstar ! critical height, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
-  real :: tc_daily ! daly temperature for dormancy detection, degK
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   ! calculate day of year, to avoid re-calculating it in harvesting
   doy = day_of_year(lnd%time)
 
@@ -2023,31 +2015,17 @@ subroutine update_vegn_slow( )
      call check_conservation_1(tile,lmass0,fmass0,cmass0)
 
      if (day1 /= day0) then
-        steps_per_day = 86400.0/delta_time;
-        tile%vegn%tc_daily = tile%vegn%tc_daily/steps_per_day
         do ii = 1, tile%vegn%n_cohorts
            associate (cc=>tile%vegn%cohorts(ii), sp=>spdata(tile%vegn%cohorts(ii)%species)) ! F2003
            cc%npp_previous_day     = cc%npp_previous_day_tmp/steps_per_day
            cc%npp_previous_day_tmp = 0.0
            ! GDD calculated as in http://en.wikipedia.org/wiki/Growing_degree-day
            cc%gdd = cc%gdd + &
-               (max(tile%vegn%daily_t_min-sp%gdd_base_T,0.0) + &
-                max(tile%vegn%daily_t_max-sp%gdd_base_T,0.0))/2
+               (max(tile%vegn%daily_T_min-sp%gdd_base_T,0.0) + &
+                max(tile%vegn%daily_T_max-sp%gdd_base_T,0.0))/2
            end associate ! F2003
         enddo
         tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
-        if (tile%vegn%tc_daily > treeline_base_T.and..not.snow_active(tile%snow)) then
-           ! accumulate average T over growing season, for treeline/mortality calculations
-           tile%vegn%treeline_T_accum = tile%vegn%treeline_T_accum + tile%vegn%tc_daily
-           tile%vegn%treeline_N_accum = tile%vegn%treeline_N_accum + 1
-        endif
-        call send_tile_data(id_treeline_T, tile%vegn%treeline_T_accum/max(1.0,tile%vegn%treeline_N_accum), tile%diag)
-        call send_tile_data(id_treeline_season, tile%vegn%treeline_N_accum, tile%diag)
-        tc_daily = tile%vegn%tc_daily ! save daily temperature for dormancy detection
-        ! reset the accumulated values for the next day
-        tile%vegn%tc_daily    = 0.0
-        tile%vegn%daily_t_max = -HUGE(1.0)
-        tile%vegn%daily_t_min =  HUGE(1.0)
      endif
 
      call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0)
@@ -2121,7 +2099,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
 
-        call vegn_growth(tile%vegn, tc_daily, tile%diag) ! selects lm3 or ppa inside
+        call vegn_growth(tile%vegn, tile%vegn%tc_daily, tile%diag) ! selects lm3 or ppa inside
 
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
 
