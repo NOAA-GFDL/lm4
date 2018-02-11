@@ -1697,7 +1697,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
 
         ! Allocation to leaves and fine root growth
         nsctmp = cc%nsc - G_WF * (1+sp%GROWTH_RESP)
-        G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
+        G_LFR = max(0.0, sp%f_NSC*nsctmp/(1+sp%GROWTH_RESP))
         if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
            if (cc%bl>0 .and. cc%An_newleaf_daily<=0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
            G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
