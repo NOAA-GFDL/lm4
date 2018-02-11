@@ -22,7 +22,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
-use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
+use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
      N_LITTER_POOLS, LEAF, l_shortname, l_longname
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
@@ -74,7 +74,8 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
      vegn_reproduction_ppa
-use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, &
+     vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
@@ -202,6 +203,7 @@ namelist /vegn_nml/ &
 logical :: module_is_initialized =.FALSE.
 real    :: delta_time      ! fast time step
 real    :: dt_fast_yr      ! fast time step in years
+real    :: steps_per_day   ! number of fast time steps per day
 real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 
 ! diagnostic field ids
@@ -324,6 +326,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
   ! ---- make module copy of time and calculate time step ------------------
   delta_time = time_type_to_real(lnd%dt_fast)
+  steps_per_day = 86400.0/delta_time
   dt_fast_yr = delta_time/seconds_per_year
 
   ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
@@ -496,6 +499,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_tile_data(restart2,'t_cold', vegn_t_cold_ptr)
      call get_tile_data(restart2,'p_ann', vegn_p_ann_ptr)
      call get_tile_data(restart2,'ncm', vegn_ncm_ptr)
+     if (field_exists(restart2,'treeline_T_accum')) then
+        call get_tile_data(restart2,'treeline_T_accum',vegn_treeline_T_accum_ptr)
+        call get_tile_data(restart2,'treeline_N_accum',vegn_treeline_N_accum_ptr)
+     endif
      ! accumulated values for annual averaging
      call get_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr)
      call get_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr)
@@ -658,6 +665,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
   ! initialize carbon integrator
   call vegn_dynamics_init ( id_ug, lnd%time, delta_time )
+  call vegn_disturbance_init ( id_ug )
 
   ! initialize static vegetation
   call static_vegn_init ()
@@ -1295,6 +1303,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'t_cold', vegn_t_cold_ptr,'average canopy air temperature of coldest month','degK')
   call add_tile_data(restart2,'p_ann', vegn_p_ann_ptr,'average annual precipitation','kg/(m2 s)')
   call add_tile_data(restart2,'ncm', vegn_ncm_ptr,'number of cold months')
+  call add_tile_data(restart2,'treeline_T_accum', vegn_treeline_T_accum_ptr,'accumulated temperature for tree line calculations','degC')
+  call add_tile_data(restart2,'treeline_N_accum', vegn_treeline_N_accum_ptr,'number of temperature samples for tree line calculations')
   ! accumulated values for annual averaging
   call add_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr,'accumulated annual canopy air temperature','degK')
   call add_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr,'accumulated temperature of coldest month','degK')
@@ -2196,7 +2206,6 @@ subroutine update_vegn_slow( )
   integer :: i,j,k,l ! current point indices
   integer :: ii ! pool and cohort iterator
   integer :: N ! number of cohorts
-  integer :: steps_per_day ! number of fast time steps per day
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   type(vegn_cohort_type), pointer :: cc(:) ! shorthand for cohort array
   real    :: zstar ! critical height, for diag only
@@ -2211,8 +2220,8 @@ subroutine update_vegn_slow( )
   real :: dbh_max_N ! max dbh for understory; diag only
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   ! calculate day of year, to avoid re-calculating it in harvesting
   doy = day_of_year(lnd%time)
 
@@ -2233,24 +2242,17 @@ subroutine update_vegn_slow( )
      call check_conservation_1(tile,lmass0,fmass0,cmass0,nmass0)
 
      if (day1 /= day0) then
-        steps_per_day = 86400.0/delta_time;
-        tile%vegn%tc_daily = tile%vegn%tc_daily/steps_per_day
         do ii = 1, tile%vegn%n_cohorts
            associate (cc=>tile%vegn%cohorts(ii), sp=>spdata(tile%vegn%cohorts(ii)%species)) ! F2003
            cc%npp_previous_day     = cc%npp_previous_day_tmp/steps_per_day
            cc%npp_previous_day_tmp = 0.0
            ! GDD calculated as in http://en.wikipedia.org/wiki/Growing_degree-day
            cc%gdd = cc%gdd + &
-               (max(tile%vegn%daily_t_min-sp%gdd_base_T,0.0) + &
-                max(tile%vegn%daily_t_max-sp%gdd_base_T,0.0))/2
+               (max(tile%vegn%daily_T_min-sp%gdd_base_T,0.0) + &
+                max(tile%vegn%daily_T_max-sp%gdd_base_T,0.0))/2
            end associate ! F2003
         enddo
         tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
-        tc_daily = tile%vegn%tc_daily ! save daily temperature for dormancy detection
-        ! reset the accumulated values for the next day
-        tile%vegn%tc_daily    = 0.0
-        tile%vegn%daily_t_max = -HUGE(1.0)
-        tile%vegn%daily_t_min =  HUGE(1.0)
      endif
 
      call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0,nmass0)
@@ -2354,8 +2356,8 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_Ngain,sum(cc(1:N)%nitrogen_gain*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
 
-        call vegn_growth(tile%vegn, tc_daily, tile%diag) ! selects lm3 or ppa inside
-        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0,nmass0)
+        call vegn_growth(tile%vegn, tile%vegn%tc_daily, tile%diag) ! selects lm3 or ppa inside
+        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
 
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
@@ -2428,14 +2430,17 @@ subroutine update_vegn_slow( )
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
         tile%e_res_2 = tile%e_res_2 - dheat
         call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0,nmass0)
-        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
-        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0,nmass0)
         ! update DBH_ys
         do ii = 1, tile%vegn%n_cohorts
            tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
            tile%vegn%cohorts(ii)%BM_ys  = tile%vegn%cohorts(ii)%bsw + &
                                           tile%vegn%cohorts(ii)%bwood
         enddo
+     endif
+
+     if (do_ppa.and.day1 /= day0) then
+        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
+        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      endif
 
      ! ---- diagnostic section
@@ -2954,6 +2959,9 @@ DEFINE_VEGN_ACCESSOR_0D(real,t_ann_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,p_ann_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,t_cold_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,ncm_acm)
+DEFINE_VEGN_ACCESSOR_0D(real,treeline_T_accum)
+DEFINE_VEGN_ACCESSOR_0D(real,treeline_N_accum)
+
 DEFINE_VEGN_ACCESSOR_0D(real,tc_pheno)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)

@@ -31,8 +31,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
-     agf_bs, l_fract, understory_lai_factor, min_lai, &
-     use_light_saber, nsc_starv_frac, &
+     agf_bs, l_fract, understory_lai_factor, min_lai, nsc_starv_frac, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -993,8 +992,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: md_branch_sw ! in ppa we are losing and replacing branchwood
-  real :: md_bsw, md_bsw_branch ! we are also overturning sapwood in grasses
+  real :: md_brsw ! branch sapwood loss
+  real :: md_bsw  ! total sapwood loss
   real :: deltaBL, deltaBR, deltaNL, deltaNR ! leaf and fine root carbon tendencies
   integer :: i, l, M
   real :: NSC_supply,LR_demand,LR_deficit
@@ -1119,42 +1118,38 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
           call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%stored_N',FATAL)
      endif
      ! compute branch and coarse wood losses for tree types
-     md_branch_sw = 0.0
+     md_bsw = 0.0; md_brsw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY.and.&
          cc%height > sp%branch_loss_height) then
         ! ens 02/07/17
-        md_branch_sw = Max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
+        md_brsw  = max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
+        md_bsw   = md_brsw ! total sapwood loss is the sam as branch loss
      endif
-
-     call check_var_range(cc%bsw,  0.0,HUGE(1.0), 'vegn_carbon_int_ppa', 'cc%bsw', FATAL)
-     call check_var_range(cc%brsw, 0.0,cc%bsw,    'vegn_carbon_int_ppa', 'cc%brsw',FATAL)
-
      ! ens, isa, slm 2017-08-03: compute overturning of sapwood in grasses.
-     md_bsw = 0.0; md_bsw_branch = 0.0
      if (spdata(cc%species)%lifeform == FORM_GRASS) then
         if (cc%bsw > 0) then
-           md_bsw = Max(cc%bsw,0.0) * sp%alpha_wood * dt_fast_yr
-           md_bsw_branch = cc%brsw/cc%bsw * md_bsw ! overturning in branches, which are part of bsw. Do they even exist in grass?
+           md_bsw  = max(cc%bsw,0.0) * sp%alpha_wood * dt_fast_yr
+           md_brsw = cc%brsw/cc%bsw * md_bsw ! reduce branch sapwood proportionally
         endif
      endif
 
      ! brsw is a part of bsw, so when we lose branches, we need to reduce both
-     cc%brsw = cc%brsw - md_branch_sw - md_bsw_branch
-     cc%bsw  = cc%bsw  - md_branch_sw - md_bsw
+     cc%brsw = cc%brsw - md_brsw
+     cc%bsw  = cc%bsw  - md_bsw
      ! 20170617: update N pools. For now, assuming that there is no N re-translocation during
      ! either branch loss or turnover of wood and sapwood.
      if (soil_carbon_option==SOILC_CORPSE_N) then
-        cc%sapwood_N = cc%sapwood_N - (md_branch_sw+md_bsw)/sp%sapwood_c2n
+        cc%sapwood_N = cc%sapwood_N - md_bsw/sp%sapwood_c2n
      endif
 
      ! accumulate liter and soil carbon inputs across all cohorts
      ! 20170617: deposit lost N into litter and soil
      leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
      leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaNL*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
-     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw+md_bsw)*cc%nindivs
+     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_bsw*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
      if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
-             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw+md_bsw)/sp%sapwood_c2n
+             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_bsw/sp%sapwood_c2n
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs* &
@@ -1534,19 +1529,15 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
   real :: deltaHeight ! tendency of vegetation height
   real :: deltaCSAsw ! tendency of sapwood area
   real :: BL_c, BL_u ! canopy and understory target leaf biomasses, kgC/individual
-  real :: NSCtarget ! target NSC storage
+  real :: nsc_target ! target NSC storage
+  real :: blend ! factor for blending of seedlings NSC target
   real :: N_storage_target
   real :: delta_bsw_branch, delta_nsw_branch
   real :: br_max_Nstress
   real :: b0, b1, n0, n1 ! biomasses for conservation checking
-
+  real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   real, parameter :: DBHtp = 0.8 ! m
-
-  !ens
-  real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
-
-  real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
 
@@ -1564,12 +1555,20 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
   ! N stress is calculated based on "potential pools" without N limitation
   ! Elena suggests using 2*(root N + leaf N) as storage target
   ! bliving is already increased after cgain
+  select case (sp%lifeform)
+  case (FORM_WOODY)
+     if (sp%NSC2targetbl_dbh>0) then
+        blend = max(min(cc%DBH/sp%NSC2targetbl_dbh,1.0),0.0)
+        nsc_target = cc%bl_max * ((1-blend)*sp%NSC2targetbl0 + blend*sp%NSC2targetbl)
+     else
+        nsc_target = sp%NSC2targetbl*cc%bl_max
+     endif
+  case (FORM_GRASS)
+     nsc_target = sp%NSC2targetbl*cc%bl_max
+  end select
+  N_storage_target = nsc_target/sp%leaf_live_c2n
 
-
-   NSCtarget = 4.0*cc%bl_max
-   N_storage_target = NSCtarget/sp%leaf_live_c2n
-
-   if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%stored_N',FATAL)
+  if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%stored_N',FATAL)
 
   ! 20170617: calculate N stress (function of stored N) here
   !           N traget possibly in relation with NSC target
@@ -1650,11 +1649,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      ! update seed and sapwood biomass pools with the new growth (branches were updated above)
      select case (sp%lifeform)
      case (FORM_WOODY)
-        NSCtarget = sp%NSC2targetbl*cc%bl_max
-        G_WF=0.0
-        if (cc%nsc > NSCtarget) then ! ens change this
-           G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
-        endif
+        G_WF = max (0.0, sp%f_WF*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
 
         if (cohort_makes_seeds(cc,G_WF)) then
            deltaSeed = sp%v_seed * G_WF
@@ -1669,8 +1664,8 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
         endif
 
         ! calculate carbon spent on growth of leaves and roots
-        G_LFR = max(0.0, 0.1*cc%nsc/(1+sp%GROWTH_RESP))
-        if (use_light_saber) then
+        G_LFR = max(0.0, sp%f_NSC*cc%nsc/(1+sp%GROWTH_RESP))
+        if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
            if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
         else
            G_LFR = max(0.0, min(cc%bl_max+br_max_Nstress-cc%bl-cc%br, G_LFR))
@@ -1683,9 +1678,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
         deltaBR  = G_LFR - deltaBL
 
      case (FORM_GRASS) ! isa 20170705
-        ! 20170724 - new scheme
-        NSCtarget = sp%NSC2targetbl*cc%bl_max
-        G_WF = max(0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
+        G_WF = max(0.0, sp%f_WF*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
         ! note that it is only for HML allometry now
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
@@ -1705,7 +1698,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
         ! Allocation to leaves and fine root growth
         nsctmp = cc%nsc - G_WF * (1+sp%GROWTH_RESP)
         G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
-        if (use_light_saber) then
+        if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
            if (cc%bl>0 .and. cc%An_newleaf_daily<=0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
            G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
         else
@@ -2201,7 +2194,7 @@ subroutine vegn_phenology_ppa(tile)
             dead_stem_N = cc%sapwood_N
          endif
          ! update C and N pools
-         cc%nsc      = cc%nsc + l_fract*(dead_leaves_C+dead_roots_C+dead_stem_C) ! isa 20170705
+         cc%nsc      = cc%nsc + l_fract*(dead_leaves_C+dead_roots_C) ! isa 20170705
          cc%stored_N = cc%stored_N + (sp%leaf_retranslocation_frac*dead_leaves_N+sp%froot_retranslocation_frac*dead_roots_N)
          cc%bl       = cc%bl - dead_leaves_C ; cc%leaf_N    = cc%leaf_N - dead_leaves_N
          cc%br       = cc%br - dead_roots_C  ; cc%root_N    = cc%root_N - dead_roots_N
@@ -2212,7 +2205,8 @@ subroutine vegn_phenology_ppa(tile)
          if(cc%bl==0) cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter_C = (1-l_fract) * (dead_leaves_C+dead_roots_C+dead_stem_C) * cc%nindivs ! isa20170705, stem and roots become leaf litter
+         leaf_litter_C = (1-l_fract)*(dead_leaves_C+dead_roots_C) * cc%nindivs &
+                       + dead_stem_C * cc%nindivs
          leaf_litter_N = (1-sp%leaf_retranslocation_frac) * dead_leaves_N * cc%nindivs &
                        + dead_stem_N * cc%nindivs
          leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C

@@ -6,15 +6,19 @@ module vegn_disturbance_mod
 #include "../shared/debug.inc"
 
 use fms_mod,         only : error_mesg, FATAL
-use time_manager_mod,only : time_type, get_date, operator(-)
+use time_manager_mod,only : get_date, operator(-)
+use constants_mod,   only : Tfreeze
 use land_constants_mod, only : seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
-     FORM_GRASS, LEAF_OFF, DBH_mort, A_mort, B_mort
+     FORM_GRASS, FORM_WOODY, LEAF_OFF, DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, &
+     treeline_base_T, treeline_thresh_T, treeline_season_length
+use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
      vegn_mergecohorts_ppa
+use snow_tile_mod,   only : snow_active
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -33,6 +37,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: vegn_disturbance_init
 public :: vegn_nat_mortality_lm3
 public :: vegn_nat_mortality_ppa
 public :: vegn_disturbance
@@ -43,12 +48,27 @@ public :: update_fuel
 character(len=*), parameter :: module_name = 'vegn_disturbance_mod'
 #include "../shared/version_variable.inc"
 
+! IDs of diagnostic variables
+integer :: id_treeline_T, id_treeline_season
+
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! =============================================================================
-subroutine vegn_disturbance_init()
+subroutine vegn_disturbance_init(id_ug)
+  integer, intent(in) :: id_ug   !<Unstructured axis id.
+
   call log_version(version, module_name, &
   __FILE__)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
+
+  id_treeline_T = register_tiled_diag_field ('vegn', 'treeline_T',(/id_ug/), &
+       lnd%time, 'average temperature of growing season for treeline calculations', 'degK', &
+       missing_value=-999.0)
+  id_treeline_season = register_tiled_diag_field ('vegn', 'treeline_season',(/id_ug/), &
+       lnd%time, 'length of growing season for treeline calculations', 'degK', &
+       missing_value=-999.0)
 end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
@@ -361,11 +381,27 @@ subroutine vegn_nat_mortality_ppa ( )
   real :: lmass0, fmass0, cmass0, heat0 ! pre-transition values
   real :: lmass1, fmass1, cmass1, heat1 ! post-transition values
   real :: lm, fm
+  real :: treeline_T ! average temperature for tree line calculations
   character(*),parameter :: tag = 'vegn_nat_mortality_ppa'
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+
+  ! update accumulated values for tree line calculations
+  if (day0/=day1) then
+     ts = first_elmt(land_tile_map)
+     do while (loop_over_tiles(ts,t0))
+        if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated tiles
+        if (t0%vegn%tc_daily > treeline_base_T.and..not.snow_active(t0%snow)) then
+           ! accumulate average T over growing season, for treeline/mortality calculations
+           t0%vegn%treeline_T_accum = t0%vegn%treeline_T_accum + t0%vegn%tc_daily
+           t0%vegn%treeline_N_accum = t0%vegn%treeline_N_accum + 1
+        endif
+        call send_tile_data(id_treeline_T, t0%vegn%treeline_T_accum/max(1.0,t0%vegn%treeline_N_accum), t0%diag)
+        call send_tile_data(id_treeline_season, t0%vegn%treeline_N_accum, t0%diag)
+     enddo
+  endif
 
   if (.not.(do_ppa.and.year1 /= year0)) return  ! do nothing
 
@@ -392,11 +428,20 @@ subroutine vegn_nat_mortality_ppa ( )
      ts = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ts,t0))
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated cycles
+        ! calculate average T in growing season, for tree line calculations
+        if (t0%vegn%treeline_N_accum>0) then
+            treeline_T = t0%vegn%treeline_T_accum/t0%vegn%treeline_N_accum
+        else
+            treeline_T = Tfreeze
+        endif
         ! calculate death rate for each of the cohorts
         allocate(ndead(t0%vegn%n_cohorts))
         do k = 1,t0%vegn%n_cohorts
-           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, t0%vegn%t_cold, ndead(k))
+           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, t0%vegn%t_cold, &
+                treeline_T, t0%vegn%treeline_N_accum, ndead(k))
         enddo
+        ! reset treeline_T_accum and treeline_N_accum for the next year
+        t0%vegn%treeline_T_accum = 0.0; t0%vegn%treeline_N_accum = 0
         ! given death numbers for each cohort, update tile
         call tile_nat_mortality_ppa(t0,ndead,t1)
         deallocate(ndead)
@@ -448,10 +493,12 @@ end subroutine vegn_nat_mortality_ppa
 ! ============================================================================
 ! for a given cohort and time interval, calculates how many individuals die
 ! naturally during this interval
-subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, ndead)
+subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, treeline_T, treeline_season, ndead)
   type(vegn_cohort_type), intent(in)  :: cc     ! cohort
   real,                   intent(in)  :: deltat ! time interval, s
   real,                   intent(in)  :: coldest_month_T ! temperature of coldest month, degK
+  real,                   intent(in)  :: treeline_T ! temperature for treeline calculations, degK
+  real,                   intent(in)  :: treeline_season ! growing season length for treeline calculations, days
   real,                   intent(out) :: ndead  ! number of individuals to die, indiv/m2
 
   real :: deathrate ! mortality rate, 1/year
@@ -479,7 +526,12 @@ subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, ndead)
   endif
 
   ! cold mortality
-  if (coldest_month_T < sp%Tmin_mort) deathrate = max(deathrate, 2.0) ! at least 1-exp(-2) trees die per year
+  if (coldest_month_T < sp%Tmin_mort) &
+        deathrate = max(deathrate, cold_mort) ! at least 1-exp(-cold_mort) trees die per year
+  ! tree line
+  if (sp%lifeform == FORM_WOODY .and. &
+        (treeline_T < treeline_thresh_T.or.treeline_season < treeline_season_length)) &
+        deathrate = max(deathrate, treeline_mort) ! at least 1-exp(-treeline_mort) trees die per year
 
   ndead = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
   end associate

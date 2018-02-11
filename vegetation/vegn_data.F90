@@ -116,9 +116,10 @@ public :: &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
+    treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, min_lai, &
-    use_light_saber, DBH_mort, A_mort, B_mort, nsc_starv_frac, &
+    b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
+    DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
 
     mycorrhizal_turnover_time, &
@@ -237,6 +238,10 @@ type spec_data_type
   logical :: limit_tussock_R = .FALSE. ! if true, impose limit on tussock crown radius and area
   real    :: tussock_Ra=0.1, tussock_Rb=0.3 ! max diameter of tussock crown is calculated
      ! as tussock_Ra + tussock_Rb*height
+  real    :: layer_height_factor = 1.0  ! scaling of height for cohort relayering.
+     ! Grasses bend under the wind, exposing the tree seedlings to light even if the
+     ! seedlings are shorter; therefore we can scale the effective height of the grasses
+     ! down for the purposes of assigning layers to the vegetation cohorts.
 
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
@@ -261,13 +266,22 @@ type spec_data_type
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
+  real    :: f_NSC         = 0.1    ! max rate of NSC spending on leaf and fine root growth, 1/day, eq.A7 in Weng et al. 2015
+  real    :: f_WF          = 0.2    ! max rate of NSC excess spending on sapwood and fruit growth, 1/day, eq. A12 Weng et al 2015
+  logical :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
+    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
+    ! cut off.
+  real    :: light_saber_Hmin = 0.0 ! height below which light_saber is not applied, m.
   real    :: phiRL         = 2.69   ! ratio of fine root to leaf area
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
-  real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
   !  for PPA, IMC, 1/8/2017
   real    :: growth_resp   = 0.333  ! fraction of NPP lost as growth respiration
+  ! target NSC is calculated as blending between bl_max*NSC2targetbl and bl_max*NSC2targetbl0
+  ! between DBH=0 and DBH=NSC2targetbl_dbh, provided the latter is above 0
   real    :: NSC2targetbl  = 4.0    ! ratio of NSC to target biomass of leaves
+  real    :: NSC2targetbl0 = 1.5    ! ratio of NSC to target biomass of leaves for zero-size seedlings
+  real    :: NSC2targetbl_dbh = -1.0  ! blending diameter for NSC target calculations
   real    :: T_dorm        = TFREEZE  ! dormancy temperature threshold, degK
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
@@ -294,8 +308,6 @@ type spec_data_type
   real    :: Hd_gam = 200.0! Inactivation Energy for gamma star
   real    :: Ea_resp = 46.39! Activation Energy for resp
   real    :: Hd_resp = 200.0! Inactivation Energy for resp
-  !for Light Saber, ppg, 17/12/07
-  real    ::  newleaf_layer = 0.05
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
@@ -430,9 +442,8 @@ real, protected :: understory_lai_factor = 0.25
 
 real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
     ! below this threshold, bl is set to zero
-logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
-    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
-    ! cut off.
+
+real, protected :: min_cohort_nindivs = 1e-12 ! minimum allowed cohort density, individuals per m2
 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
@@ -444,13 +455,20 @@ real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/deciduous
 real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
                        ! the same value is used for liquid and snow
 
+! tree line parameters from Paulsen and Korner (2014) A climate-based model to predict
+! potential treeline position around the globe, Alpine Botany, 124, Issue 1, pp 1–12
+real, protected :: treeline_base_T   = Tfreeze + 0.9 ! base temperature for growing season calculations for tree line, degK
+real, protected :: treeline_thresh_T = Tfreeze + 6.4 ! threshold temperature for tree line, degK
+real, protected :: treeline_season_length = 94.0     ! minimum season length for the trees to survive
 ! Weng, 7/25/2011
 ! for understory mortality rate is calculated as:
 ! deathrate = mortrate_d_u * ( 1 + A * exp(B*(DBH_mort-DBH))/(1 + exp(B*(DBH_mort-DBH)))
-real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
-real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
-real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
+real, protected :: DBH_mort   = 0.025 ! characteristic DBH for mortality
+real, protected :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
+real, protected :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real, protected :: nsc_starv_frac = 0.01 ! if NSC drops below bl_max multiplied by this value, cohort dies
+real, protected :: cold_mort = 2.0 ! mortality rate due to coldest month below Tmin_mort threshold, 1/year
+real, protected :: treeline_mort = 2.0 ! mortality rate above treeline, 1/year
 
 real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that permits merge of two cohorts
 real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
@@ -485,14 +503,14 @@ namelist /vegn_data_nml/ &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, wood_fract_min, T_transp_min, &
   phen_ev1, phen_ev2, &
+  treeline_base_T, treeline_thresh_T, treeline_season_length, &
   scnd_biomass_bins, &
 
   ! PPA-related namelist values
   do_ppa, &
   cmc_eps, &
-  DBH_mort, A_mort, B_mort, nsc_starv_frac, &
-  b0_growth, tau_seed, understory_lai_factor, min_lai, &
-  use_light_saber, &
+  DBH_mort, A_mort, B_mort, nsc_starv_frac, cold_mort, treeline_mort, &
+  b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
 
@@ -836,6 +854,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_LOGICAL__(limit_tussock_R)
   __GET_SPDATA_REAL__(tussock_Ra)
   __GET_SPDATA_REAL__(tussock_Rb)
+  __GET_SPDATA_REAL__(layer_height_factor)
   __GET_SPDATA_REAL__(maturalage)
   __GET_SPDATA_REAL__(v_seed)
   __GET_SPDATA_LOGICAL__(reproduces_in_understory)
@@ -854,12 +873,17 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
-  __GET_SPDATA_REAL__(tauNSC)
+  __GET_SPDATA_REAL__(f_NSC)
+  __GET_SPDATA_REAL__(f_WF)
+  __GET_SPDATA_LOGICAL__(use_light_saber)
+  __GET_SPDATA_REAL__(light_saber_Hmin)
   __GET_SPDATA_REAL__(phiRL)
   __GET_SPDATA_REAL__(phiCSA)
   !  for PPA, IMC, 1/8/2017
   __GET_SPDATA_REAL__(growth_resp)
   __GET_SPDATA_REAL__(NSC2targetbl)
+  __GET_SPDATA_REAL__(NSC2targetbl0)
+  __GET_SPDATA_REAL__(NSC2targetbl_dbh)
   __GET_SPDATA_REAL__(T_dorm)
   ! for Kok effect, ppg, 17/11/07
   __GET_SPDATA_REAL__(inib_factor)
@@ -882,8 +906,6 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(Hd_gam)
   __GET_SPDATA_REAL__(Ea_resp)
   __GET_SPDATA_REAL__(Hd_resp)
-  !for Light Saber, ppg,17/12/07
-  __GET_SPDATA_REAL__(newleaf_layer)
 
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
@@ -993,7 +1015,7 @@ contains
       call add_known_name(name)
    end function get_spdata_real
 
-   logical function get_spdata_logical(name,dflt) result (v) 
+   logical function get_spdata_logical(name,dflt) result (v)
       character(*), intent(in) :: name ! name of the field
       logical     , intent(in) :: dflt ! default value
       v = fm_util_get_logical(name, default_value=dflt, scalar=.true.)
@@ -1138,6 +1160,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'limit_tussock_R', spdata(:)%limit_tussock_R)
   call add_row(table, 'tussock_Ra', spdata(:)%tussock_Ra)
   call add_row(table, 'tussock_Rb', spdata(:)%tussock_Rb)
+  call add_row(table, 'layer_height_factor', spdata(:)%layer_height_factor)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
   call add_row(table, 'reproduces_in_understory', spdata(:)%reproduces_in_understory)
@@ -1156,11 +1179,16 @@ subroutine print_species_data(unit)
   call add_row(table, 'rho_wood', spdata(:)%rho_wood)
   call add_row(table, 'taperfactor', spdata(:)%taperfactor)
   call add_row(table, 'LAImax', spdata(:)%LAImax)
-  call add_row(table, 'tauNSC', spdata(:)%tauNSC)
+  call add_row(table, 'f_NSC', spdata(:)%f_NSC)
+  call add_row(table, 'f_WF', spdata(:)%f_WF)
+  call add_row(table, 'use_light_saber', spdata(:)%use_light_saber)
+  call add_row(table, 'light_saber_Hmin', spdata(:)%light_saber_Hmin)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
   call add_row(table, 'growth_resp', spdata(:)%growth_resp)
   call add_row(table, 'NSC2targetbl', spdata(:)%NSC2targetbl)
+  call add_row(table, 'NSC2targetbl0', spdata(:)%NSC2targetbl0)
+  call add_row(table, 'NSC2targetbl_dbh', spdata(:)%NSC2targetbl_dbh)
   call add_row(table, 'T_dorm', spdata(:)%T_dorm)
 
   call add_row(table, 'Klam', spdata(:)%Klam)
@@ -1193,9 +1221,6 @@ subroutine print_species_data(unit)
   call add_row(table, 'Hd_gam', spdata(:)%Hd_gam)
   call add_row(table, 'Ea_resp', spdata(:)%Ea_resp)
   call add_row(table, 'Hd_resp', spdata(:)%Hd_resp)
-
-  !for light Saberr, ppg, 17/12/07
-  call add_row(table,'newleaf_layer', spdata(:)%newleaf_layer)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))

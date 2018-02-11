@@ -81,7 +81,7 @@ type :: vegn_tile_type
    ! buffers holding amounts of stuff dropped by dead trees, etc
    real :: drop_wl=0, drop_ws=0 ! buffer accumulating amount of dropped water, kg/m2
    real :: drop_hl=0, drop_hs=0 ! buffer accumulating heat of dropped water, J/m2
-   real, allocatable :: drop_seed_C(:), drop_seed_N(:) ! by species, seeds dropped 
+   real, allocatable :: drop_seed_C(:), drop_seed_N(:) ! by species, seeds dropped
                                 ! by dying plants, kgC/m2
 
    real :: age=0.0 ! tile age
@@ -146,6 +146,10 @@ type :: vegn_tile_type
    real :: t_cold_acm = 0.0 ! temperature of the coldest month in current year
    real :: p_ann_acm  = 0.0 ! accumulated annual precipitation for p_ann
    real :: ncm_acm    = 0.0 ! accumulated number of cold months
+   real :: treeline_T_accum = 0.0 ! accumulated temperature for tree line calculations, degC
+           ! it is in degC to improve the accuracy of averaging
+   real :: treeline_N_accum = 0.0 ! number of samples of tree line temperature.
+           ! it is real because we merge it when merging tiles
 
    ! averaged quantities for PPA phenology
    real :: tc_daily = 0.0
@@ -213,7 +217,7 @@ function vegn_tile_ctor(tag) result(ptr)
 
   allocate(ptr)
   allocate(ptr%drop_seed_C(0:nspecies-1), ptr%drop_seed_N(0:nspecies-1))
-  ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0 
+  ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0
   ptr%tag = tag
 end function vegn_tile_ctor
 
@@ -352,19 +356,24 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(fuel)       ! fuel over dry months
   __MERGE__(litter)     ! litter flux
 
-  ! monthly accumulated/averaged values
+  ! accumulated/averaged values
   __MERGE__(theta_av_phen)   ! relative soil_moisture availability not soil moisture
   __MERGE__(theta_av_fire)
   __MERGE__(psist_av)   ! water potential divided by permanent wilting potential
   __MERGE__(tsoil_av)   ! bulk soil temperature
   __MERGE__(tc_av)      ! leaf temperature
   __MERGE__(precip_av)  ! precipitation
+  __MERGE__(tc_daily)   ! daily canopy air temperature
+  __MERGE__(daily_T_max)! max canopy air temperature
+  __MERGE__(daily_T_min)! min canopy air temperature
 
   ! annual-mean values
   __MERGE__(t_ann)      ! annual mean T, degK
   __MERGE__(t_cold)     ! average temperature of the coldest month, degK
   __MERGE__(p_ann)      ! annual mean precipitation
   __MERGE__(ncm)        ! number of cold months
+  __MERGE__(treeline_T_accum) ! accumulated temperature for tree line
+  __MERGE__(treeline_N_accum) ! number of samples
 
   ! annual accumulated values
   __MERGE__(t_ann_acm)  ! accumulated annual temperature for t_ann
@@ -647,13 +656,20 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   real    :: frac ! fraction of the layer covered so far by the canopies
   type(vegn_cohort_type), pointer :: cc(:),new(:)
   real    :: nindivs
+  real, allocatable :: effective_height(:) ! effective height for relayering, m
 
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
 
-  ! rank cohorts in descending order by height. For now, assume that they are
-  ! in order
+  ! rank cohorts in descending order by effective height. "effective" hight reflects
+  ! the point that grasses bend under the wind, exposing tree seedlings to light
+  ! and interaction with the atmosphere even if the seedlings are shorter.
   N0 = vegn%n_cohorts; cc=>vegn%cohorts
-  call rank_descending(cc(1:N0)%height,idx)
+  allocate(effective_height(N0))
+  do k = 1, N0
+     effective_height(k) = cc(k)%height * spdata(cc(k)%species)%layer_height_factor
+  enddo
+  call rank_descending(effective_height,idx)
+  deallocate(effective_height)
 
   ! calculate max possible number of new cohorts : it is equal to the number of
   ! old cohorts, plus the number of layers -- since the number of full layers is
