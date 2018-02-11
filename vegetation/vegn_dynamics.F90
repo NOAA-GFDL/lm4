@@ -709,7 +709,6 @@ subroutine vegn_growth (vegn, temp, diag)
   endif
 end subroutine vegn_growth
 
-!***********************************************************************
 !========================================================================
 ! Starvation due to low NSC
 subroutine vegn_starvation_ppa (vegn, soil)
@@ -831,9 +830,20 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
 
   associate (sp => spdata(cc%species)) ! F2003
 
+  select case (sp%lifeform)
+  case (FORM_WOODY)
+     if (sp%NSC2targetbl_dbh>0) then
+        blend = max(min(cc%DBH/sp%NSC2targetbl_dbh,1.0),0.0)
+        nsc_target = cc%bl_max * ((1-blend)*sp%NSC2targetbl0 + blend*sp%NSC2targetbl)
+     else
+        nsc_target = sp%NSC2targetbl*cc%bl_max
+     endif
+  case (FORM_GRASS)
+     nsc_target = sp%NSC2targetbl*cc%bl_max
+  end select
+
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
-  !delta_wood_branch  = 0.
   ! set init values for diag output, to be returned when the actual calculations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
   if (cc%status == LEAF_ON.and.temp>sp%T_dorm) then
@@ -846,41 +856,6 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
         __DEBUG3__(cc%dbh, cc%height, cc%crownarea)
         write(*,*)'########### end of biomass_allocation_ppa input ###########'
      endif
-     ! calculate the carbon spent on growth of leaves and roots
-     ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
-     G_LFR = max(0.0, sp%f_NSC*cc%nsc/(1+sp%GROWTH_RESP))
-     if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
-        if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
-     else
-        ! do not grow more than bl_max, br_max of leaves and roots
-        G_LFR = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br, G_LFR))
-     endif
-
-     ! and distribute it between roots and leaves
-     deltaBL  = min(G_LFR, max(0.0, &
-          (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
-          ))
-     deltaBR  = G_LFR - deltaBL
-     ! calculate carbon spent on seeds and sapwood growth
-
-     !ens first replace lost branch sapwood
-     !delta_bsw_branch  = 0.0
-     !if (cc%branch_sw_loss > 0) then
-     !   delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
-     !   cc%bsw = cc%bsw+delta_bsw_branch
-     !   cc%branch_sw_loss = cc%branch_sw_loss - delta_bsw_branch
-     !endif
-
-     ! replace lost branch wood from sapwood pool- do we need respiration here?
-     !if (cc%branch_wood_loss > 0) then
-     !   delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
-     !   cc%bsw = cc%bsw - delta_wood_branch
-     !   cc%bwood = cc%bwood + delta_wood_branch
-     !   cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
-     !endif
-
-     call check_var_range(cc%bsw, 0.0,HUGE(1.0),'biomass_allocation_ppa #1', 'cc%bsw', FATAL)
-     call check_var_range(cc%brsw,0.0,cc%bsw,   'biomass_allocation_ppa #1', 'cc%brsw',FATAL)
 
      ! 02/07/17
      ! should this delta_bsw be updated after updating dbh and height?
@@ -898,26 +873,34 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      call check_var_range(cc%bsw, 0.0,HUGE(1.0),'biomass_allocation_ppa #2', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw,0.0,cc%bsw,   'biomass_allocation_ppa #2', 'cc%brsw',FATAL)
 
-     !ens 02/14/17
-     !update seed and sapwood biomass pools with the new growth (branches were updated above)
-     if (sp%NSC2targetbl_dbh>0) then
-        blend = max(min(cc%DBH/sp%NSC2targetbl_dbh,1.0),0.0)
-        nsc_target = cc%bl_max * ((1-blend)*sp%NSC2targetbl0 + blend*sp%NSC2targetbl)
-     else
-        nsc_target = sp%NSC2targetbl*cc%bl_max
-     endif
-     G_WF = max (0.0, sp%f_WF*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
-     if (cohort_can_reproduce(cc)) then
-        deltaSeed = sp%v_seed * G_WF
-     else
-        deltaSeed = 0.0
-     endif
-     deltaBSW = G_WF - deltaSeed
+     select case (sp%lifeform)
+     case (FORM_WOODY)
+        ! calculate carbon spent on seeds and sapwood growth
+        G_WF = max (0.0, sp%f_WF*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
+        if (cohort_can_reproduce(cc)) then
+           deltaSeed = sp%v_seed * G_WF
+        else
+           deltaSeed = 0.0
+        endif
+        deltaBSW = G_WF - deltaSeed
 
-     if (sp%lifeform == FORM_GRASS) then ! isa 20170705
-        ! 20170724 - new scheme
-        nsctmp = cc%nsc
-        G_WF = max(0.0, sp%f_WF*(nsctmp - nsc_target)/(1+sp%GROWTH_RESP))
+        ! calculate carbon spent on growth of leaves and roots
+        G_LFR = max(0.0, sp%f_NSC*cc%nsc/(1+sp%GROWTH_RESP))
+        if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
+           if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
+        else
+           ! do not grow more than bl_max, br_max of leaves and roots
+           G_LFR = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br, G_LFR))
+        endif
+
+        ! and distribute it between roots and leaves
+        deltaBL  = min(G_LFR, max(0.0, &
+             (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
+             ))
+        deltaBR  = G_LFR - deltaBL
+
+     case(FORM_GRASS) ! isa 20170705
+        G_WF = max(0.0, sp%f_WF*(cc%nsc - nsc_target)/(1+sp%GROWTH_RESP))
         ! note that it is only for HML allometry now
         G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
                           (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
@@ -929,13 +912,9 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
         endif
         deltaBSW = G_WF - deltaSeed
 
-        nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
-
         ! Allocation to leaves and fine root growth
-!         G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
-!                               0.1*nsctmp/(1+sp%GROWTH_RESP)))
-        ! do not allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
-        G_LFR = max(0.0, 0.1*nsctmp/(1+sp%GROWTH_RESP))
+        nsctmp = cc%nsc - G_WF * (1+sp%GROWTH_RESP)
+        G_LFR = max(0.0, sp%f_NSC*nsctmp/(1+sp%GROWTH_RESP))
         if (sp%use_light_saber .and. cc%height>sp%light_saber_Hmin) then
            if (cc%bl > 0 .and. cc%An_newleaf_daily <= 0) G_LFR = 0.0 ! do not grow more leaves if they would not increase An
            G_LFR = min(G_LFR, deltaLAI_max*sp%LMA*cc%crownarea)
@@ -950,7 +929,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
                           (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
         end if
         deltaBR  = G_LFR - deltaBL
-     endif
+     end select
 
      ! update biomass pools due to growth
      cc%bl     = cc%bl    + deltaBL  ! updated in vegn_int_ppa
