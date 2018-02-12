@@ -31,7 +31,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
-     agf_bs, l_fract, understory_lai_factor, min_lai, nsc_starv_frac, &
+     agf_bs, understory_lai_factor, min_lai, nsc_starv_frac, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -2030,13 +2030,13 @@ subroutine vegn_phenology_lm3(vegn, soil)
            cc%status = LEAF_OFF; ! set status to indicate leaf drop
            cc%leaf_age = 0;
 
-           leaf_litter_C = (1.0-l_fract)*cc%bl*cc%nindivs
+           leaf_litter_C = (1.0-sp%leaf_C_retrans_frac)*cc%bl*cc%nindivs
            leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
-           leaf_litter_N =  cc%leaf_N*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
+           leaf_litter_N = (1.0-sp%leaf_N_retrans_frac)*cc%leaf_N*cc%nindivs
            leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
-           root_litter_C = (1.0-l_fract)*cc%br*cc%nindivs
-           root_litter_N = cc%root_N*cc%nindivs*(1.0-sp%root_N_retrans_frac)
+           root_litter_C = (1.0-sp%root_C_retrans_frac)*cc%br*cc%nindivs
+           root_litter_N = (1.0-sp%root_N_retrans_frac)*cc%root_N*cc%nindivs
            call cohort_root_litter_profile(cc, dz, profile)
            do l = 1, num_l
               root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &
@@ -2048,7 +2048,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
            vegn%litter = vegn%litter + leaf_litter_C + root_litter_C
            vegn%veg_out = vegn%veg_out + leaf_litter_C + root_litter_C
 
-           cc%blv = cc%blv + l_fract*(cc%bl+cc%br);
+           cc%blv = cc%blv + sp%leaf_C_retrans_frac*cc%bl + sp%root_C_retrans_frac*cc%br
            cc%bl  = 0.0;
            cc%br  = 0.0;
            cc%lai = 0.0;
@@ -2200,7 +2200,7 @@ subroutine vegn_phenology_ppa(tile)
             dead_stem_N = cc%sapwood_N
          endif
          ! update C and N pools
-         cc%nsc      = cc%nsc + l_fract*(dead_leaves_C+dead_roots_C) ! isa 20170705
+         cc%nsc      = cc%nsc + sp%leaf_C_retrans_frac*dead_leaves_C + sp%root_C_retrans_frac*dead_roots_C ! isa 20170705
          cc%stored_N = cc%stored_N + (sp%leaf_N_retrans_frac*dead_leaves_N+sp%root_N_retrans_frac*dead_roots_N)
          cc%bl       = cc%bl - dead_leaves_C ; cc%leaf_N    = cc%leaf_N - dead_leaves_N
          cc%br       = cc%br - dead_roots_C  ; cc%root_N    = cc%root_N - dead_roots_N
@@ -2211,8 +2211,8 @@ subroutine vegn_phenology_ppa(tile)
          if(cc%bl==0) cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter_C = (1-l_fract)*(dead_leaves_C+dead_roots_C) * cc%nindivs &
-                       + dead_stem_C * cc%nindivs
+         leaf_litter_C = (1-sp%leaf_C_retrans_frac)*dead_leaves_C*cc%nindivs &
+                       + dead_stem_C*cc%nindivs
          leaf_litter_N = (1-sp%leaf_N_retrans_frac) * dead_leaves_N * cc%nindivs &
                        + dead_stem_N * cc%nindivs
          leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
@@ -2222,8 +2222,8 @@ subroutine vegn_phenology_ppa(tile)
          soil%fsc_in(1)  = soil%fsc_in(1) + leaf_litter_C
          vegn%veg_out = vegn%veg_out + leaf_litter_C
 
-         root_litter_C = (1-l_fract) * dead_roots_C * cc%nindivs
-         root_litter_N = (1-sp%root_N_retrans_frac) * dead_roots_N
+         root_litter_C = (1-sp%root_C_retrans_frac) * dead_roots_C * cc%nindivs
+         root_litter_N = (1-sp%root_N_retrans_frac) * dead_roots_N * cc%nindivs
          call cohort_root_litter_profile(cc, dz, profile)
          do l = 1, num_l
             root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &

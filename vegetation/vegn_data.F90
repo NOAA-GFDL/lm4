@@ -114,7 +114,7 @@ public :: &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, T_cold_tropical, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-    l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
+    wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
@@ -218,6 +218,8 @@ type spec_data_type
   real    :: psi_stress_crit_phen = 0.0
   real    :: fact_crit_phen = 0.0, cnst_crit_phen = 0.15 ! wilting factor and offset to
     ! get critical value for leaf drop -- only one is non-zero at any time
+  real    :: leaf_C_retrans_frac = 0.5 ! fraction of the leaf biomass re-translocated before leaf drop
+  real    :: root_C_retrans_frac = 0.5 ! fraction of the root biomass re-translocated before senescence
   real    :: fact_crit_fire = 0.0, cnst_crit_fire = 0.15 ! wilting factor and offset to
     ! get critical value for fire -- only one is non-zero at the time
 
@@ -342,8 +344,8 @@ type spec_data_type
   real    :: c2n_mycorrhizae= 10.0    ! C:N ratio of mycorrhizal biomass
   real    :: seed_c2n       = 30.0    ! C:N ratio of seeds. Note, must contain enough N to support initial sapling
 
-  real    :: leaf_N_retrans_frac = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
-  real    :: root_N_retrans_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
+  real    :: leaf_N_retrans_frac = 0.5 ! Fraction of leaf N retranslocated before leaf drop
+  real    :: root_N_retrans_frac = 0.0 ! Fraction of fine root N retranslocated before senescence
 
   real    :: branch_wood_frac = 0.1525 ! fraction of total wood biomass in branches,
                                        ! corresponds to 0.18 of trunk (bole) biomass
@@ -430,7 +432,6 @@ real :: harvest_spending_time(N_HARV_POOLS) = &
      ! time (yrs) during which intermediate pool of harvested carbon is completely
      ! released to the atmosphere.
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
-real :: l_fract      = 0.5 ! fraction of the leaf biomass re-translocated when leaves fall
 real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enabled
                            ! 0 means no limit, lm3v value is 268.0
 ! Ensheng's growth parameters:
@@ -502,7 +503,7 @@ namelist /vegn_data_nml/ &
   agf_bs, K1,K2, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-  l_fract, wood_fract_min, T_transp_min, &
+  wood_fract_min, T_transp_min, &
   phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
   scnd_biomass_bins, &
@@ -831,6 +832,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(psi_stress_crit_phen)
   __GET_SPDATA_REAL__(cnst_crit_phen)
   __GET_SPDATA_REAL__(fact_crit_phen)
+  __GET_SPDATA_REAL__(leaf_C_retrans_frac)
+  __GET_SPDATA_REAL__(root_C_retrans_frac)
   __GET_SPDATA_REAL__(cnst_crit_fire)
   __GET_SPDATA_REAL__(fact_crit_fire)
 
@@ -1250,9 +1253,11 @@ subroutine print_species_data(unit)
   call add_row(table, 'psi_stress_crit_phen', spdata(:)%psi_stress_crit_phen)
   call add_row(table, 'fact_crit_phen',spdata(:)%fact_crit_phen)
   call add_row(table, 'cnst_crit_phen',spdata(:)%cnst_crit_phen)
+  call add_row(table, 'leaf_C_retrans_frac', spdata(:)%leaf_C_retrans_frac)
+  call add_row(table, 'root_C_retrans_frac', spdata(:)%root_C_retrans_frac)
+
   call add_row(table, 'fact_crit_fire',spdata(:)%fact_crit_fire)
   call add_row(table, 'cnst_crit_fire',spdata(:)%cnst_crit_fire)
-
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
 
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
