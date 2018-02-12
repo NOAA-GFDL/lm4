@@ -213,6 +213,7 @@ type :: vegn_cohort_type
   real :: max_scav_allocation = 0.0
   real :: max_mine_allocation = 0.0
   real :: max_Nfix_allocation = 0.0
+  real :: nitrogen_stress_smoothed = 1.0
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

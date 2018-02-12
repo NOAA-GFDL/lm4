@@ -32,8 +32,7 @@ use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES, &
-     deadmic_slow_frac
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
 
 implicit none
 private

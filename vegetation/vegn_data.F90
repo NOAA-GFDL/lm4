@@ -355,6 +355,7 @@ type spec_data_type
   real    :: tau_smooth_marginal_gain = 0.0
   real    :: tau_smooth_alloc         = 0.0
   real    :: alloc_allowed_over_limit = 10.0
+  real    :: tau_smooth_Nstress       = 0.0
 
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22
@@ -950,6 +951,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tau_smooth_marginal_gain)
   __GET_SPDATA_REAL__(tau_smooth_alloc)
   __GET_SPDATA_REAL__(alloc_allowed_over_limit)
+  __GET_SPDATA_REAL__(tau_smooth_Nstress)
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
   __GET_SPDATA_REAL__(fire_duration)
@@ -1298,6 +1300,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'tau_smooth_marginal_gain', spdata(:)%tau_smooth_marginal_gain)
   call add_row(table, 'tau_smooth_alloc', spdata(:)%tau_smooth_alloc)
   call add_row(table, 'alloc_allowed_over_limit', spdata(:)%alloc_allowed_over_limit)
+  call add_row(table, 'tau_smooth_Nstress', spdata(:)%tau_smooth_Nstress)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(:)%max_n_stress_for_seed_production)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)

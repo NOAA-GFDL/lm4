@@ -443,6 +443,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'mine_alloc_accum',cohort_mine_alloc_accum_ptr)
         call get_cohort_data(restart2, 'Nfix_alloc_accum',cohort_Nfix_alloc_accum_ptr)
      endif
+     if(field_exists(restart2,'N_stress_smoothed')) &
+        call get_cohort_data(restart2, 'N_stress_smoothed',cohort_nitrogen_stress_smoothed_ptr)
 
      do i = 0,nspecies-1
         call get_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i)
@@ -615,6 +617,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%scav_alloc_accum = 0.0
         cc%mine_alloc_accum = 0.0
         cc%Nfix_alloc_accum = 0.0
+        cc%nitrogen_stress_smoothed = 1.0
 
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
@@ -1234,6 +1237,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_allocation_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
   call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_allocation_ptr, 'max allowed allocation to mining','kgC/m2/year')
   call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_allocation_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
+  call add_cohort_data(restart2,'N_stress_smoothed', cohort_nitrogen_stress_smoothed_ptr, 'Smoothed N stress','Dimensionless')
 
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
   call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
@@ -3044,6 +3048,7 @@ DEFINE_COHORT_ACCESSOR(real,scav_alloc_accum)
 DEFINE_COHORT_ACCESSOR(real,max_Nfix_allocation)
 DEFINE_COHORT_ACCESSOR(real,max_mine_allocation)
 DEFINE_COHORT_ACCESSOR(real,max_scav_allocation)
+DEFINE_COHORT_ACCESSOR(real,nitrogen_stress_smoothed)
 
 ! wolf
 DEFINE_COHORT_ACCESSOR(real,psi_r)

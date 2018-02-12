@@ -229,6 +229,7 @@ real :: substrate_diffusion_exp=3.0    ! Exponent for theta dependence at low th
 real :: litterDensity=22.0             ! C density of litter layer (kg/m3)
                                                             ! 22.0 roughly from Gaudinsky et al 2000
 real :: min_anaerobic_resp_factor=0.0  ! Minimum for high soil moisture Resp limitation
+real :: min_dry_resp_factor      =0.0  ! Minimum for low soil moisture Resp limitation
 
 real :: denitrif_theta_min=0.5         ! Minimum theta for denitrification to occur
 integer :: soilMaxCohorts=7            ! Maximum number of cohorts in soil carbon pools
@@ -241,7 +242,7 @@ namelist /soil_carbon_nml/ &
     soil_carbon_model_to_use, use_rhizosphere_cohort,&
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     tol,enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
-    litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
+    litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,min_dry_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
     Ea_NH4,Ea_NO3,Ea_nitrif,Ea_denitr,denitrif_theta_min,&
     V_NH4_ref,V_NO3_ref,Knitr_ref,Kdenitr_ref,&
     CN_microb,mup,gamma_nitr,tProtected_N,&
@@ -1261,11 +1262,19 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::Ctotal(N_C_TYPES)   ! Substrate C
     real,dimension(N_C_TYPES)::Resp
     real::enz,Cavail(N_C_TYPES)
-    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
+    real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
 
     ! From solving theta dependence for maximum:
     theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
     aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+
+    ! Functional dependence on soil moisture, normalized so max is 1
+    theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+    ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+    if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
+    ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+    if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
+
 
     enz=Chet*enzfrac
 
@@ -1277,7 +1286,7 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     ENDIF
 
     where (Cavail>0)
-      Resp=Vmax(T)*theta**substrate_diffusion_exp*(Cavail)*enz/(Cavail*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
+      Resp=Vmax(T)*(Cavail)*enz/(Cavail*kC+enz)*theta_func
   elsewhere
      Resp=0.0
    endwhere
@@ -1340,13 +1349,18 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in),dimension(N_C_TYPES)::Ctotal ! Substrate C
     real,dimension(N_C_TYPES)::Resp_myc,tempresp
     real::enz,Cavail(N_C_TYPES)
-    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
+    real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
 
     ! From solving theta dependence for maximum:
     theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
     aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
 
-
+    ! Functional dependence on soil moisture, normalized so max is 1
+    theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+    ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+    if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
+    ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+    if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
 
 
     enz=Chet*enzfrac
@@ -1359,7 +1373,7 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     ENDIF
 
     where(Cavail>0)
-      Resp_myc=Vmax_myc(T)*theta**substrate_diffusion_exp*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
+      Resp_myc=Vmax_myc(T)*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*theta_func
     elsewhere
       Resp_myc=0.0
     endwhere
@@ -1372,18 +1386,26 @@ pure function max_immobilization_rate(NH4,NO3,T,theta,air_filled_porosity)
     real,intent(in)::T,theta             ! temperature (k), theta (fraction of 1.0)
     real,intent(in)::air_filled_porosity ! Fraction of 1.0.  Different from theta since it includes ice
     real:: max_immobilization_rate       ! Per unit microbial biomass!
-    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
+    real :: aerobic_max, theta_resp_max,theta_func  ! Maximum soil-moisture factor under ideal conditions
 
     ! From solving theta dependence for maximum:
     theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
     aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+
+    ! Functional dependence on soil moisture, normalized so max is 1
+    theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+    ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+    if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
+    ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+    if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
+
 
     IF((NO3+NH4).eq.0.0 .OR. theta.eq.0.0) THEN
         max_immobilization_rate=0.0
         return
     ENDIF
 
-    max_immobilization_rate=(V_NH4(T)*NH4+V_NO3(T)*NO3)*theta**substrate_diffusion_exp*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
+    max_immobilization_rate=(V_NH4(T)*NH4+V_NO3(T)*NO3)*theta_func
 
 end function max_immobilization_rate
 

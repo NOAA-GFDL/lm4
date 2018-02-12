@@ -719,6 +719,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real,dimension(vegn%n_cohorts) :: total_plant_N_uptake, scav_N_to_plant, mine_N_to_plant, fix_N_to_plant
   real :: excess_C, current_root_exudation, myc_scav_efficiency, myc_mine_efficiency, total_N_leakage(num_l)
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
+  real :: w ! smoothing weight
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   N = vegn%n_cohorts
@@ -780,7 +781,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
        ! on ratio of leaf biomass to max (as determined by N uptake)
        ! Root exudation fraction of NPP limited by some maximum value.
        ! Probably need to rename these parameters and not use a hard-coded value
-       root_exudate_frac = min(0.9,sp%root_exudate_frac*cc%nitrogen_stress)
+       ! Add an optional smoothing filter to nitrogen stress (no smoothing if tau is zero)
+       w = 1/(1+sp%tau_smooth_nstress/dt_fast_yr)
+       cc%nitrogen_stress_smoothed=cc%nitrogen_stress_smoothed*(1.0-w) + cc%nitrogen_stress*w
+       root_exudate_frac = min(0.9,sp%root_exudate_frac*cc%nitrogen_stress_smoothed)
      else
        root_exudate_frac = sp%root_exudate_frac
      endif
@@ -1021,7 +1025,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
   real :: root_exudate_frac, C_allocation_to_N_acq
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
-
+  real :: w ! smoothing weight
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   M = vegn%n_cohorts
@@ -1065,13 +1069,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   do i = 1, vegn%n_cohorts
      associate ( cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
 
-     ! that was in eddy_npp_PPA
      call plant_respiration(cc,tsoil,resp(i),resl(i),resr(i),ress(i))
 
      gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
      ! growth respiration comes from nsc pool not gpp now
      resg(i) = cc%growth_previous_day_tmp ! kg C per individual per year
-
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
 
      if (is_watch_point()) then
@@ -1162,23 +1164,27 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 ! 20170617:
      ! Mycorrhizal N uptake
 
-    ! tau_nsc_exudate is currently a time value, which means it can't be set to zero
-    ! Maybe redefine as a rate per year?
-    ! Allowing to be zero for now.
+     ! calculate nitrogen-neutral exudate flux. NOTE that in PPA it is coming from NSC,
+     ! not as a fraction of NPP as in LM3
      if(sp%tau_nsc_exudate>0) then
-        C_allocation_to_N_acq = max(cc%nsc,0.0)/sp%tau_nsc_exudate !This is a rate per year, not per time step
+        C_allocation_to_N_acq = max(cc%nsc,0.0)/sp%tau_nsc_exudate ! This is a rate per year, not per time step
      else
         C_allocation_to_N_acq = 0.0
      endif
+     ! modify exudate due to nitrogen stress
      if (sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
         ! 20170617: modify frac for exudate depending on N state
-         C_allocation_to_N_acq = C_allocation_to_N_acq*cc%nitrogen_stress
-         ! we possibly should impose lower and upper limits on exudate stress factor. Currently,
-         ! there is a lower limit on nitrogen_stress, so exudates are never 0. Also nitrogen_stress
-         ! cannot rise above 2 in current formulation, but we should be careful if the definition
-         ! of stress changes.
-         ! N exudates are calculated in update_mycorrhizae.
+        ! Add an optional smoothing filter to nitrogen stress (no smoothing if tau is zero)
+        w = 1/(1+sp%tau_smooth_nstress/dt_fast_yr)
+        cc%nitrogen_stress_smoothed = cc%nitrogen_stress_smoothed*(1.0-w) + cc%nitrogen_stress*w
+
+        C_allocation_to_N_acq = C_allocation_to_N_acq*cc%nitrogen_stress_smoothed
+        ! we possibly should impose lower and upper limits on exudate stress factor. Currently,
+        ! there is a lower limit on nitrogen_stress, so exudates are never 0. Also nitrogen_stress
+        ! cannot rise above 2 in current formulation, but we should be careful if the definition
+        ! of stress changes.
      endif
+     ! N exudates are calculated in update_mycorrhizae.
 
      cc%nsc = cc%nsc - C_allocation_to_N_acq*dt_fast_yr
 
