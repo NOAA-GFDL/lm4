@@ -114,7 +114,7 @@ public :: &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, T_cold_tropical, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-    wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
+    T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
@@ -437,7 +437,6 @@ real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enable
 ! Ensheng's growth parameters:
 real :: b0_growth   = 0.02   ! min biomass for growth formula, kgC/indiv
 real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, year
-real :: wood_fract_min = 0.33
 
 ! reduction of bl_max and br_max for the understory vegetation, unitless
 real, protected :: understory_lai_factor = 0.25
@@ -503,7 +502,7 @@ namelist /vegn_data_nml/ &
   agf_bs, K1,K2, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-  wood_fract_min, T_transp_min, &
+  T_transp_min, &
   phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
   scnd_biomass_bins, &
