@@ -342,8 +342,8 @@ type spec_data_type
   real    :: c2n_mycorrhizae= 10.0    ! C:N ratio of mycorrhizal biomass
   real    :: seed_c2n       = 30.0    ! C:N ratio of seeds. Note, must contain enough N to support initial sapling
 
-  real    :: leaf_retranslocation_frac  = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
-  real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
+  real    :: leaf_N_retrans_frac = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
+  real    :: root_N_retrans_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
 
   real    :: branch_wood_frac = 0.1525 ! fraction of total wood biomass in branches,
                                        ! corresponds to 0.18 of trunk (bole) biomass
@@ -943,8 +943,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(wood_c2n)
   __GET_SPDATA_REAL__(sapwood_c2n)
   __GET_SPDATA_REAL__(c2n_mycorrhizae)
-  __GET_SPDATA_REAL__(leaf_retranslocation_frac)
-  __GET_SPDATA_REAL__(froot_retranslocation_frac)
+  __GET_SPDATA_REAL__(leaf_N_retrans_frac)
+  __GET_SPDATA_REAL__(root_N_retrans_frac)
   __GET_SPDATA_REAL__(max_n_stress_for_seed_production)
   __GET_SPDATA_REAL__(N_stress_root_factor)
   __GET_SPDATA_REAL__(tau_nsc_exudate)
@@ -1293,8 +1293,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'wood_c2n',      spdata(:)%wood_c2n)
   call add_row(table, 'sapwood_c2n',   spdata(:)%sapwood_c2n)
   call add_row(table, 'c2n_mycorrhizae', spdata(:)%c2n_mycorrhizae)
-  call add_row(table, 'leaf_retranslocation_frac',  spdata(:)%leaf_retranslocation_frac)
-  call add_row(table, 'froot_retranslocation_frac', spdata(:)%froot_retranslocation_frac)
+  call add_row(table, 'leaf_N_retrans_frac', spdata(:)%leaf_N_retrans_frac)
+  call add_row(table, 'root_N_retrans_frac', spdata(:)%root_N_retrans_frac)
   call add_row(table, 'N_stress_root_factor', spdata(:)%N_stress_root_factor)
   call add_row(table, 'tau_nsc_exudate', spdata(:)%tau_nsc_exudate)
   call add_row(table, 'tau_smooth_marginal_gain', spdata(:)%tau_smooth_marginal_gain)

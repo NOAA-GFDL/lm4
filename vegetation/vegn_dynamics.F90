@@ -816,13 +816,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      cc%carbon_loss = cc%carbon_loss + md; ! used in diagnostics only
 
      ! Should this N be lost or retranslocated?
-     cc%leaf_N = cc%leaf_N - md_leaf /sp%leaf_live_c2n*(1.0-sp%leaf_retranslocation_frac)
-     cc%root_N = cc%root_N - md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac)
+     cc%leaf_N = cc%leaf_N - md_leaf /sp%leaf_live_c2n*(1.0-sp%leaf_N_retrans_frac)
+     cc%root_N = cc%root_N - md_froot/sp%froot_live_c2n*(1.0-sp%root_N_retrans_frac)
      cc%wood_N = cc%wood_N - md_wood/sp%wood_c2n
 
      ! add maintenance demand from leaf and root pools to fast soil carbon
      leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(md_leaf)*cc%nindivs
-     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*md_leaf/sp%leaf_live_c2n*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*md_leaf/sp%leaf_live_c2n*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
      wood_litt_C(:) = wood_litt_C(:) + cc%nindivs * agf_bs * &
              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_wood
      wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * &
@@ -834,7 +834,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
              [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs) &
              )
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*( &
-             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac) + &
+             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot/sp%froot_live_c2n*(1.0-sp%root_N_retrans_frac) + &
              [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs)/sp%wood_c2n &
              )
      enddo
@@ -1109,8 +1109,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%leaf_N   = cc%leaf_N - deltaNL
      cc%root_N   = cc%root_N - deltaNR
      if (soil_carbon_option==SOILC_CORPSE_N) &
-         cc%stored_N = cc%stored_N + deltaBL/sp%leaf_live_c2n*sp%leaf_retranslocation_frac   &
-                                   + deltaBR/sp%froot_live_c2n*sp%froot_retranslocation_frac
+         cc%stored_N = cc%stored_N + deltaBL/sp%leaf_live_c2n*sp%leaf_N_retrans_frac   &
+                                   + deltaBR/sp%froot_live_c2n*sp%root_N_retrans_frac
      if (is_watch_point()) then
         __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaNR)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
@@ -1147,7 +1147,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! accumulate liter and soil carbon inputs across all cohorts
      ! 20170617: deposit lost N into litter and soil
      leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
-     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaNL*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaNL*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
      wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_bsw*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
      if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
@@ -1157,7 +1157,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs* &
              [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*deltaBR
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs* &
-             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*deltaNR*(1.0-sp%froot_retranslocation_frac)
+             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*deltaNR*(1.0-sp%root_N_retrans_frac)
      enddo
 
      ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
@@ -2032,11 +2032,11 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
            leaf_litter_C = (1.0-l_fract)*cc%bl*cc%nindivs
            leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
-           leaf_litter_N =  cc%leaf_N*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+           leaf_litter_N =  cc%leaf_N*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
            leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
            root_litter_C = (1.0-l_fract)*cc%br*cc%nindivs
-           root_litter_N = cc%root_N*cc%nindivs*(1.0-sp%froot_retranslocation_frac)
+           root_litter_N = cc%root_N*cc%nindivs*(1.0-sp%root_N_retrans_frac)
            call cohort_root_litter_profile(cc, dz, profile)
            do l = 1, num_l
               root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &
@@ -2053,7 +2053,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
            cc%br  = 0.0;
            cc%lai = 0.0;
 
-           cc%stored_N = cc%stored_N + (cc%leaf_N*sp%leaf_retranslocation_frac+cc%root_N*sp%froot_retranslocation_frac)
+           cc%stored_N = cc%stored_N + (cc%leaf_N*sp%leaf_N_retrans_frac+cc%root_N*sp%root_N_retrans_frac)
            cc%leaf_N = 0.0
            cc%root_N = 0.0
 
@@ -2201,7 +2201,7 @@ subroutine vegn_phenology_ppa(tile)
          endif
          ! update C and N pools
          cc%nsc      = cc%nsc + l_fract*(dead_leaves_C+dead_roots_C) ! isa 20170705
-         cc%stored_N = cc%stored_N + (sp%leaf_retranslocation_frac*dead_leaves_N+sp%froot_retranslocation_frac*dead_roots_N)
+         cc%stored_N = cc%stored_N + (sp%leaf_N_retrans_frac*dead_leaves_N+sp%root_N_retrans_frac*dead_roots_N)
          cc%bl       = cc%bl - dead_leaves_C ; cc%leaf_N    = cc%leaf_N - dead_leaves_N
          cc%br       = cc%br - dead_roots_C  ; cc%root_N    = cc%root_N - dead_roots_N
          cc%bsw      = cc%bsw - dead_stem_C  ; cc%sapwood_N = cc%sapwood_N - dead_stem_N ! isa 20170705
@@ -2213,7 +2213,7 @@ subroutine vegn_phenology_ppa(tile)
 
          leaf_litter_C = (1-l_fract)*(dead_leaves_C+dead_roots_C) * cc%nindivs &
                        + dead_stem_C * cc%nindivs
-         leaf_litter_N = (1-sp%leaf_retranslocation_frac) * dead_leaves_N * cc%nindivs &
+         leaf_litter_N = (1-sp%leaf_N_retrans_frac) * dead_leaves_N * cc%nindivs &
                        + dead_stem_N * cc%nindivs
          leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
          leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
@@ -2223,7 +2223,7 @@ subroutine vegn_phenology_ppa(tile)
          vegn%veg_out = vegn%veg_out + leaf_litter_C
 
          root_litter_C = (1-l_fract) * dead_roots_C * cc%nindivs
-         root_litter_N = (1-sp%froot_retranslocation_frac) * dead_roots_N
+         root_litter_N = (1-sp%root_N_retrans_frac) * dead_roots_N
          call cohort_root_litter_profile(cc, dz, profile)
          do l = 1, num_l
             root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &
