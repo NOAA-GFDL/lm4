@@ -1092,32 +1092,26 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
-     deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
-     deltaBR = cc%br * sp%alpha_root * dt_fast_yr
-     deltaNL = deltaBL/sp%leaf_live_c2n
-     deltaNR = deltaBR/sp%froot_live_c2n
+     deltaBL = cc%bl     * sp%alpha_leaf * dt_fast_yr
+     deltaNL = cc%leaf_N * sp%alpha_leaf * dt_fast_yr
+     deltaBR = cc%br     * sp%alpha_root * dt_fast_yr
+     deltaNR = cc%root_N * sp%alpha_root * dt_fast_yr
 
-     cc%bl = cc%bl - deltaBL
-     cc%br = cc%br - deltaBR
-
-     if(N_limits_live_biomass.and.cc%leaf_N-deltaNL<0) then
-         __DEBUG2__(cc%leaf_N,deltaNL)
-     endif
+     cc%bl = cc%bl - deltaBL ; cc%leaf_N = cc%leaf_N - deltaNL
+     cc%br = cc%br - deltaBR ; cc%root_N = cc%root_N - deltaNR
 
      ! 20170617: retranslocate part of N back to storage and reduce nitrogen pools; put
      !           retranslocated N into storage
-     cc%leaf_N   = cc%leaf_N - deltaNL
-     cc%root_N   = cc%root_N - deltaNR
      if (soil_carbon_option==SOILC_CORPSE_N) &
-         cc%stored_N = cc%stored_N + deltaBL/sp%leaf_live_c2n*sp%leaf_N_retrans_frac   &
-                                   + deltaBR/sp%froot_live_c2n*sp%root_N_retrans_frac
+         cc%stored_N = cc%stored_N + deltaNL*sp%leaf_N_retrans_frac   &
+                                   + deltaNR*sp%root_N_retrans_frac
      if (is_watch_point()) then
         __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaNR)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
      endif
      if(N_limits_live_biomass) then
-          call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
-          call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%stored_N',FATAL)
+        call check_var_range(cc%leaf_N,   0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%leaf_N',   FATAL)
+        call check_var_range(cc%stored_N, 0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%stored_N', FATAL)
      endif
      ! compute branch and coarse wood losses for tree types
      md_bsw = 0.0; md_brsw = 0.0
