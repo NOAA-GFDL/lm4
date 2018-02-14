@@ -643,13 +643,18 @@ subroutine  update_mycorrhizae(cc, soilT, &
 
      total_plant_N_uptake = scav_N_to_plant + mine_N_to_plant + fix_N_to_plant + root_N_uptake
      cc%stored_N = cc%stored_N + total_plant_N_uptake
-     stored_N_loss = min(C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac,cc%stored_N)
+     stored_N_loss = max(0.0,min(cc%stored_N, C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac))
      cc%stored_N = cc%stored_N - stored_N_loss
      root_exudate_N = stored_N_loss - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
      if(is_watch_point()) then
         __DEBUG4__(scav_N_to_plant, mine_N_to_plant, fix_N_to_plant, root_N_uptake)
         __DEBUG3__(total_plant_N_uptake, cc%stored_N, root_exudate_N)
      endif
+     ! The following line creates N conservation problem, but if N does not limit biomass,
+     ! N is not supposed to conserve anyway. But we DO need non-negative root exudates,
+     ! otherwise there is a problem in soil.
+     if(.not.N_limits_live_biomass) root_exudate_N = max(0.0,root_exudate_N)
+
      call check_var_range(root_exudate_N, 0.0,HUGE(0.0),'update_mycorrhizae','root_exudate_N',FATAL)
   else  ! If nitrogen turned off, everything is zero
      scavenger_myc_C_allocated = 0.0
@@ -1729,7 +1734,7 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      cc%nsc    = cc%nsc - (deltaBL + deltaBR + deltaSeed + deltaBSW + delta_bsw_branch)*(1+sp%GROWTH_RESP)
      cc%stored_N = cc%stored_N - deltaNL - deltaNR
 
-     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.soil_carbon_option==SOILC_CORPSE_N) then
+     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.soil_carbon_option==SOILC_CORPSE_N.and.N_limits_live_biomass) then
          __DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n)
      endif
      if (soil_carbon_option==SOILC_CORPSE_N) cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
