@@ -1770,13 +1770,17 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
      case default
         call error_mesg('biomass_allocation_ppa','Unknown allometry type. This should never happen.', FATAL)
      end select
+     if (sp%lifeform==FORM_GRASS.and.sp%limit_tussock_R) then
+        ! Limit crownarea tendency so that it does not increase above imposed limit.
+        ! If crownarea already was above limit (e.g. from IC obtained with different
+        ! parameters) then crownarea does not grow, but id does not shrink either.
+        deltaCA = min(deltaCA,PI*(sp%tussock_Ra+cc%height*sp%tussock_Rb)**2-cc%crownarea)
+        deltaCA = max(deltaCA,0.0)
+     endif
 
      cc%DBH       = cc%DBH       + deltaDBH
      cc%height    = cc%height    + deltaHeight
      cc%crownarea = cc%crownarea + deltaCA
-     if (sp%lifeform==FORM_GRASS.and.sp%limit_tussock_R) then
-        cc%crownarea = min(cc%crownarea,PI*(sp%tussock_Ra+cc%height*sp%tussock_Rb)**2)
-     endif
 
      ! calculate DBH, BLmax, BRmax, BSWmax using allometric relationships
      ! Weng 2012-01-31 update_bio_living_fraction
