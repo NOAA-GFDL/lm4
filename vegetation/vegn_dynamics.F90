@@ -99,7 +99,7 @@ integer :: &
     id_Nfix_alloc, id_total_plant_N_uptake, &
     id_Nfix_mgain, id_mrz_scav_mgain, &
     id_mrz_mine_mgain, id_rhiz_exud_C, id_rhiz_exud_N, id_nitrogen_stress, &
-    id_rhiz_exud_mgain,id_mrz_scav_N_uptake,&
+    id_rhiz_exud_mgain, id_exudate, id_mrz_scav_N_uptake,&
     id_mrz_mine_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake,&
     id_scav_plant_N_uptake, id_mine_plant_N_uptake, id_fix_plant_N_uptake,&
     id_mrz_scav_C_res, id_mrz_scav_N_res, &
@@ -237,11 +237,14 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        (/id_ug/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)/kgC', &
        missing_value=-100.0 )
   id_mrz_scav_mgain = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_mgain',  &
-       (/id_ug/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', 'kg N/(m2 year)/kgC', &
-       missing_value=-100.0 )
+       (/id_ug/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', &
+       'kg N/(m2 year)/kgC', missing_value=-100.0 )
   id_mrz_mine_mgain = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_mgain',  &
-       (/id_ug/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', 'kg N/(m2 year)/kg C', &
-       missing_value=-100.0 )
+       (/id_ug/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', &
+       'kg N/(m2 year)/kg C', missing_value=-100.0 )
+  id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
+       time, 'total rate of plant carbon loss to symbionts and exudates', 'kg C/(m2 year)', &
+       missing_value=-100.0)
   id_rhiz_exud_C = register_cohort_diag_field ( diag_mod_name, 'rhiz_exud_C',  &
        (/id_ug/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
        missing_value=-100.0 )
@@ -715,8 +718,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real, dimension(vegn%n_cohorts) :: scav_N_uptake, mine_N_uptake, mine_C_uptake, root_active_N_uptake
   integer :: i, l, N
 
-  real :: root_exudate_frac, C_allocation_to_N_acq
-  real,dimension(vegn%n_cohorts) :: scav_C_alloc,mine_C_alloc, Nfix_C_alloc
+  real :: root_exudate_frac
+  real,dimension(vegn%n_cohorts) :: C_alloc_to_N_acq, scav_C_alloc, mine_C_alloc, Nfix_C_alloc
   real,dimension(vegn%n_cohorts) :: N_fixation, root_exudate_C, root_exudate_N, myc_CO2_prod
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
   real :: myc_N_uptake, myc_C_uptake
@@ -792,8 +795,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      else
        root_exudate_frac = sp%root_exudate_frac
      endif
-     C_allocation_to_N_acq = max(npp(i),0.0)*root_exudate_frac
-     cc%carbon_gain = cc%carbon_gain + (npp(i)-C_allocation_to_N_acq)*dt_fast_yr
+     C_alloc_to_N_acq(i) = max(npp(i),0.0)*root_exudate_frac
+     cc%carbon_gain = cc%carbon_gain + (npp(i)-C_alloc_to_N_acq(i))*dt_fast_yr
 
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
@@ -851,7 +854,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      ! Mycorrhizal N uptake
      call update_mycorrhizae(cc, soilt, &
-          C_allocation_to_N_acq=C_allocation_to_N_acq,&
+          C_allocation_to_N_acq=C_alloc_to_N_acq(i),&
           scav_N_uptake=scav_N_uptake(i),mine_C_uptake=mine_C_uptake(i),mine_N_uptake=mine_N_uptake(i),&
           root_N_uptake=root_active_N_uptake(i),&
           scav_efficiency=scav_efficiency,mine_efficiency=mine_efficiency,&
@@ -956,6 +959,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_mrz_mine_mgain,diag,c(1:N),c(1:N)%myc_mine_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_mgain,diag,c(1:N),c(1:N)%N_fix_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_mgain,diag,c(1:N),c(1:N)%rhiz_exud_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_exudate,diag,c(1:N),C_alloc_to_N_acq(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_C,diag,c(1:N),root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_N,diag,c(1:N),root_exudate_N(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_nitrogen_stress,diag,c(1:N),c(1:N)%nitrogen_stress,weight=c(1:N)%nindivs, op=OP_SUM)
@@ -1016,7 +1020,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   real, dimension(vegn%n_cohorts) :: &
       resp, resl, resr, ress, resg, gpp, npp, &
-      scav_C_alloc,mine_C_alloc, Nfix_C_alloc, &
+      C_alloc_to_N_acq, scav_C_alloc, mine_C_alloc, Nfix_C_alloc, &
       scav_N_uptake, mine_N_uptake, mine_C_uptake, root_active_N_uptake, &
       N_fixation, root_exudate_C, root_exudate_N, myc_CO2_prod, &
       total_plant_N_uptake, scav_N_to_plant, mine_N_to_plant, fix_N_to_plant
@@ -1026,7 +1030,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
       total_N_leakage, total_myc_Nmin
   real :: excess_C, current_root_exudation, scav_efficiency, mine_efficiency
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
-  real :: root_exudate_frac, C_allocation_to_N_acq
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
   real :: w ! smoothing weight
 
@@ -1161,12 +1164,14 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 ! 20170617:
      ! Mycorrhizal N uptake
 
-     ! calculate nitrogen-neutral exudate flux. NOTE that in PPA it is coming from NSC,
-     ! not as a fraction of NPP as in LM3
+     ! calculate nitrogen-neutral exudate flux. In PPA it can be either calculated as a
+     ! depletion of NSC with prescribed rate, or as a fraction of NPP as in LM3. 
+     ! N exudates are calculated in update_mycorrhizae.
+     ! C_alloc_to_N_acq(i) is rate per year, not per time step
      if(sp%tau_nsc_exudate>0) then
-        C_allocation_to_N_acq = max(cc%nsc,0.0)/sp%tau_nsc_exudate ! This is a rate per year, not per time step
+        C_alloc_to_N_acq(i) = max(cc%nsc,0.0)/sp%tau_nsc_exudate
      else
-        C_allocation_to_N_acq = 0.0
+        C_alloc_to_N_acq(i) = max(npp(i),0.0)*sp%root_exudate_frac
      endif
      ! modify exudate due to nitrogen stress
      if (sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
@@ -1175,20 +1180,21 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         w = 1/(1+sp%tau_smooth_nstress/dt_fast_yr)
         cc%nitrogen_stress_smoothed = cc%nitrogen_stress_smoothed*(1.0-w) + cc%nitrogen_stress*w
 
-        C_allocation_to_N_acq = C_allocation_to_N_acq*cc%nitrogen_stress_smoothed
+        C_alloc_to_N_acq(i) = C_alloc_to_N_acq(i)*cc%nitrogen_stress_smoothed
         ! we possibly should impose lower and upper limits on exudate stress factor. Currently,
         ! there is a lower limit on nitrogen_stress, so exudates are never 0. Also nitrogen_stress
         ! cannot rise above 2 in current formulation, but we should be careful if the definition
         ! of stress changes.
      endif
-     ! N exudates are calculated in update_mycorrhizae.
+     ! Finally, impose an upper limit so that exudates do not deplete NSC below zero
+     C_alloc_to_N_acq(i) = min(C_alloc_to_N_acq(i),cc%nsc/dt_fast_yr)
 
-     cc%nsc = cc%nsc - C_allocation_to_N_acq*dt_fast_yr
+     cc%nsc = cc%nsc - C_alloc_to_N_acq(i)*dt_fast_yr
 
      ! this updates N storage in the plant
      ! 20170617: This includes allocation to all N acquisition plus exudates
      call update_mycorrhizae(cc, tsoil, &
-           C_allocation_to_N_acq=C_allocation_to_N_acq, &
+           C_allocation_to_N_acq=C_alloc_to_N_acq(i), &
            scav_N_uptake=scav_N_uptake(i), mine_C_uptake=mine_C_uptake(i), mine_N_uptake=mine_N_uptake(i), &
            root_N_uptake=root_active_N_uptake(i), &
            scav_efficiency=scav_efficiency, mine_efficiency=mine_efficiency, &
@@ -1288,6 +1294,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mrz_scav_mgain,              diag, c(1:M), c(1:M)%myc_scav_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_mine_mgain,              diag, c(1:M), c(1:M)%myc_mine_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_mgain,                  diag, c(1:M), c(1:M)%N_fix_marginal_gain_smoothed,       weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_exudate,                     diag, c(1:M), C_alloc_to_N_acq(1:M),                     weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_mgain,             diag, c(1:M), c(1:M)%rhiz_exud_marginal_gain_smoothed,   weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_C,                 diag, c(1:M), root_exudate_C(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_N,                 diag, c(1:M), root_exudate_N(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
