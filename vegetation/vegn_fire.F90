@@ -170,7 +170,7 @@ real :: T_lo_celsius = -10.
 !!! dsward added dimensions for boreal
 character(32) :: f_agb_style = 'li2012'   ! Or 'logistic' or 'gompertz'
 real :: fire_biomass_threshold = -1   ! -1 means calculate F_b, otherwise no burning if < this
-real :: agb_up(2) = 1.05   ! For li2012-style fAGB. Above this, biomass availability doesn't matter. (kg)
+real :: agb_up(2) = 1.05   ! For li2012-style fAGB. Above this, biomass availability does not matter. (kg)
 real :: agb_lo(2) = 0.155   ! For li2012-style fAGB. Below this, no fire allowed. (kg)
 real :: agb_psi2(2) = 5.8864  ! For logistic-style fAGB. Default value determined by MATLAB fitting.
 real :: agb_psi3(2) = 0.6021  ! For logistic-style fAGB. Default value determined by MATLAB fitting.
@@ -209,7 +209,7 @@ logical :: use_Fwind = .TRUE.   ! If FALSE, ROS_max even with wind=0 (although C
 character(32) :: wind_to_use = '10m_sheffield'
     ! 'canopy_top' for original, top-of-canopy
     ! '10m_tmp' for kludgey 10-m wind (uses neutral stability assumption)
-    ! '10m_sheffield' for Sheffield's 10-m wind
+    ! '10m_sheffield' for Sheffield 10-m wind
 real    :: constant_wind_forFire = -1   ! -1 means use wind_forFire from canopy_air.F90. Anything else (x) sets wind_forFire to x m/s.
 
 ! Maximum rate of spread for each species. From Li et al. (2012); Doubled according to Corrigendum.
@@ -516,7 +516,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   ! depth_for_theta can only be -1 or positive
   if (depth_for_theta /= -1.0) then
-     call check_var_range(depth_for_theta, 10.**-37., 10.**37., 'vegn_fire_init', 'depth_for_theta', FATAL)
+     call check_var_range(depth_for_theta, 1e-37, 1e37, 'vegn_fire_init', 'depth_for_theta', FATAL)
   endif
 
   ! constant_wind_forFire can only be -1 or >=0
@@ -981,7 +981,7 @@ subroutine update_fire_data(time)
   type(land_tile_enum_type) :: ce
   logical :: used
 
-  if (fire_option /= FIRE_UNPACKED) return ! we don't need do do anything
+  if (fire_option /= FIRE_UNPACKED) return ! we do not need do do anything
 
   ! read_external_ts interpolates data conservatively in space (see init)
   ! and linearly in time.
@@ -1056,7 +1056,7 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
 
   ! SSR: Get & send Fcrop & Fpast---even for non-agri. tiles! Otherwise throws
   ! "skipped one time level" error.
-  ! slm: I don't like calling get_date for every tile every time step. Why not
+  ! slm: I do not like calling get_date for every tile every time step. Why not
   ! do monthly processes inside slow subroutines?
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
@@ -1078,10 +1078,10 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
      if (month1/=month0) then
         call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth)
 
-        ! Make sure that when today's BA is calculated as the average over all
+        ! Make sure that when todays BA is calculated as the average over all
         ! fast time steps, it equals the total amount of burning that actually
-        ! occurred. Note that this will make this time step's value look INSANE,
-        ! but that's only a problem when looking at sub-daily diagnostics.
+        ! occurred. Note that this will make this time step value look INSANE,
+        ! but that is only a problem when looking at sub-daily diagnostics.
         BF_mth_mult = BF_mth * 86400.0/dt_fast
         BA_mth_mult = BA_mth * 86400.0/dt_fast
      else
@@ -1227,7 +1227,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     ! SSR20160128: If update_fire_fast is getting called, make sure that this
     ! tile has a valid value.
     if (do_fire_fragmentation) then
-       vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac(l)))**-2.169)*tile_area
+       vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac(l)))**(-2.169))*tile_area
        vegn%max_fire_size = max (max_fire_size_min,vegn%max_fire_size)
        ! call check_var_range(vegn%max_fire_size, max_fire_size_min, 10.**37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
@@ -1407,7 +1407,7 @@ subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth)
      write(*,*)"burned_frac greater than 1. burned_frac = ",vegn%burned_frac
   endif
 
-  ! vegn%burned_frac shouldn't be >1 after having restricted BF_mth in vegn_fire_BA_agri
+  ! vegn%burned_frac should not be >1 after having restricted BF_mth in vegn_fire_BA_agri
  ! call check_var_range(vegn%burned_frac, 0.0, 1.0, 'update_fire_agri', 'vegn%burned_frac', FATAL)
 
 end subroutine update_fire_agri
@@ -1527,7 +1527,7 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
        fire_fn_rh = max(0.,min(1., (rh_up(kop)-rh) / (rh_up(kop)-rh_lo(kop))))
        if (do_calc_derivs) then
           if (rh <= rh_lo(kop)) then
-             ! Actually not differentiable at rh==rh_lo! So it's fudged.
+             ! Actually not differentiable at rh==rh_lo! So it is fudged.
              fire_fn_rh_DERIVwrt_param1 = 0.
              fire_fn_rh_DERIVwrt_param2 = 0.
           elseif (rh > rh_lo(kop) .AND. rh < rh_up(kop)) then
@@ -1543,7 +1543,7 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
                                   FATAL)
               endif
           elseif (rh >= rh_up(kop)) then
-             ! Actually not differentiable at rh==rh_up! So it's fudged.
+             ! Actually not differentiable at rh==rh_up! So it is fudged.
              fire_fn_rh_DERIVwrt_param1 = 0.
              fire_fn_rh_DERIVwrt_param2 = 0.
           endif
@@ -1659,7 +1659,7 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
     real, intent(out) :: fire_fn_agb
     integer, intent(in) :: kop ! dsward_kop - use  boreal (1) or non-boreal (2) parameters
 
-   ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it's done for
+   ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it is done for
    ! all tiles, since fire_agb is what's used to determine whether tiles can merge when
    ! using new fire model.
 
@@ -1668,7 +1668,7 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
           fire_fn_agb = max(0.,min(1., (vegn%fire_agb-agb_lo(kop)) / (agb_up(kop)-agb_lo(kop))))
           if (do_calc_derivs) then
              if (vegn%fire_agb <= agb_lo(kop)) then
-                ! Actually not differentiable at agb==agb_lo! So it's fudged.
+                ! Actually not differentiable at agb==agb_lo! So it is fudged.
                 fire_fn_agb_DERIVwrt_param1 = 0.
                 fire_fn_agb_DERIVwrt_param2 = 0.
              elseif (vegn%fire_agb > agb_lo(kop) .AND. vegn%fire_agb < agb_up(kop)) then
@@ -1676,7 +1676,7 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
                                              (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_lo
                 fire_fn_agb_DERIVwrt_param2 = (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_up
              elseif (vegn%fire_agb >= agb_up(kop)) then
-                ! Actually not differentiable at agb==agb_up! So it's fudged.
+                ! Actually not differentiable at agb==agb_up! So it is fudged.
                 fire_fn_agb_DERIVwrt_param1 = 0.
                 fire_fn_agb_DERIVwrt_param2 = 0.
              endif
@@ -1811,7 +1811,7 @@ end subroutine vegn_fire_fn_popD
 
 
 subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
-    ! Note that Li et al. (2013) don't apply this to "tropical closed forests," because
+    ! Note that Li et al. (2013) do not apply this to "tropical closed forests," because
     ! they have a separate model for burning there. I may also want to change this so
     ! that the "tree-dominated" ecosystems are better delineated, e.g., through Olson
     ! classifications.
@@ -2137,9 +2137,9 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     real :: height ! average height of the vegetation (crown trees only)
     integer :: i ! cohort index
 
-  !!! Need litter amount (dry matter if possible, C if all that's available)
+  !!! Need litter amount (dry matter if possible, C if all that is available)
   !!! Need vegetation height
-  !!! Apply a height limit?  If no crown, can't be any crown scorch (just restrict it to tree species)
+  !!! Apply a height limit?  If no crown, cannot be any crown scorch (just restrict it to tree species)
 
     height = 0.0; F_parameter = 0.0; w = 0.0
     do i = 1, vegn%n_cohorts
@@ -2260,7 +2260,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 
     if (vegn_burned_frac < 1.0) then
 
-       ! # fires, knowing that fire can't happen on land that already burned today
+       ! # fires, knowing that fire cannot happen on land that already burned today
        vegn_unburned_frac = 1.0 - vegn_burned_frac
        vegn_unburned_area = tile_area_km2 * vegn_unburned_frac
        Nfire = Nfire_perKm2 * vegn_unburned_area   ! Number of fires per timestep
@@ -2375,7 +2375,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
     endif
 
     ! SSR20151208: Add some tolerance for BF at high end
-    if (BF>1.0 .AND. BF<1.0+10.**-12) then
+    if (BF>1.0 .AND. BF<1.0+1e-12) then
        BF = 1.0
     endif
 
@@ -2783,7 +2783,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
      BF_mth = vegn%Fpast * num_days
   endif
 
-  ! BF can't be > 1!
+  ! BF cannot be > 1!
   if (BF_mth > 1.0) then
      call check_var_range(BF_mth, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_mth', WARNING)
      if (vegn%landuse==LU_CROP) then
@@ -3026,8 +3026,8 @@ subroutine send_tile_data_BABF_forAgri(diag,BF_mth,BA_mth)
    type(diag_buff_type), intent(inout) :: diag
    real, intent(in)    :: BF_mth, BA_mth
 
-   call send_tile_data(id_BF_rate, BF_mth, diag)   ! Remember, sending BF_mth when it's calculated and 0 otherwise results in a good per-day rate for the month as a whole
-   call send_tile_data(id_BA_rate, BA_mth, diag)   ! Remember, sending BA_mth when it's calculated and 0 otherwise results in a good per-day rate for the month as a whole
+   call send_tile_data(id_BF_rate, BF_mth, diag)   ! Remember, sending BF_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
+   call send_tile_data(id_BA_rate, BA_mth, diag)   ! Remember, sending BA_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
 
 end subroutine send_tile_data_BABF_forAgri
 

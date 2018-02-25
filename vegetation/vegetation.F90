@@ -2585,7 +2585,7 @@ subroutine update_vegn_slow( )
      endif
 
      if (id_fGrazing>0) call send_tile_data(id_fGrazing, tile%vegn%harv_rate_C(HARV_POOL_PAST)/seconds_per_year, tile%diag)
-     if (id_fHarvest)   call send_tile_data(id_fHarvest, tile%vegn%harv_rate_C(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     if (id_fHarvest>0) call send_tile_data(id_fHarvest, tile%vegn%harv_rate_C(HARV_POOL_CROP)/seconds_per_year, tile%diag)
      if (id_fProductDecomp>0) then
         cmass0 = 0.0
         do i = 1, N_HARV_POOLS

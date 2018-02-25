@@ -98,7 +98,7 @@ real,    parameter :: sigma_max        = 2.2
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
 
-! from the modis brdf/albedo product user's guide:
+! from the modis brdf/albedo product user guide:
 real, parameter :: g_iso  = 1.
 real, parameter :: g_vol  = 0.189184
 real, parameter :: g_geo  = -1.377622
@@ -128,7 +128,7 @@ integer, parameter, public :: &
 
 character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
      'leaf            ', &
-     'cwood            '  ]
+     'cwood           '  ]
 
 character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
      'leaf            ', &
@@ -1717,7 +1717,7 @@ subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
 
   ! this is an additional factor intended for tuning annual T range in
   ! high latitudes. presumably other locations are insensitive to this
-  ! global parameter, since they don't have freeze/thaw. this really is just a fudge.
+  ! global parameter, since they do not have freeze/thaw. this really is just a fudge.
   do l = sub_layer_min, sub_layer_max
      thermal_cond(l) = sub_layer_tc_fac * thermal_cond(l)
   enddo
@@ -1762,7 +1762,7 @@ end subroutine soil_data_hydraulic_properties
 ! wrapper to compute psi and the potentially different psi used for surface
 ! relative humidity computation.
 ! use of this wrapper allows us to avoid passing all the other properties
-! back to soil module. (they're computed anyway.)
+! back to soil module. (they are computed anyway.)
 subroutine soil_data_psi_for_rh (soil, vlc, vsc, psi, psi_for_rh  )
   type(soil_tile_type),        intent(in) :: soil
   real,                        intent(in),  dimension(:) :: vlc, vsc
