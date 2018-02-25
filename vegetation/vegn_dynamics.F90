@@ -1186,8 +1186,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         ! cannot rise above 2 in current formulation, but we should be careful if the definition
         ! of stress changes.
      endif
-     ! Finally, impose an upper limit so that exudates do not deplete NSC below zero
-     C_alloc_to_N_acq(i) = min(C_alloc_to_N_acq(i),cc%nsc/dt_fast_yr)
+     ! Finally, impose an upper limit so that exudates do not deplete NSC below zero, and 
+     ! make sure exudates are not negative
+     C_alloc_to_N_acq(i) = min(C_alloc_to_N_acq(i),max(0.0,cc%nsc)/dt_fast_yr)
 
      cc%nsc = cc%nsc - C_alloc_to_N_acq(i)*dt_fast_yr
 
