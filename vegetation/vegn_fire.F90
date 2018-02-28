@@ -511,7 +511,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   ! fire_biomass_threshold can only be -1 or >=0
   if (fire_biomass_threshold /= -1) then
-     call check_var_range(fire_biomass_threshold, 0.0,10.**37,'vegn_fire_init', 'fire_biomass_threshold', FATAL)
+     call check_var_range(fire_biomass_threshold, 0.0,1e37,'vegn_fire_init', 'fire_biomass_threshold', FATAL)
   endif
 
   ! depth_for_theta can only be -1 or positive
@@ -521,7 +521,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   ! constant_wind_forFire can only be -1 or >=0
   if (constant_wind_forFire /= -1.0) then
-     call check_var_range(constant_wind_forFire, 0.0, 10.**37., 'vegn_fire_init', 'constant_wind_forFire', FATAL)
+     call check_var_range(constant_wind_forFire, 0.0, 1e37, 'vegn_fire_init', 'constant_wind_forFire', FATAL)
   endif
 
   if (fire_option /= FIRE_UNPACKED) return ! nothing more to do
@@ -540,7 +540,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   ! For rate-of-spread calculation
   LB_max = LBratio_a + LBratio_b
-  HB_max = (LB_max + sqrt(LB_max**2. - 1.)) / (LB_max - sqrt(LB_max**2. - 1.))
+  HB_max = (LB_max + sqrt(LB_max**2 - 1.)) / (LB_max - sqrt(LB_max**2 - 1.))
 
   ! Find daily per-person ignition rate
   Ia_alpha_daily = Ia_alpha_monthly * 12./days_per_year
@@ -1229,7 +1229,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     if (do_fire_fragmentation) then
        vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac(l)))**(-2.169))*tile_area
        vegn%max_fire_size = max (max_fire_size_min,vegn%max_fire_size)
-       ! call check_var_range(vegn%max_fire_size, max_fire_size_min, 10.**37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
+       ! call check_var_range(vegn%max_fire_size, max_fire_size_min, 1e37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
 
     call update_Nfire_BA_fast(vegn, diag,l,tile_area, &
@@ -1327,7 +1327,7 @@ subroutine update_multiday_fires(vegn,tile_area)
     !!! Adjust the number of fires for coalescence based on results of the toy model
     !!  that determines rates of fire coalescence for randomly placed ellipses on a
     !!  square grid.
-        adj_Nfires = vegn%past_fires_mdf(i)*(1.0-(sum(vegn%past_areaburned_mdf)/(vegn%past_tilesize_mdf*1.e-6)))**2.
+        adj_Nfires = vegn%past_fires_mdf(i)*(1.0-(sum(vegn%past_areaburned_mdf)/(vegn%past_tilesize_mdf*1.e-6)))**2
         if (adj_Nfires .gt. vegn%past_fires_mdf(i)) adj_Nfires=vegn%past_fires_mdf(i)
 
         mdf_BAperfire_prev=vegn%past_areaburned_mdf(i)/adj_Nfires
@@ -1384,7 +1384,7 @@ subroutine update_multiday_fires(vegn,tile_area)
     vegn%fires_to_add_mdf = 0.0
     vegn%BAperfire_ave_mdf = 0.0
 
-    call check_var_range(vegn%total_BA_mdf, 0.0, 10.**37, 'update_multiday_fires', 'vegn%total_BA_mdf', FATAL)
+    call check_var_range(vegn%total_BA_mdf, 0.0, 1e37, 'update_multiday_fires', 'vegn%total_BA_mdf', FATAL)
 
 end subroutine update_multiday_fires
 !!! dsward_mdf end
@@ -1443,9 +1443,9 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
 
     if (fire_option_fTheta==FIRE_THETA_LI2012) then
        if (.NOT. thetaE_already_squared) then
-          fire_fn_theta = exp(-pi*((theta/theta_extinction)**2.))
+          fire_fn_theta = exp(-pi*((theta/theta_extinction)**2))
        else
-          fire_fn_theta = exp(-pi*((theta**2.)/theta_extinction))
+          fire_fn_theta = exp(-pi*((theta**2)/theta_extinction))
        endif
     elseif (fire_option_fTheta==FIRE_THETA_LOGISTIC) then
        fire_fn_theta = 1. / (1. + exp(-1.*theta_psi2(kop)*(theta-theta_psi3(kop))))
@@ -1465,20 +1465,20 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
        if (fire_option_fTheta==FIRE_THETA_LI2012) then
           if (theta_ROSeffect_asFnTheta) then
              if (.NOT. thetaE_already_squared) then
-                fire_TOTALfn_theta_DERIVwrt_thetaE = (6.*pi*(theta**2.)*exp(-(3.*pi*(theta**2.))/(theta_extinction**2.)))/(theta_extinction**3.)
+                fire_TOTALfn_theta_DERIVwrt_thetaE = (6.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/(theta_extinction**2)))/(theta_extinction**3.)
              else
-                fire_TOTALfn_theta_DERIVwrt_thetaE = (3.*pi*(theta**2.)*exp(-(3.*pi*(theta**2.))/theta_extinction))/(theta_extinction**2.)
+                fire_TOTALfn_theta_DERIVwrt_thetaE = (3.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/theta_extinction))/(theta_extinction**2)
              endif
           else
              call error_mesg('vegn_fire_fn_theta',&
                              'Add code to get theta derivative for when theta_ROSeffect_asFnTheta==FALSE.', &
                              FATAL)
           endif
-          call check_var_range(fire_TOTALfn_theta_DERIVwrt_thetaE, -10.**37, 10.**37, 'vegn_fire_fn_theta', 'fire_fn_theta_DERIVwrt_thetaE', FATAL)
+          call check_var_range(fire_TOTALfn_theta_DERIVwrt_thetaE, -1e37, 1e37, 'vegn_fire_fn_theta', 'fire_fn_theta_DERIVwrt_thetaE', FATAL)
        elseif (fire_option_fTheta==FIRE_THETA_LOGISTIC) then
           if (theta_ROSeffect_asFnTheta) then
-             fire_TOTALfn_theta_DERIVwrt_param1 = (3.*exp(-theta_psi2(kop)*(theta - theta_psi3(kop)))*(theta - theta_psi3(kop)))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4.)
-             fire_TOTALfn_theta_DERIVwrt_param2 = -(3.*theta_psi2(kop)*exp(-theta_psi2(kop)*(theta - theta_psi3(kop))))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4.)
+             fire_TOTALfn_theta_DERIVwrt_param1 = (3.*exp(-theta_psi2(kop)*(theta - theta_psi3(kop)))*(theta - theta_psi3(kop)))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4)
+             fire_TOTALfn_theta_DERIVwrt_param2 = -(3.*theta_psi2(kop)*exp(-theta_psi2(kop)*(theta - theta_psi3(kop))))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4)
           else
              call error_mesg('vegn_fire_fn_theta',&
                              'Add code to get theta derivatives for when theta_ROSeffect_asFnTheta==FALSE.', &
@@ -1531,12 +1531,12 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
              fire_fn_rh_DERIVwrt_param1 = 0.
              fire_fn_rh_DERIVwrt_param2 = 0.
           elseif (rh > rh_lo(kop) .AND. rh < rh_up(kop)) then
-!             fire_fn_rh_DERIVwrt_param1 = (rh_up - rh)/(rh_lo - rh_up)**2.   ! dFrh/d_rh_lo
-!             fire_fn_rh_DERIVwrt_param2 = -1./(rh_lo - rh_up) - (rh_up - rh)/(rh_lo - rh_up)**2.   ! dFrh/d_rh_up
+!             fire_fn_rh_DERIVwrt_param1 = (rh_up - rh)/(rh_lo - rh_up)**2   ! dFrh/d_rh_lo
+!             fire_fn_rh_DERIVwrt_param2 = -1./(rh_lo - rh_up) - (rh_up - rh)/(rh_lo - rh_up)**2   ! dFrh/d_rh_up
               ! SSR20160202
               if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-                 fire_TOTALfn_rh_DERIVwrt_param1 = -(3.*((rh - rh_up(kop))**3.))/((rh_lo(kop) - rh_up(kop))**4.)
-                 fire_TOTALfn_rh_DERIVwrt_param2 = (3.*((rh - rh_up(kop))**3.))/((rh_lo(kop) - rh_up(kop))**4.) - (3.*((rh - rh_up(kop))**2.))/((rh_lo(kop) - rh_up(kop))**3.) ;
+                 fire_TOTALfn_rh_DERIVwrt_param1 = -(3.*((rh - rh_up(kop))**3))/((rh_lo(kop) - rh_up(kop))**4)
+                 fire_TOTALfn_rh_DERIVwrt_param2 = (3.*((rh - rh_up(kop))**3))/((rh_lo(kop) - rh_up(kop))**4) - (3.*((rh - rh_up(kop))**2))/((rh_lo(kop) - rh_up(kop))**3) ;
               else
                  call error_mesg('vegn_fire_fn_rh',&
                                  'Add code to get RH derivatives for when C_beta_params_likeRH==TRUE and theta_ROSeffect_asFnTheta==FALSE.', &
@@ -1552,13 +1552,13 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
        fire_fn_rh = 1. / (1. + exp(-1.*rh_psi2(kop)*(rh-rh_psi3(kop))))
        if (do_calc_derivs) then
 !          fire_fn_rh_DERIVwrt_param1 = (exp(-rh_psi2*(rh - rh_psi3))*(rh - rh_psi3)) &
-!                                     /(exp(-rh_psi2*(rh - rh_psi3)) + 1.)**2.
+!                                     /(exp(-rh_psi2*(rh - rh_psi3)) + 1.)**2
 !          fire_fn_rh_DERIVwrt_param2 = -(rh_psi2*exp(-rh_psi2*(rh - rh_psi3))) &
-!                                      /(exp(-rh_psi2*(rh - rh_psi3)) + 1)**2.
+!                                      /(exp(-rh_psi2*(rh - rh_psi3)) + 1)**2
           ! SSR20160202
           if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-             fire_TOTALfn_rh_DERIVwrt_param1 = (3.*exp(-rh_psi2(kop)*(rh - rh_psi3(kop)))*(rh - rh_psi3(kop)))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4.)
-             fire_TOTALfn_rh_DERIVwrt_param2 = -(3.*rh_psi2(kop)*exp(-rh_psi2(kop)*(rh - rh_psi3(kop))))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4.)
+             fire_TOTALfn_rh_DERIVwrt_param1 = (3.*exp(-rh_psi2(kop)*(rh - rh_psi3(kop)))*(rh - rh_psi3(kop)))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4)
+             fire_TOTALfn_rh_DERIVwrt_param2 = -(3.*rh_psi2(kop)*exp(-rh_psi2(kop)*(rh - rh_psi3(kop))))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4)
           else
              call error_mesg('vegn_fire_fn_rh',&
                              'Add code to get RH derivatives for when C_beta_params_likeRH==TRUE and theta_ROSeffect_asFnTheta==FALSE.', &
@@ -1619,10 +1619,10 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
 
     call check_var_range(fire_fn_rh, 0.0, 1.0, 'vegn_fire_fn_rh', 'fire_fn_rh', FATAL)
     if (do_calc_derivs) then
-       call check_var_range(fire_fn_rh_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param1', FATAL)
-       call check_var_range(fire_fn_rh_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param2', FATAL)
-       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param1', FATAL)
-       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param2', FATAL)
+       call check_var_range(fire_fn_rh_DERIVwrt_param1, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param1', FATAL)
+       call check_var_range(fire_fn_rh_DERIVwrt_param2, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param2', FATAL)
+       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param1, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param1', FATAL)
+       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param2, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param2', FATAL)
     endif
 
 end subroutine vegn_fire_fn_rh
@@ -1673,8 +1673,8 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
                 fire_fn_agb_DERIVwrt_param2 = 0.
              elseif (vegn%fire_agb > agb_lo(kop) .AND. vegn%fire_agb < agb_up(kop)) then
                 fire_fn_agb_DERIVwrt_param1 = 1./(agb_lo(kop) - agb_up(kop)) - &
-                                             (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_lo
-                fire_fn_agb_DERIVwrt_param2 = (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_up
+                                             (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2   ! dFagb/d_agb_lo
+                fire_fn_agb_DERIVwrt_param2 = (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2   ! dFagb/d_agb_up
              elseif (vegn%fire_agb >= agb_up(kop)) then
                 ! Actually not differentiable at agb==agb_up! So it is fudged.
                 fire_fn_agb_DERIVwrt_param1 = 0.
@@ -1685,9 +1685,9 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
           fire_fn_agb = 1. / (1. + exp(-1.*agb_psi2(kop)*(vegn%fire_agb-agb_psi3(kop))))
           if (do_calc_derivs) then
              fire_fn_agb_DERIVwrt_param1 = (exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop)))*(vegn%fire_agb - agb_psi3(kop))) &
-                                        /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1.)**2.
+                                        /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1.)**2
              fire_fn_agb_DERIVwrt_param2 = -(agb_psi2(kop)*exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop)))) &
-                                         /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1)**2.
+                                         /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1)**2
           endif
        elseif (fire_option_fAGB==FIRE_AGB_GOMPERTZ) then
           fire_fn_agb = exp(-agb_gom2(kop)*exp(-agb_gom3(kop)*vegn%fire_agb))
@@ -1736,8 +1736,8 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
 
     call check_var_range(fire_fn_agb, 0.0, 1.0, 'vegn_fire_fn_agb', 'fire_fn_agb', FATAL)
     if (do_calc_derivs) then
-       call check_var_range(fire_fn_agb_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param1', FATAL)
-       call check_var_range(fire_fn_agb_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param2', FATAL)
+       call check_var_range(fire_fn_agb_DERIVwrt_param1, -1e37, 1e37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param1', FATAL)
+       call check_var_range(fire_fn_agb_DERIVwrt_param2, -1e37, 1e37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param2', FATAL)
     endif
 
 end subroutine vegn_fire_fn_agb
@@ -1922,7 +1922,7 @@ subroutine vegn_fire_In(latitude,lightning,In)
        __DEBUG1__(In)
     endif
 
-    call check_var_range(lightning, 0.0, 10.**37, 'vegn_fire_In', 'lightning', FATAL)
+    call check_var_range(lightning, 0.0, 1e37, 'vegn_fire_In', 'lightning', FATAL)
     call check_var_range(cloud2ground_frac, 0.0, 1.0, 'vegn_fire_In', 'cloud2ground_frac', FATAL)
     call check_var_range(In, 0.0, lightning, 'vegn_fire_In', 'In', FATAL)
 end subroutine vegn_fire_In
@@ -1961,7 +1961,7 @@ subroutine vegn_fire_Ia(popD,Ia,kop)  !!! dsward_kop added kop
        write(*,*) 'Ia', Ia
        write(*,*) '##################################'
     endif
-    call check_var_range(Ia, 0.0, 10.**37, 'vegn_fire_Ia', 'Ia', FATAL)
+    call check_var_range(Ia, 0.0, 1e37, 'vegn_fire_Ia', 'Ia', FATAL)
 
 end subroutine vegn_fire_Ia
 
@@ -1995,7 +1995,7 @@ subroutine vegn_fire_Nfire(In, Ia, &
         write(*,*) '############################################'
     endif
 
-    call check_var_range(Nfire_perKm2, 0.0, 10.**37, 'vegn_fire_Nfire', 'Nfire_perKm2', FATAL)
+    call check_var_range(Nfire_perKm2, 0.0, 1e37, 'vegn_fire_Nfire', 'Nfire_perKm2', FATAL)
 end subroutine vegn_fire_Nfire
 
 
@@ -2027,7 +2027,7 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
     !!! LB_max and HB_max calculated in fire_init
     LB = LBratio_a + LBratio_b*(1. - exp(-LBratio_c*wind_forFire))
     call check_var_range(LB, LBratio_a, LB_max, 'vegn_fire_ROS', 'LB', FATAL)
-    HB = (LB + sqrt(LB**2. - 1.)) / (LB - sqrt(LB**2. - 1.))
+    HB = (LB + sqrt(LB**2 - 1.)) / (LB - sqrt(LB**2 - 1.))
 
     ! Calculate wind multiplier effect
     g0 = (1. + 1./HB_max) / (2.*LB_max) ;
@@ -2108,9 +2108,9 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
 
     call check_var_range(C_m, 0.0, 1.0, 'vegn_fire_ROS', 'C_m', FATAL)
     call check_var_range(gW, 0.0, 1.0, 'vegn_fire_ROS', 'gW', FATAL)
-    call check_var_range(ROS_surface, 0.0, 10.**37, 'vegn_fire_ROS', 'ROS_surface', FATAL)
+    call check_var_range(ROS_surface, 0.0, 1e37, 'vegn_fire_ROS', 'ROS_surface', FATAL)
     if (do_calc_derivs) then
-       call check_var_range(ROS_DERIVwrt_ROSmax, -10.**37, 10.**37, 'vegn_fire_ROS', 'ROS_DERIVwrt_ROSmax', FATAL)
+       call check_var_range(ROS_DERIVwrt_ROSmax, -1e37, 1e37, 'vegn_fire_ROS', 'ROS_DERIVwrt_ROSmax', FATAL)
     endif
 
 end subroutine vegn_fire_ROS
@@ -2187,11 +2187,11 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)
     real, intent(out)   :: BAperFire_0   ! km2
 
 !!!!! dsward - track fire-age somehow and it will increase the AB per fire by a quadratic here
-    BAperFire_0 = (ROS**2.) &
-                         * (fire_dur**2.) &
-                         * ((1. + 1./HB)**2.) &
+    BAperFire_0 = (ROS**2) &
+                         * (fire_dur**2) &
+                         * ((1. + 1./HB)**2) &
                          * pi &
-                         / (4. * LB * (10.**6.))
+                         / (4. * LB * 1e6)
 
     if (do_calc_derivs) then
        BAperFire0_DERIVwrt_fireDur = BAperFire_0 &
@@ -2200,7 +2200,7 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)
        if (ROS > 0.0) then
           BAperFire0_DERIVwrt_ROSmax = BAperFire_0 &
                                        * (2.*ROS*ROS_DERIVwrt_ROSmax) &
-                                       / (ROS**2.)
+                                       / (ROS**2)
        else
           BAperFire0_DERIVwrt_ROSmax = 0.0
        endif
@@ -2380,16 +2380,16 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
     endif
 
     ! Error check
-    call check_var_range(BAperFire_0, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BAperFire_0', FATAL)
+    call check_var_range(BAperFire_0, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BAperFire_0', FATAL)
     call check_var_range(BAperFire_1, 0.0, BAperFire_0, 'vegn_fire_BA_ntrlscnd', 'BAperFire_1', FATAL)
     call check_var_range(BAperFire_2, 0.0, BAperFire_1, 'vegn_fire_BA_ntrlscnd', 'BAperFire_2', FATAL)
     call check_var_range(BAperFire_3, 0.0, BAperFire_2, 'vegn_fire_BA_ntrlscnd', 'BAperFire_3', FATAL)
     call check_var_range(BF, 0.0, 1.0, 'vegn_fire_BA_ntrlscnd', 'BF', FATAL)
-    call check_var_range(Nfire, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'Nfire', FATAL)
-    call check_var_range(BA, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BA', FATAL)
-    call check_var_range(BF_rate, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BF_rate', FATAL)
-    call check_var_range(Nfire_rate, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'Nfire_rate', FATAL)
-    call check_var_range(BA_rate, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BA_rate', FATAL)
+    call check_var_range(Nfire, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'Nfire', FATAL)
+    call check_var_range(BA, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BA', FATAL)
+    call check_var_range(BF_rate, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BF_rate', FATAL)
+    call check_var_range(Nfire_rate, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'Nfire_rate', FATAL)
+    call check_var_range(BA_rate, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BA_rate', FATAL)
 
 end subroutine vegn_fire_BA_ntrlscnd
 
@@ -3139,24 +3139,24 @@ subroutine calc_fire_derivs(&
 !    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                * vegn_unburned_area * fast_to_daily
 !    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-!       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+!       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 10**6)) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-!       BA_DERIVwrt_RHparam1 = -(3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.))/((RH_lo - RH_up)**4.)
-!       BA_DERIVwrt_RHparam2 = (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.))/((RH_lo - RH_up)**4.) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2.))/((RH_lo - RH_up)**3.)
+!       BA_DERIVwrt_RHparam1 = -(3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3))/((RH_lo - RH_up)**4)
+!       BA_DERIVwrt_RHparam2 = (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3))/((RH_lo - RH_up)**4) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2))/((RH_lo - RH_up)**3)
 !    else
-!       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6) &
+!       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 10**6) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-!       BA_DERIVwrt_RHparam1 = -(5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**6.)
-!       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**6.) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**5.) - (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3.))/((RH_lo - RH_up)**5.)
+!       BA_DERIVwrt_RHparam1 = -(5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6)
+!       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2)*((theta - RH_up)**2))/((RH_lo - RH_up)**5) - (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3))/((RH_lo - RH_up)**5)
 !    endif
 
    ! SSR20160202
    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                * vegn_unburned_area * fast_to_daily &
-               * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+               * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6)) &
                * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-      RHderiv_X = RHderiv_X * (C_beta**2.)
+      RHderiv_X = RHderiv_X * (C_beta**2)
    else
       call error_mesg('calc_fire_derivs',&
                       'Add code to get RH derivatives for when C_beta_params_likeRH==TRUE and theta_ROSeffect_asFnTheta==FALSE.', &
@@ -3170,7 +3170,7 @@ subroutine calc_fire_derivs(&
 !       ! fire_fn_theta_DERIVwrt_thetaE, instead doing everything here.
 !       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                    * vegn_unburned_area * fast_to_daily
-!       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6) &
+!       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 10**6) &
 !                    * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !       if (thetaE_already_squared) then
 !          BA_DERIVwrt_thetaE = (3*pi*THETAderiv_X*THETAderiv_Z*(theta**2)*exp(-(3*pi*(theta**2))/theta_extinction))/(theta_extinction**2)
@@ -3189,7 +3189,7 @@ subroutine calc_fire_derivs(&
 !   if (theta_ROSeffect_asFnTheta) then
 !      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                     * vegn_unburned_area * fast_to_daily &
-!                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+!                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 10**6)) &
 !                     * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
 !   else
 !      call error_mesg('calc_fire_derivs',&
@@ -3201,7 +3201,7 @@ subroutine calc_fire_derivs(&
    if (theta_ROSeffect_asFnTheta) then
       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                      * vegn_unburned_area * fast_to_daily &
-                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6)) &
                      * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
       if (fire_option_fTheta==FIRE_THETA_LI2012) then
          BA_DERIVwrt_thetaE = THETAderiv_X * fire_TOTALfn_theta_DERIVwrt_thetaE
@@ -3334,34 +3334,34 @@ subroutine calc_fire_derivs(&
    endif
 
    ! Range checks
-   call check_var_range(BA_DERIVwrt_alphaM, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_alphaM',   FATAL)
-   call check_var_range(BA_DERIVwrt_IaParam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_IaParam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam2',   FATAL)
-   call check_var_range(BA_DERIVwrt_AGBparam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_AGBparam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam2',   FATAL)
-   call check_var_range(RHderiv_X, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'RHderiv_X',   FATAL)
-   call check_var_range(BA_DERIVwrt_RHparam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_RHparam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam2',   FATAL)
-   call check_var_range(THETAderiv_X, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'THETAderiv_X',   FATAL)
-   call check_var_range(BA_DERIVwrt_thetaE, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_thetaE',   FATAL)
-   call check_var_range(BA_DERIVwrt_THETAparam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_THETAparam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam2',   FATAL)
-   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps1',   FATAL)
-   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps2',   FATAL)
-   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps3, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps3',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_c4, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c4',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_c3, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c3',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_dt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_dt',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_tt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_tt',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_et, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_et',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_c4, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c4',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_c3, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c3',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_dt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_dt',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_tt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tt',   FATAL)
-!   call check_var_range(BA_DERIVwrt_ROSmax_ts, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_ts',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_tshr, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tshr',   FATAL)   ! SSR20160211
-   call check_var_range(BA_DERIVwrt_ROSmax_tsav, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tsav',   FATAL)   ! SSR20160211
-   call check_var_range(BA_DERIVwrt_ROSmax_et, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_et',   FATAL)
+   call check_var_range(BA_DERIVwrt_alphaM, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_alphaM',   FATAL)
+   call check_var_range(BA_DERIVwrt_IaParam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_IaParam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam2',   FATAL)
+   call check_var_range(BA_DERIVwrt_AGBparam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_AGBparam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam2',   FATAL)
+   call check_var_range(RHderiv_X, -1e37, 1e37, 'calc_fire_derivs_v2', 'RHderiv_X',   FATAL)
+   call check_var_range(BA_DERIVwrt_RHparam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_RHparam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam2',   FATAL)
+   call check_var_range(THETAderiv_X, -1e37, 1e37, 'calc_fire_derivs_v2', 'THETAderiv_X',   FATAL)
+   call check_var_range(BA_DERIVwrt_thetaE, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_thetaE',   FATAL)
+   call check_var_range(BA_DERIVwrt_THETAparam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_THETAparam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam2',   FATAL)
+   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps1',   FATAL)
+   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps2',   FATAL)
+   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps3, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps3',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_c4, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c4',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_c3, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c3',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_dt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_dt',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_tt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_tt',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_et, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_et',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_c4, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c4',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_c3, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c3',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_dt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_dt',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_tt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tt',   FATAL)
+!   call check_var_range(BA_DERIVwrt_ROSmax_ts, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_ts',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_tshr, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tshr',   FATAL)   ! SSR20160211
+   call check_var_range(BA_DERIVwrt_ROSmax_tsav, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tsav',   FATAL)   ! SSR20160211
+   call check_var_range(BA_DERIVwrt_ROSmax_et, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_et',   FATAL)
 
 end subroutine calc_fire_derivs
 
