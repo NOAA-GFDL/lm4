@@ -209,7 +209,7 @@ logical :: use_Fwind = .TRUE.   ! If FALSE, ROS_max even with wind=0 (although C
 character(32) :: wind_to_use = '10m_sheffield'
     ! 'canopy_top' for original, top-of-canopy
     ! '10m_tmp' for kludgey 10-m wind (uses neutral stability assumption)
-    ! '10m_sheffield' for Sheffield's 10-m wind
+    ! '10m_sheffield' for Sheffield 10-m wind
 real    :: constant_wind_forFire = -1   ! -1 means use wind_forFire from canopy_air.F90. Anything else (x) sets wind_forFire to x m/s.
 
 ! Maximum rate of spread for each species. From Li et al. (2012); Doubled according to Corrigendum.
@@ -511,17 +511,17 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   ! fire_biomass_threshold can only be -1 or >=0
   if (fire_biomass_threshold /= -1) then
-     call check_var_range(fire_biomass_threshold, 0.0,10.**37,'vegn_fire_init', 'fire_biomass_threshold', FATAL)
+     call check_var_range(fire_biomass_threshold, 0.0,1e37,'vegn_fire_init', 'fire_biomass_threshold', FATAL)
   endif
 
   ! depth_for_theta can only be -1 or positive
   if (depth_for_theta /= -1.0) then
-     call check_var_range(depth_for_theta, 10.**-37., 10.**37., 'vegn_fire_init', 'depth_for_theta', FATAL)
+     call check_var_range(depth_for_theta, 1e-37, 1e37, 'vegn_fire_init', 'depth_for_theta', FATAL)
   endif
 
   ! constant_wind_forFire can only be -1 or >=0
   if (constant_wind_forFire /= -1.0) then
-     call check_var_range(constant_wind_forFire, 0.0, 10.**37., 'vegn_fire_init', 'constant_wind_forFire', FATAL)
+     call check_var_range(constant_wind_forFire, 0.0, 1e37, 'vegn_fire_init', 'constant_wind_forFire', FATAL)
   endif
 
   if (fire_option /= FIRE_UNPACKED) return ! nothing more to do
@@ -980,7 +980,7 @@ subroutine update_fire_data(time)
   type(land_tile_enum_type) :: ce
   logical :: used
 
-  if (fire_option /= FIRE_UNPACKED) return ! we don't need do do anything
+  if (fire_option /= FIRE_UNPACKED) return ! we do not need do do anything
 
   ! read_external_ts interpolates data conservatively in space (see init)
   ! and linearly in time.
@@ -1055,14 +1055,14 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
 
   ! SSR: Get & send Fcrop & Fpast---even for non-agri. tiles! Otherwise throws
   ! "skipped one time level" error.
-  ! slm: I don't like calling get_date for every tile every time step. Why not 
+  ! slm: I do not like calling get_date for every tile every time step. Why not
   ! do monthly processes inside slow subroutines?
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
   if (month1/=month0) then
      call update_fire_Fk(tile%vegn,tile%diag,l)
   endif
-  
+
   if (burns_as_ntrl(tile)) then
      ! Update conditions for fire
      call update_fire_ntrl(tile%vegn, tile%soil, tile%diag, &
@@ -1080,7 +1080,7 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
         ! Make sure that when today's BA is calculated as the average over all
         ! fast time steps, it equals the total amount of burning that actually
         ! occurred. Note that this will make this time step's value look INSANE,
-        ! but that's only a problem when looking at sub-daily diagnostics.
+        ! but that is only a problem when looking at sub-daily diagnostics.
         BF_mth_mult = BF_mth * 86400.0/dt_fast
         BA_mth_mult = BA_mth * 86400.0/dt_fast
      else
@@ -1102,7 +1102,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     real, intent(in) :: q
     real, intent(in) :: Tca   ! Kelvin
     real, intent(in) :: p_surf
-    real, intent(in) :: cplr2land_wind   ! Sheffield's 10-m wind
+    real, intent(in) :: cplr2land_wind   ! Sheffield 10-m wind
     integer, intent(in)  :: l  ! index of current point, for fire data
     real, intent(in)     :: tile_area   ! Area of tile (m2)
     real, intent(in)     :: latitude
@@ -1226,9 +1226,9 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     ! SSR20160128: If update_fire_fast is getting called, make sure that this
     ! tile has a valid value.
     if (do_fire_fragmentation) then
-       vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac(l)))**-2.169)*tile_area
+       vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac(l)))**(-2.169))*tile_area
        vegn%max_fire_size = max (max_fire_size_min,vegn%max_fire_size)
-       ! call check_var_range(vegn%max_fire_size, max_fire_size_min, 10.**37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
+       ! call check_var_range(vegn%max_fire_size, max_fire_size_min, 1e37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
 
     call update_Nfire_BA_fast(vegn, diag,l,tile_area, &
@@ -1383,7 +1383,7 @@ subroutine update_multiday_fires(vegn,tile_area)
     vegn%fires_to_add_mdf = 0.0
     vegn%BAperfire_ave_mdf = 0.0
 
-    call check_var_range(vegn%total_BA_mdf, 0.0, 10.**37, 'update_multiday_fires', 'vegn%total_BA_mdf', FATAL)
+    call check_var_range(vegn%total_BA_mdf, 0.0, 1e37, 'update_multiday_fires', 'vegn%total_BA_mdf', FATAL)
 
 end subroutine update_multiday_fires
 !!! dsward_mdf end
@@ -1406,7 +1406,7 @@ subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth)
      write(*,*)"burned_frac greater than 1. burned_frac = ",vegn%burned_frac
   endif
 
-  ! vegn%burned_frac shouldn't be >1 after having restricted BF_mth in vegn_fire_BA_agri
+  ! vegn%burned_frac should not be >1 after having restricted BF_mth in vegn_fire_BA_agri
  ! call check_var_range(vegn%burned_frac, 0.0, 1.0, 'update_fire_agri', 'vegn%burned_frac', FATAL)
 
 end subroutine update_fire_agri
@@ -1473,7 +1473,7 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
                              'Add code to get theta derivative for when theta_ROSeffect_asFnTheta==FALSE.', &
                              FATAL)
           endif
-          call check_var_range(fire_TOTALfn_theta_DERIVwrt_thetaE, -10.**37, 10.**37, 'vegn_fire_fn_theta', 'fire_fn_theta_DERIVwrt_thetaE', FATAL)
+          call check_var_range(fire_TOTALfn_theta_DERIVwrt_thetaE, -1e37, 1e37, 'vegn_fire_fn_theta', 'fire_fn_theta_DERIVwrt_thetaE', FATAL)
        elseif (fire_option_fTheta==FIRE_THETA_LOGISTIC) then
           if (theta_ROSeffect_asFnTheta) then
              fire_TOTALfn_theta_DERIVwrt_param1 = (3.*exp(-theta_psi2(kop)*(theta - theta_psi3(kop)))*(theta - theta_psi3(kop)))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4.)
@@ -1526,7 +1526,7 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
        fire_fn_rh = max(0.,min(1., (rh_up(kop)-rh) / (rh_up(kop)-rh_lo(kop))))
        if (do_calc_derivs) then
           if (rh <= rh_lo(kop)) then
-             ! Actually not differentiable at rh==rh_lo! So it's fudged.
+             ! Actually not differentiable at rh==rh_lo! So it is fudged.
              fire_fn_rh_DERIVwrt_param1 = 0.
              fire_fn_rh_DERIVwrt_param2 = 0.
           elseif (rh > rh_lo(kop) .AND. rh < rh_up(kop)) then
@@ -1542,7 +1542,7 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
                                   FATAL)
               endif
           elseif (rh >= rh_up(kop)) then
-             ! Actually not differentiable at rh==rh_up! So it's fudged.
+             ! Actually not differentiable at rh==rh_up! So it is fudged.
              fire_fn_rh_DERIVwrt_param1 = 0.
              fire_fn_rh_DERIVwrt_param2 = 0.
           endif
@@ -1618,10 +1618,10 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
 
     call check_var_range(fire_fn_rh, 0.0, 1.0, 'vegn_fire_fn_rh', 'fire_fn_rh', FATAL)
     if (do_calc_derivs) then
-       call check_var_range(fire_fn_rh_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param1', FATAL)
-       call check_var_range(fire_fn_rh_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param2', FATAL)
-       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param1', FATAL)
-       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param2', FATAL)
+       call check_var_range(fire_fn_rh_DERIVwrt_param1, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param1', FATAL)
+       call check_var_range(fire_fn_rh_DERIVwrt_param2, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param2', FATAL)
+       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param1, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param1', FATAL)
+       call check_var_range(fire_TOTALfn_rh_DERIVwrt_param2, -1e37, 1e37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param2', FATAL)
     endif
 
 end subroutine vegn_fire_fn_rh
@@ -1658,8 +1658,8 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
     real, intent(out) :: fire_fn_agb
     integer, intent(in) :: kop ! dsward_kop - use  boreal (1) or non-boreal (2) parameters
 
-   ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it's done for
-   ! all tiles, since fire_agb is what's used to determine whether tiles can merge when
+   ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it is done for
+   ! all tiles, since fire_agb is what is used to determine whether tiles can merge when
    ! using new fire model.
 
     if (fire_biomass_threshold==-1) then
@@ -1667,7 +1667,7 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
           fire_fn_agb = max(0.,min(1., (vegn%fire_agb-agb_lo(kop)) / (agb_up(kop)-agb_lo(kop))))
           if (do_calc_derivs) then
              if (vegn%fire_agb <= agb_lo(kop)) then
-                ! Actually not differentiable at agb==agb_lo! So it's fudged.
+                ! Actually not differentiable at agb==agb_lo! So it is fudged.
                 fire_fn_agb_DERIVwrt_param1 = 0.
                 fire_fn_agb_DERIVwrt_param2 = 0.
              elseif (vegn%fire_agb > agb_lo(kop) .AND. vegn%fire_agb < agb_up(kop)) then
@@ -1675,7 +1675,7 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
                                              (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_lo
                 fire_fn_agb_DERIVwrt_param2 = (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_up
              elseif (vegn%fire_agb >= agb_up(kop)) then
-                ! Actually not differentiable at agb==agb_up! So it's fudged.
+                ! Actually not differentiable at agb==agb_up! So it is fudged.
                 fire_fn_agb_DERIVwrt_param1 = 0.
                 fire_fn_agb_DERIVwrt_param2 = 0.
              endif
@@ -1735,8 +1735,8 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
 
     call check_var_range(fire_fn_agb, 0.0, 1.0, 'vegn_fire_fn_agb', 'fire_fn_agb', FATAL)
     if (do_calc_derivs) then
-       call check_var_range(fire_fn_agb_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param1', FATAL)
-       call check_var_range(fire_fn_agb_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param2', FATAL)
+       call check_var_range(fire_fn_agb_DERIVwrt_param1, -1e37, 1e37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param1', FATAL)
+       call check_var_range(fire_fn_agb_DERIVwrt_param2, -1e37, 1e37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param2', FATAL)
     endif
 
 end subroutine vegn_fire_fn_agb
@@ -1810,7 +1810,7 @@ end subroutine vegn_fire_fn_popD
 
 
 subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
-    ! Note that Li et al. (2013) don't apply this to "tropical closed forests," because
+    ! Note that Li et al. (2013) do not apply this to "tropical closed forests," because
     ! they have a separate model for burning there. I may also want to change this so
     ! that the "tree-dominated" ecosystems are better delineated, e.g., through Olson
     ! classifications.
@@ -1921,7 +1921,7 @@ subroutine vegn_fire_In(latitude,lightning,In)
        __DEBUG1__(In)
     endif
 
-    call check_var_range(lightning, 0.0, 10.**37, 'vegn_fire_In', 'lightning', FATAL)
+    call check_var_range(lightning, 0.0, 1e37, 'vegn_fire_In', 'lightning', FATAL)
     call check_var_range(cloud2ground_frac, 0.0, 1.0, 'vegn_fire_In', 'cloud2ground_frac', FATAL)
     call check_var_range(In, 0.0, lightning, 'vegn_fire_In', 'In', FATAL)
 end subroutine vegn_fire_In
@@ -1960,7 +1960,7 @@ subroutine vegn_fire_Ia(popD,Ia,kop)  !!! dsward_kop added kop
        write(*,*) 'Ia', Ia
        write(*,*) '##################################'
     endif
-    call check_var_range(Ia, 0.0, 10.**37, 'vegn_fire_Ia', 'Ia', FATAL)
+    call check_var_range(Ia, 0.0, 1e37, 'vegn_fire_Ia', 'Ia', FATAL)
 
 end subroutine vegn_fire_Ia
 
@@ -1994,7 +1994,7 @@ subroutine vegn_fire_Nfire(In, Ia, &
         write(*,*) '############################################'
     endif
 
-    call check_var_range(Nfire_perKm2, 0.0, 10.**37, 'vegn_fire_Nfire', 'Nfire_perKm2', FATAL)
+    call check_var_range(Nfire_perKm2, 0.0, 1e37, 'vegn_fire_Nfire', 'Nfire_perKm2', FATAL)
 end subroutine vegn_fire_Nfire
 
 
@@ -2107,9 +2107,9 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
 
     call check_var_range(C_m, 0.0, 1.0, 'vegn_fire_ROS', 'C_m', FATAL)
     call check_var_range(gW, 0.0, 1.0, 'vegn_fire_ROS', 'gW', FATAL)
-    call check_var_range(ROS_surface, 0.0, 10.**37, 'vegn_fire_ROS', 'ROS_surface', FATAL)
+    call check_var_range(ROS_surface, 0.0, 1e37, 'vegn_fire_ROS', 'ROS_surface', FATAL)
     if (do_calc_derivs) then
-       call check_var_range(ROS_DERIVwrt_ROSmax, -10.**37, 10.**37, 'vegn_fire_ROS', 'ROS_DERIVwrt_ROSmax', FATAL)
+       call check_var_range(ROS_DERIVwrt_ROSmax, -1e37, 1e37, 'vegn_fire_ROS', 'ROS_DERIVwrt_ROSmax', FATAL)
     endif
 
 end subroutine vegn_fire_ROS
@@ -2136,9 +2136,9 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     real :: height ! average height of the vegetation (crown trees only)
     integer :: i ! cohort index
 
-  !!! Need litter amount (dry matter if possible, C if all that's available)
+  !!! Need litter amount (dry matter if possible, C if all that is available)
   !!! Need vegetation height
-  !!! Apply a height limit?  If no crown, can't be any crown scorch (just restrict it to tree species)
+  !!! Apply a height limit?  If no crown, cannot be any crown scorch (just restrict it to tree species)
 
     height = 0.0; F_parameter = 0.0; w = 0.0
     do i = 1, vegn%n_cohorts
@@ -2190,7 +2190,7 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)
                          * (fire_dur**2.) &
                          * ((1. + 1./HB)**2.) &
                          * pi &
-                         / (4. * LB * (10.**6.))
+                         / (4. * LB * 1e6)
 
     if (do_calc_derivs) then
        BAperFire0_DERIVwrt_fireDur = BAperFire_0 &
@@ -2259,7 +2259,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 
     if (vegn_burned_frac < 1.0) then
 
-       ! # fires, knowing that fire can't happen on land that already burned today
+       ! # fires, knowing that fire cannot happen on land that already burned today
        vegn_unburned_frac = 1.0 - vegn_burned_frac
        vegn_unburned_area = tile_area_km2 * vegn_unburned_frac
        Nfire = Nfire_perKm2 * vegn_unburned_area   ! Number of fires per timestep
@@ -2374,21 +2374,21 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
     endif
 
     ! SSR20151208: Add some tolerance for BF at high end
-    if (BF>1.0 .AND. BF<1.0+10.**-12) then
+    if (BF>1.0 .AND. BF<1.0+1e-12) then
        BF = 1.0
     endif
 
     ! Error check
-    call check_var_range(BAperFire_0, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BAperFire_0', FATAL)
+    call check_var_range(BAperFire_0, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BAperFire_0', FATAL)
     call check_var_range(BAperFire_1, 0.0, BAperFire_0, 'vegn_fire_BA_ntrlscnd', 'BAperFire_1', FATAL)
     call check_var_range(BAperFire_2, 0.0, BAperFire_1, 'vegn_fire_BA_ntrlscnd', 'BAperFire_2', FATAL)
     call check_var_range(BAperFire_3, 0.0, BAperFire_2, 'vegn_fire_BA_ntrlscnd', 'BAperFire_3', FATAL)
     call check_var_range(BF, 0.0, 1.0, 'vegn_fire_BA_ntrlscnd', 'BF', FATAL)
-    call check_var_range(Nfire, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'Nfire', FATAL)
-    call check_var_range(BA, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BA', FATAL)
-    call check_var_range(BF_rate, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BF_rate', FATAL)
-    call check_var_range(Nfire_rate, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'Nfire_rate', FATAL)
-    call check_var_range(BA_rate, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BA_rate', FATAL)
+    call check_var_range(Nfire, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'Nfire', FATAL)
+    call check_var_range(BA, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BA', FATAL)
+    call check_var_range(BF_rate, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BF_rate', FATAL)
+    call check_var_range(Nfire_rate, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'Nfire_rate', FATAL)
+    call check_var_range(BA_rate, 0.0, 1e37, 'vegn_fire_BA_ntrlscnd', 'BA_rate', FATAL)
 
 end subroutine vegn_fire_BA_ntrlscnd
 
@@ -2898,7 +2898,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
 !          soil%ssc_in(1) = soil%ssc_in(1) + killed_wood
        case (SOILC_CORPSE)
           ! Dead biomass. (Does NOT include BLV as before. Instead, now like vegn_disturbance from CORPSE.)
-          !!! EVERY TIME YOU CALL ADD_LITTER, IT CREATES A NEW COHORT. SO HERE, I'M CREATING TWO ABOVEGROUND LITTER
+          !!! EVERY TIME YOU CALL ADD_LITTER, IT CREATES A NEW COHORT. SO HERE, I AM CREATING TWO ABOVEGROUND LITTER
           !!! COHORTS AND TWO BELOWGROUND LITTER COHORTS. INSTEAD, COMBINE SO YOU CAN ADD ALL ABOVEGROUND (BELOWGROUND)
           !!! IN ONE CALL.
           call add_litter(soil%coarseWoodLitter, &
@@ -3107,7 +3107,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 
   num_days = days_in_month(Time)
 
-  ! Fcrop and Fpast are per-day rates. Since they're just being called once per month,
+  ! Fcrop and Fpast are per-day rates. Since they are just being called once per month,
   ! they need to be multiplied by the number of days in the month.
   if (vegn%landuse==LU_CROP) then
      BF_mth = vegn%Fcrop * num_days
@@ -3115,7 +3115,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
      BF_mth = vegn%Fpast * num_days
   endif
 
-  ! BF can't be > 1!
+  ! BF cannot be > 1!
   if (BF_mth > 1.0) then
      call check_var_range(BF_mth, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_mth', WARNING)
      if (vegn%landuse==LU_CROP) then
@@ -3358,8 +3358,8 @@ subroutine send_tile_data_BABF_forAgri(diag,BF_mth,BA_mth)
    type(diag_buff_type), intent(inout) :: diag
    real, intent(in)    :: BF_mth, BA_mth
 
-   call send_tile_data(id_BF_rate, BF_mth, diag)   ! Remember, sending BF_mth when it's calculated and 0 otherwise results in a good per-day rate for the month as a whole
-   call send_tile_data(id_BA_rate, BA_mth, diag)   ! Remember, sending BA_mth when it's calculated and 0 otherwise results in a good per-day rate for the month as a whole
+   call send_tile_data(id_BF_rate, BF_mth, diag)   ! Remember, sending BF_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
+   call send_tile_data(id_BA_rate, BA_mth, diag)   ! Remember, sending BA_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
 
 end subroutine send_tile_data_BABF_forAgri
 
@@ -3471,12 +3471,12 @@ subroutine calc_fire_derivs(&
 !    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                * vegn_unburned_area * fast_to_daily
 !    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-!       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+!       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !       BA_DERIVwrt_RHparam1 = -(3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.))/((RH_lo - RH_up)**4.)
 !       BA_DERIVwrt_RHparam2 = (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.))/((RH_lo - RH_up)**4.) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2.))/((RH_lo - RH_up)**3.)
 !    else
-!       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6) &
+!       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !       BA_DERIVwrt_RHparam1 = -(5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**6.)
 !       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**6.) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**5.) - (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3.))/((RH_lo - RH_up)**5.)
@@ -3485,7 +3485,7 @@ subroutine calc_fire_derivs(&
    ! SSR20160202
    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                * vegn_unburned_area * fast_to_daily &
-               * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+               * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
                * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
       RHderiv_X = RHderiv_X * (C_beta**2.)
@@ -3502,7 +3502,7 @@ subroutine calc_fire_derivs(&
 !       ! fire_fn_theta_DERIVwrt_thetaE, instead doing everything here.
 !       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                    * vegn_unburned_area * fast_to_daily
-!       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6) &
+!       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6) &
 !                    * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !       if (thetaE_already_squared) then
 !          BA_DERIVwrt_thetaE = (3*pi*THETAderiv_X*THETAderiv_Z*(theta**2)*exp(-(3*pi*(theta**2))/theta_extinction))/(theta_extinction**2)
@@ -3521,7 +3521,7 @@ subroutine calc_fire_derivs(&
 !   if (theta_ROSeffect_asFnTheta) then
 !      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                     * vegn_unburned_area * fast_to_daily &
-!                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+!                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
 !                     * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
 !   else
 !      call error_mesg('calc_fire_derivs',&
@@ -3533,7 +3533,7 @@ subroutine calc_fire_derivs(&
    if (theta_ROSeffect_asFnTheta) then
       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                      * vegn_unburned_area * fast_to_daily &
-                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
+                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
                      * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
       if (fire_option_fTheta==FIRE_THETA_LI2012) then
          BA_DERIVwrt_thetaE = THETAderiv_X * fire_TOTALfn_theta_DERIVwrt_thetaE
@@ -3666,34 +3666,34 @@ subroutine calc_fire_derivs(&
    endif
 
    ! Range checks
-   call check_var_range(BA_DERIVwrt_alphaM, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_alphaM',   FATAL)
-   call check_var_range(BA_DERIVwrt_IaParam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_IaParam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam2',   FATAL)
-   call check_var_range(BA_DERIVwrt_AGBparam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_AGBparam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam2',   FATAL)
-   call check_var_range(RHderiv_X, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'RHderiv_X',   FATAL)
-   call check_var_range(BA_DERIVwrt_RHparam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_RHparam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam2',   FATAL)
-   call check_var_range(THETAderiv_X, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'THETAderiv_X',   FATAL)
-   call check_var_range(BA_DERIVwrt_thetaE, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_thetaE',   FATAL)
-   call check_var_range(BA_DERIVwrt_THETAparam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam1',   FATAL)
-   call check_var_range(BA_DERIVwrt_THETAparam2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam2',   FATAL)
-   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps1',   FATAL)
-   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps2, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps2',   FATAL)
-   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps3, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps3',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_c4, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c4',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_c3, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c3',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_dt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_dt',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_tt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_tt',   FATAL)
-   call check_var_range(BA_DERIVwrt_fireDur_et, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_et',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_c4, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c4',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_c3, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c3',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_dt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_dt',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_tt, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tt',   FATAL)
-!   call check_var_range(BA_DERIVwrt_ROSmax_ts, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_ts',   FATAL)
-   call check_var_range(BA_DERIVwrt_ROSmax_tshr, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tshr',   FATAL)   ! SSR20160211
-   call check_var_range(BA_DERIVwrt_ROSmax_tsav, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tsav',   FATAL)   ! SSR20160211
-   call check_var_range(BA_DERIVwrt_ROSmax_et, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_et',   FATAL)
+   call check_var_range(BA_DERIVwrt_alphaM, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_alphaM',   FATAL)
+   call check_var_range(BA_DERIVwrt_IaParam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_IaParam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam2',   FATAL)
+   call check_var_range(BA_DERIVwrt_AGBparam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_AGBparam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_AGBparam2',   FATAL)
+   call check_var_range(RHderiv_X, -1e37, 1e37, 'calc_fire_derivs_v2', 'RHderiv_X',   FATAL)
+   call check_var_range(BA_DERIVwrt_RHparam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_RHparam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_RHparam2',   FATAL)
+   call check_var_range(THETAderiv_X, -1e37, 1e37, 'calc_fire_derivs_v2', 'THETAderiv_X',   FATAL)
+   call check_var_range(BA_DERIVwrt_thetaE, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_thetaE',   FATAL)
+   call check_var_range(BA_DERIVwrt_THETAparam1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam1',   FATAL)
+   call check_var_range(BA_DERIVwrt_THETAparam2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_THETAparam2',   FATAL)
+   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps1, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps1',   FATAL)
+   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps2, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps2',   FATAL)
+   call check_var_range(BA_DERIVwrt_popDsupp_NF_eps3, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_popDsupp_NF_eps3',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_c4, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c4',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_c3, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_c3',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_dt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_dt',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_tt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_tt',   FATAL)
+   call check_var_range(BA_DERIVwrt_fireDur_et, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_fireDur_et',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_c4, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c4',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_c3, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_c3',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_dt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_dt',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_tt, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tt',   FATAL)
+!   call check_var_range(BA_DERIVwrt_ROSmax_ts, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_ts',   FATAL)
+   call check_var_range(BA_DERIVwrt_ROSmax_tshr, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tshr',   FATAL)   ! SSR20160211
+   call check_var_range(BA_DERIVwrt_ROSmax_tsav, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_tsav',   FATAL)   ! SSR20160211
+   call check_var_range(BA_DERIVwrt_ROSmax_et, -1e37, 1e37, 'calc_fire_derivs_v2', 'BA_DERIVwrt_ROSmax_et',   FATAL)
 
 end subroutine calc_fire_derivs
 
