@@ -540,7 +540,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   ! For rate-of-spread calculation
   LB_max = LBratio_a + LBratio_b
-  HB_max = (LB_max + sqrt(LB_max**2. - 1.)) / (LB_max - sqrt(LB_max**2. - 1.))
+  HB_max = (LB_max + sqrt(LB_max**2 - 1.)) / (LB_max - sqrt(LB_max**2 - 1.))
 
   ! Find daily per-person ignition rate
   Ia_alpha_daily = Ia_alpha_monthly * 12./days_per_year
@@ -1326,7 +1326,7 @@ subroutine update_multiday_fires(vegn,tile_area)
     !!! Adjust the number of fires for coalescence based on results of the toy model
     !!  that determines rates of fire coalescence for randomly placed ellipses on a
     !!  square grid.
-        adj_Nfires = vegn%past_fires_mdf(i)*(1.0-(sum(vegn%past_areaburned_mdf)/(vegn%past_tilesize_mdf*1.e-6)))**2.
+        adj_Nfires = vegn%past_fires_mdf(i)*(1.0-(sum(vegn%past_areaburned_mdf)/(vegn%past_tilesize_mdf*1.e-6)))**2
         if (adj_Nfires .gt. vegn%past_fires_mdf(i)) adj_Nfires=vegn%past_fires_mdf(i)
 
         mdf_BAperfire_prev=vegn%past_areaburned_mdf(i)/adj_Nfires
@@ -1442,9 +1442,9 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
 
     if (fire_option_fTheta==FIRE_THETA_LI2012) then
        if (.NOT. thetaE_already_squared) then
-          fire_fn_theta = exp(-pi*((theta/theta_extinction)**2.))
+          fire_fn_theta = exp(-pi*((theta/theta_extinction)**2))
        else
-          fire_fn_theta = exp(-pi*((theta**2.)/theta_extinction))
+          fire_fn_theta = exp(-pi*((theta**2)/theta_extinction))
        endif
     elseif (fire_option_fTheta==FIRE_THETA_LOGISTIC) then
        fire_fn_theta = 1. / (1. + exp(-1.*theta_psi2(kop)*(theta-theta_psi3(kop))))
@@ -1464,9 +1464,9 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
        if (fire_option_fTheta==FIRE_THETA_LI2012) then
           if (theta_ROSeffect_asFnTheta) then
              if (.NOT. thetaE_already_squared) then
-                fire_TOTALfn_theta_DERIVwrt_thetaE = (6.*pi*(theta**2.)*exp(-(3.*pi*(theta**2.))/(theta_extinction**2.)))/(theta_extinction**3.)
+                fire_TOTALfn_theta_DERIVwrt_thetaE = (6.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/(theta_extinction**2)))/(theta_extinction**3)
              else
-                fire_TOTALfn_theta_DERIVwrt_thetaE = (3.*pi*(theta**2.)*exp(-(3.*pi*(theta**2.))/theta_extinction))/(theta_extinction**2.)
+                fire_TOTALfn_theta_DERIVwrt_thetaE = (3.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/theta_extinction))/(theta_extinction**2)
              endif
           else
              call error_mesg('vegn_fire_fn_theta',&
@@ -1476,8 +1476,8 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
           call check_var_range(fire_TOTALfn_theta_DERIVwrt_thetaE, -1e37, 1e37, 'vegn_fire_fn_theta', 'fire_fn_theta_DERIVwrt_thetaE', FATAL)
        elseif (fire_option_fTheta==FIRE_THETA_LOGISTIC) then
           if (theta_ROSeffect_asFnTheta) then
-             fire_TOTALfn_theta_DERIVwrt_param1 = (3.*exp(-theta_psi2(kop)*(theta - theta_psi3(kop)))*(theta - theta_psi3(kop)))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4.)
-             fire_TOTALfn_theta_DERIVwrt_param2 = -(3.*theta_psi2(kop)*exp(-theta_psi2(kop)*(theta - theta_psi3(kop))))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4.)
+             fire_TOTALfn_theta_DERIVwrt_param1 = (3.*exp(-theta_psi2(kop)*(theta - theta_psi3(kop)))*(theta - theta_psi3(kop)))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4)
+             fire_TOTALfn_theta_DERIVwrt_param2 = -(3.*theta_psi2(kop)*exp(-theta_psi2(kop)*(theta - theta_psi3(kop))))/((exp(-theta_psi2(kop)*(theta - theta_psi3(kop))) + 1)**4)
           else
              call error_mesg('vegn_fire_fn_theta',&
                              'Add code to get theta derivatives for when theta_ROSeffect_asFnTheta==FALSE.', &
@@ -1530,12 +1530,12 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
              fire_fn_rh_DERIVwrt_param1 = 0.
              fire_fn_rh_DERIVwrt_param2 = 0.
           elseif (rh > rh_lo(kop) .AND. rh < rh_up(kop)) then
-!             fire_fn_rh_DERIVwrt_param1 = (rh_up - rh)/(rh_lo - rh_up)**2.   ! dFrh/d_rh_lo
-!             fire_fn_rh_DERIVwrt_param2 = -1./(rh_lo - rh_up) - (rh_up - rh)/(rh_lo - rh_up)**2.   ! dFrh/d_rh_up
+!             fire_fn_rh_DERIVwrt_param1 = (rh_up - rh)/(rh_lo - rh_up)**2   ! dFrh/d_rh_lo
+!             fire_fn_rh_DERIVwrt_param2 = -1./(rh_lo - rh_up) - (rh_up - rh)/(rh_lo - rh_up)**2   ! dFrh/d_rh_up
               ! SSR20160202
               if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-                 fire_TOTALfn_rh_DERIVwrt_param1 = -(3.*((rh - rh_up(kop))**3.))/((rh_lo(kop) - rh_up(kop))**4.)
-                 fire_TOTALfn_rh_DERIVwrt_param2 = (3.*((rh - rh_up(kop))**3.))/((rh_lo(kop) - rh_up(kop))**4.) - (3.*((rh - rh_up(kop))**2.))/((rh_lo(kop) - rh_up(kop))**3.) ;
+                 fire_TOTALfn_rh_DERIVwrt_param1 = -(3.*((rh - rh_up(kop))**3))/((rh_lo(kop) - rh_up(kop))**4)
+                 fire_TOTALfn_rh_DERIVwrt_param2 = (3.*((rh - rh_up(kop))**3))/((rh_lo(kop) - rh_up(kop))**4) - (3.*((rh - rh_up(kop))**2))/((rh_lo(kop) - rh_up(kop))**3) ;
               else
                  call error_mesg('vegn_fire_fn_rh',&
                                  'Add code to get RH derivatives for when C_beta_params_likeRH==TRUE and theta_ROSeffect_asFnTheta==FALSE.', &
@@ -1551,13 +1551,13 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
        fire_fn_rh = 1. / (1. + exp(-1.*rh_psi2(kop)*(rh-rh_psi3(kop))))
        if (do_calc_derivs) then
 !          fire_fn_rh_DERIVwrt_param1 = (exp(-rh_psi2*(rh - rh_psi3))*(rh - rh_psi3)) &
-!                                     /(exp(-rh_psi2*(rh - rh_psi3)) + 1.)**2.
+!                                     /(exp(-rh_psi2*(rh - rh_psi3)) + 1.)**2
 !          fire_fn_rh_DERIVwrt_param2 = -(rh_psi2*exp(-rh_psi2*(rh - rh_psi3))) &
-!                                      /(exp(-rh_psi2*(rh - rh_psi3)) + 1)**2.
+!                                      /(exp(-rh_psi2*(rh - rh_psi3)) + 1)**2
           ! SSR20160202
           if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-             fire_TOTALfn_rh_DERIVwrt_param1 = (3.*exp(-rh_psi2(kop)*(rh - rh_psi3(kop)))*(rh - rh_psi3(kop)))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4.)
-             fire_TOTALfn_rh_DERIVwrt_param2 = -(3.*rh_psi2(kop)*exp(-rh_psi2(kop)*(rh - rh_psi3(kop))))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4.)
+             fire_TOTALfn_rh_DERIVwrt_param1 = (3.*exp(-rh_psi2(kop)*(rh - rh_psi3(kop)))*(rh - rh_psi3(kop)))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4)
+             fire_TOTALfn_rh_DERIVwrt_param2 = -(3.*rh_psi2(kop)*exp(-rh_psi2(kop)*(rh - rh_psi3(kop))))/((exp(-rh_psi2(kop)*(rh - rh_psi3(kop))) + 1)**4)
           else
              call error_mesg('vegn_fire_fn_rh',&
                              'Add code to get RH derivatives for when C_beta_params_likeRH==TRUE and theta_ROSeffect_asFnTheta==FALSE.', &
@@ -1672,8 +1672,8 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
                 fire_fn_agb_DERIVwrt_param2 = 0.
              elseif (vegn%fire_agb > agb_lo(kop) .AND. vegn%fire_agb < agb_up(kop)) then
                 fire_fn_agb_DERIVwrt_param1 = 1./(agb_lo(kop) - agb_up(kop)) - &
-                                             (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_lo
-                fire_fn_agb_DERIVwrt_param2 = (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2.   ! dFagb/d_agb_up
+                                             (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2   ! dFagb/d_agb_lo
+                fire_fn_agb_DERIVwrt_param2 = (agb_lo(kop) - vegn%fire_agb)/(agb_lo(kop) - agb_up(kop))**2   ! dFagb/d_agb_up
              elseif (vegn%fire_agb >= agb_up(kop)) then
                 ! Actually not differentiable at agb==agb_up! So it is fudged.
                 fire_fn_agb_DERIVwrt_param1 = 0.
@@ -1684,9 +1684,9 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
           fire_fn_agb = 1. / (1. + exp(-1.*agb_psi2(kop)*(vegn%fire_agb-agb_psi3(kop))))
           if (do_calc_derivs) then
              fire_fn_agb_DERIVwrt_param1 = (exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop)))*(vegn%fire_agb - agb_psi3(kop))) &
-                                        /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1.)**2.
+                                        /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1.)**2
              fire_fn_agb_DERIVwrt_param2 = -(agb_psi2(kop)*exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop)))) &
-                                         /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1)**2.
+                                         /(exp(-agb_psi2(kop)*(vegn%fire_agb - agb_psi3(kop))) + 1)**2
           endif
        elseif (fire_option_fAGB==FIRE_AGB_GOMPERTZ) then
           fire_fn_agb = exp(-agb_gom2(kop)*exp(-agb_gom3(kop)*vegn%fire_agb))
@@ -2026,7 +2026,7 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
     !!! LB_max and HB_max calculated in fire_init
     LB = LBratio_a + LBratio_b*(1. - exp(-LBratio_c*wind_forFire))
     call check_var_range(LB, LBratio_a, LB_max, 'vegn_fire_ROS', 'LB', FATAL)
-    HB = (LB + sqrt(LB**2. - 1.)) / (LB - sqrt(LB**2. - 1.))
+    HB = (LB + sqrt(LB**2 - 1.)) / (LB - sqrt(LB**2 - 1.))
 
     ! Calculate wind multiplier effect
     g0 = (1. + 1./HB_max) / (2.*LB_max) ;
@@ -2186,9 +2186,9 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)
     real, intent(out)   :: BAperFire_0   ! km2
 
 !!!!! dsward - track fire-age somehow and it will increase the AB per fire by a quadratic here
-    BAperFire_0 = (ROS**2.) &
-                         * (fire_dur**2.) &
-                         * ((1. + 1./HB)**2.) &
+    BAperFire_0 = (ROS**2) &
+                         * (fire_dur**2) &
+                         * ((1. + 1./HB)**2) &
                          * pi &
                          / (4. * LB * 1e6)
 
@@ -2199,7 +2199,7 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)
        if (ROS > 0.0) then
           BAperFire0_DERIVwrt_ROSmax = BAperFire_0 &
                                        * (2.*ROS*ROS_DERIVwrt_ROSmax) &
-                                       / (ROS**2.)
+                                       / (ROS**2)
        else
           BAperFire0_DERIVwrt_ROSmax = 0.0
        endif
@@ -3471,24 +3471,24 @@ subroutine calc_fire_derivs(&
 !    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                * vegn_unburned_area * fast_to_daily
 !    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-!       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
+!       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6)) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-!       BA_DERIVwrt_RHparam1 = -(3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.))/((RH_lo - RH_up)**4.)
-!       BA_DERIVwrt_RHparam2 = (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.))/((RH_lo - RH_up)**4.) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2.))/((RH_lo - RH_up)**3.)
+!       BA_DERIVwrt_RHparam1 = -(3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3))/((RH_lo - RH_up)**4)
+!       BA_DERIVwrt_RHparam2 = (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3))/((RH_lo - RH_up)**4) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2))/((RH_lo - RH_up)**3)
 !    else
-!       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6) &
+!       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-!       BA_DERIVwrt_RHparam1 = -(5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**6.)
-!       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**6.) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2.)*((theta - RH_up)**2.))/((RH_lo - RH_up)**5.) - (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3.))/((RH_lo - RH_up)**5.)
+!       BA_DERIVwrt_RHparam1 = -(5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6)
+!       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2)*((theta - RH_up)**2))/((RH_lo - RH_up)**5) - (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3))/((RH_lo - RH_up)**5)
 !    endif
 
    ! SSR20160202
    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                * vegn_unburned_area * fast_to_daily &
-               * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
+               * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6)) &
                * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
-      RHderiv_X = RHderiv_X * (C_beta**2.)
+      RHderiv_X = RHderiv_X * (C_beta**2)
    else
       call error_mesg('calc_fire_derivs',&
                       'Add code to get RH derivatives for when C_beta_params_likeRH==TRUE and theta_ROSeffect_asFnTheta==FALSE.', &
@@ -3502,7 +3502,7 @@ subroutine calc_fire_derivs(&
 !       ! fire_fn_theta_DERIVwrt_thetaE, instead doing everything here.
 !       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                    * vegn_unburned_area * fast_to_daily
-!       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6) &
+!       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6) &
 !                    * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !       if (thetaE_already_squared) then
 !          BA_DERIVwrt_thetaE = (3*pi*THETAderiv_X*THETAderiv_Z*(theta**2)*exp(-(3*pi*(theta**2))/theta_extinction))/(theta_extinction**2)
@@ -3521,7 +3521,7 @@ subroutine calc_fire_derivs(&
 !   if (theta_ROSeffect_asFnTheta) then
 !      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                     * vegn_unburned_area * fast_to_daily &
-!                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
+!                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6)) &
 !                     * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
 !   else
 !      call error_mesg('calc_fire_derivs',&
@@ -3533,7 +3533,7 @@ subroutine calc_fire_derivs(&
    if (theta_ROSeffect_asFnTheta) then
       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                      * vegn_unburned_area * fast_to_daily &
-                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 1e6)) &
+                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 1e6)) &
                      * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
       if (fire_option_fTheta==FIRE_THETA_LI2012) then
          BA_DERIVwrt_thetaE = THETAderiv_X * fire_TOTALfn_theta_DERIVwrt_thetaE
