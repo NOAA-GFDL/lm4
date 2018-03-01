@@ -1103,7 +1103,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     real, intent(in) :: q
     real, intent(in) :: Tca   ! Kelvin
     real, intent(in) :: p_surf
-    real, intent(in) :: cplr2land_wind   ! Sheffield's 10-m wind
+    real, intent(in) :: cplr2land_wind   ! Sheffield 10-m wind
     integer, intent(in)  :: l  ! index of current point, for fire data
     real, intent(in)     :: tile_area   ! Area of tile (m2)
     real, intent(in)     :: latitude
@@ -1465,7 +1465,7 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
        if (fire_option_fTheta==FIRE_THETA_LI2012) then
           if (theta_ROSeffect_asFnTheta) then
              if (.NOT. thetaE_already_squared) then
-                fire_TOTALfn_theta_DERIVwrt_thetaE = (6.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/(theta_extinction**2)))/(theta_extinction**3.)
+                fire_TOTALfn_theta_DERIVwrt_thetaE = (6.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/(theta_extinction**2)))/(theta_extinction**3)
              else
                 fire_TOTALfn_theta_DERIVwrt_thetaE = (3.*pi*(theta**2)*exp(-(3.*pi*(theta**2))/theta_extinction))/(theta_extinction**2)
              endif
@@ -1660,7 +1660,7 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
     integer, intent(in) :: kop ! dsward_kop - use  boreal (1) or non-boreal (2) parameters
 
    ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it is done for
-   ! all tiles, since fire_agb is what's used to determine whether tiles can merge when
+   ! all tiles, since fire_agb is what is used to determine whether tiles can merge when
    ! using new fire model.
 
     if (fire_biomass_threshold==-1) then
@@ -2775,7 +2775,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 
   num_days = days_in_month(Time)
 
-  ! Fcrop and Fpast are per-day rates. Since they're just being called once per month,
+  ! Fcrop and Fpast are per-day rates. Since they are just being called once per month,
   ! they need to be multiplied by the number of days in the month.
   if (vegn%landuse==LU_CROP) then
      BF_mth = vegn%Fcrop * num_days

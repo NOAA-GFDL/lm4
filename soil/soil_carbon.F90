@@ -3050,7 +3050,7 @@ end subroutine tridiag
 ! gfortran: versions <5 do not appear to support ieee_arithmetic module
 
 ! note that there is a danger that the compilr optimizes the comparison away
-! but I don't see how
+! but I do not see how
 logical elemental function is_nan(x)
    real, intent(in) :: x
    is_nan = (x/=x)
