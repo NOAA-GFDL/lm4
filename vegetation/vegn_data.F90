@@ -114,10 +114,10 @@ public :: &
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
-    cold_month_threshold, scnd_biomass_bins, &
+    cold_month_threshold, scnd_biomass_bins, sai_cover, sai_rad, min_lai, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
+    b0_growth, tau_seed, understory_lai_factor, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
@@ -398,6 +398,10 @@ real :: wood_fract_min = 0.33
 ! reduction of bl_max and br_max for the understory vegetation, unitless
 real, protected :: understory_lai_factor = 0.25
 
+logical, protected :: sai_cover = .FALSE. ! if true, SAI is taken into account in vegetation
+    ! cover calculations
+logical, protected :: sai_rad   = .FALSE. ! if true, SAI is taken into account in
+    ! calculation of canopy radiative properties
 real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
     ! below this threshold, bl is set to zero
 
@@ -447,13 +451,13 @@ namelist /vegn_data_nml/ &
   l_fract, wood_fract_min, T_transp_min, &
   phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
-  scnd_biomass_bins, &
+  scnd_biomass_bins, sai_rad, sai_cover, min_lai, &
 
   ! PPA-related namelist values
   do_ppa, &
   cmc_eps, &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, cold_mort, treeline_mort, &
-  b0_growth, tau_seed, understory_lai_factor, min_lai, min_cohort_nindivs, &
+  b0_growth, tau_seed, understory_lai_factor, min_cohort_nindivs, &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 
@@ -1011,7 +1015,7 @@ subroutine print_species_data(unit, skip_default)
   integer :: i
   integer :: N
   integer, allocatable :: idx(:) ! indices of the elements to be printed
-  
+
   if (skip_default) then
      N = 0
      do i = 0, size(spdata)-1
