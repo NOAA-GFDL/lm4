@@ -400,12 +400,14 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'brsw', cohort_brsw_ptr)
      endif
 
-     call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
-     call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
-     call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
-     call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr)
-     call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
-     call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
+     if (field_exists(restart2,'scav_myc_C_reservoir')) then
+        call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
+     endif
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
      call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
@@ -413,20 +415,24 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
           call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
 
-     call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
-     call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
-     call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
-     call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
-     call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
-     call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
-     call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr )
-     call get_cohort_data(restart2, 'cohort_leaf_N', cohort_leaf_N_ptr )
-     call get_cohort_data(restart2, 'cohort_seed_N', cohort_seed_N_ptr )
-     call get_cohort_data(restart2, 'cohort_wood_N', cohort_wood_N_ptr )
-     call get_cohort_data(restart2, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
-     call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr )
-     call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr )
-     call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
+     if (field_exists(restart2,'myc_scavenger_biomass_C')) then
+        call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
+        call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
+        call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
+        call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
+        call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
+        call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
+     endif
+     if (field_exists(restart2,'cohort_leaf_N')) then
+        call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr )
+        call get_cohort_data(restart2, 'cohort_leaf_N', cohort_leaf_N_ptr )
+        call get_cohort_data(restart2, 'cohort_seed_N', cohort_seed_N_ptr )
+        call get_cohort_data(restart2, 'cohort_wood_N', cohort_wood_N_ptr )
+        call get_cohort_data(restart2, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
+        call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr )
+        call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr )
+        call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
+     endif
      if(field_exists(restart2,'myc_scav_marginal_gain_smoothed')) then
         call get_cohort_data(restart2, 'myc_scav_marginal_gain_smoothed',cohort_myc_scav_marginal_gain_smoothed_ptr)
         call get_cohort_data(restart2, 'myc_mine_marginal_gain_smoothed',cohort_myc_mine_marginal_gain_smoothed_ptr)
@@ -447,8 +453,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'N_stress_smoothed',cohort_nitrogen_stress_smoothed_ptr)
 
      do i = 0,nspecies-1
-        call get_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i)
-        call get_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_N_ptr,i)
+        if (field_exists(restart2,'drop_seed_C_'//trim(spdata(i)%name))) &
+            call get_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i)
+        if (field_exists(restart2,'drop_seed_N_'//trim(spdata(i)%name))) &
+            call get_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_N_ptr,i)
      enddo
 
      call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
