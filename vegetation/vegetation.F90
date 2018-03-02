@@ -1061,12 +1061,17 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
        time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
        standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias(id_cProduct, cmor_name, 'cProductLut', (/id_ug/), &
+       time, 'wood and agricultural product pool carbon associated with land use tiles; examples of products include paper, cardboard, timber for construction, and crop harvest for food or fuel.', &
+       'kg m-2', missing_value=-999.0, standard_name='carbon_content_in_wood_and_agricultural_products', &
+       fill_missing = .FALSE.)
+
   id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
        time, 'Carbon in Anthropogenic Pool', 'kg m-2', missing_value=-999.0, &
        fill_missing=.TRUE.) ! standard_name not known at this time
   call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
        time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
-       missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
+       missing_value=-999.0, fill_missing = .FALSE.) ! standard_name not known at this time
 
   id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Grazing on Land', 'kg m-2 s-1', missing_value=-1.0, &
