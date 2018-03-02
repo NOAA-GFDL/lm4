@@ -241,7 +241,8 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_rate_C, id_litter_rate_N
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cMisc, id_cProduct, id_cAnt, &
-   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp
+   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
+   id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther
 ! ==== end of module variables ===============================================
 
 contains
@@ -913,10 +914,10 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_ug/), &
        time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
 
-   id_Ngain = register_tiled_diag_field ( module_name, 'Ngain', (/id_ug/), &
-        time, 'nitrogen gain', 'kg N', missing_value=-100.0 )
-   id_Nloss = register_tiled_diag_field ( module_name, 'Nloss', (/id_ug/), &
-        time, 'nitrogen loss', 'kg N', missing_value=-100.0 )
+  id_Ngain = register_tiled_diag_field ( module_name, 'Ngain', (/id_ug/), &
+       time, 'nitrogen gain', 'kg N', missing_value=-100.0 )
+  id_Nloss = register_tiled_diag_field ( module_name, 'Nloss', (/id_ug/), &
+       time, 'nitrogen loss', 'kg N', missing_value=-100.0 )
 
   id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_ug/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
@@ -1098,6 +1099,27 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_anthrogpogenic_emission', &
        fill_missing=.TRUE.)
 
+  id_cw = register_tiled_diag_field ( cmor_name, 'cw',  &
+       (/id_ug/), time, 'Total Canopy Water Storage', 'kg m-2', missing_value=-1.0, &
+       standard_name='canopy_water_amount', fill_missing=.TRUE.)
+
+  id_nVeg = register_tiled_diag_field ( cmor_name, 'nVeg', (/id_ug/), &
+       time, 'Nitrogen Mass in Vegetation', 'kg m-2', missing_value=-1.0, &
+       standard_name='vegetation_nitrogen_content', fill_missing=.TRUE.)
+  id_nLeaf = register_tiled_diag_field ( cmor_name, 'nLeaf',  &
+       (/id_ug/), time, 'Nitrogen Mass in Leaves', 'kg m-2', missing_value=-1.0, &
+       standard_name='leaf_nitrogen_content', fill_missing=.TRUE.)
+  id_nStem = register_tiled_diag_field ( cmor_name, 'nStem',  &
+       (/id_ug/), time, 'Nitrogen Mass in Stem', 'kg m-2', missing_value=-1.0, &
+       standard_name='stem_nitrogen_content', fill_missing=.TRUE.)
+  id_nRoot = register_tiled_diag_field ( cmor_name, 'nRoot',  &
+       (/id_ug/), time, 'Nitrogen Mass in Roots', 'kg m-2', missing_value=-1.0, &
+       standard_name='root_nitrogen_content', fill_missing=.TRUE.)
+  id_nOther = register_tiled_diag_field ( cmor_name, 'nOther',  &
+       (/id_ug/), time, 'Nitrogen mass in vegetation components other than leaves, stem and root', &
+       'kg m-2', missing_value=-1.0, &
+       standard_name='other_vegegtation_components_nitrogen_content', fill_missing=.TRUE.)
+  
 end subroutine
 
 
@@ -1944,7 +1966,7 @@ subroutine vegn_step_2 ( vegn, diag, &
 
   ! CMOR/CMIP variables
   if (id_lai_cmor>0) call send_tile_data(id_lai_cmor, sum(c(1:N)%nindivs*c(1:N)%leafarea), diag)
-
+  if (id_cw>0)       call send_tile_data(id_cw, sum((c(1:N)%Wl+c(1:N)%Ws)*c(1:N)%nindivs), diag)
   end associate
 end subroutine vegn_step_2
 
@@ -2584,6 +2606,17 @@ subroutine update_vegn_slow( )
      if (id_cRoot>0) call send_tile_data(id_cRoot, &
          sum(((cc(1:N)%bwood+cc(1:N)%bsw)*(1-agf_bs)+cc(1:N)%br)*cc(1:N)%nindivs), tile%diag)
      if (id_cMisc>0) call send_tile_data(id_cMisc, sum((cc(1:N)%blv+cc(1:N)%nsc+cc(1:N)%bseed)*cc(1:N)%nindivs), tile%diag)
+
+     if (id_nLeaf>0) call send_tile_data(id_nLeaf, sum(cc(1:N)%leaf_N*cc(1:N)%nindivs), tile%diag)
+     if (id_nStem>0) call send_tile_data(id_nStem, &
+         sum((cc(1:N)%wood_N+cc(1:N)%sapwood_N)*cc(1:N)%nindivs)*agf_bs, tile%diag)
+     if (id_nRoot>0) call send_tile_data(id_nRoot, &
+         sum(((cc(1:N)%wood_N+cc(1:N)%sapwood_N)*(1-agf_bs)+cc(1:N)%root_N)*cc(1:N)%nindivs), tile%diag)
+     if (id_nOther>0) call send_tile_data(id_nOther, &
+         sum((cc(1:N)%stored_N+cc(1:N)%seed_N)*cc(1:N)%nindivs), tile%diag)
+     if (id_nVeg>0) call send_tile_data(id_nVeg, &
+         sum((cc(1:N)%leaf_N+cc(1:N)%root_N+cc(1:N)%stored_N+cc(1:N)%wood_N+cc(1:N)%sapwood_N+cc(1:N)%seed_N)*cc(1:N)%nindivs), &
+         tile%diag)
 
      if (id_cProduct>0) then
         cmass0 = 0.0
