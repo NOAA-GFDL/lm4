@@ -290,7 +290,7 @@ integer :: id_st_diff
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
-    id_csoilfast, id_csoilmedium, id_csoilslow
+    id_csoilfast, id_csoilmedium, id_csoilslow, id_cLitter, id_cLitterCwd
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1420,6 +1420,18 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
        lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
+  id_cLitter = register_tiled_diag_field ( cmor_name, 'cLitter', axes(1:1), &
+       lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
+       missing_value=-100.0, standard_name='litter_carbon_content', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_cLitter, cmor_name, 'cLitterLut', axes(1:1),  &
+       lnd%time, 'carbon in above and belowground litter pools on land use tiles', &
+       'kg m-2', missing_value=-100.0, &
+       standard_name='litter_carbon_content', fill_missing=.FALSE.)
+  id_cLitterCwd = register_tiled_diag_field ( cmor_name, 'cLitterCwd', axes(1:1), &
+       lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='litter_wood_debris_carbon_content', &
+       fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.TRUE.)
@@ -3090,6 +3102,7 @@ subroutine soil_step_3(soil, diag)
   real :: total_C(N_C_TYPES), total_livemic_C, total_prot_C(N_C_TYPES), total_diss_C(N_C_TYPES), &
           total_N(N_C_TYPES), total_livemic_N, total_prot_N(N_C_TYPES), total_diss_N(N_C_TYPES)
   real :: total_NO3, total_NH4
+  real :: total_litter_C ! total C in all litter, for diagnostics
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -3152,6 +3165,7 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_total_NH4, total_NH4, diag)
 
      ! leaf litter diagnostics
+     total_litter_C = 0.0
      do k = 1, N_LITTER_POOLS
         call poolTotals1 (soil%litter(k), ncohorts=litter_ncohorts, &
             litterC=litter_C(:), livemicC=litter_livemic_C, protectedC=litter_protected_C(:), dissolvedC=litter_dissolved_C(:), totalC=litter_total_C, &
@@ -3166,6 +3180,7 @@ subroutine soil_step_3(soil, diag)
         total_prot_N    = total_prot_N + sum(litter_protected_N(:))
         total_NO3       = total_NO3 + soil%litter(k)%nitrate
         total_NH4       = total_NO3 + soil%litter(k)%ammonium
+        total_litter_C  = total_litter_C + litter_total_C
 
         call send_tile_data(id_nlittercohorts(k), real(litter_ncohorts), diag)
         call send_tile_data(id_litter_livemic_C(k), litter_livemic_C, diag)
@@ -3182,6 +3197,8 @@ subroutine soil_step_3(soil, diag)
            call send_tile_data(id_litter_dissolved_C(k,i), soil%litter(k)%dissolved_carbon(i), diag)
            call send_tile_data(id_litter_dissolved_N(k,i), soil%litter(k)%dissolved_nitrogen(i), diag)
         enddo
+        ! CMOR diagnostics
+        if (k==CWOOD) call send_tile_data(id_cLitterCwd, litter_total_C, diag)
      enddo
 
      ! diagnostic of totals
@@ -3204,6 +3221,7 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_csoilmedium, total_C(C_SLOW), diag)
      call send_tile_data(id_csoilslow,   0.0,             diag)
      call send_tile_data(id_csoil, total_C(C_FAST)+total_C(C_SLOW), diag)
+     call send_tile_data(id_cLitter, total_litter_C, diag)
      ! --- end of CMOR vars
   case default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
