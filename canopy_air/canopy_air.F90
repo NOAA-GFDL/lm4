@@ -40,7 +40,6 @@ public :: cana_end
 public :: save_cana_restart
 public :: cana_turbulence
 public :: cana_roughness
-public :: cana_state
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -427,17 +426,6 @@ subroutine cana_roughness(lm2, &
   end select
 
 end subroutine cana_roughness
-
-! ============================================================================
-subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
-  type(cana_tile_type), intent(in)  :: cana
-  real, optional      , intent(out) :: cana_T, cana_q, cana_co2
-
-  if (present(cana_T))   cana_T   = cana%T
-  if (present(cana_q))   cana_q   = cana%tr(isphum)
-  if (present(cana_co2)) cana_co2 = cana%tr(ico2)
-
-end subroutine cana_state
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component
