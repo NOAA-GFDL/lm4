@@ -59,7 +59,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
-use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
+use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
      cana_roughness, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
@@ -1027,8 +1027,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! ---- local vars
   real :: &
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
-       ISa_dn_dif(NBANDS), & ! downward diffuse sw radiation at the top of the canopy
-       cana_q
+       ISa_dn_dif(NBANDS)    ! downward diffuse sw radiation at the top of the canopy
 
   ! variables for stock calculations
   real :: &
@@ -1174,8 +1173,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      lake_LMASS = 0. ; lake_FMASS = 0. ; lake_HEAT = 0.
      soil_LMASS = 0. ; soil_FMASS = 0. ; soil_HEAT = 0.
      if (associated(tile%cana)) then
-         call cana_state( tile%cana, cana_q=cana_q )
-         cana_VMASS = canopy_air_mass*cana_q
+         cana_VMASS = canopy_air_mass*tile%cana%tr(isphum)
          cana_HEAT  = cana_tile_heat(tile%cana)
      endif
      if (associated(tile%vegn)) then
@@ -1480,7 +1478,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      grnd_E_max =  HUGE(grnd_E_max)
   endif
 
-  call cana_state(tile%cana, cana_T, cana_q, cana_co2)
+  cana_T   = tile%cana%T
+  cana_q   = tile%cana%tr(isphum)
+  cana_co2 = tile%cana%tr(ico2)
 
   if (associated(tile%vegn)) then
      ! calculate net short-wave radiation input to the vegetation
@@ -3027,7 +3027,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: band ! spectral band iterator
-  integer :: i, j, m
+  integer :: i, j, m, tr
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 
@@ -3227,11 +3227,11 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%mask           (l,k) = .TRUE.
   land2cplr%tile_size      (l,k) = tile%frac
 
-  call cana_state ( tile%cana, land2cplr%t_ca(l,k), &
-                               land2cplr%tr(l,k,isphum), cana_co2)
-!  land2cplr%t_ca           (l,k) = tile%cana%T
-!  land2cplr%tr             (l,k,isphum) = tile%cana%q
-  land2cplr%tr(l,k,ico2) = cana_co2
+  land2cplr%t_ca(l,k) = tile%cana%T
+  do tr = 1,ntcana
+     land2cplr%tr(l,k,tr) = tile%cana%tr(tr)
+  enddo
+
   land2cplr%albedo_vis_dir (l,k) = tile%land_refl_dir(BAND_VIS)
   land2cplr%albedo_nir_dir (l,k) = tile%land_refl_dir(BAND_NIR)
   land2cplr%albedo_vis_dif (l,k) = tile%land_refl_dif(BAND_VIS)
@@ -3326,7 +3326,7 @@ real twd_gas_cana,               twd_liq_glac, twd_sol_glac, &
 real gcwd_cana, gcwd_glac, gcwd_lake, gcwd_soil, gcwd_snow, gcwd_vegn
 ! v_* are global masses of water
 real v_cana, v_glac, v_lake, v_soil, v_snow, v_vegn
-real cana_q, a_globe
+real a_globe
 
 value = 0.0
 v_cana = 0.
@@ -3358,8 +3358,7 @@ case(ISTOCK_WATER)
       twd_liq_snow = 0.0 ; twd_sol_snow = 0.0
       twd_liq_vegn = 0.0 ; twd_sol_vegn = 0.0
       if(associated(tile%cana)) then
-         call cana_state ( tile%cana, cana_q=cana_q )
-         twd_gas_cana = canopy_air_mass*cana_q
+         twd_gas_cana = canopy_air_mass*tile%cana%tr(isphum)
       endif
       if(associated(tile%glac)) &
          call glac_tile_stock_pe(tile%glac, twd_liq_glac, twd_sol_glac)
