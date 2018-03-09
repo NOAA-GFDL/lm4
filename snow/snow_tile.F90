@@ -103,25 +103,46 @@ real, protected, public :: &
    clw = 4218.0, &  ! specific heat of water (liquid)
    csw = 2106.0     ! specific heat of water (ice)
 real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
-! from analysis of modis data (ignoring temperature dependence):
-  real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
-  real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
-  real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
-  real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
-  real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
-  real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
+! from analysis of MODIS data (ignoring temperature dependence):
+real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
+real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
+
+logical :: distinct_snow_on_glacier = .FALSE. ! if TRUE, the following parameters define
+           ! reflectance of snow on glaciers, otherwise snow reflectance does not depend
+           ! on the underlying surface (except overlap).
+real :: f_iso_cold_on_glacier(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_cold_on_glacier(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_cold_on_glacier(NBANDS) = (/ 0.054, 0.064 /)
+real :: f_iso_warm_on_glacier(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_warm_on_glacier(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_warm_on_glacier(NBANDS) = (/ 0.054, 0.064 /)
+real :: refl_snow_max_dir_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 
 namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
-                    psi_sat,                k_sat,                 &
-                    chb,                                           &
-                    thermal_cond_ref,       depth_crit,            &
-                    z0_momentum,                                   &
-                    refl_snow_max_dir,    refl_snow_min_dir,   &
-                    refl_snow_max_dif,    refl_snow_min_dif,   &
-                    emis_snow_max,          emis_snow_min,         &
-                    k_over_B,             &
-                    num_l,                   dz, cpw, clw, csw, mc_fict, &
-     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm
+     psi_sat,                k_sat,                 &
+     chb,                                           &
+     thermal_cond_ref,       depth_crit,            &
+     z0_momentum,                                   &
+     f_iso_cold, f_vol_cold, f_geo_cold, &
+     f_iso_warm, f_vol_warm, f_geo_warm, &
+     refl_snow_max_dir, refl_snow_min_dir,   &
+     refl_snow_max_dif, refl_snow_min_dif,   &
+     emis_snow_max,          emis_snow_min, &
+     k_over_B, &
+     num_l, dz, cpw, clw, csw, mc_fict, &
+! snow radiative parameters on glacier
+     distinct_snow_on_glacier, &
+     f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
+     f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
+     refl_snow_max_dir_on_glacier,    refl_snow_min_dir_on_glacier,   &
+     refl_snow_max_dif_on_glacier,    refl_snow_min_dif_on_glacier
 
 !---- end of namelist --------------------------------------------------------
 
@@ -309,10 +330,43 @@ end subroutine snow_data_area
 
 ! ============================================================================
 ! compute snow properties needed to do soil-canopy-atmos energy balance
-subroutine snow_radiation ( snow_T, cosz, &
+subroutine snow_radiation ( snow_T, cosz, on_glacier,&
      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
   real, intent(in) :: snow_T  ! snow temperature, deg K
   real, intent(in) :: cosz ! cosine of zenith angle
+  logical, intent(in) :: on_glacier ! TRUE if snow is on glacier
+  real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
+
+  if (on_glacier.and.distinct_snow_on_glacier) then
+     call snow_rad_calculations ( snow_T, cosz, &
+        f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
+        f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
+        refl_snow_min_dir_on_glacier, refl_snow_max_dir_on_glacier, &
+        refl_snow_min_dif_on_glacier, refl_snow_max_dif_on_glacier, &
+        snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  else
+     call snow_rad_calculations ( snow_T, cosz, &
+        f_iso_warm, f_vol_warm, f_geo_warm, &
+        f_iso_cold, f_vol_cold, f_geo_cold, &
+        refl_snow_min_dir, refl_snow_max_dir, &
+        refl_snow_min_dif, refl_snow_max_dif, &
+        snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  endif
+end subroutine snow_radiation
+
+! ============================================================================
+subroutine snow_rad_calculations ( snow_T, cosz, &
+     f_iso_warm, f_vol_warm, f_geo_warm, &
+     f_iso_cold, f_vol_cold, f_geo_cold, &
+     refl_snow_min_dir, refl_snow_max_dir, &
+     refl_snow_min_dif, refl_snow_max_dif, &
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  real, intent(in) :: snow_T  ! snow temperature, deg K
+  real, intent(in) :: cosz ! cosine of zenith angle
+  real, intent(in), dimension(NBANDS) :: &
+     f_iso_warm, f_vol_warm, f_geo_warm, &
+     f_iso_cold, f_vol_cold, f_geo_cold, &
+     refl_snow_min_dir, refl_snow_max_dir, refl_snow_min_dif, refl_snow_max_dif
   real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
 
   ! ---- local vars
@@ -344,7 +398,7 @@ subroutine snow_radiation ( snow_T, cosz, &
   snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
   snow_refl_lw  = 1 - snow_emis
-end subroutine snow_radiation
+end subroutine snow_rad_calculations
 
 ! ============================================================================
 subroutine snow_roughness(snow, snow_z0s, snow_z0m)
