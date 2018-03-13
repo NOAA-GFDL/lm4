@@ -1119,7 +1119,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'Nitrogen mass in vegetation components other than leaves, stem and root', &
        'kg m-2', missing_value=-1.0, &
        standard_name='other_vegegtation_components_nitrogen_content', fill_missing=.TRUE.)
-  
+
 end subroutine
 
 
@@ -2171,9 +2171,9 @@ subroutine update_derived_vegn_data(vegn)
        cc%lai           = spdata(sp)%dat_lai
        cc%root_density  = spdata(sp)%dat_root_density
     endif
-    stemarea      = 0.035*cc%height ! Federer and Lash, 1978
-    ! convert sai to units per area of land
-    cc%sai           = stemarea/cc%crownarea*layer_area(cc%layer)
+!     stemarea      = 0.035*cc%height ! Federer and Lash, 1978
+!     cc%sai           = stemarea/cc%crownarea*layer_area(cc%layer)
+    cc%sai           = spdata(sp)%sai_height_ratio * cc%height ! Federer and Lash, 1978
     cc%leaf_size     = spdata(sp)%leaf_size
     cc%root_zeta     = spdata(sp)%dat_root_zeta
     cc%rs_min        = spdata(sp)%dat_rs_min

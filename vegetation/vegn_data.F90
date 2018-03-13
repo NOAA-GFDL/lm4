@@ -176,6 +176,9 @@ type spec_data_type
   real    :: LMA_understory_factor = 0.5 ! Resp multiplier for understory
   real    :: leaf_size  = 0.04   ! characteristic leaf size
 
+  ! ratio of height to SAI: SAI = sai_height_ratio*height, Federer and Lash, 1978
+  real    :: sai_height_ratio = 0.035
+
   real    :: alpha_phot = 0.06   ! photosynthesis efficiency
   real    :: m_cond     = 9.0    ! factor of stomatal conductance
   real    :: Vmax       = 2e-5   ! max rubisco rate
@@ -829,6 +832,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(ksi)
   __GET_SPDATA_REAL__(leaf_size)
 
+  __GET_SPDATA_REAL__(sai_height_ratio)
+
   __GET_SPDATA_REAL__(fuel_intensity)
 
   __GET_SPDATA_REAL__(tc_crit)
@@ -1167,6 +1172,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'root_perm',     spdata(idx)%root_perm)
 
   call add_row(table, 'leaf_size',     spdata(idx)%leaf_size)
+  call add_row(table, 'sai_height_ratio', spdata(idx)%sai_height_ratio)
 
   call add_row(table, 'alpha_phot',    spdata(idx)%alpha_phot)
   call add_row(table, 'm_cond',        spdata(idx)%m_cond)
