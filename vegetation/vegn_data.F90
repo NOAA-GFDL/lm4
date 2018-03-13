@@ -566,6 +566,8 @@ subroutine read_vegn_data_namelist()
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
      call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)
+  if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.,unit=unit)) &
+     call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)
 
   ! count species
   nspecies = fm_get_length('/land_mod/species')
