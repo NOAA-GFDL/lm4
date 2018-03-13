@@ -27,7 +27,7 @@ use vegn_data_mod, only : do_ppa, &
 use land_tile_mod, only : land_tile_type
 use soil_tile_mod, only : num_l, LEAF, CWOOD
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_lai
+     vegn_tile_LAI
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa

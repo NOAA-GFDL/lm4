@@ -890,7 +890,7 @@ function vegn_tile_LAI(vegn) result(LAI) ; real LAI
 
   LAI = 0
   do i = 1,vegn%n_cohorts
-     LAI = LAI + vegn%cohorts(i)%lai*vegn%cohorts(i)%nindivs
+     LAI = LAI + vegn%cohorts(i)%lai * vegn%cohorts(i)%layerfrac
   enddo
 end function vegn_tile_LAI
 
@@ -903,7 +903,7 @@ function vegn_tile_SAI(vegn) result(SAI) ; real SAI
 
   SAI = 0
   do i = 1,vegn%n_cohorts
-     SAI = SAI + vegn%cohorts(i)%sai*vegn%cohorts(i)%nindivs
+     SAI = SAI + vegn%cohorts(i)%sai * vegn%cohorts(i)%layerfrac
   enddo
 end function vegn_tile_SAI
 

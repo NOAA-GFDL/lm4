@@ -547,6 +547,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real :: lambda, drag
   real :: u_ts, u_thresh ! wind erosion threshold, m/s
   real :: dust_emis
+  real :: sai, lai ! values of stem an leaf area indices, respectively
   integer :: tr ! tracer index
 
   u_ts     = 100.0 ! unrealistically big value guaranteed to be above ustar
@@ -567,11 +568,11 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
           u_thresh = u_min_crop
           bareness = frac_bare_crop
        else ! NTRL or SCND
-          if ((vegn_tile_LAI(tile%vegn)<lai_thresh) .and. &
-              (vegn_tile_SAI(tile%vegn)<sai_thresh)) then
+          lai = vegn_tile_LAI(tile%vegn)
+          sai = vegn_tile_SAI(tile%vegn)  
+          if ((lai<lai_thresh) .and. (sai<sai_thresh)) then
              u_thresh=u_min
-             bareness = exp(-2.0*vegn_tile_LAI(tile%vegn)/2.0 &
-                            -10.*vegn_tile_SAI(tile%vegn))
+             bareness = exp( -2.0*lai/2.0-10.*sai)
           else
              u_thresh=u_ts
              bareness = 0.0
