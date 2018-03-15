@@ -118,7 +118,7 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, sai_cover, sai_rad, min_lai, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, min_cohort_nindivs, &
+    b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
 
@@ -271,6 +271,7 @@ type spec_data_type
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
   real    :: LAImax        = 3.0    ! max. LAI
+  real    :: understory_lai_factor = 0.25 ! reduction of bl_max and br_max for the understory vegetation, unitless
   real    :: f_NSC         = 0.1    ! max rate of NSC spending on leaf and fine root growth, 1/day, eq.A7 in Weng et al. 2015
   real    :: f_WF          = 0.2    ! max rate of NSC excess spending on sapwood and fruit growth, 1/day, eq. A12 Weng et al 2015
   logical :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
@@ -441,9 +442,6 @@ real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enable
 real :: b0_growth   = 0.02   ! min biomass for growth formula, kgC/indiv
 real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, year
 
-! reduction of bl_max and br_max for the understory vegetation, unitless
-real, protected :: understory_lai_factor = 0.25
-
 logical, protected :: sai_cover = .FALSE. ! if true, SAI is taken into account in vegetation
     ! cover calculations
 logical, protected :: sai_rad   = .FALSE. ! if true, SAI is taken into account in
@@ -518,7 +516,7 @@ namelist /vegn_data_nml/ &
   do_ppa, &
   cmc_eps, &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, cold_mort, treeline_mort, &
-  b0_growth, tau_seed, understory_lai_factor, min_cohort_nindivs, &
+  b0_growth, tau_seed, min_cohort_nindivs, &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
 
@@ -887,6 +885,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(rho_wood)
   __GET_SPDATA_REAL__(taperfactor)
   __GET_SPDATA_REAL__(LAImax)
+  __GET_SPDATA_REAL__(understory_lai_factor)
   __GET_SPDATA_REAL__(f_NSC)
   __GET_SPDATA_REAL__(f_WF)
   __GET_SPDATA_LOGICAL__(use_light_saber)
@@ -1217,6 +1216,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'rho_wood', spdata(idx)%rho_wood)
   call add_row(table, 'taperfactor', spdata(idx)%taperfactor)
   call add_row(table, 'LAImax', spdata(idx)%LAImax)
+  call add_row(table, 'understory_lai_factor', spdata(idx)%understory_lai_factor)
   call add_row(table, 'f_NSC', spdata(idx)%f_NSC)
   call add_row(table, 'f_WF', spdata(idx)%f_WF)
   call add_row(table, 'use_light_saber', spdata(idx)%use_light_saber)

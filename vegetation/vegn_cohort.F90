@@ -11,7 +11,7 @@ use vegn_data_mod, only : spdata, &
    phen_ev1, phen_ev2, cmc_eps, sai_cover, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
-   ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, understory_lai_factor, &
+   ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
 use soil_tile_mod, only : max_lev
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
@@ -783,7 +783,7 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%brsw = min(cc%brsw, 0.6*cc%bsw)
 
   BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
-  BL_u = BL_c * understory_lai_factor
+  BL_u = BL_c * sp%understory_lai_factor
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
      cc%bsw_max = sp%rho_wood * sp%alphaBM * cc%height * cc%dbh**2
