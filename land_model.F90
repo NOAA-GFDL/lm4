@@ -2958,7 +2958,8 @@ subroutine land_sw_radiation (     &
   real :: &
      grnd_refl_dir(NBANDS), & ! SW reflectances of ground surface (by spectral band)
      grnd_refl_dif(NBANDS)    ! SW reflectances of ground surface (by spectral band)
-  integer :: band
+  integer :: band, m
+  real, allocatable :: layerfrac(:)
 
   grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
   grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
@@ -2982,6 +2983,72 @@ subroutine land_sw_radiation (     &
         land_albedo_dir=land_albedo_dir(band) )
   enddo
 
+  if(is_watch_point()) then
+     write(*,*)' #### land_sw_radiation ####'
+     allocate(layerfrac(maxval(vegn_layer)))
+     layerfrac = 0.0
+     do m = 1,size(vegn_layer)
+        layerfrac(vegn_layer(m)) = layerfrac(vegn_layer(m)) + vegn_frac(m)
+     enddo
+     do m = 1, size(layerfrac)
+        write(*,'("layer ",i2.2)',advance='NO') m
+        call dpri('layerfrac',layerfrac(m))
+        write(*,*)
+     enddo
+     deallocate(layerfrac)
+     
+     call debug_rad_properties(BAND_VIS,'(VIS)')
+     call debug_rad_properties(BAND_NIR,'(NIR)')
+  endif
+
+contains
+  subroutine debug_rad_properties(b,tag)
+     integer, intent(in) :: b ! band number
+     character(*), intent(in) :: tag
+
+     integer :: m ! cohort iterator
+
+     ! write(*,*)
+     write(*,*)' #### surface radiative properties '//tag//' ####'
+     call dpri('subs_refl_dif',subs_refl_dif(b))
+     call dpri('subs_refl_dir',subs_refl_dir(b))
+     write(*,*)
+     call dpri('snow_refl_dif',snow_refl_dif(b))
+     call dpri('snow_refl_dir',snow_refl_dir(b))
+     __DEBUG1__(snow_area)
+     call dpri('grnd_refl_dif',grnd_refl_dif(b))
+     call dpri('grnd_refl_dir',grnd_refl_dir(b))
+     write(*,*)
+     write(*,*)' #### black-background vegn radiative properties '//tag//' ####'
+     do m = 1,size(vegn_refl_dif,1)
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') m, vegn_layer(m)
+        call dpri('refl_dif',vegn_refl_dif(m,b))
+        call dpri('tran_dif',vegn_tran_dif(m,b))
+        call dpri('refl_dir',vegn_refl_dir(m,b))
+        call dpri('tran_dir',vegn_tran_dir(m,b))
+        call dpri('sctr_dir',vegn_sctr_dir(m,b))
+        call dpri('sctr_dir',vegn_sctr_dir(m,b))
+        write(*,*)
+     enddo
+
+     write(*,*)' #### grnd radiation coefficients '//tag//' ####'
+     call dpri('Sg_dif',Sg_dif(b))
+     call dpri('Sg_dir',Sg_dir(b))
+     write(*,*)
+     write(*,*)' #### vegn radiation coefficients '//tag//' ####'
+     do m = 1, size(vegn_refl_dif,1)
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') m, vegn_layer(m)
+        call dpri('Sv_dif',Sv_dif(m,b))
+        call dpri('Sv_dir',Sv_dir(m,b))
+        call dpri('Sdn_dif',Sdn_dif(m,b))
+        call dpri('Sdn_dir',Sdn_dir(m,b))
+        write(*,*)
+     enddo
+     write(*,*)' #### overall land reflectances '//tag//' ####'
+     call dpri('land_refl_dif',land_albedo_dif(b))
+     call dpri('land_refl_dir',land_albedo_dir(b))
+     write(*,*)
+  end subroutine debug_rad_properties
 end subroutine land_sw_radiation
 
 subroutine realloc1(x,N)
@@ -3164,31 +3231,13 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      write(*,*) '#### update_land_bc_fast ### checkpoint 1 ####'
      __DEBUG3__(cosz, fracday, rrsun)
      __DEBUG2__(vegn_lai,vegn_sai)
-     __DEBUG1__(subs_refl_dif)
-     __DEBUG1__(subs_refl_dir)
-     write(*,*)' #### vegn radiative properties (VIS) ####'
+     write(*,*)' #### vegn radiative properties (LW) ####'
      do m = 1,N
         write(*,'(i2.2,2x)',advance='NO') m
-        call dpri('refl_dif',vegn_refl_dif(m,BAND_VIS))
-        call dpri('tran_dif',vegn_tran_dif(m,BAND_VIS))
-        call dpri('refl_dir',vegn_refl_dir(m,BAND_VIS))
-        call dpri('tran_dir',vegn_tran_dir(m,BAND_VIS))
-        call dpri('sctr_dir',vegn_sctr_dir(m,BAND_VIS))
+        call dpri('refl_lw',vegn_refl_lw(m))
+        call dpri('tran_lw',vegn_tran_lw(m))
         write(*,*)
      enddo
-     write(*,*)' #### vegn radiative properties (NIR) ####'
-     do m = 1,N
-        write(*,'(i2.2,2x)',advance='NO') m
-        call dpri('refl_dif',vegn_refl_dif(m,BAND_NIR))
-        call dpri('tran_dif',vegn_tran_dif(m,BAND_NIR))
-        call dpri('refl_dir',vegn_refl_dir(m,BAND_NIR))
-        call dpri('tran_dir',vegn_tran_dir(m,BAND_NIR))
-        call dpri('sctr_dir',vegn_sctr_dir(m,BAND_NIR))
-        write(*,*)
-     enddo
-     __DEBUG1__(vegn_refl_lw)
-     __DEBUG1__(vegn_tran_lw)
-     write(*,*) '#### update_land_bc_fast ### end of checkpoint 1 ####'
   endif
 
   snow_area_rad = snow_area
@@ -3215,29 +3264,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      tile%land_d, tile%land_z0m, tile%land_z0s)
 
   if(is_watch_point()) then
-     write(*,*) '#### update_land_bc_fast ### checkpoint 2 ####'
-     __DEBUG1__(tile%Sg_dif)
-     __DEBUG1__(tile%Sg_dir)
-     do m = 1, N
-        write(*,'(i2.2,2x)',advance='NO') m
-        call dpri('Sv_dif(VIS)',tile%Sv_dif(m,BAND_VIS))
-        call dpri('Sv_dir(VIS)',tile%Sv_dir(m,BAND_VIS))
-        call dpri('Sdn_dif(VIS)',tile%Sdn_dif(m,BAND_VIS))
-        call dpri('Sdn_dir(VIS)',tile%Sdn_dir(m,BAND_VIS))
-        write(*,*)
-     enddo
-     do m = 1, N
-        write(*,'(i2.2,2x)',advance='NO') m
-        call dpri('Sv_dif(NIR)',tile%Sv_dif(m,BAND_NIR))
-        call dpri('Sv_dir(NIR)',tile%Sv_dir(m,BAND_NIR))
-        call dpri('Sdn_dif(NIR)',tile%Sdn_dif(m,BAND_NIR))
-        call dpri('Sdn_dir(NIR)',tile%Sdn_dir(m,BAND_NIR))
-        write(*,*)
-     enddo
-     __DEBUG1__(tile%land_refl_dif)
-     __DEBUG1__(tile%land_refl_dir)
      __DEBUG1__(tile%land_z0m)
-     write(*,*) '#### update_land_bc_fast ### end of checkpoint 2 ####'
   endif
 
   land2cplr%t_surf         (l,k) = tfreeze

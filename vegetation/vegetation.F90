@@ -2187,22 +2187,26 @@ subroutine update_derived_vegn_data(vegn)
     cc%Ws_max        = spdata(sp)%csc_lai*cc%leafarea
     cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
     if (is_watch_point()) then
-       write(*,'(i2.2,2x,":")',advance='NO') k
+       write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc%layer
+       call dpri('frac',cc%layerfrac)
        call dpri('height',cc%height)
        call dpri('LAI',cc%lai)
 
-       call dpri('bl',cc%bl)
-       call dpri('leafarea',cc%leafarea)
+       ! call dpri('bl',cc%bl)
+       ! call dpri('leafarea',cc%leafarea)
        call dpri('crownarea',cc%crownarea)
        call dpri('nindivs',cc%nindivs)
        ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
        ! call dpri('layerarea',layer_area(cc%layer))
-       call dpri('layer',cc%layer)
        call dpri('species',spdata(sp)%name)
 
        write(*,*)
     endif
   enddo
+
+  if (is_watch_point()) then
+     call dpri('sum(layerfrac)',sum(vegn%cohorts(1:vegn%n_cohorts)%layerfrac)); write(*,*)
+  endif
 
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
   ! this code assumes that cohorts are arranged in descending order
