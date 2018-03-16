@@ -126,7 +126,7 @@ public :: &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
-    excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan, &
+    excess_stored_N_leakage_rate, min_N_stress, &
     et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
 
 logical, public :: do_ppa = .FALSE.
@@ -491,7 +491,7 @@ real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N b
 real :: min_N_stress = 0.05            ! Minimum value for N stress
 real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
-logical :: calc_SLA_from_lifespan      ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
+logical :: calc_SLA_from_lifespan = .TRUE. ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
 
 logical :: smooth_N_uptake_C_allocation = .FALSE.
 logical :: N_fix_Tdep_Houlton = .FALSE.
