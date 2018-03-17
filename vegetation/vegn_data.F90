@@ -57,6 +57,10 @@ integer, public, parameter :: & ! phenology type
  PHEN_DECIDUOUS = 0, &
  PHEN_EVERGREEN = 1
 
+integer, public, parameter :: & ! phenology type
+ COLD_INTOLERANT = 0, &
+ WARM_INTOLERANT = 1
+
 integer, public, parameter :: & ! allometry type
  ALLOM_EW     = 0, & ! Ensheng's original
  ALLOM_EW1    = 1, & ! Ensheng's "alternative"
@@ -267,6 +271,7 @@ type spec_data_type
   real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
   real    :: mortrate_d_u  = 0.2    ! daily mortality rate in understory
   real    :: Tmin_mort     = 0.0    ! cold mortality threshold, degK; default zero value turns it off
+  integer :: T_tolerance_type = COLD_INTOLERANT ! warm tolerant trees die in cold climates; cold-tolerant -- in warm
   logical :: mortality_kills_seeds = .FALSE. ! if true, mortality kills seeds; otherwise seeds survive and used for reproduction later.
   real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
   real    :: taperfactor   = 0.9
@@ -787,6 +792,17 @@ subroutine read_species_data(name, sp, errors_found)
      call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
   end select
 
+  call add_known_name('T_tolerance_type')
+  str = fm_util_get_string('T_tolerance_type', caller = module_name, default_value = 'cold-intolerant', scalar = .true.)
+  select case (trim(lowercase(str)))
+  case('cold-intolerant')
+     sp%T_tolerance_type = COLD_INTOLERANT
+  case('warm-intolerant')
+     sp%T_tolerance_type = WARM_INTOLERANT
+  case default
+     call error_mesg(module_name,'T_tolerance_type type "'//trim(str)//'" is invalid, use "cold-intolerant" or "warm-intolerant"', FATAL)
+  end select
+
 #define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
 #define __GET_SPDATA_LOGICAL__(v) sp%v = get_spdata_logical(#v, sp%v)
   __GET_SPDATA_REAL__(treefall_disturbance_rate)
@@ -1122,7 +1138,7 @@ subroutine print_species_data(unit, skip_default)
   integer :: i
   integer :: N
   integer, allocatable :: idx(:) ! indices of the elements to be printed
-  
+
   if (skip_default) then
      N = 0
      do i = 0, size(spdata)-1
@@ -1210,6 +1226,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'mortrate_d_c', spdata(idx)%mortrate_d_c)
   call add_row(table, 'mortrate_d_u', spdata(idx)%mortrate_d_u)
   call add_row(table, 'Tmin_mort', spdata(idx)%Tmin_mort)
+  call add_row(table, 'T_tolerance_type', spdata(idx)%T_tolerance_type)
   call add_row(table, 'mortality_kills_seeds', spdata(idx)%mortality_kills_seeds)
   call add_row(table, 'LMA', spdata(idx)%LMA)
   call add_row(table, 'LMA_understory_factor', spdata(idx)%LMA_understory_factor)

@@ -14,7 +14,8 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
      FORM_GRASS, FORM_WOODY, LEAF_OFF, DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, &
-     treeline_base_T, treeline_thresh_T, treeline_season_length
+     treeline_base_T, treeline_thresh_T, treeline_season_length, &
+     COLD_INTOLERANT, WARM_INTOLERANT
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
      vegn_mergecohorts_ppa
@@ -526,8 +527,14 @@ subroutine cohort_nat_mortality_ppa(cc, deltat, coldest_month_T, treeline_T, tre
   endif
 
   ! cold mortality
-  if (coldest_month_T < sp%Tmin_mort) &
-        deathrate = max(deathrate, cold_mort) ! at least 1-exp(-cold_mort) trees die per year
+  select case (sp%T_tolerance_type)
+  case (COLD_INTOLERANT)
+     if (coldest_month_T < sp%Tmin_mort) &
+           deathrate = max(deathrate, cold_mort) ! at least 1-exp(-cold_mort) trees die per year
+  case (WARM_INTOLERANT)
+     if (coldest_month_T > sp%Tmin_mort) &
+           deathrate = max(deathrate, cold_mort) ! at least 1-exp(-cold_mort) trees die per year
+  end select
   ! tree line
   if (sp%lifeform == FORM_WOODY .and. &
         (treeline_T < treeline_thresh_T.or.treeline_season < treeline_season_length)) &
