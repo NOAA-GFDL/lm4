@@ -2180,10 +2180,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     i_river_DOC  = river_tracer_index('doc')
     if (i_river_DOC/=NO_TRACER) DOCloss = subs_tr_runf(i_river_DOC)
      cmass1 = land_tile_carbon(tile)
-     if (do_check_conservation) call check_conservation (tag,'carbon', &
-        cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time - DOCloss*delta_time, &
-        cmass1, carbon_cons_tol)
-     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time + DOCloss*delta_time
+     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time - DOCloss*delta_time
+     if (do_check_conservation) &
+           call check_conservation (tag,'carbon', v0, cmass1, carbon_cons_tol)
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
   endif
   if(calc_nitrogen_cons) then
