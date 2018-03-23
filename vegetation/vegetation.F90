@@ -11,6 +11,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
+use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
 use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
@@ -675,6 +676,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call vegn_relayer_cohorts_ppa(tile%vegn) ! this can change the number of cohorts
   enddo
 
+  ! add extra cohorts, if necessary
+  call add_extra_cohorts()
+
   ! initialize carbon integrator
   call vegn_dynamics_init ( id_ug, lnd%time, delta_time )
   call vegn_disturbance_init ( id_ug )
@@ -706,6 +710,108 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   if (allocated(ncm))    deallocate(ncm)
 
 end subroutine vegn_init
+
+! ============================================================================
+subroutine add_extra_cohorts()
+
+  integer :: n_extra_cohorts = 0
+  character(fm_field_name_len) :: extra_cohort_species(MAX_INIT_COHORTS) = 'tempdec'
+  real    :: extra_cohort_nindivs(MAX_INIT_COHORTS)  = 1.0 ! initial individual density, individual/m2
+  real    :: extra_cohort_height(MAX_INIT_COHORTS)   = 0.1 ! initial cohort height, m
+  real    :: extra_cohort_age(MAX_INIT_COHORTS)      = 0.0 ! initial cohort age, year
+  real    :: extra_cohort_myc_scav(MAX_INIT_COHORTS) = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
+  real    :: extra_cohort_myc_mine(MAX_INIT_COHORTS) = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
+  real    :: extra_cohort_n_fixer(MAX_INIT_COHORTS)  = 0.0 ! initial N fixer microbe biomass, kgC/m2
+  real    :: extra_cohort_nsc_frac(MAX_INIT_COHORTS) = 3.0 ! initial cohort NSC, as fraction of max. bl
+  real    :: extra_cohort_nsn_frac(MAX_INIT_COHORTS) = 3.0 ! initial cohort NSN, as fraction of max. bl
+
+  namelist /extra_cohorts_nml/ &
+      n_extra_cohorts, &
+      extra_cohort_species,  extra_cohort_nindivs,  extra_cohort_height,  extra_cohort_age, &
+      extra_cohort_myc_scav, extra_cohort_myc_mine, extra_cohort_n_fixer, &
+      extra_cohort_nsc_frac, extra_cohort_nsn_frac
+
+  integer :: unit, ierr, io
+  integer :: extra_cohort_spp(MAX_INIT_COHORTS)
+  type(land_tile_enum_type)     :: ce    ! current tile list element
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  integer :: i,l,n,n0
+  type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
+
+  if (.not.do_ppa) return
+  if (.not.file_exist('INPUT/extra_cohorts_nml')) return
+
+  ! read parameters of additional vegetation cohorts
+  call mpp_open(unit,'INPUT/extra_cohorts_nml', action=MPP_RDONLY, form=MPP_ASCII)
+  ierr = 1;
+  do while (ierr /= 0)
+     read (unit, nml=extra_cohorts_nml, iostat=io, end=10)
+     ierr = check_nml_error (io, 'extra_cohorts_nml')
+  enddo
+10 call mpp_close (unit)
+
+  unit=stdlog()
+  if (mpp_pe() == mpp_root_pe()) then
+     write(unit, *) 'Adding extra cohorts to vegetation'
+     write(unit, nml=extra_cohorts_nml)
+  endif
+
+  ! create a list of species indices for initialization
+  extra_cohort_spp(:) = -1
+  do n = 1,n_extra_cohorts
+     do i = 0,size(spdata)-1
+        if (trim(extra_cohort_species(n))==trim(spdata(i)%name)) &
+            extra_cohort_spp(n) = i
+     enddo
+  enddo
+
+  ! go through all tiles and add extra cohorts
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
+  do while(loop_over_tiles(ce,tile,l))
+     if (.not.associated(tile%vegn)) cycle
+
+     ! reallocate cohorts
+     ccold => tile%vegn%cohorts; n0 = tile%vegn%n_cohorts
+     allocate(tile%vegn%cohorts(n0+n_extra_cohorts))
+     tile%vegn%cohorts(1:n0) = ccold(1:n0)
+     deallocate (ccold)
+
+     do n = 1, n_extra_cohorts
+        if (extra_cohort_spp(n) < 0) call error_mesg('add_extra_cohorts','species "'//trim(extra_cohort_species(n))//&
+                '" needed for extra cohort initialization, but not found in the list of species parameters', FATAL)
+
+        ! note that this code is only supposed to be called in PPA mode (there must be only
+        ! one cohort in LM3 mode), so we do not bother with the LM3-specific parts of the
+        ! cohort initialization.
+        associate(cc=>tile%vegn%cohorts(n+n0), sp=>spdata(extra_cohort_spp(n)))
+        cc%species = extra_cohort_spp(n)
+        cc%nindivs = extra_cohort_nindivs(n)
+        cc%age     = extra_cohort_age(n)
+        cc%status  = LEAF_ON
+
+        call init_cohort_allometry_ppa(cc, extra_cohort_height(n), extra_cohort_nsc_frac(n), extra_cohort_nsn_frac(n))
+        call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
+        cc%DBH_ys = cc%dbh
+        cc%BM_ys  = cc%bsw + cc%bwood
+
+        cc%myc_scavenger_biomass_C = extra_cohort_myc_scav(n)
+        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
+        cc%myc_miner_biomass_C     = extra_cohort_myc_mine(n)
+        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
+        cc%N_fixer_biomass_C       = extra_cohort_n_fixer(n)
+        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+
+        if (n0>0) then
+           cc%Tv = tile%vegn%cohorts(1)%Tv
+        else
+           cc%Tv = init_Tv
+        endif
+        end associate
+     enddo
+     tile%vegn%n_cohorts = tile%vegn%n_cohorts + n_extra_cohorts
+     call vegn_relayer_cohorts_ppa(tile%vegn) ! this can change the number of cohorts
+  enddo
+end subroutine add_extra_cohorts
 
 ! ============================================================================
 subroutine vegn_diag_init ( id_ug, id_band, time )
