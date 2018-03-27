@@ -1114,7 +1114,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
      if(.not.associated(tile%vegn))  cycle ! skip all non-vegetation tiles
      if(tile%vegn%landuse /= d_kind) cycle ! skip all tiles that doe not match "donor" LU kind
      darea = vegn_tran_priority(tile%vegn, a_kind, x2)
-     if(darea > 0) then
+     if(tile%frac*darea > 0) then
         ! make a copy of current tile
         temp => new_land_tile(tile)
         temp%frac = tile%frac*darea
