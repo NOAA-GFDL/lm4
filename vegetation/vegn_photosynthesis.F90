@@ -19,7 +19,7 @@ use land_data_mod,      only : log_version
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_data_mod,      only : PT_C4, PT_C3, FORM_GRASS, spdata, &
-                               ALLOM_EW, ALLOM_EW1, ALLOM_HML
+                               ALLOM_EW, ALLOM_EW1, ALLOM_HML, LEAF_OFF
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 use uptake_mod,         only : darcy2d_uptake, darcy2d_uptake_solver
 implicit none
@@ -67,6 +67,8 @@ integer :: water_stress_option  = -1 ! selector of the water stress option
 
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
 character(32) :: Tresponse_to_use = 'lm3' ! or 'optimal'
+logical :: photosynthesis_during_senescence = .TRUE. ! if true, photosynthesis continues even
+   ! when the leaves are senescing, i.e. status == LEAF_OFF
 
 logical       :: Kok_effect  = .FALSE. ! if TRUE, Kok effect is taken in photosynthesis
 !real          :: light_kok   = 0.00004 !mol_of_quanta/(m^2s) PAR
@@ -91,8 +93,8 @@ character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
 logical :: hydraulics_repair = .TRUE.
 
 namelist /photosynthesis_nml/ &
-    photosynthesis_to_use, Tresponse_to_use, &
-    Kok_effect,  &
+    photosynthesis_to_use, Tresponse_to_use, photosynthesis_during_senescence, &
+    Kok_effect, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     lai_eps, &
     water_stress_to_use, hydraulics_repair
@@ -274,7 +276,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ! in gs_leuning
   lai_kok   = 0.0
 
-  if(cohort%lai <= 0) then
+  if(cohort%lai <= 0.or.(cohort%status==LEAF_OFF.and..not.photosynthesis_during_senescence)) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
      cohort%An_op  = 0
      cohort%An_cl  = 0
