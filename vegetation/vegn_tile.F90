@@ -573,6 +573,8 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(dbh)     ! diameter at breast height
   __MERGE__(height)  ! cohort height
   __MERGE__(crownarea)   ! area of cohort crown
+  __MERGE__(bl_max)  ! max biomass of leaves, kg C/indiv
+  __MERGE__(br_max)  ! max biomass of roots, kg C/indiv
   __MERGE__(growth_previous_day)
   __MERGE__(growth_previous_day_tmp)
   __MERGE__(age)     ! age of individual
