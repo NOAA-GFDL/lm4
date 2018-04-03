@@ -130,7 +130,6 @@ end interface
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
-logical :: lm2               = .false.
 real    :: init_Wl           = 0
 real    :: init_Ws           = 0
 real    :: init_Tv           = 288.0
@@ -153,6 +152,10 @@ real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as
 real    :: init_cohort_nsn_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSN, as fraction of max. bl
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
+logical :: do_intercept_melt  = .FALSE. ! if true, calculate phase changes of intercepted
+   ! water/snow. USE WITH EXTREME CAUTION (or better never use it): it is known to fix Tv 
+   ! at freezing point for long periods of time. See more details in vegn_step_2 and in 
+   ! timestepping note.
 
 logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
    ! cohorts of the canopy layers; otherwise canopies are stretched to fill
@@ -183,7 +186,7 @@ real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 logical :: do_peat_redistribution = .FALSE.
 
 namelist /vegn_nml/ &
-    lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
+    init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_bseed, &
@@ -197,7 +200,7 @@ namelist /vegn_nml/ &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
-    do_peat_redistribution
+    do_peat_redistribution, do_intercept_melt
 
 !---- end of namelist --------------------------------------------------------
 
@@ -1960,26 +1963,26 @@ subroutine vegn_step_2 ( vegn, diag, &
      cc%Wl = cc%Wl + delta_wl(i)*area2indiv
      cc%Ws = cc%Ws + delta_wf(i)*area2indiv
 
-  ! ---- update for evaporation and interception -----------------------------
+     ! update for evaporation and interception
      cap0 = cc%mcv_dry + clw*cc%Wl + csw*cc%Ws ! J/(K individual)
 
      ! melt on the vegetation should probably be prohibited altogether, since
      ! the amount of melt or freeze calculated this way is severely underestimated
      ! (depending on the overall vegetation heat capacity) which leads to extended
      ! periods when the canopy temperature is fixed at freezing point.
-     if (lm2) then
-        vegn_melt = 0
-     else
+     ! See timestepping notes for more details.
+     vegn_melt = 0
+     if (do_intercept_melt) then
         ! ---- freeze/melt of intercepted water
         ! heat capacity of leaf + intercepted water/snow _can_ go below zero if the
         ! total water content goes below zero as a result of implicit time step.
         ! If it does, we just prohibit melt, setting it to zero.
         if(cap0 > 0)then
            melt_per_deg = cap0 / hlf
-              if (cc%Ws>0 .and. cc%Tv>tfreeze) then
-                 vegn_melt =  min(cc%Ws, (cc%Tv-tfreeze)*melt_per_deg)
-              else if (cc%Wl>0 .and. cc%Tv<tfreeze) then
-                 vegn_melt = -min(cc%Wl, (tfreeze-cc%Tv)*melt_per_deg)
+           if (cc%Ws>0 .and. cc%Tv>tfreeze) then
+              vegn_melt =  min(cc%Ws, (cc%Tv-tfreeze)*melt_per_deg)
+           else if (cc%Wl>0 .and. cc%Tv<tfreeze) then
+              vegn_melt = -min(cc%Wl, (tfreeze-cc%Tv)*melt_per_deg)
            else
               vegn_melt = 0
            endif
@@ -1988,7 +1991,6 @@ subroutine vegn_step_2 ( vegn, diag, &
            if (vegn_melt/=0) &
                    cc%Tv = tfreeze + (cap0*(cc%Tv-tfreeze) - hlf*vegn_melt) &
                 / ( cap0 + (clw-csw)*vegn_melt )
-           vegn_melt = vegn_melt / delta_time
         else
            vegn_melt = 0
         endif
@@ -1997,10 +1999,11 @@ subroutine vegn_step_2 ( vegn, diag, &
 
      if(is_watch_point()) then
         write (*,*)'#### vegn_step_2 #### 1'
-           __DEBUG4__(i,cc%Tv, cc%Wl, cc%Ws)
-           __DEBUG4__(cc%nindivs, cc%crownarea, cc%layerfrac, indiv2area)
-           __DEBUG1__(vegn_melt)
+        write(*,'("cohort ",i2.2)',advance='NO') i
+        __DEBUG4__(cc%Tv, cc%Wl, cc%Ws, vegn_melt)
+        __DEBUG4__(cc%nindivs, cc%crownarea, cc%layerfrac, indiv2area)
      endif
+     vegn_melt = vegn_melt / delta_time
 
      ! ---- update for overflow -------------------------------------------------
      Wl = max(cc%Wl,0.0); Ws = max(cc%Ws,0.0)
