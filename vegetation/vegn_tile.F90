@@ -17,9 +17,9 @@ use vegn_data_mod, only : &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
      BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
-     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
-     FORM_GRASS, &
-     scnd_biomass_bins, do_ppa, N_limits_live_biomass
+     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, FORM_GRASS, &
+     scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
+     do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C
@@ -573,8 +573,10 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(dbh)     ! diameter at breast height
   __MERGE__(height)  ! cohort height
   __MERGE__(crownarea)   ! area of cohort crown
-  __MERGE__(bl_max)  ! max biomass of leaves, kg C/indiv
-  __MERGE__(br_max)  ! max biomass of roots, kg C/indiv
+  if (do_bl_max_merge) then
+     __MERGE__(bl_max)  ! max biomass of leaves, kg C/indiv
+     __MERGE__(br_max)  ! max biomass of roots, kg C/indiv
+  endif
   __MERGE__(growth_previous_day)
   __MERGE__(growth_previous_day_tmp)
   __MERGE__(age)     ! age of individual

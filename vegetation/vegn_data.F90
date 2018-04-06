@@ -124,7 +124,7 @@ public :: &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
-    DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+    DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -484,6 +484,7 @@ real, protected :: treeline_mort = 2.0 ! mortality rate above treeline, 1/year
 real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that permits merge of two cohorts
 real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
 real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allows merge of grass cohorts
+logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are merged when cohorts are merged
 
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
@@ -523,7 +524,7 @@ namelist /vegn_data_nml/ &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, cold_mort, treeline_mort, &
   b0_growth, tau_seed, min_cohort_nindivs, &
   nat_mortality_splits_tiles, &
-  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
 
   ! N-related namelist values
   mycorrhizal_turnover_time, &
