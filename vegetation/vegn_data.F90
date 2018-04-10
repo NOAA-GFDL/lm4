@@ -102,9 +102,13 @@ real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2
 real, public, parameter :: C2N_SEED = 50 ! seed C:N ratio
 
-! ---- public types
-public :: spec_data_type
-
+integer, public, parameter :: & ! NSC target calculation options
+  NSC_TARGET_FROM_BLMAX = 1, &  ! from max biomass of leaves, like in Ensheng's paper
+  NSC_TARGET_FROM_CANOPY_BLMAX = 2, &  ! from max biomass of leaves of canopy trees
+   ! This is to make sure that NSC target does not jumps suddenly when trees go in and 
+   ! out of canppy layer
+  NSC_TARGET_FROM_BSW   = 3     ! form sapwood biomass
+  
 ! ---- public data
 integer, public :: nspecies ! total number of species
 public :: &
@@ -125,6 +129,7 @@ public :: &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
+    nsc_target_option, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -136,6 +141,7 @@ public :: &
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
+integer :: nsc_target_option = -1 
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -293,6 +299,7 @@ type spec_data_type
   real    :: NSC2targetbl  = 4.0    ! ratio of NSC to target biomass of leaves
   real    :: NSC2targetbl0 = 1.5    ! ratio of NSC to target biomass of leaves for zero-size seedlings
   real    :: NSC2targetbl_dbh = -1.0  ! blending diameter for NSC target calculations
+  real    :: NSC2targetbsw = 0.12   ! ratio of NSC to target biomass of leaves, Hoch et al., 2003
   real    :: T_dorm        = TFREEZE  ! dormancy temperature threshold, degK
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
@@ -390,12 +397,10 @@ type spec_data_type
              ! SP_EVERGR   : 0.11
 end type
 
-! ==== module data ===========================================================
-integer :: idata ! iterators used in data initialization statements
-
-! ---- namelist --------------------------------------------------------------
+! ---- species parameters ----------------------------------------------------
 type(spec_data_type), allocatable :: spdata(:)
 
+! ---- namelist --------------------------------------------------------------
 logical :: use_bucket = .false.
 logical :: use_mcm_masking = .false.
 real    :: mcv_min = 5.   * 4218.
@@ -484,6 +489,7 @@ real, protected :: treeline_mort = 2.0 ! mortality rate above treeline, 1/year
 real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that permits merge of two cohorts
 real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
 real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allows merge of grass cohorts
+character(24)   :: NSC_target_to_use = 'from-blmax' ! or 'from-bsw'
 logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are merged when cohorts are merged
 
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
@@ -524,7 +530,9 @@ namelist /vegn_data_nml/ &
   DBH_mort, A_mort, B_mort, nsc_starv_frac, cold_mort, treeline_mort, &
   b0_growth, tau_seed, min_cohort_nindivs, &
   nat_mortality_splits_tiles, &
-  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
+  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, NSC_target_to_use, &
+  do_bl_max_merge, &
+  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
 
   ! N-related namelist values
   mycorrhizal_turnover_time, &
@@ -570,6 +578,17 @@ subroutine read_vegn_data_namelist()
 
   unit=stdlog()
   write (unit, nml=vegn_data_nml)
+
+  if (trim(lowercase(nsc_target_to_use))=='from-blmax') then
+     nsc_target_option = NSC_TARGET_FROM_BLMAX
+  else if (trim(lowercase(nsc_target_to_use))=='from-canopy-blmax') then
+     nsc_target_option = NSC_TARGET_FROM_CANOPY_BLMAX
+  else if (trim(lowercase(nsc_target_to_use))=='from-bsw') then
+     nsc_target_option = NSC_TARGET_FROM_BSW
+  else
+     call error_mesg('vegn_data_read_namleist', 'option nsc_target_to_use="'// &
+          trim(nsc_target_to_use)//'" is invalid, use "from_blmax" or "from-bsw"', FATAL)
+  endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
      call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)
@@ -915,6 +934,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(NSC2targetbl0)
   __GET_SPDATA_REAL__(NSC2targetbl_dbh)
   __GET_SPDATA_REAL__(T_dorm)
+  __GET_SPDATA_REAL__(NSC2targetbsw)
   ! for Kok effect, ppg, 17/11/07
   __GET_SPDATA_REAL__(inib_factor)
   __GET_SPDATA_REAL__(light_kok)
@@ -1246,6 +1266,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'NSC2targetbl0', spdata(idx)%NSC2targetbl0)
   call add_row(table, 'NSC2targetbl_dbh', spdata(idx)%NSC2targetbl_dbh)
   call add_row(table, 'T_dorm', spdata(idx)%T_dorm)
+  call add_row(table, 'NSC2targetbsw', spdata(idx)%NSC2targetbsw)
 
   call add_row(table, 'Klam', spdata(idx)%Klam)
   call add_row(table, 'dl', spdata(idx)%dl)

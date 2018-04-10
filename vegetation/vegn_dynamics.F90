@@ -31,7 +31,8 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
-     agf_bs, min_lai, nsc_starv_frac, &
+     NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
+     agf_bs, min_lai, nsc_starv_frac, nsc_target_option, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -1568,12 +1569,23 @@ subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,del
   ! bliving is already increased after cgain
   select case (sp%lifeform)
   case (FORM_WOODY)
-     if (sp%NSC2targetbl_dbh>0) then
-        blend = max(min(cc%DBH/sp%NSC2targetbl_dbh,1.0),0.0)
-        nsc_target = cc%bl_max * ((1-blend)*sp%NSC2targetbl0 + blend*sp%NSC2targetbl)
-     else
-        nsc_target = sp%NSC2targetbl*cc%bl_max
-     endif
+     select case (nsc_target_option)
+     case (NSC_TARGET_FROM_BLMAX)
+        if (sp%NSC2targetbl_dbh>0) then
+           blend = max(min(cc%DBH/sp%NSC2targetbl_dbh,1.0),0.0)
+           nsc_target = cc%bl_max * ((1-blend)*sp%NSC2targetbl0 + blend*sp%NSC2targetbl)
+        else
+           nsc_target = sp%NSC2targetbl*cc%bl_max
+        endif
+     case (NSC_TARGET_FROM_CANOPY_BLMAX)
+        ! for now bypass the DBH blending for simplicity
+        nsc_target = sp%NSC2targetbl * sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     case (NSC_TARGET_FROM_BSW)
+        nsc_target = sp%NSC2targetbsw * cc%bsw
+     case default
+        call error_mesg('biomass_allocation_ppa', &
+          'nsc_target_option is invalid, this should never happen; contact developer.', FATAL)
+     end select
   case (FORM_GRASS)
      nsc_target = sp%NSC2targetbl*cc%bl_max
   end select
