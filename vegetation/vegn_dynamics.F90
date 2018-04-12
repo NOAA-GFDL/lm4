@@ -1337,9 +1337,8 @@ end subroutine vegn_carbon_int_ppa
 ! ============================================================================
 ! updates cohort biomass pools, LAI, SAI, and height using accumulated
 ! carbon_gain and bwood_gain
-subroutine vegn_growth (vegn, temp, diag)
+subroutine vegn_growth (vegn, diag)
   type(vegn_tile_type), intent(inout) :: vegn
-  real,                 intent(in)    :: temp ! temperature for dormancy detection, degK
   type(diag_buff_type), intent(inout) :: diag
 
   ! ---- local vars
@@ -1381,7 +1380,7 @@ subroutine vegn_growth (vegn, temp, diag)
            ! tissues to compensate carbon loss
            cc%nsc = cc%nsc+cc%carbon_gain+borrowed
         endif
-        call biomass_allocation_ppa(cc,temp, wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
+        call biomass_allocation_ppa(cc, vegn%tc_dorm, wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
         if(is_watch_point()) then
            write(*,*)"############## in vegn_growth after allocation PPA #################"
            __DEBUG2__(cc%nsc, cc%carbon_gain)
@@ -1517,7 +1516,7 @@ end subroutine vegn_starvation_ppa
 
 ! ==============================================================================
 ! updates cohort vegetation structure, biomass pools, LAI, SAI, and height spending nsc
-subroutine biomass_allocation_ppa(cc,temp, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
+subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
   type(vegn_cohort_type), intent(inout) :: cc
   real, intent(in)  :: temp ! temperature for dormancy detection, degK
   real, intent(out) :: wood_prod ! wood production, kgC/year per individual, diagnostic output

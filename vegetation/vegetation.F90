@@ -2537,7 +2537,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_Ngain,sum(cc(1:N)%nitrogen_gain*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
 
-        call vegn_growth(tile%vegn, tile%vegn%tc_daily, tile%diag) ! selects lm3 or ppa inside
+        call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
 
         if (do_ppa) then
