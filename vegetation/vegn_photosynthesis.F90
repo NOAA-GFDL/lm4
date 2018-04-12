@@ -282,11 +282,15 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
   real    :: evap_demand_old
 
+  sp = cohort%species ! shorthand, for convenience
+
   ! set the default values for outgoing parameters, overriden by the calculations
   ! in gs_leuning
   lai_kok   = 0.0
 
-  if(cohort%lai <= 0.or.(cohort%status==LEAF_OFF.and..not.photosynthesis_during_senescence)) then
+  if( (cohort%lai <= 0) &
+  .or.(cohort%status==LEAF_OFF.and..not.photosynthesis_during_senescence) &
+  .or.(vegn%tc_dorm < spdata(sp)%T_dorm)) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
      cohort%An_op  = 0
      cohort%An_cl  = 0
@@ -300,7 +304,6 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      return
   endif
 
-  sp = cohort%species ! shorthand, for convenience
 
   ! calculate humidity deficit, kg/kg
   call qscomp(cohort%Tv, p_surf, leaf_q)

@@ -154,6 +154,7 @@ type :: vegn_tile_type
    ! averaged quantities for PPA phenology
    real :: tc_daily = 0.0
    real :: tc_pheno = 0.0 ! smoothed canopy air temperature for phenology
+   real :: tc_dorm  = 0.0 ! smoothed temperature for dormancy calculations
    real :: daily_t_max = -HUGE(1.0) ! accumulator for daily max, used in GDD calculations
    real :: daily_t_min =  HUGE(1.0) ! accumulator for daily min, used in GDD calculations
 

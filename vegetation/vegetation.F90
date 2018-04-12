@@ -176,6 +176,9 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
    ! evaporation in one time step.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
+real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for 
+   ! dormancy calculations, day. Zero turns off smoothing: average temperature from 
+   ! will be used previous day
 real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
 real :: rav_lit_vi        = 0.0 ! litter resistance to vapor per LAI+SAI
 real :: rav_lit_fsc       = 0.0 ! litter resistance to vapor per fsc
@@ -198,7 +201,7 @@ namelist /vegn_nml/ &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
     do_biogeography, do_seed_transport, &
-    min_Wl, min_Ws, tau_smooth_ncm, &
+    min_Wl, min_Ws, tau_smooth_ncm, tau_smooth_T_dorm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
     do_peat_redistribution, do_intercept_melt
 
@@ -236,7 +239,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_nindivs,  &
    id_nlayers, id_dbh, id_dbh_max, &
    id_crownarea, &
-   id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
+   id_soil_water_supply, id_gdd, id_tc_pheno, id_tc_dorm, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
@@ -527,6 +530,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      if (field_exists(restart2,'tc_pheno')) &
          call get_tile_data(restart2,'tc_pheno', vegn_tc_pheno_ptr)
+     if (field_exists(restart2,'tc_dorm')) &
+         call get_tile_data(restart2,'tc_dorm', vegn_tc_dorm_ptr)
      ! burned carbon pool and rate
      if(field_exists(restart2,'csmoke_pool')) &
           call get_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr)
@@ -593,6 +598,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      ! create and initialize cohorts for this vegetation tile
      tile%vegn%n_cohorts = init_n_cohorts
      tile%vegn%tc_pheno  = init_Tv  ! initial temperature for phenology
+     tile%vegn%tc_dorm   = init_Tv  ! initial temperature for dormancy
 
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
      do n = 1,tile%vegn%n_cohorts
@@ -1136,6 +1142,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'growing degree days','degK day', missing_value=-999.0)
   id_tc_pheno = register_tiled_diag_field (module_name, 'tc_pheno', (/id_ug/), &
        time, 'smoothed canopy air temperature for phenology','degK', missing_value=-999.0)
+  id_tc_dorm = register_tiled_diag_field (module_name, 'tc_dorm', (/id_ug/), &
+       time, 'smoothed canopy air temperature for dormancy','degK', missing_value=-999.0)
 
   id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_ug/), &
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
@@ -1471,6 +1479,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'ncm_acm', vegn_ncm_acm_ptr,'accumulated number of cold months')
   ! accumulated and averaged values for PPA phenology
   call add_tile_data(restart2,'tc_pheno', vegn_tc_pheno_ptr,'smoothed temperature for phenology','degK')
+  call add_tile_data(restart2,'tc_dorm',  vegn_tc_dorm_ptr, 'smoothed temperature for dormancy','degK')
   ! burned carbon pool and rate
   call add_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')
   call add_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr,'rate of release of carbon lost through fires to the atmosphere', 'kg C/(m2 yr)')
@@ -2423,6 +2432,8 @@ subroutine update_vegn_slow( )
            end associate ! F2003
         enddo
         tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
+        w = 1.0/(1+tau_smooth_T_dorm)
+        tile%vegn%tc_dorm  = w*tile%vegn%tc_daily + (1-w)*tile%vegn%tc_dorm
      endif
 
      call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0,nmass0)
@@ -2623,6 +2634,7 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_atfall,  tile%vegn%disturbance_rate(0), tile%diag)
 
      call send_tile_data(id_tc_pheno,tile%vegn%tc_pheno,tile%diag)
+     call send_tile_data(id_tc_dorm,tile%vegn%tc_dorm,tile%diag)
 
      do ii = 1,N_HARV_POOLS
         call send_tile_data(id_harv_pool_C(ii),tile%vegn%harv_pool_C(ii),tile%diag)
@@ -3144,6 +3156,7 @@ DEFINE_VEGN_ACCESSOR_0D(real,treeline_T_accum)
 DEFINE_VEGN_ACCESSOR_0D(real,treeline_N_accum)
 
 DEFINE_VEGN_ACCESSOR_0D(real,tc_pheno)
+DEFINE_VEGN_ACCESSOR_0D(real,tc_dorm)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_wl)
