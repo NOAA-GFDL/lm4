@@ -191,7 +191,8 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      soil_beta, soil_water_supply, con_v_v, &
 ! output:
      evap_demand, stomatal_cond, RHi, &
-     lai_kok, An_newleaf)
+     lai_kok, An_newleaf, &
+     T_inhib_P, T_inhib_R, Ag_uninhib, resp_uninhib)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -210,6 +211,8 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
   real, intent(out) :: An_newleaf  ! derivative of An wrt LAI, for diagnostics only
+  real, intent(out) :: T_inhib_P, T_inhib_R ! temperature scaling function for photosynthesis and respiration, unitless
+  real, intent(out) :: Ag_uninhib, resp_uninhib ! values of Ag and Resp before temperature scaling
 
   select case (vegn_phot_option)
   case(VEGN_PHOT_SIMPLE)
@@ -220,11 +223,15 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      RHi = 1.0
      evap_demand   = 0
      An_newleaf    = 0
+     T_inhib_P     = 0
+     T_inhib_R     = 0
+     Ag_uninhib    = 0
+     resp_uninhib  = 0
   case(VEGN_PHOT_LEUNING)
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
             soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi, &
-            lai_kok, An_newleaf)
+            lai_kok, An_newleaf, T_inhib_P, T_inhib_R, Ag_uninhib, resp_uninhib)
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -237,7 +244,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
      evap_demand, stomatal_cond, RHi, &
-     lai_kok, An_newleaf)
+     lai_kok, An_newleaf, &
+     T_inhib_P, T_inhib_R, Ag_uninhib, resp_uninhib)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -255,6 +263,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
   real, intent(out) :: An_newleaf  ! derivative of An wrt LAI, for diagnostics only
+  real, intent(out) :: T_inhib_P, T_inhib_R ! temperature scaling function for photosynthesis and respiration, unitless
+  real, intent(out) :: Ag_uninhib, resp_uninhib ! values of Ag and Resp before temperature scaling
 
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
@@ -284,6 +294,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      evap_demand   = 0
      RHi           = 1.0
      An_newleaf    = 0
+     T_inhib_P = 0; T_inhib_R = 0
+     Ag_uninhib = 0; resp_uninhib = 0
      ! TODO: call vegn_hydraulics?
      return
   endif
@@ -299,7 +311,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        cohort%leaf_age, p_surf, sp, cana_co2, cohort%extinct, &
        cohort%layer, &
        ! output:
-       stomatal_cond, psyn, resp, lai_kok, An_newleaf)
+       stomatal_cond, psyn, resp, lai_kok, An_newleaf, &
+       T_inhib_P, T_inhib_R, Ag_uninhib, resp_uninhib)
   cohort%An_newleaf_daily = cohort%An_newleaf_daily + An_newleaf
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness
@@ -389,7 +402,8 @@ end subroutine vegn_photosynthesis_Leuning
 subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
                    p_surf, pft, ca, kappa, layer, &
                    gs, apot, acl, &
-                   lai_kok, An_newleaf)
+                   lai_kok, An_newleaf, &
+                   T_inhib_P, T_inhib_R, Ag_uninhib, resp_uninhib)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
@@ -410,6 +424,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real,    intent(out)   :: lai_kok ! Lai at which kok effect is considered
   !#### Modified by PPG 2017-12-07
   real,    intent(out)   :: An_newleaf
+  real,    intent(out)   :: T_inhib_P, T_inhib_R ! temperature scaling function for photosynthesis and respiration, unitless
+  real,    intent(out)   :: Ag_uninhib, resp_uninhib ! values of Ag and Resp before temperature scaling
 
   ! ---- local vars
   ! photosynthesis
@@ -536,6 +552,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
         Resp=sp%gamma_resp*vm*lai
      endif
 
+     resp_uninhib = Resp/lai
      Resp=Resp/TempFuncR
      resp_newleaf=sp%gamma_resp*vm*delta_lai/TempFuncR
 
@@ -620,6 +637,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   anbar=-Resp/lai;
   gsbar=b;
   Ag_newleaf = 0.0
+  Ag_uninhib = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
@@ -654,6 +672,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
             ! ((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            !#### MODIFIED BY PPG 2017-11-07
            !Correct gross photosynthesis for Temperature Response
+           Ag_uninhib = (Ag_l+Ag_rb)/lai
            select case (vegn_Tresponse_option)
            case(VEGN_TRESPONSE_LM3)
                     Ag = (Ag_l+Ag_rb)/TempFuncP
@@ -708,6 +727,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            !Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            !#### MODIFIED BY PPG 2017-11-01
            !Correct gross photosynthesis for Temperature Response
+           Ag_uninhib = (Ag_l+Ag_rb)/lai
            select case (vegn_Tresponse_option)
               case(VEGN_TRESPONSE_LM3)
                     Ag = (Ag_l+Ag_rb)/TempFuncP
@@ -740,6 +760,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   acl  = -Resp/lai
 
   An_newleaf=(Ag_newleaf-resp_newleaf)/delta_lai
+
+  T_inhib_P = 1.0/TempFuncP
+  T_inhib_R = 1.0/TempFuncR
 
   if (is_watch_point()) then
      __DEBUG4__(gs, apot, acl, ds)

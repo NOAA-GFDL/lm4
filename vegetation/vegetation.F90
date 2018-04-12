@@ -239,7 +239,8 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_topyear, id_growth_prev_day, &
-   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net
+   id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
+   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -915,6 +916,16 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        missing_value=-1e20)
   id_RHi  = register_cohort_diag_field ( module_name, 'RHi',  &
        (/id_ug/), time, 'relative humidity inside leaf', 'percent', missing_value=-1e20)
+  id_T_inhib_p = register_cohort_diag_field ( module_name, 'T_inhib_p',  &
+       (/id_ug/), time, 'thermal inhibition factor for photosynthesis', missing_value=-1e20)
+  id_T_inhib_r = register_cohort_diag_field ( module_name, 'T_inhib_r',  &
+       (/id_ug/), time, 'thermal inhibition factor for respiration', missing_value=-1e20)
+  id_Ag_uninhib = register_cohort_diag_field ( module_name, 'Ag_uninhib',  &
+       (/id_ug/), time, 'gross photosynthesis before thermal inhibition', &
+       '(mol CO2)(m2 of leaf)^-1 s^-1', missing_value=-1e20)
+  id_resp_uninhib = register_cohort_diag_field ( module_name, 'resp_uninhib',  &
+       (/id_ug/), time, 'respiration before thermal inhibition', &
+       '(mol CO2)(m2 of leaf)^-1 s^-1', missing_value=-1e20)
 
   id_bl = register_cohort_diag_field ( module_name, 'bl',  &
        (/id_ug/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0)
@@ -1600,7 +1611,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
        RHi, &       ! relative humidity inside the leaf, at the point of vaporization
        lai_kok, &   ! LAI above 40 umoles of light
-       An_newleaf   ! derivative of An w.r.t. LAI, for diagnostics only
+       An_newleaf,& ! derivative of An w.r.t. LAI, for diagnostics only
+       T_inhib_P, T_inhib_R, Ag_uninhib, resp_uninhib
 
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
@@ -1707,7 +1719,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i), An_newleaf(i))
+        evap_demand(i), stomatal_cond(i), RHi(i), lai_kok(i), An_newleaf(i), &
+        T_inhib_P(i), T_inhib_R(i), Ag_uninhib(i), resp_uninhib(i))
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1894,6 +1907,11 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_DanDlai, diag, cc(:), An_newleaf(:), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_PAR_dn,  diag, cc(:), SWdn(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_PAR_net, diag, cc(:), RSv(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
+  
+  call send_cohort_data(id_T_inhib_P, diag, cc(:), T_inhib_P(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+  call send_cohort_data(id_T_inhib_R, diag, cc(:), T_inhib_R(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+  call send_cohort_data(id_Ag_uninhib, diag, cc(:), Ag_uninhib(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+  call send_cohort_data(id_resp_uninhib, diag, cc(:), resp_uninhib(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
 
 end subroutine vegn_step_1
 
