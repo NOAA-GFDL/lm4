@@ -394,7 +394,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   i_river_NH4  = river_tracer_index('nh4')
 
   if (i_river_DOC == NO_TRACER .and. (soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N)) &
-      call error_mesg ('soil_init','River tracer for DOC not found while running in CORPSE mode. C conservation checks may fail if there is C leaching', WARNING)
+      call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', WARNING)
 
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init(id_ug,id_band,id_zfull)
@@ -1859,9 +1859,11 @@ end subroutine soil_step_1
                            vegn_uptk, &
                            subs_DT, subs_M_imp, subs_evap, &
                            use_tfreeze_in_grnd_latent, &
+                           ! output
                            soil_levap, soil_fevap, soil_melt, &
                            soil_lrunf, soil_hlrunf, soil_Ttop, soil_Ctop, &
-                           soil_frunf, soil_hfrunf, soil_tr_runf)
+                           soil_frunf, soil_hfrunf, soil_tr_runf, &
+                           DOC_to_atmos)
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
@@ -1885,7 +1887,9 @@ end subroutine soil_step_1
        soil_Ctop, & ! ?? soil surface layer heat capacity [J/m^2.K]
        soil_frunf, & ! ?? frozen runoff from soil [mm/s]
        soil_hfrunf, & ! ?? heat associated with frozen runoff from soil [W/m^2]
-       soil_tr_runf(:) ! dissolved organic carbon runoff from soil [kgC/m^2/s]
+       soil_tr_runf(:), & ! tracer runoff from soil [kgX/m^2/s]
+       DOC_to_atmos ! if there is no river DOC tracer, this is the loss of DOC
+                    ! through leaching [kgC/(m2 s)], otherwise zero.
 
   ! ---- local vars ----------------------------------------------------------
   real, dimension(num_l) :: del_t, &! ?? temperature tendency [K]
@@ -2946,8 +2950,13 @@ end subroutine soil_step_1
    total_DON_div = total_DON_div/delta_time
    total_NO3_div = total_NO3_div/delta_time
    total_NH4_div = total_NH4_div/delta_time
-   if (i_river_DOC/=NO_TRACER) &
+   if (i_river_DOC/=NO_TRACER) then
        soil_tr_runf(i_river_DOC) = total_DOC_div
+       DOC_to_atmos = 0.0
+   else
+       ! if we don't have DOC river tracer, DOC loss goes directly to the atmosphere
+       DOC_to_atmos = total_DOC_div
+   endif
    if (i_river_DON/=NO_TRACER) &
        soil_tr_runf(i_river_DON) = total_DON_div
    if (i_river_NO3/=NO_TRACER) &

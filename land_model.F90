@@ -1407,7 +1407,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
-  real :: DOCloss
+  real :: DOC_to_atmos
   logical :: calc_water_cons, calc_carbon_cons, calc_nitrogen_cons
   character(*), parameter :: tag = 'update_land_model_fast_0d'
 
@@ -2054,6 +2054,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      subs_frunf = 0.
      subs_hfrunf = 0.
      subs_tr_runf(:) = 0.
+     DOC_to_atmos = 0.
   else if (associated(tile%lake)) then
      call lake_step_2 &
           ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
@@ -2065,6 +2066,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      subs_frunf = 0.
      subs_hfrunf = 0.
      subs_tr_runf = 0.
+     DOC_to_atmos = 0.
   else if (associated(tile%soil)) then
      call soil_step_2 &
           ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
@@ -2073,7 +2075,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
           ! output:
           subs_levap, subs_fevap, &
           subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop, &
-          subs_frunf, subs_hfrunf, subs_tr_runf)
+          subs_frunf, subs_hfrunf, subs_tr_runf, DOC_to_atmos)
   endif
   if (is_watch_point()) then
      __DEBUG2__(subs_levap, subs_fevap)
@@ -2130,14 +2132,14 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! derivatives, then solve the linear equation(s), and finally update
   ! the concentration.
   if(update_cana_co2) then
-     delta_co2 = (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
+     delta_co2 = (vegn_fco2 + DOC_to_atmos*mol_CO2/mol_C - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
      tile%cana%tr(ico2) = tile%cana%tr(ico2) + delta_co2
   else
      delta_co2 = 0
   endif
   if(is_watch_point())then
      __DEBUG1__(tile%cana%tr(ico2))
-     __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
+     __DEBUG4__(fco2_0,Dfco2Dq,vegn_fco2, DOC_to_atmos)
   endif
 
   call update_cana_tracers(tile, l, tr_flux, dfdtr, &
@@ -2175,12 +2177,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
   endif
   if(calc_carbon_cons) then
-    ! BNS: This will likely fail if DOC river tracer is not present and running in CORPSE mode with C_leaching_solubility>0
-    DOCloss=0.0
-    i_river_DOC  = river_tracer_index('doc')
-    if (i_river_DOC/=NO_TRACER) DOCloss = subs_tr_runf(i_river_DOC)
+     ! BNS: This will likely fail if DOC river tracer is not present and running in CORPSE mode with C_leaching_solubility>0
+     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time 
+     if (i_river_DOC/=NO_TRACER) &
+         v0 = v0 - subs_tr_runf(i_river_DOC)*delta_time
      cmass1 = land_tile_carbon(tile)
-     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time - DOCloss*delta_time
      if (do_check_conservation) &
            call check_conservation (tag,'carbon', v0, cmass1, carbon_cons_tol)
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
