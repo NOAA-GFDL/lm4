@@ -2399,6 +2399,8 @@ function tropType(vegn) result(trop_code); integer :: trop_code
 
   real    :: AGB_for_species   ! SSR20150831
 
+  if (do_ppa) &
+        call land_error_message('tropType must not be called in PPA mode', FATAL)
   ! SSR20150831
   ! When using Ensheng's multi-cohort model, the stats for each cohort are per individual, and
   ! then I would need to multiply by # individuals.
@@ -3370,18 +3372,16 @@ subroutine update_fire_agb(vegn,soil)
    type(vegn_tile_type), intent(inout) :: vegn
    type(soil_tile_type), intent(in)    :: soil
 
-   integer :: nv ! Number of vegetation cohorts
    real    :: litter_total_C
    integer :: i
 
-   nv = vegn%n_cohorts
-
-   ! When using Ensheng's multi-cohort model, the stats for each cohort are per individual, and
-   ! then I would need to multiply by # individuals.
-   vegn%fire_agb = sum(vegn%cohorts(1:nv)%bl    &
-                      +vegn%cohorts(1:nv)%blv )  &
-                   + agf_bs*sum(vegn%cohorts(1:nv)%bsw     &
-                              + vegn%cohorts(1:nv)%bwood )
+   vegn%fire_agb = 0.0
+   do i = 1,vegn%n_cohorts
+      vegn%fire_agb = vegn%fire_agb + vegn%cohorts(i)%nindivs * ( &
+           vegn%cohorts(i)%bl + vegn%cohorts(i)%blv &
+         + agf_bs * (vegn%cohorts(i)%bsw + vegn%cohorts(i)%bwood) &
+         )
+   enddo
 
    if (soil_carbon_option==SOILC_CORPSE) then
       ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
