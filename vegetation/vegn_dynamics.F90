@@ -32,6 +32,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
+     SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      agf_bs, min_lai, nsc_starv_frac, nsc_target_option, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
@@ -84,10 +85,13 @@ namelist /vegn_dynamics_nml/ &
 ! ---- end of namelist
 
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
+real, allocatable :: ug_soilfrac(:) ! fraction of grid cell area occupied by soil, for
+  ! normalization in seed transort
 real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
   ! normalization in seed transort
 real, allocatable :: ug_area_factor(:) ! conversion factor from land area to vegetation area
-real :: atot ! global land area for normalization in conservation checks, m2
+real :: tot_area_land ! global land area, m2 (for normalization in conservation checks)
+real :: tot_area_soil ! global soil area, m2
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
@@ -151,26 +155,29 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   dt_fast_yr = delta_time/seconds_per_year
 
   ! calculate fraction of the grid cell occupied by soil in ug_area_factor
-  allocate(ug_area_factor(lnd%ls:lnd%le))
-  ug_area_factor = 0.0
+  allocate(ug_soilfrac(lnd%ls:lnd%le))
+  ug_soilfrac = 0.0
   ce = first_elmt(land_tile_map,lnd%ls)
   do while (loop_over_tiles(ce,tile,l))
      if(associated(tile%vegn)) &
-          ug_area_factor(l) = ug_area_factor(l) + tile%frac
+          ug_soilfrac(l) = ug_soilfrac(l) + tile%frac
   enddo
   ! calculate soil fraction in a grid cell
   allocate (sg_soilfrac(lnd%isd:lnd%ied, lnd%jsd:lnd%jed))
   sg_soilfrac = 0.0
-  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_area_factor*lnd%ug_landfrac,sg_soilfrac)
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_soilfrac*lnd%ug_landfrac,sg_soilfrac)
   call mpp_update_domains(sg_soilfrac,lnd%sg_domain)
-  ! finish calculating conversion factor from land area to soil area
-  where(ug_area_factor>0) &
-        ug_area_factor = 1.0/ug_area_factor
+  ! calculate conversion factor from land area to soil area
+  allocate(ug_area_factor(lnd%ls:lnd%le))
+  ug_area_factor = 0.0
+  where(ug_soilfrac>0) &
+        ug_area_factor = 1.0/ug_soilfrac
 
-  ! calculate total land area for normalization in global conservation checks
-  atot = sum(lnd%ug_area)
-  call mpp_sum(atot)
-
+  ! calculate total land and soil areas
+  tot_area_land = sum(lnd%ug_area)
+  call mpp_sum(tot_area_land)
+  tot_area_soil = sum(lnd%ug_area*ug_soilfrac)
+  call mpp_sum(tot_area_soil)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
@@ -1166,7 +1173,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! Mycorrhizal N uptake
 
      ! calculate nitrogen-neutral exudate flux. In PPA it can be either calculated as a
-     ! depletion of NSC with prescribed rate, or as a fraction of NPP as in LM3. 
+     ! depletion of NSC with prescribed rate, or as a fraction of NPP as in LM3.
      ! N exudates are calculated in update_mycorrhizae.
      ! C_alloc_to_N_acq(i) is rate per year, not per time step
      if(sp%tau_nsc_exudate>0) then
@@ -1187,7 +1194,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         ! cannot rise above 2 in current formulation, but we should be careful if the definition
         ! of stress changes.
      endif
-     ! Finally, impose an upper limit so that exudates do not deplete NSC below zero, and 
+     ! Finally, impose an upper limit so that exudates do not deplete NSC below zero, and
      ! make sure exudates are not negative
      C_alloc_to_N_acq(i) = min(C_alloc_to_N_acq(i),max(0.0,cc%nsc)/dt_fast_yr)
 
@@ -2424,8 +2431,8 @@ subroutine update_soil_pools(vegn, soil)
 end subroutine update_soil_pools
 
 ! ============================================================================
-subroutine vegn_reproduction_ppa(do_seed_transport)
-  logical, intent(in) :: do_seed_transport
+subroutine vegn_reproduction_ppa(seed_transport_option)
+  integer, intent(in) :: seed_transport_option
 
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
@@ -2485,7 +2492,7 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   ! calculate amount of dispersed seeds, by species, kgC per m2 of land
   ug_dispersed_C = 0.0   ; ug_dispersed_N = 0.0
   ug_transported_C = 0.0 ; ug_transported_N = 0.0
-  if (do_seed_transport) then
+  if (seed_transport_option/=SEED_TRANSPORT_NONE) then
      ce = first_elmt(land_tile_map, lnd%ls); k = 1
      do while (loop_over_tiles(ce,tile,l)) ! l is the grid cell index in unstructured grid
         if (.not.associated(tile%vegn)) cycle
@@ -2502,8 +2509,22 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
      enddo
      ! diffuse the seeds
      do s = 0,nspecies-1
-        call transport_seeds(ug_transported_C(:,s))
-        call transport_seeds(ug_transported_N(:,s))
+!         if(do_check_conservation) then
+!            btot0 = sum(ug_transported_C(:,s)*lnd%ug_area); call mpp_sum(btot0)
+!            ntot0 = sum(ug_transported_N(:,s)*lnd%ug_area); call mpp_sum(ntot0)
+!         endif
+        call transport_seeds(seed_transport_option, ug_transported_C(:,s))
+        call transport_seeds(seed_transport_option, ug_transported_N(:,s))
+!         if (do_check_conservation) then
+!            btot1 = sum(ug_transported_C(:,s)*lnd%ug_area); call mpp_sum(btot1)
+!            ntot1 = sum(ug_transported_N(:,s)*lnd%ug_area); call mpp_sum(ntot1)
+!            if (mpp_pe()==mpp_root_pe()) then
+!               call check_conservation ('transport_seeds','total carbon', &
+!                    btot0/tot_area_land, btot1/tot_area_land, carbon_cons_tol, severity=FATAL)
+!               call check_conservation ('transport_seeds','total nitrogen', &
+!                    ntot0/tot_area_land, ntot1/tot_area_land, nitrogen_cons_tol, severity=FATAL)
+!            endif
+!         end if
      enddo
   endif
 
@@ -2549,9 +2570,9 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
      call mpp_sum(btot1) ; call mpp_sum(ntot1)
      if (mpp_pe()==mpp_root_pe()) then
         call check_conservation ('vegn_reproduction_ppa','total carbon', &
-             btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
+             btot0/tot_area_land, btot1/tot_area_land, carbon_cons_tol, severity=FATAL)
         call check_conservation ('vegn_reproduction_ppa','total nitrogen', &
-             ntot0/atot, ntot1/atot, nitrogen_cons_tol, severity=FATAL)
+             ntot0/tot_area_land, ntot1/tot_area_land, nitrogen_cons_tol, severity=FATAL)
      endif
   end if
   ! - conservation check part 2
@@ -2562,7 +2583,25 @@ end subroutine vegn_reproduction_ppa
 ! =======================================================================================
 ! Given the amount seeds undergoing transport (kg per m2 of land), on unstructured grid,
 ! updates it to take into account transport among grid cells.
-subroutine transport_seeds(ug_bseed)
+subroutine transport_seeds(seed_transport_option, ug_bseed)
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
+       ! grid, kg per m2 of land
+  integer, intent(in) :: seed_transport_option
+
+  select case (seed_transport_option)
+  case (SEED_TRANSPORT_DIFFUSE)
+     call diffuse_seeds(ug_bseed)
+  case (SEED_TRANSPORT_SPREAD)
+     call spread_seeds(ug_bseed)
+  case default
+     call error_mesg('transport_seeds', &
+       'seed_transport_option is invalid in this subroutine, this should never happen; contact developer.', FATAL)
+  end select
+end subroutine transport_seeds
+
+! =======================================================================================
+! transports seeds by horizontal-diffusion-like process
+subroutine diffuse_seeds(ug_bseed)
   real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
        ! grid, kg per m2 of land
 
@@ -2570,17 +2609,11 @@ subroutine transport_seeds(ug_bseed)
   real :: tend    (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
   integer :: i,j,ii,jj
 
-  real :: btot0, btot1 ! total carbon, for conservation check only
-
   real, parameter :: kernel(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
       0.0,  0.25, 0.0,  &
       0.25, 0.0,  0.25, &
       0.0,  0.25, 0.0   ],[3,3] )
 
-  if(do_check_conservation) then
-     btot0 = sum(ug_bseed*lnd%ug_area)
-     call mpp_sum(btot0)
-  endif
   ! move dispersed seeds to structured grid
   sg_bseed = 0.0
   call mpp_pass_UG_to_SG(lnd%ug_domain,ug_bseed*lnd%ug_area,sg_bseed)
@@ -2617,14 +2650,24 @@ subroutine transport_seeds(ug_bseed)
   ! renormalize seed amount from total to kg C per unit land area
   ug_bseed(:) = ug_bseed(:)/lnd%ug_area(:)
 
-  if (do_check_conservation) then
-     btot1 = sum(ug_bseed*lnd%ug_area)
-     call mpp_sum(btot1)
-     if (mpp_pe()==mpp_root_pe()) then
-        call check_conservation ('transport_seeds','total carbon', &
-             btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
-     endif
-  end if
-end subroutine transport_seeds
+end subroutine diffuse_seeds
+
+! =======================================================================================
+! transports seeds by spreading them globally (uniformly) across entire soil area
+subroutine spread_seeds(ug_bseed)
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
+       ! grid, kg per m2 of land
+
+  real :: tot_seed
+  integer :: l
+
+  ! calculate total amount of seeds and total vegetated area
+  tot_seed = sum(ug_bseed*lnd%ug_area)
+  call mpp_sum(tot_seed)
+  ! distribute seeds uniformly across all soil area
+  do l = lnd%ls,lnd%le
+     ug_bseed(l) = tot_seed/tot_area_soil * ug_soilfrac(l)
+  enddo
+end subroutine spread_seeds
 
 end module vegn_dynamics_mod

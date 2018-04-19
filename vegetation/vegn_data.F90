@@ -70,6 +70,11 @@ integer, public, parameter :: & ! status of leaves
  LEAF_ON      = 0, &  ! leaves are displayed
  LEAF_OFF     = 5     ! leaves are dropped
 
+integer, public, parameter :: &
+ SEED_TRANSPORT_NONE    = 0, & ! no seed transport
+ SEED_TRANSPORT_SPREAD  = 1, & ! seed transport by uniform global spread
+ SEED_TRANSPORT_DIFFUSE = 2    ! seed transport by diffusion-like process
+
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
@@ -103,12 +108,12 @@ real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calcula
 real, public, parameter :: C2N_SEED = 50 ! seed C:N ratio
 
 integer, public, parameter :: & ! NSC target calculation options
-  NSC_TARGET_FROM_BLMAX = 1, &  ! from max biomass of leaves, like in Ensheng's paper
+  NSC_TARGET_FROM_BLMAX        = 1, &  ! from max biomass of leaves, like in Ensheng's paper
   NSC_TARGET_FROM_CANOPY_BLMAX = 2, &  ! from max biomass of leaves of canopy trees
-   ! This is to make sure that NSC target does not jumps suddenly when trees go in and 
-   ! out of canppy layer
-  NSC_TARGET_FROM_BSW   = 3     ! form sapwood biomass
-  
+       ! This is to make sure that NSC target does not jumps suddenly when trees go in and
+       ! out of canppy layer
+  NSC_TARGET_FROM_BSW          = 3     ! form sapwood biomass
+
 ! ---- public data
 integer, public :: nspecies ! total number of species
 public :: &
@@ -141,7 +146,7 @@ public :: &
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
-integer :: nsc_target_option = -1 
+integer :: nsc_target_option = -1
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -589,7 +594,7 @@ subroutine read_vegn_data_namelist()
      nsc_target_option = NSC_TARGET_FROM_BSW
   else
      call error_mesg('vegn_data_read_namleist', 'option nsc_target_to_use="'// &
-          trim(nsc_target_to_use)//'" is invalid, use "from_blmax" or "from-bsw"', FATAL)
+          trim(nsc_target_to_use)//'" is invalid, use "from-blmax", "from-canopy-blmax" or "from-bsw"', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &

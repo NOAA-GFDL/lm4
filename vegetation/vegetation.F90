@@ -9,7 +9,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
-                   close_file, check_nml_error, stdlog, string
+     close_file, check_nml_error, stdlog, string, lowercase
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
@@ -51,6 +51,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
+     SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer,C2N_SEED, N_limits_live_biomass
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
@@ -153,8 +154,8 @@ real    :: init_cohort_nsn_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSN, as
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 logical :: do_intercept_melt  = .FALSE. ! if true, calculate phase changes of intercepted
-   ! water/snow. USE WITH EXTREME CAUTION (or better never use it): it is known to fix Tv 
-   ! at freezing point for long periods of time. See more details in vegn_step_2 and in 
+   ! water/snow. USE WITH EXTREME CAUTION (or better never use it): it is known to fix Tv
+   ! at freezing point for long periods of time. See more details in vegn_step_2 and in
    ! timestepping note.
 
 logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
@@ -169,15 +170,15 @@ real :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter
                                       ! in the drought-deciduous phenology
 logical :: xwilt_available      = .TRUE.
 logical :: do_biogeography      = .TRUE.
-logical :: do_seed_transport    = .TRUE.
+character(32) :: seed_transport_to_use = 'spread' ! or 'none', or 'diffuse'
 real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics, kg/m2:
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
    ! evaporation in one time step.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
-real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for 
-   ! dormancy calculations, day. Zero turns off smoothing: average temperature from 
+real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
+   ! dormancy calculations, day. Zero turns off smoothing: average temperature from
    ! will be used previous day
 real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
 real :: rav_lit_vi        = 0.0 ! litter resistance to vapor per LAI+SAI
@@ -200,7 +201,7 @@ namelist /vegn_nml/ &
     allow_external_gaps, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
-    do_biogeography, do_seed_transport, &
+    do_biogeography, seed_transport_to_use, &
     min_Wl, min_Ws, tau_smooth_ncm, tau_smooth_T_dorm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
     do_peat_redistribution, do_intercept_melt
@@ -212,6 +213,7 @@ real    :: delta_time      ! fast time step
 real    :: dt_fast_yr      ! fast time step in years
 real    :: steps_per_day   ! number of fast time steps per day
 real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
+integer :: seed_transport_option = -1 ! type of requested seed transport algorithm
 
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height_ave, &
@@ -286,6 +288,23 @@ subroutine read_vegn_namelist()
 
   unit=stdlog()
 
+  ! parse seed transport option
+  if (trim(lowercase(seed_transport_to_use))=='none') then
+     seed_transport_option = SEED_TRANSPORT_NONE
+  else if (trim(lowercase(seed_transport_to_use))=='spread') then
+     seed_transport_option = SEED_TRANSPORT_SPREAD
+  else if (trim(lowercase(seed_transport_to_use))=='diffuse') then
+     seed_transport_option = SEED_TRANSPORT_DIFFUSE
+  else
+     call error_mesg('read_vegn_namleist', 'option seed_transport_to_use="'// &
+          trim(seed_transport_to_use)//'" is invalid, use "none","spread", or "diffuse"', FATAL)
+  end if
+
+  if (.not.do_ppa.and.seed_transport_option==SEED_TRANSPORT_DIFFUSE) then
+     call error_mesg('read_vegn_namleist', 'option seed_transport_to_use="'// &
+          trim(seed_transport_to_use)//'" is only valid in PPA mode.', FATAL)
+  endif
+
   ! switch off vegetation dynamics if static vegetation is set
   if (use_static_veg) then
      call error_mesg('vegn_init', &
@@ -295,7 +314,7 @@ subroutine read_vegn_namelist()
      do_patch_disturbance = .FALSE.
      do_phenology         = .FALSE.
      do_biogeography      = .FALSE.
-     do_seed_transport    = .FALSE.
+     seed_transport_option  = SEED_TRANSPORT_NONE
   endif
 
   if (mpp_pe() == mpp_root_pe()) then
@@ -1916,7 +1935,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_DanDlai, diag, cc(:), An_newleaf(:), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_PAR_dn,  diag, cc(:), SWdn(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_PAR_net, diag, cc(:), RSv(:,BAND_VIS), weight=cc(:)%layerfrac, op=OP_SUM)
-  
+
   call send_cohort_data(id_T_inhib_P, diag, cc(:), T_inhib_P(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
   call send_cohort_data(id_T_inhib_R, diag, cc(:), T_inhib_R(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
   call send_cohort_data(id_Ag_uninhib, diag, cc(:), Ag_uninhib(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
@@ -2834,10 +2853,10 @@ subroutine update_vegn_slow( )
 
   if (do_ppa.and.year1 /= year0) then
     if (do_ppa) then
-       call vegn_reproduction_ppa(do_seed_transport) ! includes seed transport.
+       call vegn_reproduction_ppa(seed_transport_option) ! includes seed transport.
     else
        ! seed transport in lm3
-       call vegn_seed_transport_lm3()
+       call vegn_seed_transport_lm3(seed_transport_option)
     endif
   endif
 
@@ -2868,7 +2887,8 @@ end subroutine update_vegn_slow
 
 
 ! ============================================================================
-subroutine vegn_seed_transport_lm3()
+subroutine vegn_seed_transport_lm3(seed_transport_option)
+  integer :: seed_transport_option
 
   ! local vars
   type(land_tile_enum_type) :: ce
@@ -2878,6 +2898,8 @@ subroutine vegn_seed_transport_lm3()
   real :: total_seed_demand, total_seed_N_demand
   real :: f_supply, f_supply_N ! fraction of the supply that gets spent
   real :: f_demand, f_demand_N ! fraction of the demand that gets satisfied
+
+  if (seed_transport_option==SEED_TRANSPORT_NONE) return ! do nothing
 
   total_seed_supply = 0.0; total_seed_demand = 0.0; total_seed_N_supply = 0.0
   ce = first_elmt(land_tile_map, lnd%ls)
