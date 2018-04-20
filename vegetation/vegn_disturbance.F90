@@ -441,6 +441,27 @@ subroutine vegn_nat_mortality_ppa ( )
            call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, t0%vegn%t_cold, &
                 treeline_T, t0%vegn%treeline_N_accum, ndead(k))
         enddo
+        if (is_watch_point()) then
+           write(*,*)'##### vegn_nat_mortalty_ppa #####'
+           call dpri('frac',t0%frac)
+           call dpri('coldest_month_T',t0%vegn%t_cold)
+           call dpri('treeline_T',treeline_T)
+           call dpri('treeline_season',t0%vegn%treeline_N_accum)
+           write(*,*)
+           do k = 1,t0%vegn%n_cohorts
+              associate(cc=>t0%vegn%cohorts(k),sp=>spdata(t0%vegn%cohorts(k)%species))
+              write(*,'(i2.2," L ",i2.2,2x,a12)',advance='NO') k, cc%layer, spdata(cc%species)%name
+              write(*,'(99(2x,a,g11.4))') &
+                  'nindivs',cc%nindivs, &
+                  'ndead',ndead(k), &
+                  'DBH',cc%DBH, &
+                  'H',cc%height, &
+                  'Carea',cc%crownarea, &
+                  'frac',cc%layerfrac, &
+                  'LAI',cc%lai
+              end associate
+           enddo
+        endif
         ! reset treeline_T_accum and treeline_N_accum for the next year
         t0%vegn%treeline_T_accum = 0.0; t0%vegn%treeline_N_accum = 0
         ! given death numbers for each cohort, update tile
