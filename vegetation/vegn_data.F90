@@ -75,6 +75,12 @@ integer, public, parameter :: &
  SEED_TRANSPORT_SPREAD  = 1, & ! seed transport by uniform global spread
  SEED_TRANSPORT_DIFFUSE = 2    ! seed transport by diffusion-like process
 
+integer, public, parameter :: &
+ SNOW_MASKING_NONE   = 0, &
+ SNOW_MASKING_LM3    = 1, &
+ SNOW_MASKING_MCM    = 3, &
+ SNOW_MASKING_HEIGHT = 4
+
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
@@ -118,8 +124,7 @@ integer, public, parameter :: & ! NSC target calculation options
 integer, public :: nspecies ! total number of species
 public :: &
     vegn_to_use,  input_cover_types, &
-    mcv_min, mcv_lai, &
-    use_bucket, use_mcm_masking, vegn_index_constant, &
+    mcv_min, mcv_lai, use_bucket, vegn_index_constant, &
     critical_root_density, &
     spdata, &
     min_cosz, &
@@ -128,7 +133,9 @@ public :: &
     GR_factor, tg_c3_thresh, T_cold_tropical, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     T_transp_min, soil_carbon_depth_scale, &
-    cold_month_threshold, scnd_biomass_bins, sai_cover, sai_rad, sai_rad_nosnow, min_lai, &
+    cold_month_threshold, scnd_biomass_bins, &
+    sai_cover, snow_masking_option, &
+    sai_rad, sai_rad_nosnow, min_lai, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, min_cohort_nindivs, &
@@ -147,6 +154,7 @@ logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
 integer :: nsc_target_option = -1
+integer :: snow_masking_option = -1
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -250,6 +258,8 @@ type spec_data_type
   real    :: dat_root_zeta    = 0.28909
   real    :: dat_rs_min       = 131.0
   real    :: dat_snow_crit    = 0.0333
+  real    :: snow_crit_height_factor  = 0.5 ! conversion factor from vegetation height
+     ! to snow_crit for cover calculations, unitless
   !  for PPA, Weng, 7/25/2011
   real    :: alphaHT = 20.0,  thetaHT = 0.5, gammaHT = 0.6841742 ! height allometry parameters
   real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area allometry parameters
@@ -407,7 +417,6 @@ type(spec_data_type), allocatable :: spdata(:)
 
 ! ---- namelist --------------------------------------------------------------
 logical :: use_bucket = .false.
-logical :: use_mcm_masking = .false.
 real    :: mcv_min = 5.   * 4218.
 real    :: mcv_lai = 0.15 * 4218.
 
@@ -459,6 +468,8 @@ real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, yea
 
 logical, protected :: sai_cover = .FALSE. ! if true, SAI is taken into account in vegetation
     ! cover calculations
+character(16) :: snow_masking_to_use = 'lm3' ! or 'none', or 'mcm', or 'height-dependent' --
+    ! type of snow masking used for cohorts cover calculations
 logical, protected :: sai_rad   = .FALSE. ! if true, SAI is taken into account in
     ! calculation of canopy radiative properties
 logical, protected :: sai_rad_nosnow = .FALSE. ! if true, it is assumed in radiation
@@ -518,7 +529,7 @@ logical :: N_fix_Tdep_Houlton = .FALSE.
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
-  use_bucket, use_mcm_masking, vegn_index_constant, &
+  use_bucket, vegn_index_constant, &
   critical_root_density, &
   min_cosz, &
   soil_carbon_depth_scale, cold_month_threshold, &
@@ -529,8 +540,7 @@ namelist /vegn_data_nml/ &
   T_transp_min, &
   phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
-  scnd_biomass_bins, sai_rad, sai_rad_nosnow, sai_cover, min_lai, &
-
+  scnd_biomass_bins, sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai, &
   ! PPA-related namelist values
   do_ppa, &
   cmc_eps, &
@@ -595,6 +605,20 @@ subroutine read_vegn_data_namelist()
   else
      call error_mesg('vegn_data_read_namleist', 'option nsc_target_to_use="'// &
           trim(nsc_target_to_use)//'" is invalid, use "from-blmax", "from-canopy-blmax" or "from-bsw"', FATAL)
+  endif
+
+  ! parse snow masking options
+  if (trim(lowercase(snow_masking_to_use))=='none') then
+     snow_masking_option = SNOW_MASKING_NONE
+  else if (trim(lowercase(snow_masking_to_use))=='lm3') then
+     snow_masking_option = SNOW_MASKING_LM3
+  else if (trim(lowercase(snow_masking_to_use))=='mcm') then
+     snow_masking_option = SNOW_MASKING_MCM
+  else if (trim(lowercase(snow_masking_to_use))=='height-dependent') then
+     snow_masking_option = SNOW_MASKING_HEIGHT
+  else
+     call error_mesg('read_vegn_namleist', 'option snow_masking_to_use="'// &
+          trim(snow_masking_to_use)//'" is invalid, use "none","MCM", "LM3", or "height"', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
@@ -898,6 +922,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(dat_root_zeta)
   __GET_SPDATA_REAL__(dat_rs_min)
   __GET_SPDATA_REAL__(dat_snow_crit)
+  __GET_SPDATA_REAL__(snow_crit_height_factor)
 
   !  for PPA, Weng, 7/25/2011
   __GET_SPDATA_REAL__(alphaHT)
@@ -1394,6 +1419,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'dat_root_zeta',    spdata(idx)%dat_root_zeta)
   call add_row(table, 'dat_rs_min',       spdata(idx)%dat_rs_min)
   call add_row(table, 'dat_snow_crit',    spdata(idx)%dat_snow_crit)
+  call add_row(table, 'snow_crit_height_factor',  spdata(idx)%snow_crit_height_factor)
 
   call print(table,unit,head_width=32)
   deallocate(idx)

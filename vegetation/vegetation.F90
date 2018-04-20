@@ -52,7 +52,8 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     c2n_N_fixer,C2N_SEED, N_limits_live_biomass
+     c2n_N_fixer,C2N_SEED, N_limits_live_biomass, &
+     snow_masking_option, SNOW_MASKING_HEIGHT
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -189,6 +190,7 @@ real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
 logical :: do_peat_redistribution = .FALSE.
 
+
 namelist /vegn_nml/ &
     init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
@@ -299,7 +301,6 @@ subroutine read_vegn_namelist()
      call error_mesg('read_vegn_namleist', 'option seed_transport_to_use="'// &
           trim(seed_transport_to_use)//'" is invalid, use "none","spread", or "diffuse"', FATAL)
   end if
-
   if (.not.do_ppa.and.seed_transport_option==SEED_TRANSPORT_DIFFUSE) then
      call error_mesg('read_vegn_namleist', 'option seed_transport_to_use="'// &
           trim(seed_transport_to_use)//'" is only valid in PPA mode.', FATAL)
@@ -2335,7 +2336,12 @@ subroutine update_derived_vegn_data(vegn)
     cc%leaf_refl     = spdata(sp)%leaf_refl
     cc%leaf_tran     = spdata(sp)%leaf_tran
     cc%leaf_emis     = spdata(sp)%leaf_emis
-    cc%snow_crit     = spdata(sp)%dat_snow_crit
+    select case (snow_masking_option)
+    case (SNOW_MASKING_HEIGHT)
+       cc%snow_crit  = spdata(sp)%snow_crit_height_factor*cc%height
+    case default
+       cc%snow_crit  = spdata(sp)%dat_snow_crit
+    end select
 
     ! the following variables are per individual
     cc%Wl_max        = spdata(sp)%cmc_lai*cc%leafarea

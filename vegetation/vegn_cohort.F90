@@ -6,13 +6,15 @@ use constants_mod, only: PI
 
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
-   use_mcm_masking, use_bucket, critical_root_density, &
+   use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
    phen_ev1, phen_ev2, cmc_eps, sai_cover, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
-   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel
+   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+   snow_masking_option, &
+   SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
 use soil_tile_mod, only : max_lev
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 use fms_mod, only : error_mesg, FATAL
@@ -330,10 +332,6 @@ end subroutine get_vegn_wet_frac
 ! ============================================================================
 ! given cohort and snow depth, calculates the cover (1-fraction of gaps), and
 ! snow factor for radiation
-! TODO: we probably need to revise the snow correction, because currently it
-! does not take into account the height of the cohort, and therefore will
-! be the same for all cohorts (of the same species). snow_crit doesn't
-! depend on height, it's just prescribed (per species)
 subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
                                          vegn_cover_snow_factor )
   type(vegn_cohort_type), intent(inout)  :: cohort
@@ -341,25 +339,30 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   real, intent(out), optional :: vegn_cover
   real, intent(out), optional :: vegn_cover_snow_factor
 
+  real :: f
+
   if(sai_cover) then
      cohort%cover = 1 - exp(-max(cohort%lai, cohort%sai))
   else
      cohort%cover = 1 - exp(-cohort%lai)
   endif
-  if (use_mcm_masking) then
-     if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor =  &
-           (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
+
+  select case(snow_masking_option)
+  case (SNOW_MASKING_MCM)
+     f = 1 - min(1.0, 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit))
      cohort%cover = cohort%cover * &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
-  else
-     if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor =  &
-           cohort%snow_crit / &
-          (max(snow_depth,0.0) + cohort%snow_crit)
+  case (SNOW_MASKING_LM3, SNOW_MASKING_HEIGHT)
+     f = cohort%snow_crit / (max(snow_depth,0.0) + cohort%snow_crit)
      cohort%cover = cohort%cover * &
            cohort%snow_crit / &
           (max(snow_depth,0.0) + cohort%snow_crit)
-  endif
+  case (SNOW_MASKING_NONE)
+     f = 1.0
+  end select
+
   if (present(vegn_cover)) vegn_cover = cohort%cover
+  if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor = f
 end subroutine vegn_data_cover
 
 
