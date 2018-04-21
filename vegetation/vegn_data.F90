@@ -610,15 +610,15 @@ subroutine read_vegn_data_namelist()
   ! parse snow masking options
   if (trim(lowercase(snow_masking_to_use))=='none') then
      snow_masking_option = SNOW_MASKING_NONE
-  else if (trim(lowercase(snow_masking_to_use))=='lm3') then
-     snow_masking_option = SNOW_MASKING_LM3
   else if (trim(lowercase(snow_masking_to_use))=='mcm') then
      snow_masking_option = SNOW_MASKING_MCM
-  else if (trim(lowercase(snow_masking_to_use))=='height-dependent') then
+  else if (trim(lowercase(snow_masking_to_use))=='lm3') then
+     snow_masking_option = SNOW_MASKING_LM3
+  else if (trim(lowercase(snow_masking_to_use))=='lm3(height)') then
      snow_masking_option = SNOW_MASKING_HEIGHT
   else
      call error_mesg('read_vegn_namleist', 'option snow_masking_to_use="'// &
-          trim(snow_masking_to_use)//'" is invalid, use "none","MCM", "LM3", or "height"', FATAL)
+          trim(snow_masking_to_use)//'" is invalid, use "none","MCM", "LM3", or "LM3(height)"', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &

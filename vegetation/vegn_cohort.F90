@@ -350,16 +350,12 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   select case(snow_masking_option)
   case (SNOW_MASKING_MCM)
      f = 1 - min(1.0, 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit))
-     cohort%cover = cohort%cover * &
-           (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
   case (SNOW_MASKING_LM3, SNOW_MASKING_HEIGHT)
      f = cohort%snow_crit / (max(snow_depth,0.0) + cohort%snow_crit)
-     cohort%cover = cohort%cover * &
-           cohort%snow_crit / &
-          (max(snow_depth,0.0) + cohort%snow_crit)
   case (SNOW_MASKING_NONE)
      f = 1.0
   end select
+  cohort%cover = cohort%cover * f
 
   if (present(vegn_cover)) vegn_cover = cohort%cover
   if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor = f
