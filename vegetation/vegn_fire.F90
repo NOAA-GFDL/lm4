@@ -2442,6 +2442,7 @@ subroutine vegn_burn_ppa(tile)
   ! local vars
   real :: BF ! burned fraction, shortcut for convenience
   real :: CC_litter ! combustion completeness of litter
+  real :: CC_gross ! combustion completeness of wood/sapwood, taking into account above-ground fraction
   real :: cover ! weight for combustion completeness averaging
   real, dimension(N_C_TYPES) :: burned_C_1, burned_C_2, burned_N_1, burned_N_2
   real :: burned_C_3, burned_N_3, burned_C, burned_N
@@ -2515,22 +2516,25 @@ subroutine vegn_burn_ppa(tile)
   do k = ms,me
      associate (sp=>spdata(cc(k)%species))
      cc(k)%nindivs = BF*cc(k)%nindivs
+     CC_gross = sp%CC_stem * agf_bs ! only agf_bs fraction of wood and sapwood is above ground,
+       ! so gross combustion completion must be reduced but that fraction
 
      burned_C = burned_C + ( &
                  sp%CC_leaf * (cc(k)%bl + cc(k)%bseed) + &
-                 sp%CC_stem * (cc(k)%bsw + cc(k)%bwood) &
+                 CC_gross   * (cc(k)%bsw + cc(k)%bwood) &
                  ) * cc(k)%nindivs
      burned_N = burned_N + ( &
                  sp%CC_leaf * (cc(k)%leaf_N + cc(k)%seed_N) + &
-                 sp%CC_stem * (cc(k)%sapwood_N + cc(k)%wood_N) &
+                 CC_gross   * (cc(k)%sapwood_N + cc(k)%wood_N) &
                  ) * cc(k)%nindivs
 
      cc(k)%bl    = (1-sp%CC_leaf) * cc(k)%bl    ; cc(k)%leaf_N = (1-sp%CC_leaf) * cc(k)%leaf_N
      cc(k)%bseed = (1-sp%CC_leaf) * cc(k)%bseed ; cc(k)%seed_N = (1-sp%CC_leaf) * cc(k)%seed_N
 
-     cc(k)%bsw   = (1-sp%CC_stem) * cc(k)%bsw   ; cc(k)%sapwood_N = (1-sp%CC_stem) * cc(k)%sapwood_N
+     cc(k)%bsw   = (1-CC_gross) * cc(k)%bsw     ; cc(k)%sapwood_N = (1-CC_gross) * cc(k)%sapwood_N
      cc(k)%brsw  = (1-sp%CC_stem) * cc(k)%brsw ! reduce brsw to keep it within [0,bsw] limits
-     cc(k)%bwood = (1-sp%CC_stem) * cc(k)%bwood ; cc(k)%wood_N = (1-sp%CC_stem) * cc(k)%wood_N
+        ! note that all branches are above ground, so their combustion is not reduced by agf_bs
+     cc(k)%bwood = (1-CC_gross) * cc(k)%bwood   ; cc(k)%wood_N = (1-CC_gross) * cc(k)%wood_N
      ! not burning roots or nsc
 
      ! fire mortality; we use stem fire mortality parameter to represent the plant mortality.
@@ -2612,6 +2616,9 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      fireMort_stem = fireMort_TROPSHRSAV_stem
      fireMort_root = fireMort_TROPSHRSAV_root
   endif
+  ! in the model only agf_bs part of wood and sapwood are above ground, so total combustion
+  ! completion must be reduced to get the right amount of released carbon/nitrogen
+  CC_stem = CC_stem * agf_bs
 
   burned_frac = vegn%burned_frac
 
