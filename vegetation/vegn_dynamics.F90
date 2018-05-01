@@ -1768,7 +1768,8 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
      leaf_root_gr = G_LFR*days_per_year ! conversion from kgC/day to kgC/year
      sw_seed_gr = (G_WF+delta_bsw_branch )*sp%GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
 
-     call check_var_range(cc%nsc,-1e-16,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
+     if(cc%nindivs>0) &
+         call check_var_range(cc%nsc,-1e-15,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*sp%GROWTH_RESP ! this is for growth respiration to come from nsc
