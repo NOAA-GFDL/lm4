@@ -29,7 +29,7 @@ real, public :: canopy_air_mass_for_tracers = 0.0 ! mass of wet air in the canop
 ! tightly coupled with the heat capacity of the canopy air and therefore with
 ! the equations for heat. We assume that other tracers do not contribute to
 ! the heat capacity of the canopy air.
-real, public :: cpw = 1952.0 ! specific heat of water vapor at constant pressure, J/(kg K)
+real, public :: cpw             = 1952.0 ! specific heat of water vapor at constant pressure, J/(kg K)
 ! ==== end of public interfaces ==============================================
 interface new_cana_tile
    module procedure cana_tile_ctor

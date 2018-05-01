@@ -3,6 +3,8 @@
 ! ============================================================================
 module snow_mod
 
+#include "../shared/debug.inc"
+
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 #else
@@ -37,9 +39,8 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
+public :: snow_get_sfc_temp
 public :: snow_get_depth_area
-public :: snow_sfc_water
-public :: sweep_tiny_snow
 public :: snow_step_1
 public :: snow_step_2
 ! =====end of public interfaces ==============================================
@@ -63,15 +64,11 @@ real :: init_temp = 260.   ! cold-start snow T
 real :: init_pack_ws   =   0.
 real :: init_pack_wl   =   0.
 real :: min_snow_mass = 0.
-logical :: prevent_tiny_snow = .FALSE. ! if true, tiny snow is removed at the 
-   ! beginning of fast time step to avoid numerical issues. There is no harm
-   ! in doing that, but it changes answers, so for compatibility with older code 
-   ! turn it off.
 
 namelist /snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
                     max_snow, wet_max, snow_density, &
                     init_temp, init_pack_ws, init_pack_wl, &
-                    min_snow_mass, prevent_tiny_snow
+                    min_snow_mass
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -213,6 +210,15 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
 end subroutine save_snow_restart
 
 ! ============================================================================
+subroutine snow_get_sfc_temp(snow, snow_T)
+  type(snow_tile_type), intent(in) :: snow
+  real, intent(out) :: snow_T
+
+  snow_T = snow%T(1)
+end subroutine
+
+
+! ============================================================================
 subroutine snow_get_depth_area(snow, snow_depth, snow_area)
   type(snow_tile_type), intent(in) :: snow
   real, intent(out) :: snow_depth, snow_area
@@ -229,42 +235,19 @@ end subroutine
 
 
 ! ============================================================================
-! if snow amount is below specified limit, sweeps it into runoff
-subroutine sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf)
-  type(snow_tile_type), intent(inout) :: snow
-  real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
-
-  real :: snow_mass
-  integer :: l
-
-  lrunf=0 ; frunf=0 ; hlrunf=0 ; hfrunf=0
-  if (.not.prevent_tiny_snow) return ! do nothing, return zeros
-
-  snow_mass  = sum(snow%ws)
-  ! check if the snow is small enough to warrant sweeping
-  if ( snow_mass<0 .or. snow_mass >= min_snow_mass ) return
-
-  lrunf  = sum(snow%wl) ; frunf  = snow_mass
-  hlrunf = 0.0 ; hfrunf = 0.0
-  do l = 1, num_l
-     hlrunf = hlrunf + clw*snow%wl(l)*(snow%T(l)-tfreeze)
-     hfrunf = hfrunf + csw*snow%ws(l)*(snow%T(l)-tfreeze)
-  enddo
-  snow%ws = 0 ; snow%wl = 0
-end subroutine sweep_tiny_snow
-
-! ============================================================================
 ! update snow properties explicitly for time step.
 ! integrate snow-heat conduction equation upward from bottom of snow
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_rh, &
-                         snow_area, snow_G0, snow_DGDT )
+                         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+                         snow_subl, snow_area, snow_G0, snow_DGDT )
   type(snow_tile_type), intent(inout) :: snow
   real,                 intent(in) :: snow_G_Z
   real,                 intent(in) :: snow_G_TZ
+  logical,              intent(out):: snow_active
   real,                 intent(out):: &
-       snow_rh, snow_area, snow_G0, snow_DGDT
+       snow_T, snow_rh, snow_liq, snow_ice, &
+       snow_subl, snow_area, snow_G0, snow_DGDT
 
   ! ---- local vars
   real :: snow_depth, bbb, denom, dt_e
@@ -276,6 +259,9 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
+  snow_T = tfreeze
+  snow_T = snow%T(1)
+
   call snow_data_thermodynamics ( snow_rh, thermal_cond )
   snow_depth= 0.0
   do l = 1, num_l
@@ -283,6 +269,25 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   enddo
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
+  ! ---- only liquid in the top snow layer is available to freeze implicitly
+  snow_liq =     snow%wl(1)
+  ! ---- snow in any layer can be melted implicitly
+  snow_ice = sum(snow%ws(:))
+
+! ---- fractionate evaporation/sublimation according to sfc phase ratios
+!  where (max(snow%ws(1),0.)+max(snow%wl(1),0.)>0)
+!      snow_subl = max(snow%ws(1),0.) &
+!       /(max(snow%ws(1),0.)+max(snow%wl(1),0.))
+!    elsewhere
+!      snow_subl = 0
+!    endwhere
+!  snow_active = snow_subl>0.
+  if (snow_depth>0) then
+     snow_subl = 1.
+  else
+     snow_subl = 0
+  endif
+  snow_active = snow_subl>0.
 
   do l = 1, num_l
      dz_phys(l) = dz(l)*snow_depth
@@ -345,7 +350,11 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
      write(*,*) 'snow_depth', snow_depth
      write(*,*) '############ snow_step_1 output'
      write(*,*) 'mask      ', .true.
+     write(*,*) 'snow_T    ', snow_T
      write(*,*) 'snow_rh   ', snow_rh
+     write(*,*) 'snow_liq  ', snow_liq
+     write(*,*) 'snow_ice  ', snow_ice
+     write(*,*) 'snow_subl ', snow_subl
      write(*,*) 'snow_area ', snow_area
      write(*,*) 'snow_G_Z  ', snow_G_Z
      write(*,*) 'snow_G_TZ ', snow_G_TZ
@@ -359,7 +368,7 @@ end subroutine snow_step_1
 
 ! ============================================================================
 ! apply boundary flows to snow water and move snow water vertically.
-  subroutine snow_step_2 ( snow,                     &
+  subroutine snow_step_2 ( snow, snow_subl,                     &
                            vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
                            DTg,  Mg_imp,  evapg,  fswg,  flwg,  sensg,  &
                            use_tfreeze_in_grnd_latent, subs_DT, &
@@ -371,7 +380,7 @@ end subroutine snow_step_1
                            snow_avrg_T )
   type(snow_tile_type), intent(inout) :: snow
   real, intent(in) :: &
-     vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
+     snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
   real, intent(in) :: &
      DTg, Mg_imp, evapg, fswg, flwg, sensg
   logical, intent(in) :: use_tfreeze_in_grnd_latent
@@ -384,7 +393,7 @@ end subroutine snow_step_1
 
   ! ---- local vars
   real, dimension(num_l) :: del_t, M_layer
-  real :: depth, snow_subl, &
+  real :: depth, &
          cap0, dW_l, dW_s, dcap, dheat,&
          melt, melt_per_deg, drain,       &
          snow_mass, sum_liq, &
@@ -400,7 +409,6 @@ end subroutine snow_step_1
   real :: new_T(num_l)
   ! --------------------------------------------------------------------------
 
-  snow_subl = snow_subl_frac(snow)
   depth= 0.
   do l = 1, num_l
     depth = depth + snow%ws(l)
@@ -443,12 +451,11 @@ end subroutine snow_step_1
 
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 1.01 ***** '
-     write(*,*) 'LMASS         ', snow_LMASS
-     write(*,*) 'FMASS         ', snow_FMASS
-     write(*,*) 'HEAT          ', snow_HEAT
+     call print_snow_integrals(snow)
   endif
 
   ! ---- record fluxes -------------------------------------------------------
+  call get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
   if (lm2.and.steal) then
     if (snow_FMASS-Mg_imp > 0.) then
       if (evapg <= (snow_FMASS-Mg_imp)/delta_time) then
@@ -512,22 +519,7 @@ end subroutine snow_step_1
      do l = 1, num_l
         write(*,'(i2,a,g23.16)') l,' T =', snow%T(l)
      enddo
-  endif
-
-  snow_LMASS = 0; snow_FMASS = 0; snow_HEAT = 0
-  do l = 1, num_l
-        snow_LMASS = snow_LMASS + snow%wl(l)
-        snow_FMASS = snow_FMASS + snow%ws(l)
-        snow_HEAT = snow_HEAT + &
-          (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
-                                                * (snow%T(l)-tfreeze)
-  enddo
-
-  if(is_watch_point()) then
-     write(*,*) ' ***** snow_step_2 checkpoint 2.01 ***** '
-     write(*,*) 'LMASS         ', snow_LMASS
-     write(*,*) 'FMASS         ', snow_FMASS
-     write(*,*) 'HEAT          ', snow_HEAT
+     call print_snow_integrals(snow)
   endif
 
   ! ---- evaporation and sublimation -----------------------------------------
@@ -552,22 +544,7 @@ end subroutine snow_step_1
              ' ws=', snow%ws(l),&
              ' T =', snow%T(l)
      enddo
-  endif
-
-  snow_LMASS = 0; snow_FMASS = 0; snow_HEAT = 0
-  do l = 1, num_l
-        snow_LMASS = snow_LMASS + snow%wl(l)
-        snow_FMASS = snow_FMASS + snow%ws(l)
-        snow_HEAT = snow_HEAT + &
-          (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
-                                                * (snow%T(l)-tfreeze)
-  enddo
-
-  if(is_watch_point()) then
-     write(*,*) ' ***** snow_step_2 checkpoint 2.51 ***** '
-     write(*,*) 'LMASS         ', snow_LMASS
-     write(*,*) 'FMASS         ', snow_FMASS
-     write(*,*) 'HEAT          ', snow_HEAT
+     call print_snow_integrals(snow)
   endif
 
   ! ---- distribute implicit phase change downward through snow layers -------
@@ -606,22 +583,7 @@ end subroutine snow_step_1
              ' ws=', snow%ws(l),&
              '  T=', snow%T(l)
      enddo
-  endif
-
-  snow_LMASS = 0; snow_FMASS = 0; snow_HEAT = 0
-  do l = 1, num_l
-    snow_LMASS = snow_LMASS + snow%wl(l)
-    snow_FMASS = snow_FMASS + snow%ws(l)
-        snow_HEAT = snow_HEAT + &
-          (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
-                                                * (snow%T(l)-tfreeze)
-  enddo
-
-  if(is_watch_point()) then
-     write(*,*) ' ***** snow_step_2 checkpoint 3.01 ***** '
-     write(*,*) 'LMASS         ', snow_LMASS
-     write(*,*) 'FMASS         ', snow_FMASS
-     write(*,*) 'HEAT          ', snow_HEAT
+     call print_snow_integrals(snow)
   endif
 
 ! ----------------------------------------------------------------------------
@@ -700,21 +662,9 @@ end subroutine snow_step_1
   snow_lprec  = liq_rate
   snow_hlprec = hliq_rate
 
-  snow_LMASS = 0; snow_FMASS = 0; snow_HEAT = 0
-  do l = 1, num_l
-        snow_LMASS = snow_LMASS + snow%wl(l)
-        snow_FMASS = snow_FMASS + snow%ws(l)
-        snow_HEAT = snow_HEAT + &
-          (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
-                                                * (snow%T(l)-tfreeze)
-  enddo
-
-
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 4c ***** '
-     write(*,*) 'LMASS         ', snow_LMASS
-     write(*,*) 'FMASS         ', snow_FMASS
-     write(*,*) 'HEAT          ', snow_HEAT
+     call print_snow_integrals(snow)
   endif
 
 ! ---- conceptually remove fictitious mass/heat for the moment ---------------
@@ -728,14 +678,7 @@ end subroutine snow_step_1
      write(*,*) ' ***** snow_step_2 checkpoint 4d ***** '
      write(*,*) 'max_snow    ', max_snow
      write(*,*) 'snow_mass   ', snow_mass
-     do l=1, num_l
-       write(*,'(i2,3(a,g23.16))') l,&
-            ' wl=', snow%wl(l),&
-            ' ws=', snow%ws(l),&
-            '  T=', snow%T(l)
-     enddo
   endif
-
 
 ! ---- remove any isolated snow molecules (!) or sweep any excess snow from top of pack ----
 
@@ -744,50 +687,40 @@ end subroutine snow_step_1
   snow_hlrunf = 0.
   snow_hfrunf = 0.
   if (0. < snow_mass .and. snow_mass < min_snow_mass ) then
-        do l = 1, num_l
-          snow_hlrunf = snow_hlrunf  &
-            + clw*snow%wl(l)*(snow%T(l)-tfreeze)
-          snow_hfrunf = snow_hfrunf  &
-            + csw*snow%ws(l)*(snow%T(l)-tfreeze)
-        enddo
-        snow_lrunf  = sum(snow%wl)
-        snow_frunf  = snow_mass
-        snow_mass   = 0.
-        snow%ws = 0.
-        snow%wl = 0.
-        if(is_watch_point()) then
-           write(*,*) ' ***** snow_step_2 checkpoint 4e ***** '
-           write(*,*) 'snow_lrunf    ', snow_lrunf
-           write(*,*) 'snow_frunf    ', snow_frunf
-        endif
+     do l = 1, num_l
+       snow_hlrunf = snow_hlrunf  &
+         + clw*snow%wl(l)*(snow%T(l)-tfreeze)
+       snow_hfrunf = snow_hfrunf  &
+         + csw*snow%ws(l)*(snow%T(l)-tfreeze)
+       enddo
+     snow_lrunf  = sum(snow%wl)
+     snow_frunf  = snow_mass
+     snow_mass   = 0.
+     snow%ws = 0.
+     snow%wl = 0.
   else if (max_snow < snow_mass) then
-        snow_frunf  = snow_mass - max_snow
-        snow_mass  = max_snow
-        sum_sno  = 0
-        snow_transfer = 0
-        do l = 1, num_l
-          if (sum_sno + snow%ws(l) > snow_frunf) then
-              snow_transfer = snow_frunf - sum_sno
-          else
-              snow_transfer = snow%ws(l)
-          endif
-          if (snow%ws(l) > 0) then
-              frac = snow_transfer / snow%ws(l)
-          else
-              frac = 1.
-          endif
-          sum_sno  = sum_sno  + snow_transfer
-          snow_lrunf  = snow_lrunf  +     frac*snow%wl(l)
-          snow_hlrunf = snow_hlrunf + clw*frac*snow%wl(l)*(snow%T(l)-tfreeze)
-          snow_hfrunf = snow_hfrunf + csw*frac*snow%ws(l)*(snow%T(l)-tfreeze)
-          snow%ws(l) = (1-frac)*snow%ws(l)
-          snow%wl(l) = (1-frac)*snow%wl(l)
-        enddo
-        if(is_watch_point()) then
-           write(*,*) ' ***** snow_step_2 checkpoint 4f ***** '
-           write(*,*) 'snow_lrunf    ', snow_lrunf
-           write(*,*) 'snow_frunf    ', snow_frunf
+     snow_frunf  = snow_mass - max_snow
+     snow_mass  = max_snow
+     sum_sno  = 0
+     snow_transfer = 0
+     do l = 1, num_l
+        if (sum_sno + snow%ws(l) > snow_frunf) then
+           snow_transfer = snow_frunf - sum_sno
+        else
+           snow_transfer = snow%ws(l)
         endif
+        if (snow%ws(l) > 0) then
+           frac = snow_transfer / snow%ws(l)
+        else
+           frac = 1.
+        endif
+        sum_sno  = sum_sno  + snow_transfer
+        snow_lrunf  = snow_lrunf  +     frac*snow%wl(l)
+        snow_hlrunf = snow_hlrunf + clw*frac*snow%wl(l)*(snow%T(l)-tfreeze)
+        snow_hfrunf = snow_hfrunf + csw*frac*snow%ws(l)*(snow%T(l)-tfreeze)
+        snow%ws(l) = (1-frac)*snow%ws(l)
+        snow%wl(l) = (1-frac)*snow%wl(l)
+     enddo
   endif
   snow_lrunf  = snow_lrunf  / delta_time
   snow_frunf  = snow_frunf  / delta_time
@@ -805,20 +738,9 @@ end subroutine snow_step_1
      enddo
   endif
 
-  snow_LMASS = 0; snow_FMASS = 0; snow_HEAT = 0
-  do l = 1, num_l
-        snow_LMASS = snow_LMASS + snow%wl(l)
-        snow_FMASS = snow_FMASS + snow%ws(l)
-        snow_HEAT = snow_HEAT + &
-          (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
-                                                * (snow%T(l)-tfreeze)
-  enddo
-
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 5.01 ***** '
-     write(*,*) 'LMASS         ', snow_LMASS
-     write(*,*) 'FMASS         ', snow_FMASS
-     write(*,*) 'HEAT          ', snow_HEAT
+     call print_snow_integrals(snow)
   endif
 
   depth= 0.
@@ -826,7 +748,7 @@ end subroutine snow_step_1
   new_wl=0
   new_T=0
   do l = 1, num_l
-    depth = depth + snow%ws(l)
+     depth = depth + snow%ws(l)
   enddo
   depth = depth / snow_density
 
@@ -865,8 +787,9 @@ end subroutine snow_step_1
            snow%ws(l_old) = (1.-frac)*snow%ws(l_old)
            snow%wl(l_old) = (1.-frac)*snow%wl(l_old)
            if(is_watch_point()) then
-              write(*,*) 'l=',l, ' l_old=',l_old,snow_transfer,frac,&
-                   sum_sno,sum_liq, sum_heat
+              write(*,'(i2,2x,a,i2,99(2x,a,g23.16))')l,&
+                  'l_old=',l_old, 'snow_transfer=',snow_transfer,'frac=',frac,&
+                   'sum_sno=',sum_sno,'sum_liq=',sum_liq,'sum_heat=',sum_heat
            endif
         endif
 
@@ -919,16 +842,7 @@ end subroutine snow_step_1
      enddo
   endif
 
-  snow_LMASS = 0
-  snow_FMASS = 0
-  snow_HEAT = 0
-  do l = 1, num_l
-        snow_LMASS = snow_LMASS + snow%wl(l)
-        snow_FMASS = snow_FMASS + snow%ws(l)
-        snow_HEAT = snow_HEAT + &
-          (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
-                            * (snow%T(l)-tfreeze)
-  enddo
+  call get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
   snow_Tbot = snow%T(num_l)
   snow_Cbot = mc_fict*dz(num_l) &
         + clw*snow%wl(num_l) + csw*snow%ws(num_l)
@@ -946,30 +860,31 @@ end subroutine snow_step_1
 end subroutine snow_step_2
 
 ! ============================================================================
-subroutine snow_sfc_water(snow, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+subroutine get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
   type(snow_tile_type), intent(in) :: snow
-  real, intent(out) :: &
-     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
-     grnd_subl, &          ! fraction of vapor flux that sublimates
-     grnd_tf               ! freezing temperature at the surface, degK
+  real, intent(out) :: snow_LMASS, snow_FMASS, snow_HEAT
 
-  grnd_liq = snow%wl(1) ! only liquid in the top snow layer is available to freeze implicitly
-  grnd_ice = sum(snow%ws(:)) ! snow in any layer can be melted implicitly
-  if (snow_active(snow)) then
-     grnd_subl = 1.0
-  else
-     grnd_subl = 0
-  endif
-  grnd_tf = tfreeze
-end subroutine snow_sfc_water
+  integer :: l
+
+  snow_LMASS = 0; snow_FMASS = 0; snow_HEAT = 0
+  do l = 1, num_l;
+    snow_LMASS = snow_LMASS + snow%wl(l)
+    snow_FMASS = snow_FMASS + snow%ws(l)
+    snow_HEAT = snow_HEAT + &
+      (mc_fict*dz(l) + clw*snow%wl(l) + csw*snow%ws(l))  &
+                                            * (snow%T(l)-tfreeze)
+  enddo
+end subroutine get_snow_integrals
 
 ! ============================================================================
-real function snow_subl_frac(snow)
+subroutine print_snow_integrals(snow)
   type(snow_tile_type), intent(in) :: snow
 
-  snow_subl_frac = 0
-  if (snow_active(snow)) snow_subl_frac = 1.0
-end function snow_subl_frac
+  real    :: snow_LMASS, snow_FMASS, snow_HEAT
+  integer :: l
+  call get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
+  __DEBUG3__(snow_LMASS, snow_FMASS, snow_HEAT)
+end subroutine print_snow_integrals
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

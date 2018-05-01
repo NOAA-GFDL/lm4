@@ -9,7 +9,7 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      domainUG, mpp_define_unstruct_domain, mpp_get_UG_domain_tile_id, &
      mpp_get_UG_io_domain, mpp_get_UG_domain_npes, mpp_get_ug_domain_pelist, &
      mpp_get_ug_compute_domain, mpp_get_ug_domain_grid_index, mpp_pass_sg_to_ug, &
-     mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout
+     mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout, mpp_get_data_domain
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      file_exist, error_mesg, FATAL, read_data
 use fms_io_mod        , only : parse_mask_table
@@ -123,6 +123,7 @@ end type land_data_type
 ! and it is public in this module.
 type :: land_state_type
    integer :: is,ie,js,je ! compute domain boundaries
+   integer :: isd,ied,jsd,jed ! data domain boundaries
    integer :: ls,le       ! boundaries of unstructured domain
    integer :: gs,ge       ! min and max value of grid index ( j*nx+i )
    integer :: nlon,nlat   ! size of global grid
@@ -200,7 +201,6 @@ subroutine log_version(version, modname, filename, tag, unit)
   endif
   call write_version_number (trim(message)//': '//trim(version),tag,unit)
 end subroutine log_version
-
 
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table, npes_io_group)
@@ -280,7 +280,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   if(mask_table_exist) deallocate(maskmap)
 
   ! get the domain information of structured domain2D
-  call mpp_get_compute_domain(lnd%sg_domain, lnd%is,lnd%ie,lnd%js,lnd%je)
+  call mpp_get_compute_domain(lnd%sg_domain, lnd%is,  lnd%ie,  lnd%js,  lnd%je)
+  call mpp_get_data_domain   (lnd%sg_domain, lnd%isd, lnd%ied, lnd%jsd, lnd%jed)
 
   ! get the mosaic tile number for this processor: this assumes that there is only one
   ! mosaic tile per PE.
@@ -324,7 +325,7 @@ end subroutine land_data_init
 ! ============================================================================
 !   set up for unstructure domain and land state data
 subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
-  integer,          intent(in) :: npes_io_group, ntiles, nlon, nlat
+  integer, intent(in) :: npes_io_group, ntiles, nlon, nlat
 
   ! ---- local vars
   type(domainUG), pointer :: io_domain=>NULL() ! our io_domain
@@ -456,11 +457,9 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
 
 end subroutine set_land_state_ug
 
-
 ! ============================================================================
 subroutine land_data_end()
   module_is_initialized = .FALSE.
-
 end subroutine land_data_end
 
 ! ============================================================================

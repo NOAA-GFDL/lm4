@@ -262,16 +262,16 @@ contains
                 ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
                 if (lake_area.gt.0.) then
                      if (is_watch_cell()) then
-                          write(*,*) 'lake_area:', lake_area
-                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
-			  write(*,*) 'influx    :', influx
-			  write(*,*) 'influx_c(1):', influx_c(1)
-			  write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
-			  write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
-			  write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
-			  write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
+                         write(*,*) 'lake_area:', lake_area
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write(*,*) 'influx    :', influx
+                         write(*,*) 'influx_c(1):', influx_c(1)
+                         write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
+                         write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
+                         write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
+                         write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
                      endif
                      h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
                      lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
@@ -399,16 +399,16 @@ contains
                             River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
                              (River%lake_outflow(i,j)/(DENS_H2O*River%dt_slow)-Q0) &
                              /(1.+River%dt_slow*dQ_dV)
-                          else
+                        else
                             if (River%storage(i,j) .le. 0.) then
                                 dh_dQ = 0.
-                              else
+                            else
                                 dh_dQ = River%d_coef(i,j)*River%d_exp*Q0**(River%d_exp-1)
-                              endif
+                            endif
                             River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
                              (River%lake_outflow(i,j)/(DENS_H2O*River%dt_slow)-Q0) &
                              /(1.+dQ_dV*(River%dt_slow+lake_whole_area(i,j)*dh_dQ))
-                          endif
+                        endif
                       else if (algor.eq.'nonlin') then   ! assume all inflow at start of step
                         if (avail .gt. 0.) then
                             River%storage(i,j) = (avail**(1.-River%o_exp) &

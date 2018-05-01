@@ -54,7 +54,7 @@ type :: dust_data_type
    real          :: density = 2500.0 ! dust material density, kg/m3
    logical       :: do_deposition = .FALSE.
    logical       :: do_emission   = .FALSE.
-   real          :: alpha_r, alpha_s ! wet deposition parametrs for rain and snow
+   real          :: alpha_r, alpha_s ! wet deposition parameters for rain and snow
    real          :: source_fraction = 0.0 ! fraction of the source allocated to this dust tracer
 
    integer :: & ! diag field ids
@@ -112,7 +112,7 @@ integer :: id_soil_wetness, id_soil_iceness, id_dust_source, &
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 subroutine land_dust_init (id_ug, mask)
-  integer, intent(in) :: id_ug
+  integer,intent(in) :: id_ug !<Unstructured axis id.
   logical,intent(inout) :: mask(:)
 
   ! ---- local vars
@@ -370,9 +370,9 @@ end function laminar_conductance
 
 ! ==============================================================================
 subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
-     precip_l, precip_s, p_surf, ustar, con_g, con_v )
+     precip_l, precip_s, p_surf, ustar, con_g, con_v_v )
   type(land_tile_type), intent(inout) :: tile
-  integer :: l ! grid cell indices (global)
+  integer :: l ! unstructured grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
   real, intent(in) :: dfdtr  (:) ! derivatives of tracer fluxes w.r.t. concentrations
   real, intent(in) :: precip_l   ! liquid precipitation, kg/(m2 s)
@@ -380,8 +380,8 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   real, intent(in) :: p_surf     ! atmospheric pressure, N/m2
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: con_g ! aerodynamic conductance between canopy air and ground for tracers
-  real, intent(in) :: con_v ! aerodynamic conductance between canopy air and canopy for tracers
-        ! note that con_v is for entire canopy, *not* for unit leaf area
+  real, intent(in) :: con_v_v(:) ! aerodynamic conductance between canopy air and canopy for tracers
+        ! note that con_v is for entire canopy of cohort, per unit area of cohort, *not* for unit leaf area
 
   ! ---- local constants
   real , parameter :: &
@@ -392,7 +392,7 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   !           consistent with the snow density in the land model (a namelist
   !           parameter)
   ! ---- local vars
-  integer :: tr, idx
+  integer :: tr, idx, k
   real    :: rho     ! air density
   real    :: emis(n_dust_tracers)
   real    :: dq      ! canopy air dust tendency per time step
@@ -400,6 +400,7 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   real    :: ratio_r ! ratio of wet/dry volumes
   real    :: rho_wet ! wet dust particle density, kg/m3
   real    :: vdep    ! deposition velocity
+  real    :: con_v   ! total aerodynamic conductance between canopy air and canopy
   real    :: con_v_lam ! quasi-laminar layer conductance for vegetation, m/s
   real    :: con_g_lam ! quasi-laminar layer conductance for ground, m/s
   real    :: cv, cg  ! total conductances for vegetation and ground surface, m/s
@@ -424,7 +425,16 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
      mass0 = mass0 + canopy_air_mass_for_tracers*tile%cana%tr(idx)
   enddo
   ! - end of conservation check, part 1
-  
+
+  con_v = 0.0
+  if (associated(tile%vegn)) then
+     associate(cc=>tile%vegn%cohorts)
+     do k = 1, tile%vegn%n_cohorts
+        con_v = con_v + con_v_v(k)*cc(k)%layerfrac
+     enddo
+     end associate ! cc
+  endif
+
   ! calculate dust sources
   call update_dust_source(tile,l,ustar,wind10,emis)
 
@@ -443,10 +453,14 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
         ! is using the same ustar correct? ustar is value calculated for the
         ! momentum flux from the atmos, is it applicable to the laminar
         ! conductances?
+        con_v_lam = 0.0
         if (associated(tile%vegn)) then
-           con_v_lam = LAI*laminar_conductance(tile%vegn%cohorts(1)%Tv, p_surf, tile%cana%tr(isphum), ustar, rwet, rho_wet, vdep)
-        else
-           con_v_lam = 0.0
+           associate(cc=>tile%vegn%cohorts)
+           do k = 1, tile%vegn%n_cohorts
+              con_v_lam = con_v_lam + cc(k)%layerfrac*cc(k)%lai*laminar_conductance(cc(k)%Tv, p_surf, &
+                              tile%cana%tr(isphum), ustar, rwet, rho_wet, vdep)
+           enddo
+           end associate ! cc
         endif
         cv = 0.0
         if (con_v+con_v_lam > 0) cv = con_v*con_v_lam/(con_v+con_v_lam)
@@ -518,7 +532,7 @@ end subroutine update_land_dust
 ! ==============================================================================
 subroutine update_dust_source(tile, l, ustar, wind10, emis)
   type(land_tile_type), intent(inout) :: tile ! it is only "inout" because diagnostics is sent to it
-  integer :: l ! grid cell indices (global)
+  integer :: l ! unstructured grid indices 
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(inout) :: emis(:)
@@ -533,6 +547,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real :: lambda, drag
   real :: u_ts, u_thresh ! wind erosion threshold, m/s
   real :: dust_emis
+  real :: sai, lai ! values of stem an leaf area indices, respectively
   integer :: tr ! tracer index
 
   u_ts     = 100.0 ! unrealistically big value guaranteed to be above ustar
@@ -553,11 +568,11 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
           u_thresh = u_min_crop
           bareness = frac_bare_crop
        else ! NTRL or SCND
-          if ((vegn_tile_LAI(tile%vegn)<lai_thresh) .and. &
-              (vegn_tile_SAI(tile%vegn)<sai_thresh)) then
+          lai = vegn_tile_LAI(tile%vegn)
+          sai = vegn_tile_SAI(tile%vegn)  
+          if ((lai<lai_thresh) .and. (sai<sai_thresh)) then
              u_thresh=u_min
-             bareness = exp(-2.0*vegn_tile_LAI(tile%vegn)/2.0 &
-                            -10.*vegn_tile_SAI(tile%vegn))
+             bareness = exp( -2.0*lai/2.0-10.*sai)
           else
              u_thresh=u_ts
              bareness = 0.0
