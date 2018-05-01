@@ -744,7 +744,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   do l=1,size(invalid(:))
      if (invalid(l)) then
         glon(k)      = lon(l); glat(k)      = lat(l)
-        map%dst_l(k) = l+ls-1 
+        map%dst_l(k) = l+ls-1
         k = k+1
      endif
   enddo

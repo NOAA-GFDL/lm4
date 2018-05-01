@@ -26,7 +26,7 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, &
-     tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
+     tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map
 
 use land_data_mod, only  : lnd
@@ -135,7 +135,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine init_land_restart(restart,filename,tile_exists,tile_dim_length)
   type(land_restart_type), intent(out) :: restart
   character(*),            intent(in)  :: filename ! name of the file to create
-  procedure(tile_exists_func) :: tile_exists ! existence detector function:
+  procedure(tile_test_func) :: tile_exists ! existence detector function:
       ! returns true if specific tile exists (hence should be written to restart)
   integer,                 intent(in)  :: tile_dim_length ! length of the tile dimension
       ! in the output file
@@ -1181,7 +1181,7 @@ end subroutine create_tile_out_file_idx_new
 ! ============================================================================
 ! given a tile existence detection function, allocates and fills the tile index vector
 subroutine gather_tile_index(tile_exists,idx)
-  procedure(tile_exists_func) :: tile_exists   ! existence detector function:
+  procedure(tile_test_func) :: tile_exists   ! existence detector function:
          ! returns true if specific tile exists (hence should be written to restart)
   integer, allocatable,  intent(out) :: idx(:) ! rank local tile index vector
 
@@ -1210,8 +1210,8 @@ subroutine gather_tile_index(tile_exists,idx)
 end subroutine gather_tile_index
 
 ! ============================================================================
-! given compressed index, returns a pointer to the tile corresponding to this 
-! index, or NULL if the index is outside current domain, or if such tile does 
+! given compressed index, returns a pointer to the tile corresponding to this
+! index, or NULL if the index is outside current domain, or if such tile does
 ! not exist.
 subroutine get_tile_by_idx(idx,ptr)
    integer, intent(in)           :: idx ! compressed-by-gathering tile index
@@ -1720,7 +1720,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
    procedure(fptr_r0ijk)    :: fptr ! subroutine returning the pointer to the data
-   integer, intent(in)      :: index
+   integer, intent(in)      :: index ! additional argument for fptr
 
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r2d_fptr_r0ijk'
@@ -1731,7 +1731,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
    character(NF_MAX_NAME) :: idxname ! name of the index variable
    integer, allocatable :: idx(:) ! storage for compressed index
    real   , allocatable :: x1d(:) ! storage for the data
-   integer :: i,j,m,n,bufsize
+   integer :: i,j,k,m,bufsize
    integer :: varid, idxid
    integer :: start(3), count(3) ! input slab parameters
    type(land_tile_type), pointer :: tileptr ! pointer to tile
@@ -1761,10 +1761,10 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i), tileptr)
-         do m = 1,dimlen(2)
-         do n = 1,dimlen(3)
-            call fptr(tileptr, m, n, index, ptr)
-            if(associated(ptr)) ptr = x1d(i+count(1)*(m-1)+count(1)*count(2)*(n-1))
+         do k = 1,count(2)
+         do m = 1,count(3)
+            call fptr(tileptr, k, m, index, ptr)
+            if(associated(ptr)) ptr = x1d(i+count(1)*(k-1)+count(1)*count(2)*(m-1))
          enddo
          enddo
       enddo
@@ -2026,8 +2026,8 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
         call mpp_recv(buff1(1), glen=ntiles(p)*size(data,2)*size(data,3), from_pe=lnd%io_pelist(p),&
                       tag=COMM_TAG_10)
         n = 0
-        do i = 1,size(data,2)
         do j = 1,size(data,3)
+        do i = 1,size(data,2)
            buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:(n+1)*ntiles(p))
            n = n+1
         enddo
@@ -2209,9 +2209,9 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
   enddo
 end subroutine gather_tile_data_r2d
 
-subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
+subroutine gather_tile_data_r2d_idx(fptr,index,idx,data)
   procedure(fptr_r0ijk) :: fptr ! subroutine returning the pointer to the data
-  integer, intent(in) :: n ! additional index argument for fptr
+  integer, intent(in) :: index ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real, intent(out) :: data(:,:,:) ! local tile data
 
@@ -2228,7 +2228,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
      call get_tile_by_idx(idx(i), tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
-        call fptr(tileptr, k, m, n, ptr)
+        call fptr(tileptr, k, m, index, ptr)
         if(associated(ptr)) data(i,k,m)=ptr
      enddo
      enddo

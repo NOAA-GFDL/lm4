@@ -15,7 +15,6 @@ use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, register_tile_selector, &
      SEL_GLAC
 use land_data_mod, only : log_version
-use tiling_input_types_mod, only : glacier_predefined_type
 
 implicit none
 private
@@ -25,7 +24,6 @@ public :: glac_pars_type
 public :: glac_tile_type
 
 public :: new_glac_tile, delete_glac_tile
-public :: new_glac_tile_predefined
 public :: glac_tiles_can_be_merged, merge_glac_tiles
 public :: glac_is_selected
 public :: get_glac_tile_tag
@@ -35,7 +33,7 @@ public :: glac_tile_heat
 public :: read_glac_data_namelist
 public :: glac_cover_cold_start
 
-public :: glac_radiation
+public :: glac_data_radiation
 public :: glac_roughness
 public :: glac_data_thermodynamics
 public :: glac_data_hydraulics
@@ -47,10 +45,6 @@ interface new_glac_tile
    module procedure glac_tile_copy_ctor
 end interface
 
-interface new_glac_tile_predefined
-   module procedure glac_tile_ctor_predefined
-   module procedure glac_tile_copy_ctor
-end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'glac_tile_mod'
@@ -112,7 +106,6 @@ end type glac_tile_type
 ! NOTE: When adding or modifying fields of this types, don't forget to change
 ! the operations on tile (e.g. copy) accordingly
 ! ==== module data ===========================================================
-logical, public :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 real    :: k_over_B              = 2         ! reset to 0 for MCM
@@ -136,6 +129,7 @@ real    :: t_range               = 10.0
   real :: f_iso_warm(NBANDS) = (/ 0.177, 0.265 /)
   real :: f_vol_warm(NBANDS) = (/ 0.100, 0.126 /)
   real :: f_geo_warm(NBANDS) = (/ 0.027, 0.032 /)
+  real :: refl_cold_dif(NBANDS), refl_warm_dif(NBANDS)
 
 ! ---- remainder are used only for cold start ---------
 character(len=16):: glac_to_use  = 'single-tile'
@@ -232,6 +226,9 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   unit=stdlog()
   write (unit, nml=glac_data_nml)
 
+  refl_cold_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
+  refl_warm_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
+
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_glac_types
      call register_tile_selector(tile_names(i), long_name='',&
@@ -251,28 +248,6 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   glac_dz = dz
 end subroutine read_glac_data_namelist
 
-! ============================================================================
-function glac_tile_ctor_predefined(tag,glacier_predefined,itile) result(ptr)
-  type(glac_tile_type), pointer :: ptr ! return value
-  integer, intent(in)  :: tag ! kind of tile
-  type(glacier_predefined_type), intent(in) :: glacier_predefined
-  integer, intent(in) :: itile
-
-  allocate(ptr)
-  ptr%tag = tag
-  ! allocate storage for tile data
-  allocate(ptr%wl     (num_l), &
-           ptr%ws     (num_l), &
-           ptr%T      (num_l), &
-           ptr%w_fc   (num_l),  &
-           ptr%w_wilt (num_l),  &
-           ptr%heat_capacity_dry (num_l),  &
-           ptr%e      (num_l),  &
-           ptr%f      (num_l)   )
-
-  ! set initial values of the tile data
-  call glacier_data_init_0d_predefined(ptr,glacier_predefined,itile)
-end function glac_tile_ctor_predefined
 
 ! ============================================================================
 function glac_tile_ctor(tag) result(ptr)
@@ -282,9 +257,9 @@ function glac_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = tag
   ! allocate storage for tile data
-  allocate(ptr%wl     (num_l), &
-           ptr%ws     (num_l), &
-           ptr%T      (num_l), &
+  allocate(ptr%wl     (num_l),  &
+           ptr%ws     (num_l),  &
+           ptr%T      (num_l),  &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry (num_l),  &
@@ -317,54 +292,6 @@ subroutine delete_glac_tile(ptr)
   deallocate(ptr)
 end subroutine delete_glac_tile
 
-! ============================================================================
-subroutine glacier_data_init_0d_predefined(glac,gp,itile)
-  type(glac_tile_type), intent(inout) :: glac
-  type(glacier_predefined_type), intent(in) :: gp
-  integer, intent(in) :: itile
-
-  integer :: k
-  k = glac%tag
-
-  glac%pars%w_sat = gp%w_sat(itile)
-  glac%pars%awc_lm2 = gp%awc_lm2(itile)
-  glac%pars%k_sat_ref = gp%k_sat_ref(itile)
-  glac%pars%psi_sat_ref = gp%psi_sat_ref(itile)
-  glac%pars%chb = gp%chb(itile)
-  glac%pars%alpha = gp%alpha(itile)
-  glac%pars%heat_capacity_ref = gp%heat_capacity_ref(itile)
-  glac%pars%thermal_cond_ref = gp%thermal_cond_ref(itile)
-  glac%pars%refl_max_dir = gp%refl_max_dir(itile,:)
-  glac%pars%refl_max_dif = gp%refl_max_dif(itile,:)
-  glac%pars%refl_min_dir = gp%refl_min_dir(itile,:)
-  glac%pars%refl_min_dif = gp%refl_min_dif(itile,:)
-  glac%pars%emis_dry = gp%emis_dry(itile)
-  glac%pars%emis_sat = gp%emis_sat(itile)
-  glac%pars%z0_momentum = gp%z0_momentum(itile)
-  glac%pars%tfreeze = gp%tfreeze(itile)
-
-  glac%pars%rsa_exp           = rsa_exp_global
-
-  ! initialize derived data
-  if (use_lm2_awc) then
-     glac%w_wilt(:) = 0.15
-     glac%w_fc  (:) = 0.15 + glac%pars%awc_lm2
-  else
-     glac%w_wilt(:) = glac%pars%w_sat &
-          *(glac%pars%psi_sat_ref/(psi_wilt*glac%pars%alpha))**(1/glac%pars%chb)
-     glac%w_fc  (:) = glac%pars%w_sat &
-          *(rate_fc/(glac%pars%k_sat_ref*glac%pars%alpha**2))**(1/(3+2*glac%pars%chb))
-  endif
-
-  ! below made use of phi_e from parlange via entekhabi
-  glac%Eg_part_ref  = (-4*glac%w_fc(1)**2*glac%pars%k_sat_ref*glac%pars%psi_sat_ref*glac%pars%chb &
-       /(pi*glac%pars%w_sat)) * (glac%w_fc(1)/glac%pars%w_sat)**(2+glac%pars%chb)   &
-       *(2*pi/(3*glac%pars%chb**2*(1+3/glac%pars%chb)*(1+4/glac%pars%chb)))/2
-
-  glac%z0_scalar = glac%pars%z0_momentum * exp(-k_over_B)
-  glac%geothermal_heat_flux = geothermal_heat_flux_constant
-
-end subroutine glacier_data_init_0d_predefined
 
 ! ============================================================================
 subroutine glacier_data_init_0d(glac)
@@ -522,14 +449,12 @@ end subroutine glac_dry_heat_cap
 
 ! ============================================================================
 ! compute bare-glacier albedos and bare-glacier emissivity
-subroutine glac_radiation ( glac, cosz, &
-     glac_refl_dir, glac_refl_dif, glac_refl_lw, glac_emis )
+subroutine glac_data_radiation ( glac, cosz, use_brdf, &
+                                 glac_refl_dir, glac_refl_dif, glac_emis )
   type(glac_tile_type), intent(in) :: glac
-  real, intent(in)  :: cosz
-  real, intent(out) :: &
-       glac_refl_dir(NBANDS), glac_refl_dif(NBANDS), & ! glacier albedos for direct and diffuse light
-       glac_refl_lw,   &  ! glacier reflectance for longwave (thermal) radiation
-       glac_emis          ! glacier emissivity
+  real,                 intent(in) :: cosz
+  logical,              intent(in) :: use_brdf
+  real,                 intent(out):: glac_refl_dir(:), glac_refl_dif(:), glac_emis
 
   ! ---- local vars
   real  :: blend, t_crit
@@ -551,8 +476,8 @@ subroutine glac_radiation ( glac, cosz, &
       cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
                      + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
                      + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-      warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
-      cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
+      warm_value_dif = refl_warm_dif
+      cold_value_dif = refl_cold_dif
     else
       warm_value_dir = glac%pars%refl_min_dir
       cold_value_dir = glac%pars%refl_max_dir
@@ -562,8 +487,8 @@ subroutine glac_radiation ( glac, cosz, &
   glac_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   glac_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   glac_emis     = glac%pars%emis_dry + blend*(glac%pars%emis_sat-glac%pars%emis_dry)
-  glac_refl_lw  = 1 - glac_emis
-end subroutine glac_radiation
+
+end subroutine glac_data_radiation
 
 
 ! ============================================================================

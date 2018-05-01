@@ -4,7 +4,8 @@ use fms_mod,            only : error_mesg, FATAL
 use constants_mod,      only : stefan
 
 use land_constants_mod, only : NBANDS
-use vegn_data_mod,      only : spdata, min_cosz, sai_rad
+use land_data_mod,      only : log_version
+use vegn_data_mod,      only : spdata, min_cosz, sai_rad, sai_rad_nosnow
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
 use snow_tile_mod,      only : snow_radiation
@@ -96,57 +97,77 @@ subroutine vegn_radiation ( vegn, &
   real, intent(in)  :: snow_refl_dif(NBANDS)
   real, intent(in)  :: snow_emis
   real, intent(out) :: &
-       vegn_refl_dif(NBANDS), & ! reflectance of canopy for diffuse light
-       vegn_tran_dif(NBANDS), & ! transmittance of canopy for diffuse light
-       vegn_refl_dir(NBANDS), & ! reflectance of canopy for direct light
-       vegn_sctr_dir(NBANDS), & ! part of direct light that is scattered downward
-       vegn_tran_dir(NBANDS), & ! part of direct light that passes through the canopy unmolested
-       vegn_refl_lw, & ! reflectance of canopy for long-wave (thermal) radiation
-       vegn_tran_lw    ! transmittance of canopy for long-wave (thermal) radiation
+       vegn_refl_dif(:,:), & ! reflectance of canopy for diffuse light
+       vegn_tran_dif(:,:), & ! transmittance of canopy for diffuse light
+       vegn_refl_dir(:,:), & ! reflectance of canopy for direct light
+       vegn_sctr_dir(:,:), & ! part of direct light that is scattered downward
+       vegn_tran_dir(:,:), & ! part of direct light that passes through the canopy unmolested
+       vegn_refl_lw(:), & ! reflectance of canopy for long-wave (thermal) radiation
+       vegn_tran_lw(:)    ! transmittance of canopy for long-wave (thermal) radiation
 
   ! ---- local vars
   real :: vegn_cover, vegn_cover_snow_factor, vegn_lai, &
        vegn_leaf_refl(NBANDS), vegn_leaf_emis, vegn_K
+  integer :: i
 
-  call vegn_data_cover ( vegn%cohorts(1), snow_depth, vegn_cover, vegn_cover_snow_factor )
-  select case(vegn_rad_option)
-  case(VEGN_RAD_BIGLEAF)
-     call vegn_rad_properties_bigleaf ( vegn%cohorts(1), snow_refl_dif, snow_emis, &
-          vegn_leaf_refl, vegn_leaf_emis, vegn_lai, vegn_K )
-     vegn_refl_dif = vegn_cover * vegn_leaf_refl
-     vegn_refl_dir = vegn_cover * vegn_leaf_refl
-     vegn_tran_dif = 1 - vegn_cover
-     vegn_sctr_dir = 0
-     vegn_tran_dir = 1 - vegn_cover
-  case(VEGN_RAD_TWOSTREAM)
-     call vegn_rad_properties_twostream ( vegn%cohorts(1), cosz, &
-          vegn_refl_dif, vegn_tran_dif, &
-          vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir,&
-          vegn_leaf_emis )
+  ! check that array sizes are correct
+!#define CHECK_SIZE(x) if(size(x,1)/=vegn%n_cohorts)call error_mesg('vegn_radiation','size of '//#x//' is inconsistent with NCOHORTS',FATAL)
+!  CHECK_SIZE(vegn_refl_dif)
+!  CHECK_SIZE(vegn_tran_dif)
+!  CHECK_SIZE(vegn_refl_dir)
+!  CHECK_SIZE(vegn_sctr_dir)
+!  CHECK_SIZE(vegn_tran_dir)
+!  CHECK_SIZE(vegn_refl_lw)
+!  CHECK_SIZE(vegn_tran_lw)
+!#undef CHECK_SIZE
+!#define CHECK_SIZE(x) if(size(x,2)/=NBANDS)call error_mesg('vegn_radiation','size of '//#x//' is inconsistent with NBANDS',FATAL)
+!  CHECK_SIZE(vegn_refl_dif)
+!  CHECK_SIZE(vegn_tran_dif)
+!  CHECK_SIZE(vegn_refl_dir)
+!  CHECK_SIZE(vegn_sctr_dir)
+!  CHECK_SIZE(vegn_tran_dir)
+!#undef CHECK_SIZE
+
+  do i = 1,vegn%n_cohorts
+     call vegn_data_cover ( vegn%cohorts(i), snow_depth, vegn_cover, vegn_cover_snow_factor )
+     select case(vegn_rad_option)
+     case(VEGN_RAD_BIGLEAF)
+        call vegn_rad_properties_bigleaf ( vegn%cohorts(i), snow_refl_dif, snow_emis, &
+             vegn_leaf_refl, vegn_leaf_emis, vegn_lai, vegn_K )
+        vegn_refl_dif(i,:) = vegn_cover * vegn_leaf_refl
+        vegn_refl_dir(i,:) = vegn_cover * vegn_leaf_refl
+        vegn_tran_dif(i,:) = 1 - vegn_cover
+        vegn_sctr_dir(i,:) = 0
+        vegn_tran_dir(i,:) = 1 - vegn_cover
+     case(VEGN_RAD_TWOSTREAM)
+        call vegn_rad_properties_twostream ( vegn%cohorts(i), cosz, &
+             vegn_refl_dif(i,:), vegn_tran_dif(i,:), &
+             vegn_refl_dir(i,:), vegn_sctr_dir(i,:), vegn_tran_dir(i,:),&
+             vegn_leaf_emis )
 !
 ! ++++ pcm
-     vegn_refl_dif = vegn_cover_snow_factor * vegn_refl_dif
-     vegn_refl_dir = vegn_cover_snow_factor * vegn_refl_dir
-     vegn_sctr_dir = vegn_cover_snow_factor * vegn_sctr_dir
-     vegn_tran_dif = vegn_cover_snow_factor * vegn_tran_dif &
-                       + (1-vegn_cover_snow_factor)
-     vegn_tran_dir = vegn_cover_snow_factor * vegn_tran_dir &
-                       + (1-vegn_cover_snow_factor)
+        vegn_refl_dif(i,:) = vegn_cover_snow_factor * vegn_refl_dif(i,:)
+        vegn_refl_dir(i,:) = vegn_cover_snow_factor * vegn_refl_dir(i,:)
+        vegn_sctr_dir(i,:) = vegn_cover_snow_factor * vegn_sctr_dir(i,:)
+        vegn_tran_dif(i,:) = vegn_cover_snow_factor * vegn_tran_dif(i,:) &
+                           + (1-vegn_cover_snow_factor)
+        vegn_tran_dir(i,:) = vegn_cover_snow_factor * vegn_tran_dir(i,:) &
+                           + (1-vegn_cover_snow_factor)
 ! ---- pcm
 !
-  case default
-     call error_mesg('vegn_radiation', &
-          'invalid vegetation radiation option', FATAL)
-  end select
-  vegn_refl_lw       = vegn_cover * (1-vegn_leaf_emis)
-  vegn_tran_lw       = 1 - vegn_cover
+     case default
+        call error_mesg('vegn_radiation', &
+             'invalid vegetation radiation option', FATAL)
+     end select
+     vegn_refl_lw(i)       = vegn_cover * (1-vegn_leaf_emis)
+     vegn_tran_lw(i)       = 1 - vegn_cover
 
-  ! store the extinction coefficients for use in photosynthesis calculations --
-  ! currently calculated as if all light were direct
-  vegn%cohorts(1)%extinct = &
-       (spdata(vegn%cohorts(1)%species)%phi1+spdata(vegn%cohorts(1)%species)%phi2*cosz)&
-       / max(cosz,min_cosz)
-
+     ! store the extinction coefficients for use in photosynthesis calculations --
+     ! currently calculated as if all light were direct
+     vegn%cohorts(i)%extinct = &
+          (spdata(vegn%cohorts(i)%species)%phi1+spdata(vegn%cohorts(i)%species)%phi2*cosz)&
+          / max(cosz,min_cosz)
+  enddo
 end subroutine vegn_radiation
 
 ! ============================================================================
@@ -216,6 +237,10 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   case default
      fs = 0
   end select
+  ! optionally scale down fraction of snow-covered area if the stems do not catch snow
+  if (sai_rad.and.sai_rad_nosnow) then
+     if (cohort%lai+cohort%sai>0) fs = cohort%lai*fs/(cohort%lai+cohort%sai)
+  endif
 
   ! get the snow radiative properties for current canopy temperature
   call snow_radiation ( cohort%Tv, cosz, .FALSE., snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
@@ -232,6 +257,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
      else
         vegn_idx = cohort%lai
      endif
+
      call twostream ( max(cosz, min_cosz), &
           spdata(sp)%mu_bar, vegn_idx, albedo_surf, &
           spdata(sp)%phi1, spdata(sp)%phi2, &
@@ -284,16 +310,16 @@ subroutine twostream( &
                                 ! angular distribution !!!
 
   if(is_watch_point()) then
-     write(*,*)'############ twostream input ############'
-     __DEBUG__(mu)
-     __DEBUG__(mu_bar)
-     __DEBUG__(LAI)
-     __DEBUG__(albedo_g)
-     __DEBUG__(phi1)
-     __DEBUG__(phi2)
-     __DEBUG__(rl)
-     __DEBUG__(tl)
-     write(*,*)'############ twostream input ############'
+!     write(*,*)'############ twostream input ############'
+!     __DEBUG__(mu)
+!     __DEBUG__(mu_bar)
+!     __DEBUG__(LAI)
+!     __DEBUG__(albedo_g)
+!     __DEBUG__(phi1)
+!     __DEBUG__(phi2)
+!     __DEBUG__(rl)
+!     __DEBUG__(tl)
+!     write(*,*)'############ twostream input ############'
   endif
   ! calculate coefficients of optical path
   G_mu=phi1+phi2*mu;
@@ -360,13 +386,13 @@ subroutine twostream( &
   albedo_dif = a_up + b_up;
 
   if(is_watch_point()) then
-     write(*,*)'############ twostream output #############'
-     __DEBUG__(transm_dir)
-     __DEBUG__(scatter_dir)
-     __DEBUG__(albedo_dir)
-     __DEBUG__(transm_dif)
-     __DEBUG__(albedo_dif)
-     write(*,*)'############ end of twostream output #############'
+!     write(*,*)'############ twostream output #############'
+!     __DEBUG__(transm_dir)
+!     __DEBUG__(scatter_dir)
+!     __DEBUG__(albedo_dir)
+!     __DEBUG__(transm_dif)
+!     __DEBUG__(albedo_dif)
+!     write(*,*)'############ end of twostream output #############'
   endif
 end subroutine twostream
 

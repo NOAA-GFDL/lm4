@@ -18,12 +18,13 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 
 use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
-     max_lev, cpw, clw, csw, use_brdf
+     glac_data_radiation, max_lev, cpw, clw, csw
 
+use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     set_default_diag_filter
+use land_tile_diag_mod, only : set_default_diag_filter, &
+     register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -38,7 +39,8 @@ public :: read_glac_namelist
 public :: glac_init
 public :: glac_end
 public :: save_glac_restart
-public :: glac_sfc_water
+public :: glac_get_sfc_temp
+public :: glac_radiation
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
@@ -61,6 +63,7 @@ namelist /glac_nml/ lm2, conserve_glacier_mass,  albedo_to_use, &
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
+logical         :: use_brdf
 real            :: delta_time       ! fast time step
 
 integer         :: num_l            ! # of water layers
@@ -219,48 +222,43 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 end subroutine save_glac_restart
 
 ! ============================================================================
-subroutine glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+! returns glacier surface temperature
+subroutine glac_get_sfc_temp ( glac, glac_T )
   type(glac_tile_type), intent(in)  :: glac
-  real, intent(out) :: &
-     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
-     grnd_subl, &          ! fraction of vapor flux that sublimates
-     grnd_tf               ! freezing temperature at the surface, degK
+  real,                 intent(out) :: glac_T
 
-  if (lm2) then
-     grnd_liq = 0
-     grnd_ice = 1.e6
-  else
-     grnd_liq  = max(glac%wl(1), 0.0)
-     grnd_ice  = max(glac%ws(1), 0.0)
-  endif
-  if (grnd_liq + grnd_ice > 0 ) then
-     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
-  else
-     grnd_subl = 0
-  endif
+  glac_T = glac%T(1)
+end subroutine glac_get_sfc_temp
 
-  grnd_tf = glac%pars%tfreeze
-end subroutine glac_sfc_water
 
 ! ============================================================================
-function glac_subl_frac(glac); real glac_subl_frac
-  type(glac_tile_type), intent(in)  :: glac
+subroutine glac_radiation ( glac, cosz, &
+     glac_refl_dir, glac_refl_dif, glac_refl_lw, glac_emis )
+  type(glac_tile_type), intent(in) :: glac
+  real, intent(in)  :: cosz
+  real, intent(out) :: &
+       glac_refl_dir(NBANDS), glac_refl_dif(NBANDS), & ! glacier albedos for direct and diffuse light
+       glac_refl_lw,   &  ! glacier reflectance for longwave (thermal) radiation
+       glac_emis          ! glacier emissivity
 
-  real :: grnd_liq, grnd_ice, grnd_subl, grnd_tf
-  call glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
-  glac_subl_frac = grnd_subl
-end function glac_subl_frac
+  call glac_data_radiation ( glac, cosz, use_brdf, glac_refl_dir, glac_refl_dif, glac_emis )
+  glac_refl_lw = 1 - glac_emis
+end subroutine glac_radiation
+
 
 ! ============================================================================
 ! update glac properties explicitly for time step.
 ! integrate glac-heat conduction equation upward from bottom of glac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine glac_step_1 ( glac, &
-                         glac_rh, glac_G0, &
+                         glac_T, glac_rh, glac_liq, glac_ice, glac_subl, &
+                         glac_tf, glac_G0, &
                          glac_DGDT, conserve_glacier_mass_out )
   type(glac_tile_type),intent(inout) :: glac
   real, intent(out) :: &
-       glac_rh, &
+       glac_T, &
+       glac_rh, glac_liq, glac_ice, glac_subl, &
+       glac_tf, & ! freezing temperature of glacier, degK
        glac_G0, &
        glac_DGDT
   logical, intent(out) :: conserve_glacier_mass_out
@@ -283,6 +281,14 @@ subroutine glac_step_1 ( glac, &
     write(*,*) 'T       ', glac%T(1)
   endif
 
+  glac_T = glac%T(1)
+
+  if(is_watch_point()) then
+     write(*,*) 'checkpoint gs1 b'
+     write(*,*) 'mask    ', .TRUE.
+     write(*,*) 'glac_T       ', glac_T
+  endif
+
   do l = 1, num_l
      vlc(l) = max(0.0, glac%wl(l) / (dens_h2o * dz(l)))
      vsc(l) = max(0.0, glac%ws(l) / (dens_h2o * dz(l)))
@@ -295,6 +301,19 @@ subroutine glac_step_1 ( glac, &
      heat_capacity(l) = glac%heat_capacity_dry(l)*dz(l) &
           + clw*glac%wl(l) + csw*glac%ws(l)
   enddo
+
+  if (lm2) then
+     glac_liq = 0
+     glac_ice = 1.e6
+  else
+     glac_liq  = max(glac%wl(1), 0.0)
+     glac_ice  = max(glac%ws(1), 0.0)
+  endif
+  if (glac_liq + glac_ice > 0 ) then
+     glac_subl = glac_ice / (glac_liq + glac_ice)
+  else
+     glac_subl = 0
+  endif
 
   if(num_l > 1) then
      do l = 1, num_l-1
@@ -328,10 +347,17 @@ subroutine glac_step_1 ( glac, &
      glac_DGDT  = 1. / denom
   endif
 
+  ! set freezing temperature of glaciers
+  glac_tf = glac%pars%tfreeze
+
   if(is_watch_point())then
      write(*,*) 'checkpoint gs1 c'
      write(*,*) 'mask    ', .TRUE.
+     write(*,*) 'T       ', glac_T
      write(*,*) 'rh      ', glac_rh
+     write(*,*) 'liq     ', glac_liq
+     write(*,*) 'ice     ', glac_ice
+     write(*,*) 'subl    ', glac_subl
      write(*,*) 'G0      ', glac_G0
      write(*,*) 'DGDT    ', glac_DGDT
      do l = 1, num_l
@@ -344,7 +370,7 @@ end subroutine glac_step_1
 
 ! ============================================================================
 ! apply boundary flows to glac water and move glac water vertically.
-  subroutine glac_step_2 ( glac, diag, snow_lprec, snow_hlprec,  &
+  subroutine glac_step_2 ( glac, diag, glac_subl, snow_lprec, snow_hlprec,  &
                            subs_DT, subs_M_imp, subs_evap, &
                            glac_levap, glac_fevap, glac_melt, &
                            glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop )
@@ -360,6 +386,8 @@ end subroutine glac_step_1
 
   type(glac_tile_type), intent(inout) :: glac
   type(diag_buff_type), intent(inout) :: diag
+  real, intent(in) :: &
+     glac_subl     !
   real, intent(in) :: &
      snow_lprec, &
      snow_hlprec, &
@@ -378,9 +406,8 @@ end subroutine glac_step_1
   real, dimension(num_l  ) :: div
   real :: &
      lprec_eff, hlprec_eff, tflow, hcap,cap_flow, &
-     melt_per_deg, melt, glac_subl, &
+     melt_per_deg, melt,&
      lrunf_sn,lrunf_ie,lrunf_bf, hlrunf_sn,hlrunf_ie,hlrunf_bf, &
-     Qout, DQoutDP,&
      tau_gw, c0, c1, c2, x, aaa, bbb, ccc, ddd, xxx, Dpsi_min, Dpsi_max
   logical :: stiff
   real, dimension(num_l-1) :: del_z
@@ -410,13 +437,12 @@ end subroutine glac_step_1
   endif
 
   ! ---- record fluxes ---------
-  glac_subl = glac_subl_frac(glac)
   IF (LM2) THEN ! EVAP SHOULD BE ZERO ANYWAY, BUT THIS IS JUST TO BE SURE...
-     glac_levap  = 0.
-     glac_fevap  = 0.
+  glac_levap  = 0.
+  glac_fevap  = 0.
   ELSE
-     glac_levap  = subs_evap*(1-glac_subl)
-     glac_fevap  = subs_evap*   glac_subl
+  glac_levap  = subs_evap*(1-glac_subl)
+  glac_fevap  = subs_evap*   glac_subl
   ENDIF
   glac_melt   = subs_M_imp / delta_time
 

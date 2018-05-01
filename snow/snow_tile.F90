@@ -103,13 +103,13 @@ real, protected, public :: &
    clw = 4218.0, &  ! specific heat of water (liquid)
    csw = 2106.0     ! specific heat of water (ice)
 real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
-! from analysis of MODIS data (ignoring temperature dependence):
-real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
-real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
-real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
-real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
-real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
-real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
+! from analysis of modis data (ignoring temperature dependence):
+  real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
+  real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
+  real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
+  real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
+  real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
+  real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
 
 logical :: distinct_snow_on_glacier = .FALSE. ! if TRUE, the following parameters define
            ! reflectance of snow on glaciers, otherwise snow reflectance does not depend
@@ -132,11 +132,11 @@ namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
      z0_momentum,                                   &
      f_iso_cold, f_vol_cold, f_geo_cold, &
      f_iso_warm, f_vol_warm, f_geo_warm, &
-     refl_snow_max_dir, refl_snow_min_dir,   &
-     refl_snow_max_dif, refl_snow_min_dif,   &
-     emis_snow_max,          emis_snow_min, &
-     k_over_B, &
-     num_l, dz, cpw, clw, csw, mc_fict, &
+     refl_snow_max_dir,    refl_snow_min_dir,   &
+     refl_snow_max_dif,    refl_snow_min_dif,   &
+     emis_snow_max,          emis_snow_min,         &
+     k_over_B,             &
+     num_l,                   dz, cpw, clw, csw, mc_fict, &
 ! snow radiative parameters on glacier
      distinct_snow_on_glacier, &
      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
