@@ -2148,8 +2148,8 @@ subroutine vegn_phenology_ppa(tile)
      wilt = soil%w_wilt(1)/soil%pars%vwc_sat
      theta_crit = sp%cnst_crit_phen + wilt*sp%fact_crit_phen
      theta_crit = max(0.0,min(1.0, theta_crit))
-     drought    = (sp%psi_stress_crit_phen <= 0 .and. vegn%theta_av_phen < theta_crit) &
-             .or. (sp%psi_stress_crit_phen  > 0 .and. vegn%psist_av > sp%psi_stress_crit_phen)
+     drought    = (sp%psi_stress_crit_phen <= 0 .and. cc%theta_av_phen < theta_crit) &
+             .or. (sp%psi_stress_crit_phen  > 0 .and. cc%psist_av_phen > sp%psi_stress_crit_phen)
 
      ! onset of phenology
      select case(cc%status)
