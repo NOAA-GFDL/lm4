@@ -173,6 +173,8 @@ type :: vegn_cohort_type
 
   ! for phenology
   real :: gdd = 0.0
+  real :: theta_av_phen = 0.0 ! relative soil moisture availability for phenology
+  real :: psist_av_phen = 0.0 ! water stress for phenology
 
   ! for Light Saber
   real :: An_newleaf_daily = 0.0

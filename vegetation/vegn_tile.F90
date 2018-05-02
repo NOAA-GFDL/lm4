@@ -585,6 +585,10 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
   __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
   __MERGE__(topyear)     ! the years that a cohort in canopy layer
+  
+  __MERGE__(gdd)           ! growing degree-days
+  __MERGE__(theta_av_phen) ! relative soil moisture availability for phenology
+  __MERGE__(psist_av_phen) ! water stress for phenology
 
   __MERGE__(myc_scavenger_biomass_C)
   __MERGE__(myc_scavenger_biomass_N)

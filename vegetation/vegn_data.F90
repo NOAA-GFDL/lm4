@@ -81,6 +81,10 @@ integer, public, parameter :: &
  SNOW_MASKING_MCM    = 3, &
  SNOW_MASKING_HEIGHT = 4
 
+integer, public, parameter ::&
+ PHEN_THETA_FC       = 1, &
+ PHEN_THETA_POROSITY = 2
+ 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
@@ -137,7 +141,7 @@ public :: &
     sai_cover, snow_masking_option, &
     sai_rad, sai_rad_nosnow, min_lai, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
-    phen_ev1, phen_ev2, cmc_eps, &
+    phen_theta_option, phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
@@ -153,8 +157,9 @@ public :: &
 logical, public :: do_ppa = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
-integer :: nsc_target_option = -1
-integer :: snow_masking_option = -1
+integer, protected :: nsc_target_option = -1
+integer, protected :: snow_masking_option = -1
+integer, protected :: phen_theta_option = -1
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -484,8 +489,11 @@ real, protected :: min_cohort_nindivs = 1e-12 ! minimum allowed cohort density, 
 ! ORDER.
 real  :: scnd_biomass_bins(10) &
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
+
+character(32) :: phen_theta_to_use = 'relative-to-field-capacity' ! or 'relative-to-porosity'
 real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/deciduous
       ! differentiation (see phenology_type in cohort.F90)
+
 real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
                        ! the same value is used for liquid and snow
 
@@ -538,7 +546,7 @@ namelist /vegn_data_nml/ &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   T_transp_min, &
-  phen_ev1, phen_ev2, &
+  phen_theta_to_use, phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
   scnd_biomass_bins, sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai, &
   ! PPA-related namelist values
@@ -619,6 +627,16 @@ subroutine read_vegn_data_namelist()
   else
      call error_mesg('read_vegn_namleist', 'option snow_masking_to_use="'// &
           trim(snow_masking_to_use)//'" is invalid, use "none","MCM", "LM3", or "LM3(height)"', FATAL)
+  endif
+
+  ! parse phenology soil moisture option
+  if (trim(lowercase(phen_theta_to_use))=='relative-to-field-capacity') then
+     phen_theta_option = PHEN_THETA_FC
+  else if (trim(lowercase(phen_theta_to_use))=='relative-to-porosity') then
+     phen_theta_option = PHEN_THETA_POROSITY
+  else
+     call error_mesg('read_vegn_namleist', 'option phen_theta_to_use="'// &
+          trim(phen_theta_to_use)//'" is invalid, use "relative-to-field-capacity" or "relative-to-porosity"', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
