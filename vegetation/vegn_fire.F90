@@ -554,16 +554,16 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   ! SSR: Does horizontal interpolation
   if (use_FpopD_nf .OR. use_FpopD_ba) then
      call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
-          'conservative', fill=0.0)
+          'bilinear', fill=0.0)
   endif
   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
      call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
-          'conservative', fill=0.0)
+          'bilinear', fill=0.0)
   endif
   !!! dsward added code for reading FireMIP monthly lightning timeseries
   if (FireMIP_ltng) then
      call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
-          'conservative', fill=0.0)
+          'bilinear', fill=0.0)
   endif
 
   ! allocate storage for fire-related land fractions
