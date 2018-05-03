@@ -227,12 +227,14 @@ end subroutine kill_small_cohorts_ppa
 ! ============================================================================
 ! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
 ! for each species for which seed_C is greater than zero.
-subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor)
+subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, prob_est, prob_ger)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: seed_C(0:nspecies-1), seed_N(0:nspecies-1)
   real, intent(in), optional :: germination_factor ! additional multiplier for
       ! seed germination, use 0.0 to kill weed seeds on cropland
+  real, intent(in), optional :: prob_est, prob_ger ! probabilities of establishment and 
+      ! germenation, to allow overriding species values in crop seeding
 
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
   integer :: newcohorts ! number of new cohorts to be created
@@ -244,7 +246,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor)
   integer :: nlayers ! total number of layers in the canopy
   real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
   real, allocatable :: height(:) ! height of tallest vegetation in each layer
-  real    :: germ_f
+  real    :: germ_f, prob_e, prob_g
 
   germ_f = 1.0
   if (present(germination_factor)) germ_f = 1.0
@@ -298,13 +300,15 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor)
     call init_cohort_hydraulics(cc, soil%pars%psi_sat_ref)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
-    cc%nindivs = seed_C(i) * sp%prob_g * germ_f * sp%prob_e/plant_C(cc)
+    prob_e = sp%prob_e; if (present(prob_est)) prob_e = prob_est
+    prob_g = sp%prob_g; if (present(prob_ger)) prob_g = prob_ger
+    cc%nindivs = seed_C(i) * prob_g * germ_f * prob_e/plant_C(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
     ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N isn't necessarily consistent with initial C vals
     ! cc%total_N is set in init_cohort_allometry_ppa so it should be correct
     if(cc%nindivs>0) &
-        cc%stored_N = seed_N(i)*sp%prob_g*sp%prob_e/cc%nindivs - cc%total_N
+        cc%stored_N = seed_N(i)*prob_g*prob_e/cc%nindivs - cc%total_N
     ! If nindivs is zero, seedling should be killed by kill_small_cohorts. Otherwise there could be balance problems
     if(cc%stored_N<0 .AND. N_limits_live_biomass) then
        __DEBUG3__(seed_N(i)/cc%nindivs,cc%total_N,cc%stored_N)
@@ -316,8 +320,8 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor)
     ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
     ! __DEBUG4__(cc%nindivs,cc%stored_N,cc%total_N,cc%total_N-cc%stored_N)
 
-    failed_seed_C = (1-sp%prob_g*germ_f*sp%prob_e) * seed_C(i)
-    failed_seed_N = (1-sp%prob_g*germ_f*sp%prob_e) * seed_N(i)
+    failed_seed_C = (1-prob_g*germ_f*prob_e) * seed_C(i)
+    failed_seed_N = (1-prob_g*germ_f*prob_e) * seed_N(i)
 
     vegn%litter = vegn%litter + failed_seed_C
     litt_C(:) = litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_C

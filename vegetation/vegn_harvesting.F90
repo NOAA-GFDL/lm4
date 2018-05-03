@@ -1062,7 +1062,7 @@ subroutine vegn_plant_crop_ppa(tile)
      seedN(crop_species_idx) = seedN(crop_species_idx) + deltaN
      if (seedC(crop_species_idx) >= crop_seed_density) exit ! from loop
   enddo
-  call add_seedlings_ppa(vegn,soil,seedC,seedN)
+  call add_seedlings_ppa(vegn,soil,seedC,seedN, prob_est = 1.0, prob_ger = 1.0)
   end associate ! vegn,soil
 
   call check_conservation_2(tile,'vegn_plant_crop_ppa', lmass0,fmass0,cmass0,nmass0,heat0)
