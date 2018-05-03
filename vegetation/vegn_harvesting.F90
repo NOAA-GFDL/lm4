@@ -1016,8 +1016,8 @@ subroutine vegn_plant_crop_ppa(tile)
   type(land_tile_type), intent(inout) :: tile
 
   ! list of pools we borrow seeds from, highest priority first
-  integer, parameter :: seed_source_pools(4) = &
-     [ HARV_POOL_CROP, HARV_POOL_PAST, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST ]
+  integer, parameter :: seed_source_pools(6) = &
+     [ HARV_POOL_CROP, HARV_POOL_PAST, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW ]
 
   integer :: i, p, pt, crop_species_idx
   real, dimension(0:nspecies-1) :: seedC, seedN ! seed biomass, kg/m2

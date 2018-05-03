@@ -189,15 +189,15 @@ real :: Ia_param2(2) = 0.6
 
 ! Population density: Suppression
 !!! dsward added dimensions for boreal
-logical :: use_FpopD_nf = .TRUE.
-logical :: use_FpopD_ba = .TRUE.
+logical :: use_FpopD_nf = .TRUE. ! population density affects number of fires
+logical :: use_FpopD_ba = .TRUE. ! population density affects burned area
 real :: popD_supp_eps1(2) = 0.99   ! From Li et al. (2012)
 real :: popD_supp_eps2(2) = 0.98   ! From Li et al. (2012)
 real :: popD_supp_eps3(2) = 0.025  ! From Li et al. (2012)
 
 ! GDP suppression
-logical :: use_Fgdp_nf = .TRUE.
-logical :: use_Fgdp_ba = .TRUE.
+logical :: use_Fgdp_nf = .TRUE. ! GDP affects number of fires
+logical :: use_Fgdp_ba = .TRUE. ! GDP affects burned area
 
 ! Can turn off lightning and/or human ignitions using these two parameters
 real :: In_c2g_ign_eff = 0.25       ! From Li et al. (2012) + Corrigendum
