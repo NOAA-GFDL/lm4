@@ -2175,7 +2175,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   real :: depth_ave! depth for averaging soil moisture based on Jackson function for root distribution
   real :: percentile = 0.95
   real :: harv_pool_nitrogen_loss(N_HARV_POOLS)
-  integer :: k ! cohort iterator
+  integer :: k, N
 
   associate(cc=>vegn%cohorts)
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
@@ -2274,8 +2274,9 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   vegn%daily_t_min = min(vegn%daily_t_min, cana_T)
 
   if(do_ppa) then
-     call send_cohort_data(id_theph, diag, cc(:), theta1(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
-     call send_cohort_data(id_psiph, diag, cc(:), psist1(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+     N = vegn%n_cohorts
+     call send_cohort_data(id_theph, diag, cc(1:N), theta1(:), weight=cc(1:N)%layerfrac*cc(1:N)%lai, op=OP_AVERAGE)
+     call send_cohort_data(id_psiph, diag, cc(1:N), psist1(:), weight=cc(1:N)%layerfrac*cc(1:N)%lai, op=OP_AVERAGE)
   else
      call send_tile_data(id_theph, theta, diag)
      call send_tile_data(id_psiph, psist, diag)
