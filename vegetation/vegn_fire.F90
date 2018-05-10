@@ -597,6 +597,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   !!! dsward_kop begin
   if (file_exist('INPUT/Koppen_zones_2deg_1950-2000.nc'))then
+     call error_mesg('vegn_fire_init','Reading Koppen zones.',NOTE)
      allocate(koppen_zone_2000(lnd%ls:lnd%le) )
      call read_field('INPUT/Koppen_zones_2deg_1950-2000.nc','Koppen', koppen_zone_2000, &
                       interp='nearest')
@@ -607,6 +608,8 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
         enddo
      enddo
      deallocate(koppen_zone_2000)
+  else
+     call error_mesg('vegn_fire_init','Koppen zone file not found: NOT reading Koppen zones.',NOTE)
   endif
   !!! dsward_kop end
 
