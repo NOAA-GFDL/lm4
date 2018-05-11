@@ -189,15 +189,15 @@ real :: Ia_param2(2) = 0.6
 
 ! Population density: Suppression
 !!! dsward added dimensions for boreal
-logical :: use_FpopD_nf = .TRUE.
-logical :: use_FpopD_ba = .TRUE.
+logical :: use_FpopD_nf = .TRUE. ! population density affects number of fires
+logical :: use_FpopD_ba = .TRUE. ! population density affects burned area
 real :: popD_supp_eps1(2) = 0.99   ! From Li et al. (2012)
 real :: popD_supp_eps2(2) = 0.98   ! From Li et al. (2012)
 real :: popD_supp_eps3(2) = 0.025  ! From Li et al. (2012)
 
 ! GDP suppression
-logical :: use_Fgdp_nf = .TRUE.
-logical :: use_Fgdp_ba = .TRUE.
+logical :: use_Fgdp_nf = .TRUE. ! GDP affects number of fires
+logical :: use_Fgdp_ba = .TRUE. ! GDP affects burned area
 
 ! Can turn off lightning and/or human ignitions using these two parameters
 real :: In_c2g_ign_eff = 0.25       ! From Li et al. (2012) + Corrigendum
@@ -554,16 +554,16 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   ! SSR: Does horizontal interpolation
   if (use_FpopD_nf .OR. use_FpopD_ba) then
      call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
-          'conservative', fill=0.0)
+          'bilinear', fill=0.0)
   endif
   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
      call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
-          'conservative', fill=0.0)
+          'bilinear', fill=0.0)
   endif
   !!! dsward added code for reading FireMIP monthly lightning timeseries
   if (FireMIP_ltng) then
      call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
-          'conservative', fill=0.0)
+          'bilinear', fill=0.0)
   endif
 
   ! allocate storage for fire-related land fractions
@@ -597,6 +597,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   !!! dsward_kop begin
   if (file_exist('INPUT/Koppen_zones_2deg_1950-2000.nc'))then
+     call error_mesg('vegn_fire_init','Reading Koppen zones.',NOTE)
      allocate(koppen_zone_2000(lnd%ls:lnd%le) )
      call read_field('INPUT/Koppen_zones_2deg_1950-2000.nc','Koppen', koppen_zone_2000, &
                       interp='nearest')
@@ -607,6 +608,8 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
         enddo
      enddo
      deallocate(koppen_zone_2000)
+  else
+     call error_mesg('vegn_fire_init','Koppen zone file not found: NOT reading Koppen zones.',NOTE)
   endif
   !!! dsward_kop end
 

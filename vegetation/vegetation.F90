@@ -53,7 +53,8 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer,C2N_SEED, N_limits_live_biomass, &
-     snow_masking_option, SNOW_MASKING_HEIGHT
+     snow_masking_option, SNOW_MASKING_HEIGHT, &
+     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -66,7 +67,7 @@ use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
-     check_var_range
+     check_var_range, land_error_message
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
      co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
@@ -529,6 +530,22 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_tile_data(restart2,'theta_av', vegn_theta_av_fire_ptr)
         ! psist_av remains at initial value (equal to 0)
      endif
+     if (field_exists(restart2,'theta_av_phen1')) then
+        ! get by-cohort phenology paramaters if they exist
+        call get_cohort_data(restart2,'theta_av_phen1', cohort_theta_av_phen_ptr)
+        call get_cohort_data(restart2,'psist_av_phen1', cohort_psist_av_phen_ptr)
+     else
+        ! otherwise distribute tile values over the cohorts
+        ce = first_elmt(land_tile_map, ls=lnd%ls)
+        do while(loop_over_tiles(ce,tile,l))
+           if (.not.associated(tile%vegn)) cycle
+           do n = 1,tile%vegn%n_cohorts
+              tile%vegn%cohorts(n)%theta_av_phen = tile%vegn%theta_av_phen
+              tile%vegn%cohorts(n)%psist_av_phen = tile%vegn%psist_av
+           enddo
+        enddo
+     endif
+
      call get_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr)
      call get_tile_data(restart2,'precip_av', vegn_precip_av_ptr)
      call get_tile_data(restart2,'lambda', vegn_lambda_ptr)
@@ -1036,10 +1053,19 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
   id_status = register_tiled_diag_field ( module_name, 'status',  &
        (/id_ug/), time, 'status of leaves', missing_value=-1.0 )
-  id_theph = register_tiled_diag_field ( module_name, 'theph',  &
-       (/id_ug/), time, 'theta for phenology', missing_value=-1.0 )
-  id_psiph = register_tiled_diag_field ( module_name, 'psiph',  &
-       (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )
+
+  if (do_ppa) then
+     id_theph = register_cohort_diag_field ( module_name, 'theta_phen',  &
+          (/id_ug/), time, 'relative soil moisture (theta) for phenology', missing_value=-1.0 )!ens
+     id_psiph = register_cohort_diag_field ( module_name, 'psi_stress_phen',  &
+          (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )!ens
+  else
+     id_theph = register_tiled_diag_field ( module_name, 'theta_phen',  &
+          (/id_ug/), time, 'theta for phenology', missing_value=-1.0 )
+     id_psiph = register_tiled_diag_field ( module_name, 'psi_stress_phen',  &
+          (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )
+  endif
+     
   id_leaf_age = register_cohort_diag_field ( module_name, 'leaf_age',  &
        (/id_ug/), time, 'age of leaves since bud burst', 'days', missing_value=-1.0 )!ens
 
@@ -1370,6 +1396,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'DBH_ys', cohort_DBH_ys_ptr, 'DBH at the end of previous year','m')
   call add_cohort_data(restart2,'topyear', cohort_topyear_ptr, 'time spent in the top canopy layer','years')
   call add_cohort_data(restart2,'gdd', cohort_gdd_ptr, 'growing degree days','degC day')
+  call add_cohort_data(restart2,'theta_av_phen1', cohort_theta_av_phen_ptr,'average soil moisture for phenology')
+  call add_cohort_data(restart2,'psist_av_phen1', cohort_psist_av_phen_ptr,'average soil-water-stress index')
   ! wolf restart data - psi, Kxa
   call add_cohort_data(restart2, 'psi_r', cohort_psi_r_ptr, 'psi root', 'm')
   call add_cohort_data(restart2, 'psi_x', cohort_psi_x_ptr, 'psi stem', 'm' )
@@ -2142,12 +2170,14 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
 
   ! ---- local vars
   real :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
-  real :: theta ! average soil wetness, unitless
-  real :: psist ! psi stress index
+  real :: theta, theta1(vegn%n_cohorts) ! average soil wetness, unitless
+  real :: psist, psist1(vegn%n_cohorts) ! psi stress index
   real :: depth_ave! depth for averaging soil moisture based on Jackson function for root distribution
   real :: percentile = 0.95
   real :: harv_pool_nitrogen_loss(N_HARV_POOLS)
+  integer :: k, N
 
+  associate(cc=>vegn%cohorts)
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
   ! depth for 95% of root according to Jackson distribution
   depth_ave = -log(1.-percentile)*vegn%cohorts(1)%root_zeta
@@ -2216,10 +2246,17 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   if (xwilt_available) then
      theta = soil_ave_theta1(soil,depth_ave)
   else
-     theta = soil_ave_theta0(soil,vegn%cohorts(1)%root_zeta)
+     theta = phen_ave_theta(soil,vegn%cohorts(1)%root_zeta)
   endif
   if (do_ppa) then
      vegn%theta_av_phen = weight_av_phen*theta + (1-weight_av_phen)*vegn%theta_av_phen
+     ! update by-cohort phenology parameters
+     do k = 1,vegn%n_cohorts
+        theta1(k) = phen_ave_theta(soil,cc(k)%root_zeta)
+        psist1(k) = soil_psi_stress(soil,cc(k)%root_zeta)
+        cc(k)%theta_av_phen = weight_av_phen*theta1(k) + (1-weight_av_phen)*cc(k)%theta_av_phen
+        cc(k)%psist_av_phen = weight_av_phen*psist1(k) + (1-weight_av_phen)*cc(k)%psist_av_phen
+     enddo
   else
      vegn%theta_av_phen = vegn%theta_av_phen + theta
   endif
@@ -2236,10 +2273,33 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   vegn%daily_t_max = max(vegn%daily_t_max, cana_T)
   vegn%daily_t_min = min(vegn%daily_t_min, cana_T)
 
-  call send_tile_data(id_theph, theta, diag)
-  call send_tile_data(id_psiph, psist, diag)
-
+  if(do_ppa) then
+     N = vegn%n_cohorts
+     call send_cohort_data(id_theph, diag, cc(1:N), theta1(:), weight=cc(1:N)%layerfrac*cc(1:N)%lai, op=OP_AVERAGE)
+     call send_cohort_data(id_psiph, diag, cc(1:N), psist1(:), weight=cc(1:N)%layerfrac*cc(1:N)%lai, op=OP_AVERAGE)
+  else
+     call send_tile_data(id_theph, theta, diag)
+     call send_tile_data(id_psiph, psist, diag)
+  endif
+  end associate
 end subroutine vegn_step_3
+
+! ===========================================================================
+! given soil state and model settings, calculate relative soil moisture for 
+! phenology, with specified depth of averaging
+real function phen_ave_theta(soil,zeta)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)                 :: zeta ! root depth scale
+
+  select case (phen_theta_option)
+  case (PHEN_THETA_FC)
+     phen_ave_theta = soil_ave_theta0(soil,zeta)
+  case (PHEN_THETA_POROSITY)
+     phen_ave_theta = soil_ave_theta1(soil,zeta)
+  case default
+     call land_error_message('phen_ave_theta: phen_theta_option is invalid. This should never happen.',WARNING)
+  end select
+end function phen_ave_theta
 
 
 ! ============================================================================
@@ -2568,7 +2628,7 @@ subroutine update_vegn_slow( )
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
            call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
-           call vegn_phenology_ppa (tile)
+           if (do_phenology) call vegn_phenology_ppa (tile)
            call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
@@ -3231,6 +3291,8 @@ DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
 DEFINE_COHORT_ACCESSOR(real,gdd)
 DEFINE_COHORT_ACCESSOR(real,height)
+DEFINE_COHORT_ACCESSOR(real,theta_av_phen)
+DEFINE_COHORT_ACCESSOR(real,psist_av_phen)
 
 DEFINE_COHORT_ACCESSOR(real,scav_myc_C_reservoir)
 DEFINE_COHORT_ACCESSOR(real,scav_myc_N_reservoir)

@@ -394,7 +394,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   i_river_NH4  = river_tracer_index('nh4')
 
   if (i_river_DOC == NO_TRACER .and. (soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N)) &
-      call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', WARNING)
+      call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', NOTE)
 
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init(id_ug,id_band,id_zfull)
