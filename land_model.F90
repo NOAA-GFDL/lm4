@@ -3966,9 +3966,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Downward Heat Flux into Snow Where Land over Land','W m-2', standard_name='surface_downward_heat_flux_in_snow', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
 
-  id_tws = register_diag_field(cmor_name, 'tws', axes, time, &
+  id_tws = register_diag_field(cmor_name, 'mrtws', axes, time, &
              'Terrestrial Water Storage','kg m-2', &
-             standard_name='canopy_and_surface_and_subsurface_water_amount', &
+             standard_name='total_water_storage', &
              area=get_area_id('land'))
   call diag_field_add_attribute(id_tws,'cell_methods','area: mean')
   call diag_field_add_attribute(id_tws,'ocean_fillvalue',0.0)
