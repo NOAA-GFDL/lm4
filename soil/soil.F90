@@ -289,7 +289,7 @@ integer :: id_st_diff
 
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
+    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
     id_csoilfast, id_csoilmedium, id_csoilslow, id_cLitter, id_cLitterCwd
 
 ! variables for CMOR/CMIP diagnostic calculations
@@ -1403,6 +1403,12 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   call add_tiled_diag_field_alias ( id_mrro, cmor_name, 'mrroLut',  axes(1:1),  &
        lnd%time, 'Total Runoff From Land Use Tile', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='runoff_flux', fill_missing=.FALSE.)
+  id_mrfsofr = register_tiled_diag_field ( cmor_name, 'mrfsofr', axes,  &
+       lnd%time, 'Average layer fraction of frozen moisture', '1', missing_value=-100.0, &
+       standard_name='mass_fraction_of_frozen_water_in_soil_moisture', fill_missing=.TRUE.)
+  id_mrlqso  = register_tiled_diag_field ( cmor_name, 'mrlqso', axes,  &
+       lnd%time, 'Average layer fraction of liquid moisture', '1', missing_value=-100.0, &
+       standard_name='mass_fraction_of_unfrozen_water_in_soil_moisture', fill_missing=.TRUE.)
 
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
@@ -2996,6 +3002,8 @@ end subroutine soil_step_1
   if (id_mrs1mLut > 0) call send_tile_data(id_mrs1mLut, sum((soil%wl+soil%ws)*mrs1m_weight), diag)
   if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
+  if (id_mrfsofr > 0) call send_tile_data(id_mrfsofr, max(0.0,soil%ws)/max(soil%wl+soil%ws,1e-17), diag)
+  if (id_mrlqso  > 0) call send_tile_data(id_mrlqso,  max(0.0,soil%wl)/max(soil%wl+soil%ws,1e-17), diag)
   call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
   call send_tile_data(id_mrro,  lrunf_ie+lrunf_sn+lrunf_bf+lrunf_nu, diag)
 
