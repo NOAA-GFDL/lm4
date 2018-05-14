@@ -43,7 +43,7 @@ use land_tile_io_mod, only: land_restart_type, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
 use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
-     LEAF_ON, LU_NTRL, nspecies, C2B, N_HARV_POOLS, HARV_POOL_NAMES, &
+     LEAF_ON, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, N_HARV_POOLS, HARV_POOL_NAMES, &
      HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      HARV_POOL_PAST, HARV_POOL_CROP, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
@@ -254,7 +254,7 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_rate_C, id_litter_rate_N
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cMisc, id_cProduct, id_cAnt, &
-   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
+   id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
    id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther
 ! ==== end of module variables ===============================================
 
@@ -1247,6 +1247,14 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
        time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
        missing_value=-999.0, fill_missing = .FALSE.) ! standard_name not known at this time
+
+  id_fFire = register_tiled_diag_field ( cmor_name, 'fFire', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
+  id_fFireNat = register_tiled_diag_field( cmor_name, 'fFireNat', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from natural Fire', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='fire_CO2_emissions_from_wildfire', fill_missing=.TRUE.)
 
   id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Grazing on Land', 'kg m-2 s-1', missing_value=-1.0, &
@@ -2857,6 +2865,7 @@ subroutine update_vegn_slow( )
      if (id_cAnt>0) then
         call send_tile_data(id_cAnt, sum(tile%vegn%harv_pool_C(:)), tile%diag)
      endif
+     call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
 
      if (id_fGrazing>0) call send_tile_data(id_fGrazing, tile%vegn%harv_rate_C(HARV_POOL_PAST)/seconds_per_year, tile%diag)
      if (id_fHarvest>0) call send_tile_data(id_fHarvest, tile%vegn%harv_rate_C(HARV_POOL_CROP)/seconds_per_year, tile%diag)
@@ -2875,6 +2884,13 @@ subroutine update_vegn_slow( )
             )/seconds_per_year, tile%diag)
      if (id_fAnthDisturb>0) &
             call send_tile_data(id_fAnthDisturb, sum(tile%vegn%harv_rate_C(:))/seconds_per_year, tile%diag)
+     if (tile%vegn%landuse==LU_NTRL .or. &
+         tile%vegn%landuse==LU_SCND .or. &
+         tile%vegn%landuse==LU_RANGE) then
+         call send_tile_data(id_fFireNat,tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
+     else
+         call send_tile_data(id_fFireNat, 0.0, tile%diag)
+     endif
 
      ! ---- end of diagnostic section
 
