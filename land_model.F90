@@ -282,7 +282,7 @@ integer :: id_sftlf, id_sftgif ! static fractions
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
   id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_cLand, id_nbp, &
-  id_nLand, &
+  id_ec, id_eow, id_esn, id_et, id_nLand, &
 ! various fractions
   id_vegFrac, id_pastureFrac, id_residualFrac, &
   id_cropFrac, id_cropFracC3, id_cropFracC4, &
@@ -2239,7 +2239,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_hevap,   hevap,                              tile%diag)
   call send_tile_data(id_levap,   sum(f(:)*(vegn_levap+vegn_uptk))+snow_levap+subs_levap, &
                                                                       tile%diag)
-  call send_tile_data(id_levapv,  sum(f(:)*vegn_levap),                  tile%diag)
+  call send_tile_data(id_levapv,  sum(f(:)*vegn_levap),               tile%diag)
   call send_tile_data(id_levaps,  snow_levap,                         tile%diag)
   call send_tile_data(id_levapg,  subs_levap,                         tile%diag)
   call send_tile_data(id_hlevap,  sum(f(:)*cpw*vegn_levap*(vegn_T-tfreeze)) &
@@ -2348,7 +2348,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   else
      call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
   endif
-  call send_tile_data(id_evspsblveg, sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
+  if(id_evspsblveg > 0) call send_tile_data(id_evspsblveg, sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
+  if(id_ec         > 0) call send_tile_data(id_ec,         sum(f(:)*vegn_levap),              tile%diag)
+  if(associated(tile%lake)) then
+     call send_tile_data(id_eow, subs_levap,                          tile%diag)
+  else
+     call send_tile_data(id_eow, 0.0,                                 tile%diag)
+  endif
+  call send_tile_data(id_esn, snow_fevap+snow_levap,                  tile%diag)
+  call send_tile_data(id_et,  land_evap,                              tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
   if (id_hfdsn>0) then
      if (snow_active) then
@@ -3948,6 +3956,18 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
+  id_ec = register_tiled_diag_field ( cmor_name, 'ec', axes, time, &
+             'Interception evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='liquid_water_evaporation_flux_from_canopy', fill_missing=.TRUE.)
+  id_eow = register_tiled_diag_field ( cmor_name, 'eow', axes, time, &
+             'Open Water Evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='liquid_water_evaporation_flux_from_open_water', fill_missing=.TRUE.)
+  id_esn = register_tiled_diag_field ( cmor_name, 'esn', axes, time, &
+             'Snow Evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='water_evaporation_flux', fill_missing=.TRUE.)
+  id_et = register_tiled_diag_field ( cmor_name, 'et', axes, time, &
+             'Total Evapotranspiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='surface_evapotranspiration', fill_missing=.TRUE.)
 
   id_snw = register_tiled_diag_field ( cmor_name, 'snw', axes, time, &
              'Surface Snow Amount','kg m-2', standard_name='surface_snow_amount', &
