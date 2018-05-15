@@ -291,7 +291,7 @@ integer :: id_st_diff
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
     id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, &
-    id_nLitter, id_nLitterCwd
+    id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1456,6 +1456,18 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
        fill_missing=.FALSE.)
 
+  id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
+       lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_nitrogen_content', fill_missing=.TRUE.)
+  id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
+       lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nMineralNH4 = register_tiled_diag_field ( cmor_name, 'nMineralNH4', axes(1:1),  &
+       lnd%time, 'Mineral ammonium in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_ammonium_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nMineralNO3 = register_tiled_diag_field ( cmor_name, 'nMineralNO3', axes(1:1),  &
+       lnd%time, 'Mineral nitrate in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_nitrate_expressed_as_nitrogen', fill_missing=.TRUE.)
   id_nLitter = register_tiled_diag_field ( cmor_name, 'nLitter', axes(1:1), &
        lnd%time, 'Nitrogen Mass in Litter Pool', 'kg m-2', &
        missing_value=-100.0, standard_name='litter_mass_content_of_nitrogen', &
@@ -3174,6 +3186,11 @@ subroutine soil_step_3(soil, diag)
      if (id_csoilslow   > 0) call send_tile_data(id_csoilslow,   sum(total_prot_C(:)), diag)
      if (id_csoil       > 0) call send_tile_data(id_csoil,       sum(layer_C(:)),      diag)
      if (id_cSoilLevels > 0) call send_tile_data(id_cSoilLevels, layer_C(:),           diag)
+
+     if (id_nSoil       > 0) call send_tile_data(id_nSoil,       sum(layer_N(:)),      diag)
+     if (id_nMineral    > 0) call send_tile_data(id_nMineral,    total_NO3+total_NH4,  diag)
+     if (id_nMineralNH4 > 0) call send_tile_data(id_nMineralNH4, total_NH4,            diag)
+     if (id_nMineralNO3 > 0) call send_tile_data(id_nMineralNO3, total_NO3,            diag)
      ! --- end of CMOR vars
 
      call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
