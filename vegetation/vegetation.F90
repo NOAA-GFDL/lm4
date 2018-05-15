@@ -1255,6 +1255,11 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
        fill_missing=.TRUE.)
+  ! we currently don't have deforestation fires, so fFire and cToFireLut are the same.
+  call add_tiled_diag_field_alias(id_fFire, cmor_name, 'cToFireLut', (/id_ug/), &
+       time, 'Total carbon loss from natural and managed fire on land use tile, including deforestation fires', 'kg m-2 s-1', &
+       missing_value=-1.0, standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires', &
+       fill_missing = .FALSE.)
   id_fFireNat = register_tiled_diag_field( cmor_name, 'fFireNat', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from natural Fire', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_natural_fires', fill_missing=.TRUE.)
