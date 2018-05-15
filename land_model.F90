@@ -282,6 +282,7 @@ integer :: id_sftlf, id_sftgif ! static fractions
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
   id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_cLand, id_nbp, &
+  id_nLand, &
 ! various fractions
   id_vegFrac, id_pastureFrac, id_residualFrac, &
   id_cropFrac, id_cropFracC3, id_cropFracC4, &
@@ -2366,6 +2367,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
+  if (id_nLand > 0) &
+      call send_tile_data(id_nLand, land_tile_nitrogen(tile),         tile%diag)
   if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_co2, tile%diag)
 end subroutine update_land_model_fast_0d
 
@@ -4067,6 +4070,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'kg m-2 s-1', missing_value=-1.0, &
              standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
              fill_missing=.TRUE. )
+
+  id_nLand = register_tiled_diag_field ( cmor_name, 'nLand', axes, time, &
+             'Total nitrogen in all terrestrial nitrogen pools', 'kg m-2', &
+             standard_name='mass_content_of_nitrogen_in_vegetation_and_litter_and_soil_and_forestry_and_agricultural_products', &
+             missing_value=-1.0, fill_missing=.TRUE. )
 end subroutine land_diag_init
 
 
