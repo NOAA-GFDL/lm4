@@ -290,7 +290,7 @@ integer :: id_st_diff
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
-    id_csoilfast, id_csoilmedium, id_csoilslow, id_cLitter, id_cLitterCwd
+    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1426,6 +1426,10 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
        lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
+  id_cSoilLevels = register_tiled_diag_field ( cmor_name, 'cSoilLevels', axes,  lnd%time, &
+       'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
+       'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content', fill_missing=.TRUE.)
   id_cLitter = register_tiled_diag_field ( cmor_name, 'cLitter', axes(1:1), &
        lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
        missing_value=-100.0, standard_name='litter_carbon_content', &
@@ -1440,7 +1444,8 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', fill_missing=.TRUE.)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
@@ -3132,6 +3137,7 @@ subroutine soil_step_3(soil, diag)
      if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
      call send_tile_data(id_csoilslow, 0.0, diag)
      if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
+     if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
      ! --- end of CMOR vars
   case (SOILC_CORPSE, SOILC_CORPSE_N)
 !     total_carbon=0.0
@@ -3152,6 +3158,13 @@ subroutine soil_step_3(soil, diag)
      total_NO3       = sum(soil%soil_organic_matter(1:num_l)%nitrate)
      total_NH4       = sum(soil%soil_organic_matter(1:num_l)%ammonium)
 
+     ! --- CMOR vars
+     if (id_csoilfast   > 0) call send_tile_data(id_csoilfast,   total_C(C_FAST)+total_C(C_MIC)+total_livemic_C, diag)
+     if (id_csoilmedium > 0) call send_tile_data(id_csoilmedium, total_C(C_SLOW),      diag)
+     if (id_csoilslow   > 0) call send_tile_data(id_csoilslow,   sum(total_prot_C(:)), diag)
+     if (id_csoil       > 0) call send_tile_data(id_csoil,       sum(layer_C(:)),      diag)
+     if (id_cSoilLevels > 0) call send_tile_data(id_cSoilLevels, layer_C(:),           diag)
+     ! --- end of CMOR vars
 
      call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
      do i = 1, N_C_TYPES
@@ -3234,10 +3247,6 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_total_soil_C, sum(total_C+total_diss_C+total_prot_C)+total_livemic_C, diag)
      call send_tile_data(id_total_soil_N, sum(total_N+total_diss_N+total_prot_N)+total_livemic_N, diag)
      ! --- CMOR vars
-     call send_tile_data(id_csoilfast,   total_C(C_FAST), diag)
-     call send_tile_data(id_csoilmedium, total_C(C_SLOW), diag)
-     call send_tile_data(id_csoilslow,   0.0,             diag)
-     call send_tile_data(id_csoil, total_C(C_FAST)+total_C(C_SLOW), diag)
      call send_tile_data(id_cLitter, total_litter_C, diag)
      ! --- end of CMOR vars
   case default
