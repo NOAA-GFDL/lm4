@@ -253,7 +253,7 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
 ! CMOR/CMIP variables
-integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cMisc, id_cProduct, id_cAnt, &
+integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cStem, id_cMisc, id_cProduct, id_cAnt, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
    id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther
 ! ==== end of module variables ===============================================
@@ -1225,6 +1225,9 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_ug/), &
        time, 'Carbon Mass in Roots', 'kg m-2', missing_value=-1.0, &
        standard_name='root_carbon_content', fill_missing=.TRUE.)
+  id_cStem = register_tiled_diag_field ( cmor_name, 'cStem',  (/id_ug/), &
+       time, 'Carbon Mass in Stem', 'kg m-2', missing_value=-1.0, &
+       standard_name='stem_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
        time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
@@ -2842,6 +2845,7 @@ subroutine update_vegn_slow( )
      if (id_cRoot>0) call send_tile_data(id_cRoot, &
          sum(((cc(1:N)%bwood+cc(1:N)%bsw)*(1-agf_bs)+cc(1:N)%br)*cc(1:N)%nindivs), tile%diag)
      if (id_cMisc>0) call send_tile_data(id_cMisc, sum((cc(1:N)%blv+cc(1:N)%nsc+cc(1:N)%bseed)*cc(1:N)%nindivs), tile%diag)
+     if (id_cStem>0) call send_tile_data(id_cStem, sum((cc(1:N)%bwood+cc(1:N)%bsw)*cc(1:N)%nindivs)*agf_bs, tile%diag)
 
      if (id_nLeaf>0) call send_tile_data(id_nLeaf, sum(cc(1:N)%leaf_N*cc(1:N)%nindivs), tile%diag)
      if (id_nStem>0) call send_tile_data(id_nStem, &
