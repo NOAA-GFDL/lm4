@@ -291,6 +291,7 @@ integer :: id_st_diff
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
     id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, &
+    id_cSoilAbove1m, &
     id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! variables for CMOR/CMIP diagnostic calculations
@@ -1417,6 +1418,9 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:1),  &
        lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_carbon_content', fill_missing=.FALSE.)
+  id_cSoilAbove1m = register_tiled_diag_field ( cmor_name, 'cSoilAbove1m', axes(1:1),  &
+       lnd%time, 'Carbon mass in soil pool above 1m depth', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content', fill_missing=.TRUE.)
 
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
        lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
@@ -3186,6 +3190,7 @@ subroutine soil_step_3(soil, diag)
      if (id_csoilslow   > 0) call send_tile_data(id_csoilslow,   sum(total_prot_C(:)), diag)
      if (id_csoil       > 0) call send_tile_data(id_csoil,       sum(layer_C(:)),      diag)
      if (id_cSoilLevels > 0) call send_tile_data(id_cSoilLevels, layer_C(:),           diag)
+     if (id_cSoilAbove1m > 0) call send_tile_data(id_cSoilAbove1m, sum(layer_C(:)*mrs1m_weight(:)), diag)
 
      if (id_nSoil       > 0) call send_tile_data(id_nSoil,       sum(layer_N(:)),      diag)
      if (id_nMineral    > 0) call send_tile_data(id_nMineral,    total_NO3+total_NH4,  diag)
