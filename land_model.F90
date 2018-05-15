@@ -3983,7 +3983,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Surface Upwelling Shortwave on Land Use Tile', 'W m-2', &
              missing_value=-1.0e+20, standard_name='surface_upwelling_shortwave_flux_in_air')
   id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
-             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
+             'Snow Water Equivalent on Land Use Tile','m', standard_name='lwe_thickness_of_surface_snow_amount', &
              missing_value=-1.0e+20, fill_missing=.FALSE. )
   id_tslsiLut = register_tiled_diag_field ( cmor_name, 'tslsiLut', axes, time, &
              'Surface Skin Temperature on Land Use Tile', 'K', &
@@ -4051,7 +4051,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
              'Total Carbon in All Terrestrial Carbon Pools', 'kg m-2', &
-             standard_name='total_land_carbon', &
+             standard_name='mass_content_of_carbon_in_vegetation_and_litter_and_soil_and_forestry_and_agricultural_products', &
              missing_value=-1.0, fill_missing=.TRUE. )
   ! add alias for compatibility with older diag tables
   call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &

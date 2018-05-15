@@ -1367,10 +1367,10 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsfl = register_tiled_diag_field ( cmor_name, 'mrsfl', axes,  &
        lnd%time, 'Frozen Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='frozen_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='frozen_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsll = register_tiled_diag_field ( cmor_name, 'mrsll', axes,  &
        lnd%time, 'Liquid Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='liquid_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
        lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
@@ -1393,7 +1393,7 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
   id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:1),  &
        lnd%time, 'Soil Liquid Water Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_liquid_water_content', fill_missing=.TRUE.)
+       standard_name='liquid_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:1),  &
        lnd%time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='surface_runoff_flux', fill_missing=.TRUE.)
@@ -1436,11 +1436,11 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        standard_name='litter_carbon_content', fill_missing=.FALSE.)
   id_cLitterCwd = register_tiled_diag_field ( cmor_name, 'cLitterCwd', axes(1:1), &
        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
-       missing_value=-100.0, standard_name='litter_wood_debris_carbon_content', &
+       missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
        fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.TRUE.)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
