@@ -4090,6 +4090,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'kg m-2 s-1', missing_value=-1.0, &
              standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
              fill_missing=.TRUE. )
+  call add_tiled_diag_field_alias ( id_nbp, cmor_name, 'necbLut', axes, time, &
+             'net rate of C accumulation (or loss) on land use tile', &
+             'kg m-2 s-1', missing_value=-1.0, &
+             standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
+             fill_missing=.TRUE. )
 
   id_nLand = register_tiled_diag_field ( cmor_name, 'nLand', axes, time, &
              'Total nitrogen in all terrestrial nitrogen pools', 'kg m-2', &
