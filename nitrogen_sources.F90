@@ -24,8 +24,9 @@ use land_constants_mod, only : seconds_per_year
 use land_data_mod, only: land_state_type, lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : print_netcdf_error
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type, set_default_diag_filter
+use land_tile_diag_mod, only : cmor_name, &
+     register_tiled_diag_field, send_tile_data, diag_buff_type, set_default_diag_filter, &
+     add_tiled_diag_field_alias
 use land_debug_mod, only : is_watch_point
 use vegn_data_mod, only : LU_PAST, LU_CROP
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
@@ -317,6 +318,18 @@ subroutine nitrogen_sources_init(time, id_ug)
 
   id_amm_volat = register_tiled_diag_field (diag_mod_name, 'amm_volat', (/id_ug/), &
        time, 'rate of ammonium input volatilization', 'kg N/(m2 year)', missing_value=-999.0)
+
+  ! CMOR/CMIP variables
+  call set_default_diag_filter('land')
+
+  call add_tiled_diag_field_alias(id_nfert, cmor_name, 'fNfert', [id_ug], time, &
+      'total N added for cropland fertilisation (artificial and manure)', 'kg m-2 s-1', missing_value=-999.0, &
+      standard_name='tendency_of_soil_mass_content_of_nitrogen_compounds_expressed_as_nitrogen_due_to_fertilization', &
+      fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias(id_ndep, cmor_name, 'fNdep', [id_ug], time, &
+      'Dry and Wet Deposition of Reactive Nitrogen onto Land', 'kg m-2 s-1', missing_value=-999.0, &
+      standard_name='tendency_of_atmosphere_mass_content_of_nitrogen_compounds_expressed_as_nitrogen_due_to_deposition', &
+      fill_missing=.TRUE.)
 
 end subroutine nitrogen_sources_init
 
