@@ -255,7 +255,7 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cStem, id_cMisc, id_cProduct, id_cAnt, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
-   id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther
+   id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther, id_nProduct
 ! ==== end of module variables ===============================================
 
 contains
@@ -1304,6 +1304,9 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'Nitrogen mass in vegetation components other than leaves, stem and root', &
        'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_mass_content_of_nitrogen', fill_missing=.TRUE.)
+  id_nProduct = register_tiled_diag_field( cmor_name, 'nProduct', (/id_ug/), &
+       time, 'Nitrogen Mass in Products of Land Use Change x', 'kg m-2', missing_value=-999.0, &
+       standard_name='nitrogen_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
 end subroutine
 
@@ -2864,6 +2867,14 @@ subroutine update_vegn_slow( )
            if (i/=HARV_POOL_CLEARED) cmass0 = cmass0 + tile%vegn%harv_pool_C(i)
         enddo
         call send_tile_data(id_cProduct, cmass0, tile%diag)
+     endif
+
+     if (id_nProduct>0) then
+        cmass0 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass0 = cmass0 + tile%vegn%harv_pool_N(i)
+        enddo
+        call send_tile_data(id_nProduct, cmass0, tile%diag)
      endif
 
      if (id_cAnt>0) then
