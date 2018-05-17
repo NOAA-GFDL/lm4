@@ -121,7 +121,7 @@ subroutine land_dust_init (id_ug, mask)
   integer :: logunit, outunit, unit, io, ierr
   character(32)  :: name ! tracer name
   character(32)  :: method
-  character(128) :: parameters
+  character(1024) :: parameters
   real    :: value ! temporary storage for parsing input
   type(table_printer_type) :: table
 
@@ -195,6 +195,7 @@ subroutine land_dust_init (id_ug, mask)
 
      method = ''; parameters = ''
      if (query_method('wet_deposition', MODEL_ATMOS, trdata(i)%tr_atm, method, parameters)) then
+        ! if (mpp_pe() == mpp_root_pe()) write(*,'(a,a)')name,'  method = "'//method//'"','  parameters="'//parameters//'"'
         ! try to parse alphar and alphas parameters for any wet deposition method;
         ! we are not intersted in anything else
         if (parse(parameters,'alphar',value) > 0) trdata(i)%alpha_r = value
