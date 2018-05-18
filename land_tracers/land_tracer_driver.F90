@@ -83,7 +83,7 @@ subroutine land_tracer_driver_init(id_ug)
   character(32)  :: name, units, funits ! name and units of the tracer and flux
   character(128) :: longname ! long name of the tracer
   character(32)  :: method
-  character(512) :: parameters
+  character(1024) :: parameters
   type(table_printer_type) :: table
 
   ! write the version and tag name to the logfile

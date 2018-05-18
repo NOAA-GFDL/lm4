@@ -118,7 +118,7 @@ subroutine cana_init ()
   real           :: init_tr(ntcana) ! initial (cold-start) values of tracers
   real           :: value ! used for parameter parsing
   character(32)  :: scheme
-  character(128) :: parameters
+  character(1024) :: parameters
 
   module_is_initialized = .TRUE.
 
