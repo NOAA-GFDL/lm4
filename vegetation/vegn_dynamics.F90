@@ -329,7 +329,7 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='plant_respiration_carbon_flux', fill_missing=.TRUE.)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_plant_respiration', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
