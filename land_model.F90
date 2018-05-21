@@ -2313,7 +2313,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_qco2,    tile%cana%tr(ico2),                 tile%diag)
   call send_tile_data(id_qco2_dvmr,&
        tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
-  call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
+  call send_tile_data(id_fco2,  vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos, tile%diag)
   call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
   call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
   call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
@@ -2377,7 +2377,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
   if (id_nLand > 0) &
       call send_tile_data(id_nLand, land_tile_nitrogen(tile),         tile%diag)
-  if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_co2, tile%diag)
+  if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_CO2-DOC_to_atmos, tile%diag)
 end subroutine update_land_model_fast_0d
 
 
