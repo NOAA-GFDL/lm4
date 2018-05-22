@@ -2190,7 +2190,7 @@ subroutine vegn_phenology_ppa(tile)
      ! leaves falling at the end of a growing season
      if(cc%status==LEAF_OFF .AND. ( cc%bl>0 .OR. ( sp%lifeform==FORM_GRASS .AND. ( cc%bl>0 .OR. cc%bsw>0)))) then
          dead_leaves_C = leaf_fall_rate * max(cc%bl,0.0)
-         dead_leaves_N = leaf_fall_rate * min(cc%leaf_N,0.0)
+         dead_leaves_N = leaf_fall_rate * max(cc%leaf_N,0.0)
          dead_roots_C  = root_mort_rate * max(cc%br,0.0)
          dead_roots_N  = root_mort_rate * max(cc%root_N,0.0)
          dead_stem_C   = 0.0
