@@ -46,7 +46,7 @@ public :: do_nitrogen_deposition
 character(len=*), parameter :: module_name = 'nitrogen_sources'
 #include "shared/version_variable.inc"
 character(len=*), private, parameter :: &
-   diag_mod_name = 'vegn'
+   diag_mod_name = 'nsources'
 
 integer, parameter :: & ! types of deposition calculations
    NDEP_PRESCRIBED = 1, & ! single prescribed value
@@ -157,21 +157,25 @@ type(fert_data_type) :: &
    fert_past, manure_past    ! pasture fertilization
 
 integer :: & ! diag field IDs
-   id_ndep_nit, id_ndep_amm, id_ndep_org, id_ndep, &
-   id_nfert_nit, id_nfert_amm, id_nfert_org, id_nfert, &
+   id_ndep_nit,    id_ndep_amm,    id_ndep_org,    id_ndep,    &
+   id_nfert_nit,   id_nfert_amm,   id_nfert_org,   id_nfert,   &
    id_nmanure_nit, id_nmanure_amm, id_nmanure_org, id_nmanure, &
-   id_nfml_nit, id_nfml_amm, id_nfml_org, id_nfml, &
+   id_nfml_nit,    id_nfml_amm,    id_nfml_org,    id_nfml,    &
+   id_ninput_nit,  id_ninput_amm,  id_ninput_org,  id_ninput,  &
    id_amm_volat
+
+integer :: id_fNfert ! CMOR/CMIP diagnostics of crop fertilization
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 subroutine nitrogen_sources_init(time, id_ug)
   type(time_type), intent(in) :: time  ! current time
-  integer,         intent(in) :: id_ug ! ids of diagnostic axes
+  integer,         intent(in) :: id_ug ! id of diagnostic axis
 
   ! ---- local vars
   integer :: unit, ierr, io
+  integer :: axes(1) ! IDs of diagnostic axes
 
   call log_version(version, module_name, &
   __FILE__)
@@ -278,55 +282,71 @@ subroutine nitrogen_sources_init(time, id_ug)
   endif
 
   ! ---- initialize the diagnostics --------------------------------------------
+  axes = [id_ug] ! define array of horizontal axes for diagnostics
+  
   call set_default_diag_filter('soil')
 
-  id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'Ndep_nit', (/id_ug/), &
+  id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'Ndep_nit', axes, &
        time, 'nitrate deposition', 'kg N/(m2 year)', missing_value=-999.0)
-  id_ndep_amm = register_tiled_diag_field (diag_mod_name, 'Ndep_amm', (/id_ug/), &
+  id_ndep_amm = register_tiled_diag_field (diag_mod_name, 'Ndep_amm', axes, &
        time, 'ammonium deposition', 'kg N/(m2 year)', missing_value=-999.0)
-  id_ndep_org = register_tiled_diag_field (diag_mod_name, 'Ndep_org', (/id_ug/), &
+  id_ndep_org = register_tiled_diag_field (diag_mod_name, 'Ndep_org', axes, &
        time, 'organic nitrogen deposition', 'kg N/(m2 year)', missing_value=-999.0)
-  id_ndep    = register_tiled_diag_field (diag_mod_name, 'Ndep', (/id_ug/), &
+  id_ndep    = register_tiled_diag_field (diag_mod_name, 'Ndep', axes, &
        time, 'total nitrogen deposition', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_nfert_nit = register_tiled_diag_field (diag_mod_name, 'Nfert_nit', (/id_ug/), &
+  id_nfert_nit = register_tiled_diag_field (diag_mod_name, 'Nfert_nit', axes, &
        time, 'nitrate fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfert_amm = register_tiled_diag_field (diag_mod_name, 'Nfert_amm', (/id_ug/), &
+  id_nfert_amm = register_tiled_diag_field (diag_mod_name, 'Nfert_amm', axes, &
        time, 'ammonium fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfert_org = register_tiled_diag_field (diag_mod_name, 'Nfert_org', (/id_ug/), &
+  id_nfert_org = register_tiled_diag_field (diag_mod_name, 'Nfert_org', axes, &
        time, 'organic nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfert     = register_tiled_diag_field (diag_mod_name, 'Nfert', (/id_ug/), &
+  id_nfert     = register_tiled_diag_field (diag_mod_name, 'Nfert', axes, &
        time, 'total nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_nmanure_nit = register_tiled_diag_field (diag_mod_name, 'Nmanure_nit', (/id_ug/), &
+  id_nmanure_nit = register_tiled_diag_field (diag_mod_name, 'Nmanure_nit', axes, &
        time, 'manure nitrate', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nmanure_amm = register_tiled_diag_field (diag_mod_name, 'Nmanure_amm', (/id_ug/), &
+  id_nmanure_amm = register_tiled_diag_field (diag_mod_name, 'Nmanure_amm', axes, &
        time, 'manure ammonium', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nmanure_org = register_tiled_diag_field (diag_mod_name, 'Nmanure_org', (/id_ug/), &
+  id_nmanure_org = register_tiled_diag_field (diag_mod_name, 'Nmanure_org', axes, &
        time, 'manure organic nitrogen', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nmanure    = register_tiled_diag_field (diag_mod_name, 'Nmanure', (/id_ug/), &
+  id_nmanure    = register_tiled_diag_field (diag_mod_name, 'Nmanure', axes, &
        time, 'total manure nitrogen deposition', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_nfml_nit = register_tiled_diag_field (diag_mod_name, 'Nfml_nit', (/id_ug/), &
-       time, 'nitrate fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfml_amm = register_tiled_diag_field (diag_mod_name, 'Nfml_amm', (/id_ug/), &
-       time, 'ammonium fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfml_org = register_tiled_diag_field (diag_mod_name, 'Nfml_org', (/id_ug/), &
-       time, 'organic nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
-  id_nfml     = register_tiled_diag_field (diag_mod_name, 'Nfml', (/id_ug/), &
-       time, 'total nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
+  id_nfml_nit = register_tiled_diag_field (diag_mod_name, 'Nfml_nit', axes, &
+       time, 'non-volatile nitrate fertilization', 'kg N/(m2 year)', missing_value=-999.0)
+  id_nfml_amm = register_tiled_diag_field (diag_mod_name, 'Nfml_amm', axes, &
+       time, 'non-volatile ammonium fertilization', 'kg N/(m2 year)', missing_value=-999.0)
+  id_nfml_org = register_tiled_diag_field (diag_mod_name, 'Nfml_org', axes, &
+       time, 'non-volatile organic nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
+  id_nfml     = register_tiled_diag_field (diag_mod_name, 'Nfml', axes, &
+       time, 'total non-volatile nitrogen fertilization', 'kg N/(m2 year)', missing_value=-999.0)
 
-  id_amm_volat = register_tiled_diag_field (diag_mod_name, 'amm_volat', (/id_ug/), &
+  id_amm_volat = register_tiled_diag_field (diag_mod_name, 'amm_volat', axes, &
        time, 'rate of ammonium input volatilization', 'kg N/(m2 year)', missing_value=-999.0)
+
+  id_ninput_nit = register_tiled_diag_field (diag_mod_name, 'Ninput_nit', axes, &
+       time, 'net nitrate input to soil (all deposition plus all fertilization)', &
+       'kg N/(m2 year)', missing_value=-999.0)
+  id_ninput_amm = register_tiled_diag_field (diag_mod_name, 'Ninput_amm', axes, &
+       time, 'net ammonium input to soil (all deposition plus all fertilization minus volatilization)', &
+       'kg N/(m2 year)', missing_value=-999.0)
+  id_ninput_org = register_tiled_diag_field (diag_mod_name, 'Ninput_org', axes, &
+       time, 'net organic nitrogen input to soil (all deposition plus all fertilization)', &
+       'kg N/(m2 year)', missing_value=-999.0)
+  id_ninput     = register_tiled_diag_field (diag_mod_name, 'Ninput', axes, &
+       time, 'net nitrogen input to soil (all deposition plus all fertilization minus ammonium volatilization)', &
+       'kg N/(m2 year)', missing_value=-999.0)
 
   ! CMOR/CMIP variables
   call set_default_diag_filter('land')
 
-  call add_tiled_diag_field_alias(id_nfert, cmor_name, 'fNfert', [id_ug], time, &
+  id_fNfert = register_tiled_diag_field (cmor_name, 'fNfert', axes, time, &
       'total N added for cropland fertilisation (artificial and manure)', 'kg m-2 s-1', missing_value=-999.0, &
       standard_name='tendency_of_soil_mass_content_of_nitrogen_compounds_expressed_as_nitrogen_due_to_fertilization', &
       fill_missing=.TRUE.)
-  call add_tiled_diag_field_alias(id_ndep, cmor_name, 'fNdep', [id_ug], time, &
+
+  call add_tiled_diag_field_alias(id_ndep, cmor_name, 'fNdep', axes, time, &
       'Dry and Wet Deposition of Reactive Nitrogen onto Land', 'kg m-2 s-1', missing_value=-999.0, &
       standard_name='tendency_of_atmosphere_mass_content_of_nitrogen_compounds_expressed_as_nitrogen_due_to_deposition', &
       fill_missing=.TRUE.)
@@ -515,9 +535,24 @@ subroutine nitrogen_sources(time, l, p_ann, precip, lu, input_nit, input_amm, in
   call send_tile_data(id_nmanure_org, manure_org, diag)
   call send_tile_data(id_nmanure,     manure_nit+manure_amm+manure_org, diag)
 
+  call send_tile_data(id_ninput_nit, input_nit, diag)
+  call send_tile_data(id_ninput_amm, input_amm, diag)
+  call send_tile_data(id_ninput_org, input_org, diag)
+  call send_tile_data(id_ninput,     input_nit+input_amm+input_org, diag)
+
   call send_tile_data(id_amm_volat,   &
     ndep_amm*ndep_amm_volat + fert_amm*fert_amm_volat + manure_amm*manure_amm_volat, &
     diag)
+
+  ! CMOR/CMIP output
+  select case(lu)
+  case (LU_CROP)
+     call send_tile_data(id_fNfert, fert_nit   + fert_amm   + fert_org   + &
+                                    manure_nit + manure_amm + manure_org + &
+                                    fml_nit    + fml_amm    + fml_org,     diag)
+  case default
+     call send_tile_data(id_fNfert, 0.0, diag)
+  end select  
 end subroutine nitrogen_sources
 
 
