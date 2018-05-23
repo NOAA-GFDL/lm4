@@ -2209,12 +2209,14 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   endif
 
   ! Do N deposition first. For now, it all goes to leaf litter
+  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes 
+  ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
   call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
   call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
   call check_var_range(ndep_org, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_org', FATAL)
-  call soil_NH4_deposition(ndep_amm*dt_fast_yr,soil%litter(LEAF))
-  call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%litter(LEAF))
-  call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%litter(LEAF))
+  call soil_NH4_deposition   (ndep_amm*dt_fast_yr, soil%soil_organic_matter(1))
+  call soil_NO3_deposition   (ndep_nit*dt_fast_yr, soil%soil_organic_matter(1))
+  call soil_org_N_deposition (ndep_org*dt_fast_yr, soil%soil_organic_matter(1))
 
   soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + (ndep_amm+ndep_nit+ndep_org)*dt_fast_yr
 
