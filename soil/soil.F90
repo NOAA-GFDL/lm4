@@ -5280,7 +5280,8 @@ end subroutine
 !DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,livingMicrobeC)
 subroutine sc_litter_livingMicrobeC_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::i,j;xtype,pointer::p
+    integer,intent(in)::i,j
+    real,pointer::p
     p=>NULL()
     if(associated(t)) then
         if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%livingMicrobeC
@@ -5290,7 +5291,8 @@ end subroutine
 !DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,livingMicrobeN)
 subroutine sc_litter_livingMicrobeN_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::i,j;xtype,pointer::p
+    integer,intent(in)::i,j
+    real,pointer::p
     p=>NULL()
     if(associated(t)) then
         if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%livingMicrobeN
@@ -5300,7 +5302,8 @@ end subroutine
 !DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,CO2)
 subroutine sc_litter_CO2_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::i,j;xtype,pointer::p
+    integer,intent(in)::i,j
+    real,pointer::p
     p=>NULL()
     if(associated(t)) then
         if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%CO2
@@ -5310,7 +5313,8 @@ end subroutine
 !DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,Rtot)
 subroutine sc_litter_Rtot_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::i,j;xtype,pointer::p
+    integer,intent(in)::i,j
+    real,pointer::p
     p=>NULL()
     if(associated(t)) then
         if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%Rtot
@@ -5320,7 +5324,8 @@ end subroutine
 !DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,originalLitterC)
 subroutine sc_litter_originalLitterC_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::i,j;xtype,pointer::p
+    integer,intent(in)::i,j
+    real,pointer::p
     p=>NULL()
     if(associated(t)) then
         if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%originalLitterC
@@ -5330,32 +5335,133 @@ end subroutine
 !DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,originalLitterN)
 subroutine sc_litter_originalLitterN_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::i,j;xtype,pointer::p
+    integer,intent(in)::i,j
+    real,pointer::p
     p=>NULL()
     if(associated(t)) then
         if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%originalLitterN
     endif
 end subroutine
 
-#define DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_litter_ ## x ## _ptr(t,i,j,k,p);\
-type(land_tile_type),pointer::t;integer,intent(in)::i,j,k;xtype,pointer::p;p=>NULL();if(associated(t))then;\
-if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%x(j);endif;\
-end subroutine
-DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,litterC)
-DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,protectedC)
-DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,litterN)
-DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,protectedN)
+!/* #define DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_litter_ ## x ## _ptr(t,i,j,k,p);\ */
+!/* type(land_tile_type),pointer::t;integer,intent(in)::i,j,k;xtype,pointer::p;p=>NULL();if(associated(t))then;\ */
+!/* if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%x(j);endif;\ */
+!/* end subroutine */
 
-#define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_ ## x ## _ptr(t,i,j,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\
-if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%x;endif;\
+!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,litterC)
+subroutine sc_litter_litterC_ptr(t,i,j,k,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j,k
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%litterC(j)
+    endif
 end subroutine
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,Rtot)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,CO2)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterC)
 
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeN)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterN)
+!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,protectedC)
+subroutine sc_litter_protectedC_ptr(t,i,j,k,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j,k
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%protectedC(j)
+    endif
+end subroutine
+
+!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,litterN)
+subroutine sc_litter_litterN_ptr(t,i,j,k,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j,k
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%litterN(j)
+    endif
+end subroutine
+
+!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,protectedN)
+subroutine sc_litter_protectedN_ptr(t,i,j,k,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j,k
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%protectedN(j)
+    endif
+end subroutine
+
+!/* #define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_ ## x ## _ptr(t,i,j,p);\ */
+!/* type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\ */
+!/* if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%x;endif;\ */
+!/* end subroutine */
+
+!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
+subroutine sc_livingMicrobeC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%livingMicrobeC
+    endif
+end subroutine
+
+!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,CO2)
+subroutine sc_CO2_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%CO2
+    endif
+end subroutine
+
+!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,Rtot)
+subroutine sc_Rtot_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%Rtot
+    endif
+end subroutine
+
+!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeN)
+subroutine sc_livingMicrobeN_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%livingMicrobeN
+    endif
+end subroutine
+
+!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterC)
+subroutine sc_originalLitterC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%originalLitterC
+    endif
+end subroutine
+
+!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterN)
+subroutine sc_originalLitterN_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%originalLitterN
+    endif
+end subroutine
+
 
 end module soil_mod
