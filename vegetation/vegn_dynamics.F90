@@ -536,57 +536,54 @@ subroutine  update_mycorrhizae(cc, soilT, &
   call check_var_range(cc%N_fixer_N_reservoir, -1e-10,HUGE(0.0),'update_mycorrhizae #3','cc%N_fixer_N_reservoir',FATAL)
 
   ! Calculate N released to plant
-  scav_N_to_plant = cc%scav_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
-  mine_N_to_plant = cc%mine_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
-  fix_N_to_plant = cc%N_fixer_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
 
   ! Calculate return on investment for each strategy
   ! Scavenging (AM-style)
   ! slm: *_mgain (marginal gain) variables have units [kgN/kgC]
-  if(myc_scav_C_efficiency == 0 .OR. .NOT. sp%do_N_scavenging_strategy) then
-     scav_mgain = 0
-     scav_N_to_plant = 0.0
-  else
+  if (sp%do_N_scavenging_strategy) then
+     scav_N_to_plant = cc%scav_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
      if (cc%myc_scavenger_biomass_C > 0) then
         scav_mgain = (max(0.0,scav_N_to_plant)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
      else ! Use the mycorrhizal N uptake efficiency from myc_scavenger_N_uptake, units of (kgN/kg myc biomass C)
         scav_mgain = scav_efficiency/(dt_fast_yr*myc_scav_C_efficiency*mycorrhizal_turnover_time)
      endif
+  else
+     scav_N_to_plant = 0.0 ; scav_mgain = 0
   endif
   cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir - scav_N_to_plant
 
   ! Mycorrhizal N mining (ECM-style)
-  if(myc_mine_C_efficiency==0 .OR. .NOT. sp%do_N_mining_strategy) then
-     mine_mgain = 0.0
-     mine_N_to_plant = 0.0
-  else
+  if (sp%do_N_mining_strategy) then
+     mine_N_to_plant = cc%mine_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
      if(cc%myc_miner_biomass_C>0) then
         mine_mgain = (max(0.0,mine_N_to_plant)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
      else
         mine_mgain = mine_efficiency/(dt_fast_yr*myc_mine_C_efficiency*mycorrhizal_turnover_time)
      endif
+  else
+      mine_N_to_plant = 0.0 ; mine_mgain = 0.0
   endif
   cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir - mine_N_to_plant
 
   ! Root uptake of nitrogen
   if (C_allocation_to_N_acq>0) then
-     rhiz_exud_mgain = max(0.001,(root_N_uptake/dt_fast_yr)/(C_allocation_to_N_acq))!+(mine_mgain+scav_mgain)*0.5
+     rhiz_exud_mgain = max(0.001,(root_N_uptake/dt_fast_yr)/C_allocation_to_N_acq)!+(mine_mgain+scav_mgain)*0.5
   else
      rhiz_exud_mgain = (mine_mgain+scav_mgain)*0.25
   endif
 
   ! N fixer
-  if(N_fixer_C_efficiency == 0 .OR. .NOT. sp%do_N_fixation_strategy) then
-     Nfix_mgain = 0.0
-     fix_N_to_plant = 0.0
-  else
+  if (sp%do_N_fixation_strategy) then
+     fix_N_to_plant = cc%N_fixer_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
      if(cc%N_fixer_biomass_C>0) then
         Nfix_mgain = (fix_N_to_plant/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
      else
         Nfix_mgain = sp%N_fixation_rate*N_fixer_C_efficiency*N_fixer_turnover_time
      endif
+  else
+     fix_N_to_plant = 0.0 ; Nfix_mgain = 0.0
   endif
-  cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir-fix_N_to_plant
+  cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir - fix_N_to_plant
 
   ! Apply a smoothing filter to marginal gains, so we can control how fast N strategies change at the ecosystem level
   w = 1.0/(1+sp%tau_smooth_marginal_gain/dt_fast_yr)
@@ -603,8 +600,8 @@ subroutine  update_mycorrhizae(cc, soilT, &
            + cc%rhiz_exud_marginal_gain_smoothed
      scav_exud_frac = cc%myc_scav_marginal_gain_smoothed/mgain
      mine_exud_frac = cc%myc_mine_marginal_gain_smoothed/mgain
-     Nfix_exud_frac  = cc%N_fix_marginal_gain_smoothed/mgain
-     rhiz_exud_frac        = cc%rhiz_exud_marginal_gain_smoothed/mgain
+     Nfix_exud_frac = cc%N_fix_marginal_gain_smoothed/mgain
+     rhiz_exud_frac = cc%rhiz_exud_marginal_gain_smoothed/mgain
   else
      ! Divide evenly if there is no marginal gain.  But this probably only happens if C_allocation_to_N_acq is zero
      scav_exud_frac = 0.4*0.7
@@ -614,11 +611,11 @@ subroutine  update_mycorrhizae(cc, soilT, &
   endif
 
   if (smooth_N_uptake_C_allocation) then
-     Nfix_C_alloc  = min(C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr, cc%max_Nfix_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
-     mine_C_alloc = min(C_allocation_to_N_acq*mine_exud_frac*dt_fast_yr,cc%max_mine_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
-     scav_C_alloc = min(C_allocation_to_N_acq*scav_exud_frac*dt_fast_yr,cc%max_scav_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
+     Nfix_C_alloc = min(C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr, cc%max_Nfix_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
+     mine_C_alloc = min(C_allocation_to_N_acq*mine_exud_frac*dt_fast_yr, cc%max_mine_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
+     scav_C_alloc = min(C_allocation_to_N_acq*scav_exud_frac*dt_fast_yr, cc%max_scav_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
   else
-     Nfix_C_alloc  = C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr
+     Nfix_C_alloc = C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr
      mine_C_alloc = C_allocation_to_N_acq*mine_exud_frac*dt_fast_yr
      scav_C_alloc = C_allocation_to_N_acq*scav_exud_frac*dt_fast_yr
   endif
