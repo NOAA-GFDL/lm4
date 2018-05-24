@@ -1603,12 +1603,12 @@ logical function check_cohort(cohort) result(cohortGood)
 
     cohortGood=.NOT. ( &
      (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2,cohort%livingMicrobeN).lt.-tol_roundoff) .OR. &
-    isNAN(cohort%originalLitterC) .OR. &
-    isNAN(cohort%livingMicrobeC) .OR. &
-    isNAN(cohort%CO2)  .OR. &
+    is_nan(cohort%originalLitterC) .OR. &
+    is_nan(cohort%livingMicrobeC) .OR. &
+    is_nan(cohort%CO2)  .OR. &
     cohort%livingMicrobeN.lt.0 .OR. &
-    isNAN(cohort%originalLitterN) .OR. &
-    isNAN(cohort%livingMicrobeN) &
+    is_nan(cohort%originalLitterN) .OR. &
+    is_nan(cohort%livingMicrobeN) &
     )
 
    cohortC=cohortCSum(cohort)
@@ -1623,10 +1623,10 @@ logical function check_cohort(cohort) result(cohortGood)
         (cohort%protectedC(n).lt.-tol_roundoff) .OR. &
         (cohort%litterN(n).lt.-tol_roundoff) .OR. &
         (cohort%protectedN(n).lt.-tol_roundoff) .OR. &
-        (isNAN(cohort%litterC(n))) .OR. &
-        (isNAN(cohort%protectedC(n)))  .OR. &
-        (isNAN(cohort%litterN(n))) .OR. &
-        (isNAN(cohort%protectedN(n)))  &
+        (is_nan(cohort%litterC(n))) .OR. &
+        (is_nan(cohort%protectedC(n)))  .OR. &
+        (is_nan(cohort%litterN(n))) .OR. &
+        (is_nan(cohort%protectedN(n)))  &
         )
         cohortGood=cohortGood .AND. tempGood
     ENDDO
