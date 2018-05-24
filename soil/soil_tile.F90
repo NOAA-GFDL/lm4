@@ -254,12 +254,6 @@ type :: soil_tile_type
    type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: soil_organic_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
-   real                   :: fast_DOC_leached !Carbon that has been leached out of the column
-   real                   :: slow_DOC_leached !Carbon that has been leached out of the column
-   real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
-   real                   :: fast_DON_leached !Nitrogen that has been leached out of the column
-   real                   :: slow_DON_leached !Nitrogen that has been leached out of the column
-   real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
    real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
 
    ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
@@ -791,13 +785,6 @@ subroutine soil_data_init_0d(soil)
   soil%fsc_in(:)              = 0.0
   soil%ssc_in(:)              = 0.0
 
-  soil%fast_DOC_leached=0.0
-  soil%slow_DOC_leached=0.0
-  soil%deadmic_DOC_leached=0.0
-  soil%fast_DON_leached=0.0
-  soil%slow_DON_leached=0.0
-  soil%deadmic_DON_leached=0.0
-
   soil%gross_nitrogen_flux_into_tile = 0.0
   soil%gross_nitrogen_flux_out_of_tile = 0.0
 
@@ -1204,12 +1191,6 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
 
-  s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
-  s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
-  s2%deadmic_DOC_leached=s1%deadmic_DOC_leached*x1 + s2%deadmic_DOC_leached*x2
-  s2%fast_DON_leached=s1%fast_DON_leached*x1 + s2%fast_DON_leached*x2
-  s2%slow_DON_leached=s1%slow_DON_leached*x1 + s2%slow_DON_leached*x2
-  s2%deadmic_DON_leached=s1%deadmic_DON_leached*x1 + s2%deadmic_DON_leached*x2
   s2%NO3_leached=s1%NO3_leached*x1 + s2%NO3_leached*x2
   s2%NH4_leached=s1%NH4_leached*x1 + s2%NH4_leached*x2
 

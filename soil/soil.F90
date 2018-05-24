@@ -241,11 +241,8 @@ integer ::  &
     id_cf_1, id_cf_3, id_wt_1, id_wt_2, id_wt_2a, id_wt_2b, id_wt_3, id_wt2_3, id_wt_4, &
     id_div_bf, id_div_if, id_div_al, id_div, &
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
-    id_protected_C_leaching, id_livemic_C_leaching, &
     id_protected_total_C, id_protected_total_N, &
     id_asoil,id_rsoil,&
-    id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
-    id_fast_DON_div_loss,id_slow_DON_div_loss,id_deadmic_DON_div_loss, &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
@@ -280,8 +277,8 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 integer :: &
     id_total_NH4,id_total_NO3,&
     id_soil_NO3,id_soil_NH4,&
-    id_total_denitrification_rate,id_soil_denitrification_rate,id_NO3_div_loss,&
-    id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
+    id_total_denitrification_rate,id_soil_denitrification_rate,&
+    id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
     id_total_nitrification_rate
 
 ! test tridiagonal solver for advection
@@ -683,12 +680,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_originalCohortC', 'litterCCohort',sc_litter_originalLitterC_ptr, i)
         enddo
 
-        if(field_exists(restart, 'fast_DOC_leached')) then
-           call get_tile_data(restart,'fast_DOC_leached', soil_fast_DOC_leached_ptr)
-           call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
-           call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
-        endif
-
         if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
            call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
            call get_tile_data(restart,'gross_nitrogen_flux_out_of_tile', soil_gross_nitrogen_flux_out_of_tile_ptr)
@@ -946,14 +937,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   call set_default_diag_filter('soil')
 
   ! define diagnostic fields
-
-  ! FIXME slm: generalize DOC fields by carbon type
-  id_fast_DOC_div_loss = register_tiled_diag_field ( module_name, 'fast_DOC_div_loss', (/id_ug/),  &
-       lnd%time, 'total fast DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
-  id_slow_DOC_div_loss = register_tiled_diag_field ( module_name, 'slow_DOC_div_loss', (/id_ug/),  &
-       lnd%time, 'total slow DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
-  id_deadmic_DOC_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DOC_div_loss', (/id_ug/),  &
-       lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:1), &
        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
   id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'total_DON_div', axes(1:1), &
@@ -962,15 +945,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
   id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:1), &
        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
-   id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
+  id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
         (/id_ug/), lnd%time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
-id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
-       id_fast_DON_div_loss = register_tiled_diag_field ( module_name, 'fast_DON_div_loss', (/id_ug/),  &
-            lnd%time, 'total fast DON divergence loss', 'kg N/m2', missing_value=-100.0 )
-       id_slow_DON_div_loss = register_tiled_diag_field ( module_name, 'slow_DON_div_loss', (/id_ug/),  &
-            lnd%time, 'total slow DON divergence loss', 'kg N/m2', missing_value=-100.0 )
-       id_deadmic_DON_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DON_div_loss', (/id_ug/),  &
-            lnd%time, 'total dead microbe DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+  id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        axes(1:1), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
@@ -1045,13 +1022,11 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        axes(1:1), lnd%time, '<ctype> <ltype> litter protected nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>_N',  &
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> nitrogen degradation', 'kg N/(m2 year)', missing_value=-100.0 )
-!  id_litter_N_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_N_leaching', &
-!       axes(1:1), lnd%time, '<ltype> litter <ctype> N leaching','kg/(m2 s)', missing_value=-100.0)
   id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_N', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_N', &
        axes(1:1),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
- id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litter_ammonium', &
+  id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litter_ammonium', &
       axes(1:1),  lnd%time, '<ltype> litter ammonium', 'kg N/m2', missing_value=-100.0 )
   id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litter_nitrate', &
        axes(1:1),  lnd%time, '<ltype> litter nitrate', 'kg N/m2', missing_value=-100.0 )
@@ -1068,16 +1043,12 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'total_denitrification_rate',  &
        (/id_ug/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
- id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
+  id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
        lnd%time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
-  id_NO3_div_loss = register_tiled_diag_field ( module_name, 'NO3_div_loss', axes(1:1), &
-       lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
-  id_NH4_div_loss = register_tiled_diag_field ( module_name, 'NH4_div_loss', axes(1:1), &
-        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
   id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'total_N_mineralization_rate',  &
        (/id_ug/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
- id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'total_N_immobilization_rate',  &
+  id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'total_N_immobilization_rate',  &
       (/id_ug/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
       missing_value=-100.0 )
   id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'total_nitrification_rate',  &
@@ -1121,10 +1092,7 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        lnd%time, 'net layer vertical soil NO3 leaching', 'kg/(m2 s)', missing_value=initval)
   id_NH4_leaching = register_tiled_diag_field ( module_name, 'NH4_leaching', axes, &
        lnd%time, 'net layer vertical soil NH4 leaching', 'kg/(m2 s)', missing_value=initval)
-  ! id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
-  !      lnd%time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
-  !id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
-  !     lnd%time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+
   id_surf_DOC_loss = register_tiled_diag_field ( module_name, 'surf_DOC_loss', axes(1:1), &
        lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
        missing_value=initval)
@@ -1559,9 +1527,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
 
-     call add_tile_data(restart,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, 'Cumulative fast DOC leached out of the column', 'kg/m2')
-     call add_tile_data(restart,'slow_DOC_leached',     soil_slow_DOC_leached_ptr, 'Cumulative slow DOC leached out of the column', 'kg/m2')
-     call add_tile_data(restart,'deadmic_DOC_leached',  soil_deadmic_DOC_leached_ptr, 'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
      if (soil_carbon_option == SOILC_CORPSE_N) then
         do i = 1, N_C_TYPES
            call add_tile_data(restart,trim(c_shortname(i))//'_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr,i,trim(c_longname(i))//' soil nitrogen','kg/m2')
@@ -2967,9 +2932,6 @@ end subroutine soil_step_1
       surf_NH4_loss = 0.
    end if
 
-   soil%fast_DOC_leached=soil%fast_DOC_leached+sum(div_DOC_loss(1,:)) + surf_DOC_loss(1)
-   soil%slow_DOC_leached=soil%slow_DOC_leached+sum(div_DOC_loss(2,:)) + surf_DOC_loss(2)
-   soil%deadmic_DOC_leached=soil%deadmic_DOC_leached+sum(div_DOC_loss(3,:)) + surf_DOC_loss(3)
    ! Diagnostic. Later pass this back to land_model for transfer to rivers.
    total_DOC_div = sum(surf_DOC_loss(:))
    total_DON_div = sum(surf_DON_loss(:))
@@ -3213,13 +3175,6 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_livemic_N, livemic_N/dz(1:num_l), diag)
      call send_tile_data(id_total_C_layered, layer_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_total_N_layered, layer_N(:)/dz(1:num_l), diag)
-
-     call send_tile_data(id_fast_DOC_div_loss,    soil%fast_DOC_leached,    diag)
-     call send_tile_data(id_slow_DOC_div_loss,    soil%slow_DOC_leached,    diag)
-     call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached, diag)
-     call send_tile_data(id_fast_DON_div_loss,    soil%fast_DON_leached,    diag)
-     call send_tile_data(id_slow_DON_div_loss,    soil%slow_DON_leached,    diag)
-     call send_tile_data(id_deadmic_DON_div_loss, soil%deadmic_DON_leached, diag)
 
      call send_tile_data(id_soil_NO3, soil%soil_organic_matter(1:num_l)%nitrate/dz(1:num_l),diag)
      call send_tile_data(id_soil_NH4, soil%soil_organic_matter(1:num_l)%ammonium/dz(1:num_l),diag)
@@ -4601,10 +4556,6 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_dry)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_sat)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_sat)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
-
-DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
-DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
-DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
 
 DEFINE_SOIL_ACCESSOR_0D(real,gross_nitrogen_flux_into_tile)
 DEFINE_SOIL_ACCESSOR_0D(real,gross_nitrogen_flux_out_of_tile)
