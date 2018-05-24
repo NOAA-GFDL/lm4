@@ -2684,7 +2684,8 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
 !                  frac_nppPrevDay_toRemove = 1.0
 !               endif
 !            elseif (adj_nppPrevDay==2) then
-!               frac_nppPrevDay_toRemove = (burned_bsw_cc + burned_bl_cc + burned_blv_cc + killed_bsw_cc + killed_bl_cc + killed_br_cc + killed_blv_cc) / (cc%bliving + burned_bsw_cc + burned_bl_cc + burned_blv_cc + killed_bsw_cc + killed_bl_cc + killed_br_cc + killed_blv_cc)
+!               frac_nppPrevDay_toRemove = (burned_bsw_cc + burned_bl_cc + burned_blv_cc + killed_bsw_cc + killed_bl_cc + killed_br_cc + killed_blv_cc) /&
+!                                          (cc%bliving + burned_bsw_cc + burned_bl_cc + burned_blv_cc + killed_bsw_cc + killed_bl_cc + killed_br_cc + killed_blv_cc)
 !               if (cc%bliving + burned_bsw_cc + burned_bl_cc + burned_blv_cc + killed_bsw_cc + killed_bl_cc + killed_br_cc + killed_blv_cc == 0) then
 !                  frac_nppPrevDay_toRemove = 1.0
 !               endif
@@ -3159,7 +3160,9 @@ subroutine calc_fire_derivs(&
 !       RHderiv_Z = (ROSmax * gW * fire_dur * (1 + 1/HB))**2 * pi / (4 * LB * 10**6) &
 !                 * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !       BA_DERIVwrt_RHparam1 = -(5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6)
-!       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6) - (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2)*((theta - RH_up)**2))/((RH_lo - RH_up)**5) - (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3))/((RH_lo - RH_up)**5)
+!       BA_DERIVwrt_RHparam2 = (5.*RHderiv_X*RHderiv_Z*((rh - RH_up)**3)*((theta - RH_up)**2))/((RH_lo - RH_up)**6) - &
+!                              (3.*RHderiv_X*RHderiv_Z*((rh - RH_up)**2)*((theta - RH_up)**2))/((RH_lo - RH_up)**5) - &
+!                              (RHderiv_X*RHderiv_Z*(2.*theta - 2.*RH_up)*((rh - RH_up)**3))/((RH_lo - RH_up)**5)
 !    endif
 
    ! SSR20160202
