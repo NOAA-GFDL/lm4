@@ -371,7 +371,6 @@ subroutine  update_mycorrhizae(cc, soilT, &
   real :: scav_mgain, mine_mgain, Nfix_mgain, rhiz_exud_mgain ! kgN/kgC allocated
   real :: scav_exud_frac, mine_exud_frac, Nfix_exud_frac, rhiz_exud_frac
   real :: scav_myc_N_alloc, mine_myc_N_alloc, N_fixer_N_alloc
-  real :: d_scav_C_reservoir, d_scav_N_reservoir, d_mine_C_reservoir, d_mine_N_reservoir, d_Nfix_C_reservoir, d_Nfix_N_reservoir
   real :: scav_growth, mine_growth, Nfix_growth
   real :: lim_factor
   real :: reservoir_C_leakage, maint_resp
@@ -442,13 +441,6 @@ subroutine  update_mycorrhizae(cc, soilT, &
   myc_CO2_prod = myc_CO2_prod + (1.0-et_myc)*myc_turnover_C/et_myc
   myc_Nmin = myc_Nmin + (1.0-et_myc)*myc_turnover_N/et_myc
 
-  d_scav_C_reservoir = 0.0
-  d_scav_N_reservoir = 0.0
-  d_mine_C_reservoir = 0.0
-  d_mine_N_reservoir = 0.0
-  d_Nfix_C_reservoir = 0.0
-  d_Nfix_N_reservoir = 0.0
-
   ! Then update biomass of scavenger mycorrhizae and N fixers
   scav_growth = sp%myc_growth_rate*cc%scav_myc_C_reservoir/(cc%scav_myc_C_reservoir+sp%kM_myc_growth)*myc_scav_C_efficiency*dt_fast_yr
   maint_resp=min(cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*(1.0-et_myc)*dt_fast_yr,scav_growth)
@@ -461,8 +453,8 @@ subroutine  update_mycorrhizae(cc, soilT, &
   cc%scav_myc_N_reservoir=cc%scav_myc_N_reservoir+cc%myc_scavenger_biomass_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
   cc%myc_scavenger_biomass_C = cc%myc_scavenger_biomass_C + scav_growth - cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
   cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-  d_scav_C_reservoir = d_scav_C_reservoir - scav_growth/myc_scav_C_efficiency
-  cc%scav_myc_N_reservoir=cc%scav_myc_N_reservoir-cc%myc_scavenger_biomass_N
+  cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir - scav_growth/myc_scav_C_efficiency
+  cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir-cc%myc_scavenger_biomass_N
 
 
   mine_growth = sp%myc_growth_rate*cc%mine_myc_C_reservoir/(cc%mine_myc_C_reservoir+sp%kM_myc_growth)*myc_mine_C_efficiency*dt_fast_yr
@@ -476,8 +468,8 @@ subroutine  update_mycorrhizae(cc, soilT, &
   cc%mine_myc_N_reservoir=cc%mine_myc_N_reservoir+cc%myc_miner_biomass_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
   cc%myc_miner_biomass_C = cc%myc_miner_biomass_C + mine_growth - cc%myc_miner_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
   cc%myc_miner_biomass_N = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-  d_mine_C_reservoir = d_mine_C_reservoir - mine_growth/myc_mine_C_efficiency
-  cc%mine_myc_N_reservoir=cc%mine_myc_N_reservoir-cc%myc_miner_biomass_N
+  cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir - mine_growth/myc_mine_C_efficiency
+  cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir-cc%myc_miner_biomass_N
 
   Nfix_growth = sp%myc_growth_rate*cc%N_fixer_C_reservoir/(cc%N_fixer_C_reservoir+sp%kM_myc_growth)*N_fixer_C_efficiency*dt_fast_yr
   maint_resp=min(cc%N_fixer_biomass_C/N_fixer_turnover_time*(1.0-et_myc)*dt_fast_yr,Nfix_growth)
@@ -491,7 +483,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   N_fixation=N_fixation-cc%N_fixer_biomass_N*(1-et_myc/N_fixer_turnover_time*dt_fast_yr)
   cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + Nfix_growth - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
   cc%N_fixer_biomass_N = cc%N_fixer_biomass_N/c2n_N_fixer
-  d_Nfix_C_reservoir = d_Nfix_C_reservoir - Nfix_growth/N_fixer_C_efficiency
+  cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir - Nfix_growth/N_fixer_C_efficiency
   ! d_Nfix_N_reservoir = d_Nfix_N_reservoir - Nfix_growth/c2n_mycorrhizae
 
   ! N fixers just make all the N they need for their biomass
@@ -529,13 +521,6 @@ subroutine  update_mycorrhizae(cc, soilT, &
   if(is_watch_point()) then
      __DEBUG3__(cc%myc_scavenger_biomass_C,cc%myc_miner_biomass_C,cc%N_fixer_biomass_C)
   endif
-
-  cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir + d_scav_C_reservoir
-  cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir + d_scav_N_reservoir
-  cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir + d_mine_C_reservoir
-  cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir + d_mine_N_reservoir
-  cc%N_fixer_C_reservoir  = cc%N_fixer_C_reservoir  + d_Nfix_C_reservoir
-  cc%N_fixer_N_reservoir  = cc%N_fixer_N_reservoir  + d_Nfix_N_reservoir
 
   ! Excess C leaks out of reservoir into root exudates at a time scale of one day
   reservoir_C_leakage = reservoir_C_leakage + (cc%scav_myc_C_reservoir + cc%mine_myc_C_reservoir + cc%N_fixer_C_reservoir)*dt_fast_yr*365
