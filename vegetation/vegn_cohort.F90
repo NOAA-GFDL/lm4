@@ -184,7 +184,7 @@ type :: vegn_cohort_type
   real :: nitrogen_stress = 0.0
 
   real :: scav_C = 0.0, scav_N = 0.0 ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
-  real :: mine_C = 0.0, mine_N = 0.0
+  real :: mine_C = 0.0, mine_N = 0.0 ! Biomass of "miner" type mycorrhizae
   real :: nfix_C = 0.0, nfix_N = 0.0 ! Biomass of symbiotic N fixing microbes
 
   ! C and N reservoirs of symbiotic microbes (used for growth and transfers to plants)
