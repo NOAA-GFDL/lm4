@@ -587,21 +587,21 @@ subroutine  update_mycorrhizae(cc, soilT, &
 
   ! Apply a smoothing filter to marginal gains, so we can control how fast N strategies change at the ecosystem level
   w = 1.0/(1+sp%tau_smooth_marginal_gain/dt_fast_yr)
-  cc%myc_scav_marginal_gain_smoothed  = cc%myc_scav_marginal_gain_smoothed*(1-w)  + scav_mgain*w
-  cc%myc_mine_marginal_gain_smoothed  = cc%myc_mine_marginal_gain_smoothed*(1-w)  + mine_mgain*w
-  cc%N_fix_marginal_gain_smoothed     = cc%N_fix_marginal_gain_smoothed*(1-w)     + Nfix_mgain*w
-  cc%rhiz_exud_marginal_gain_smoothed = cc%rhiz_exud_marginal_gain_smoothed*(1-w) + rhiz_exud_mgain*w
+  cc%scav_mgain_smoothed = cc%scav_mgain_smoothed*(1-w) + scav_mgain*w
+  cc%mine_mgain_smoothed = cc%mine_mgain_smoothed*(1-w) + mine_mgain*w
+  cc%nfix_mgain_smoothed = cc%nfix_mgain_smoothed*(1-w) + Nfix_mgain*w
+  cc%exud_mgain_smoothed = cc%exud_mgain_smoothed*(1-w) + rhiz_exud_mgain*w
 
   ! Calculate relative fractions
   if (scav_mgain+Nfix_mgain+mine_mgain+rhiz_exud_mgain>0) then
-     mgain = cc%myc_scav_marginal_gain_smoothed  &
-           + cc%myc_mine_marginal_gain_smoothed  &
-           + cc%N_fix_marginal_gain_smoothed     &
-           + cc%rhiz_exud_marginal_gain_smoothed
-     scav_exud_frac = cc%myc_scav_marginal_gain_smoothed/mgain
-     mine_exud_frac = cc%myc_mine_marginal_gain_smoothed/mgain
-     Nfix_exud_frac = cc%N_fix_marginal_gain_smoothed/mgain
-     rhiz_exud_frac = cc%rhiz_exud_marginal_gain_smoothed/mgain
+     mgain = cc%scav_mgain_smoothed  &
+           + cc%mine_mgain_smoothed  &
+           + cc%nfix_mgain_smoothed  &
+           + cc%exud_mgain_smoothed
+     scav_exud_frac = cc%scav_mgain_smoothed/mgain
+     mine_exud_frac = cc%mine_mgain_smoothed/mgain
+     Nfix_exud_frac = cc%nfix_mgain_smoothed/mgain
+     rhiz_exud_frac = cc%exud_mgain_smoothed/mgain
   else
      ! Divide evenly if there is no marginal gain.  But this probably only happens if C_allocation_to_N_acq is zero
      scav_exud_frac = 0.4*0.7
@@ -945,10 +945,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_mrz_scav_alloc,diag,c(1:N),scav_C_alloc(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_mine_alloc,diag,c(1:N),mine_C_alloc(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_alloc,diag,c(1:N),Nfix_C_alloc(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_scav_mgain,diag,c(1:N),c(1:N)%myc_scav_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_mgain,diag,c(1:N),c(1:N)%myc_mine_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_Nfix_mgain,diag,c(1:N),c(1:N)%N_fix_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_rhiz_exud_mgain,diag,c(1:N),c(1:N)%rhiz_exud_marginal_gain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_mgain,diag,c(1:N),c(1:N)%scav_mgain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_mgain,diag,c(1:N),c(1:N)%mine_mgain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_mgain,diag,c(1:N),c(1:N)%nfix_mgain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_mgain,diag,c(1:N),c(1:N)%exud_mgain_smoothed,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_exudate,diag,c(1:N),C_alloc_to_N_acq(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_C,diag,c(1:N),root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_N,diag,c(1:N),root_exudate_N(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
@@ -1282,11 +1282,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mrz_scav_alloc,              diag, c(1:M), scav_C_alloc(1:M)/dt_fast_yr,              weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_mine_alloc,              diag, c(1:M), mine_C_alloc(1:M)/dt_fast_yr,              weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_alloc,                  diag, c(1:M), Nfix_C_alloc(1:M)/dt_fast_yr,              weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_scav_mgain,              diag, c(1:M), c(1:M)%myc_scav_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_mgain,              diag, c(1:M), c(1:M)%myc_mine_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_Nfix_mgain,                  diag, c(1:M), c(1:M)%N_fix_marginal_gain_smoothed,       weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_mgain,              diag, c(1:M), c(1:M)%scav_mgain_smoothed,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_mgain,              diag, c(1:M), c(1:M)%mine_mgain_smoothed,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_mgain,                  diag, c(1:M), c(1:M)%nfix_mgain_smoothed,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_exudate,                     diag, c(1:M), C_alloc_to_N_acq(1:M),                     weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_rhiz_exud_mgain,             diag, c(1:M), c(1:M)%rhiz_exud_marginal_gain_smoothed,   weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_mgain,             diag, c(1:M), c(1:M)%exud_mgain_smoothed,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_C,                 diag, c(1:M), root_exudate_C(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_N,                 diag, c(1:M), root_exudate_N(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_nitrogen_stress,             diag, c(1:M), c(1:M)%nitrogen_stress,                    weight=c(1:M)%nindivs, op=OP_AVERAGE)

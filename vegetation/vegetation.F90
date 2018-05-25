@@ -464,10 +464,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
      endif
      if(field_exists(restart2,'myc_scav_marginal_gain_smoothed')) then
-        call get_cohort_data(restart2, 'myc_scav_marginal_gain_smoothed',cohort_myc_scav_marginal_gain_smoothed_ptr)
-        call get_cohort_data(restart2, 'myc_mine_marginal_gain_smoothed',cohort_myc_mine_marginal_gain_smoothed_ptr)
-        call get_cohort_data(restart2, 'N_fix_marginal_gain_smoothed',cohort_N_fix_marginal_gain_smoothed_ptr)
-        call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_rhiz_exud_marginal_gain_smoothed_ptr)
+        call get_cohort_data(restart2, 'myc_scav_marginal_gain_smoothed',cohort_scav_mgain_smoothed_ptr)
+        call get_cohort_data(restart2, 'myc_mine_marginal_gain_smoothed',cohort_mine_mgain_smoothed_ptr)
+        call get_cohort_data(restart2, 'N_fix_marginal_gain_smoothed',cohort_nfix_mgain_smoothed_ptr)
+        call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_exud_mgain_smoothed_ptr)
 
         call get_cohort_data(restart2, 'max_monthly_scav_alloc',cohort_max_monthly_scav_alloc_ptr)
         call get_cohort_data(restart2, 'max_monthly_mine_alloc',cohort_max_monthly_mine_alloc_ptr)
@@ -661,10 +661,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%status  = LEAF_ON
         cc%leaf_age = 0.0
 
-        cc%myc_scav_marginal_gain_smoothed = 0.0
-        cc%myc_mine_marginal_gain_smoothed = 0.0
-        cc%N_fix_marginal_gain_smoothed = 0.0
-        cc%rhiz_exud_marginal_gain_smoothed = 0.0
+        cc%scav_mgain_smoothed = 0.0
+        cc%mine_mgain_smoothed = 0.0
+        cc%nfix_mgain_smoothed = 0.0
+        cc%exud_mgain_smoothed = 0.0
         cc%max_monthly_scav_alloc = 0.0
         cc%max_monthly_mine_alloc = 0.0
         cc%max_monthly_Nfix_alloc = 0.0
@@ -1448,10 +1448,10 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
-  call add_cohort_data(restart2,'myc_scav_marginal_gain_smoothed', cohort_myc_scav_marginal_gain_smoothed_ptr, 'smoothed marginal gain of scavenging','gN/gC')
-  call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_myc_mine_marginal_gain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
-  call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_N_fix_marginal_gain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
-  call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_rhiz_exud_marginal_gain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
+  call add_cohort_data(restart2,'myc_scav_marginal_gain_smoothed', cohort_scav_mgain_smoothed_ptr, 'smoothed marginal gain of scavenging','gN/gC')
+  call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_mine_mgain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
+  call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_nfix_mgain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
+  call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_exud_mgain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
   call add_cohort_data(restart2,'max_monthly_scav_alloc', cohort_max_monthly_scav_alloc_ptr, 'smoothed allocation to scavenging','kgC/m2/year')
   call add_cohort_data(restart2,'max_monthly_mine_alloc', cohort_max_monthly_mine_alloc_ptr, 'smoothed allocation to mining','kgC/m2/year')
   call add_cohort_data(restart2,'max_monthly_Nfix_alloc', cohort_max_monthly_Nfix_alloc_ptr, 'monthly maximum allocation to N fixation','kgC/m2/year')
@@ -3346,10 +3346,10 @@ DEFINE_COHORT_ACCESSOR(real,seed_N)
 DEFINE_COHORT_ACCESSOR(real,root_N)
 DEFINE_COHORT_ACCESSOR(real,total_N)
 DEFINE_COHORT_ACCESSOR(real,nitrogen_stress)
-DEFINE_COHORT_ACCESSOR(real,myc_scav_marginal_gain_smoothed)
-DEFINE_COHORT_ACCESSOR(real,myc_mine_marginal_gain_smoothed)
-DEFINE_COHORT_ACCESSOR(real,N_fix_marginal_gain_smoothed)
-DEFINE_COHORT_ACCESSOR(real,rhiz_exud_marginal_gain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,scav_mgain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,mine_mgain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,nfix_mgain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,exud_mgain_smoothed)
 
 DEFINE_COHORT_ACCESSOR(real,max_monthly_scav_alloc)
 DEFINE_COHORT_ACCESSOR(real,max_monthly_mine_alloc)
