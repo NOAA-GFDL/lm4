@@ -431,12 +431,12 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      endif
 
      if (field_exists(restart2,'scav_myc_C_reservoir')) then
-        call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
-        call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
-        call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
-        call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr)
-        call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
-        call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'N_fixer_C_reservoir',  cohort_nfix_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'N_fixer_N_reservoir',  cohort_nfix_N_reservoir_ptr)
      endif
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
@@ -650,9 +650,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%bsw     = init_cohort_bsw(n)
         cc%bwood   = init_cohort_bwood(n)
         cc%bseed   = init_cohort_bseed(n)
-        cc%scav_myc_C_reservoir = 0.0 ; cc%scav_myc_N_reservoir = 0.0
-        cc%mine_myc_C_reservoir = 0.0 ; cc%mine_myc_N_reservoir = 0.0
-        cc%N_fixer_C_reservoir  = 0.0 ; cc%N_fixer_N_reservoir  = 0.0
+        cc%scav_C_reservoir = 0.0 ; cc%scav_N_reservoir = 0.0
+        cc%mine_C_reservoir = 0.0 ; cc%mine_N_reservoir = 0.0
+        cc%nfix_C_reservoir = 0.0 ; cc%nfix_C_reservoir = 0.0
 
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
@@ -1428,12 +1428,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_age',cohort_age_ptr, 'age of cohort', 'years')
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/year')
 
-  call add_cohort_data(restart2,'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr, 'C in scavenger myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr, 'N in scavenger myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr, 'C in miner myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'scav_myc_C_reservoir', cohort_scav_C_reservoir_ptr, 'C in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'scav_myc_N_reservoir', cohort_scav_N_reservoir_ptr, 'N in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_C_reservoir', cohort_mine_C_reservoir_ptr, 'C in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_C_reservoir',  cohort_nfix_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_N_reservoir',  cohort_nfix_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
   call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_scav_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
   call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_scav_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
   call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_nfix_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
@@ -3326,12 +3326,12 @@ DEFINE_COHORT_ACCESSOR(real,height)
 DEFINE_COHORT_ACCESSOR(real,theta_av_phen)
 DEFINE_COHORT_ACCESSOR(real,psist_av_phen)
 
-DEFINE_COHORT_ACCESSOR(real,scav_myc_C_reservoir)
-DEFINE_COHORT_ACCESSOR(real,scav_myc_N_reservoir)
-DEFINE_COHORT_ACCESSOR(real,mine_myc_C_reservoir)
-DEFINE_COHORT_ACCESSOR(real,mine_myc_N_reservoir)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_C_reservoir)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,scav_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,scav_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,mine_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,mine_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,nfix_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,nfix_N_reservoir)
 DEFINE_COHORT_ACCESSOR(real,scav_C)
 DEFINE_COHORT_ACCESSOR(real,scav_N)
 DEFINE_COHORT_ACCESSOR(real,mine_C)

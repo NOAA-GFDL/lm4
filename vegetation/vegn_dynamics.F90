@@ -412,16 +412,16 @@ subroutine  update_mycorrhizae(cc, soilT, &
   endif
 
   ! Update reservoirs with N uptake for this cohort
-  cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir+scav_N_uptake
-  cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir+mine_C_uptake
-  cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir+mine_N_uptake
+  cc%scav_N_reservoir = cc%scav_N_reservoir+scav_N_uptake
+  cc%mine_C_reservoir = cc%mine_C_reservoir+mine_C_uptake
+  cc%mine_N_reservoir = cc%mine_N_reservoir+mine_N_uptake
   N_fixation = cc%nfix_C*sp%N_fixation_rate*dt_fast_yr
 
   ! T dependence of N fixation from Houlton et al. (2008) Nature paper (normalized to peak at 1.0)
   ! a=-3.62, b=0.27, c=25.15, T effect = exp(-0.5*b*c+b*Ts*(1-0.5*Ts/c))
   if(N_fix_Tdep_Houlton) N_fixation=N_fixation*exp(-0.5*0.27*25.15 + 0.27*(soilT-273.15)*(1.0-0.5*(soilT-273.15)/25.15))
 
-  cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + N_fixation
+  cc%nfix_N_reservoir = cc%nfix_N_reservoir + N_fixation
 
   call check_var_range(cc%scav_C, 0.0,HUGE(0.0),'update_mycorrhizae','cc%scav_C',FATAL)
   call check_var_range(cc%mine_C,     0.0,HUGE(0.0),'update_mycorrhizae','cc%mine_C',FATAL)
@@ -442,40 +442,40 @@ subroutine  update_mycorrhizae(cc, soilT, &
   myc_Nmin = myc_Nmin + (1.0-et_myc)*myc_turnover_N/et_myc
 
   ! Then update biomass of scavenger mycorrhizae and N fixers
-  scav_growth = sp%myc_growth_rate*cc%scav_myc_C_reservoir/(cc%scav_myc_C_reservoir+sp%kM_myc_growth)*myc_scav_C_efficiency*dt_fast_yr
+  scav_growth = sp%myc_growth_rate*cc%scav_C_reservoir/(cc%scav_C_reservoir+sp%kM_myc_growth)*myc_scav_C_efficiency*dt_fast_yr
   maint_resp=min(cc%scav_C/mycorrhizal_turnover_time*(1.0-et_myc)*dt_fast_yr,scav_growth)
-  if (scav_growth-maint_resp>sp%c2n_mycorrhizae*cc%scav_myc_N_reservoir*0.9) then
+  if (scav_growth-maint_resp>sp%c2n_mycorrhizae*cc%scav_N_reservoir*0.9) then
      ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
-     scav_growth=sp%c2n_mycorrhizae*cc%scav_myc_N_reservoir*0.9+maint_resp
+     scav_growth=sp%c2n_mycorrhizae*cc%scav_N_reservoir*0.9+maint_resp
   endif
   myc_CO2_prod = myc_CO2_prod + scav_growth/myc_scav_C_efficiency*(1.0-myc_scav_C_efficiency)
 
-  cc%scav_myc_N_reservoir=cc%scav_myc_N_reservoir+cc%scav_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
+  cc%scav_N_reservoir=cc%scav_N_reservoir+cc%scav_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
   cc%scav_C = cc%scav_C + scav_growth - cc%scav_C/mycorrhizal_turnover_time*dt_fast_yr
   cc%scav_N = cc%scav_C/sp%c2n_mycorrhizae
-  cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir - scav_growth/myc_scav_C_efficiency
-  cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir-cc%scav_N
+  cc%scav_C_reservoir = cc%scav_C_reservoir - scav_growth/myc_scav_C_efficiency
+  cc%scav_N_reservoir = cc%scav_N_reservoir-cc%scav_N
 
 
-  mine_growth = sp%myc_growth_rate*cc%mine_myc_C_reservoir/(cc%mine_myc_C_reservoir+sp%kM_myc_growth)*myc_mine_C_efficiency*dt_fast_yr
+  mine_growth = sp%myc_growth_rate*cc%mine_C_reservoir/(cc%mine_C_reservoir+sp%kM_myc_growth)*myc_mine_C_efficiency*dt_fast_yr
   maint_resp=min(cc%mine_C/mycorrhizal_turnover_time*(1.0-et_myc)*dt_fast_yr,mine_growth)
-  if (mine_growth-maint_resp>sp%c2n_mycorrhizae*cc%mine_myc_N_reservoir*0.9) then
+  if (mine_growth-maint_resp>sp%c2n_mycorrhizae*cc%mine_N_reservoir*0.9) then
     ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
-    mine_growth=sp%c2n_mycorrhizae*cc%mine_myc_N_reservoir*0.9+maint_resp
+    mine_growth=sp%c2n_mycorrhizae*cc%mine_N_reservoir*0.9+maint_resp
   endif
   myc_CO2_prod = myc_CO2_prod + mine_growth/myc_mine_C_efficiency*(1.0-myc_mine_C_efficiency)
 
-  cc%mine_myc_N_reservoir=cc%mine_myc_N_reservoir+cc%mine_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
+  cc%mine_N_reservoir=cc%mine_N_reservoir+cc%mine_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
   cc%mine_C = cc%mine_C + mine_growth - cc%mine_C/mycorrhizal_turnover_time*dt_fast_yr
   cc%mine_N = cc%mine_C/sp%c2n_mycorrhizae
-  cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir - mine_growth/myc_mine_C_efficiency
-  cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir-cc%mine_N
+  cc%mine_C_reservoir = cc%mine_C_reservoir - mine_growth/myc_mine_C_efficiency
+  cc%mine_N_reservoir = cc%mine_N_reservoir-cc%mine_N
 
-  Nfix_growth = sp%myc_growth_rate*cc%N_fixer_C_reservoir/(cc%N_fixer_C_reservoir+sp%kM_myc_growth)*N_fixer_C_efficiency*dt_fast_yr
+  Nfix_growth = sp%myc_growth_rate*cc%nfix_C_reservoir/(cc%nfix_C_reservoir+sp%kM_myc_growth)*N_fixer_C_efficiency*dt_fast_yr
   maint_resp=min(cc%nfix_C/N_fixer_turnover_time*(1.0-et_myc)*dt_fast_yr,Nfix_growth)
-  ! if (Nfix_growth>c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9) then
+  ! if (Nfix_growth>c2n_mycorrhizae*cc%nfix_N_reservoir*0.9) then
   !   ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
-  !   Nfix_growth=c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9
+  !   Nfix_growth=c2n_mycorrhizae*cc%nfix_N_reservoir*0.9
   ! endif
 
   myc_CO2_prod = myc_CO2_prod + Nfix_growth/N_fixer_C_efficiency*(1.0-N_fixer_C_efficiency)
@@ -483,7 +483,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   N_fixation=N_fixation-cc%nfix_N*(1-et_myc/N_fixer_turnover_time*dt_fast_yr)
   cc%nfix_C = cc%nfix_C + Nfix_growth - cc%nfix_C/N_fixer_turnover_time*dt_fast_yr
   cc%nfix_N = cc%nfix_N/c2n_N_fixer
-  cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir - Nfix_growth/N_fixer_C_efficiency
+  cc%nfix_C_reservoir = cc%nfix_C_reservoir - Nfix_growth/N_fixer_C_efficiency
   ! d_Nfix_N_reservoir = d_Nfix_N_reservoir - Nfix_growth/c2n_mycorrhizae
 
   ! N fixers just make all the N they need for their biomass
@@ -523,17 +523,17 @@ subroutine  update_mycorrhizae(cc, soilT, &
   endif
 
   ! Excess C leaks out of reservoir into root exudates at a time scale of one day
-  reservoir_C_leakage = reservoir_C_leakage + (cc%scav_myc_C_reservoir + cc%mine_myc_C_reservoir + cc%N_fixer_C_reservoir)*dt_fast_yr*365
-  cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir - cc%scav_myc_C_reservoir*dt_fast_yr*365
-  cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir - cc%mine_myc_C_reservoir*dt_fast_yr*365
-  cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir - cc%N_fixer_C_reservoir*dt_fast_yr*365
+  reservoir_C_leakage = reservoir_C_leakage + (cc%scav_C_reservoir + cc%mine_C_reservoir + cc%nfix_C_reservoir)*dt_fast_yr*365
+  cc%scav_C_reservoir = cc%scav_C_reservoir - cc%scav_C_reservoir*dt_fast_yr*365
+  cc%mine_C_reservoir = cc%mine_C_reservoir - cc%mine_C_reservoir*dt_fast_yr*365
+  cc%nfix_C_reservoir = cc%nfix_C_reservoir - cc%nfix_C_reservoir*dt_fast_yr*365
 
-  if(abs(cc%mine_myc_N_reservoir)<1e-20) cc%mine_myc_N_reservoir = 0.0
-  if(abs(cc%mine_myc_C_reservoir)<1e-20) cc%mine_myc_C_reservoir = 0.0
-  if(abs(cc%scav_myc_N_reservoir)<1e-20) cc%scav_myc_N_reservoir = 0.0
-  if(abs(cc%scav_myc_C_reservoir)<1e-20) cc%scav_myc_C_reservoir = 0.0
-  call check_var_range(cc%N_fixer_C_reservoir, -1e-10,HUGE(0.0),'update_mycorrhizae #3','cc%N_fixer_C_reservoir',FATAL)
-  call check_var_range(cc%N_fixer_N_reservoir, -1e-10,HUGE(0.0),'update_mycorrhizae #3','cc%N_fixer_N_reservoir',FATAL)
+  if(abs(cc%mine_N_reservoir)<1e-20) cc%mine_N_reservoir = 0.0
+  if(abs(cc%mine_C_reservoir)<1e-20) cc%mine_C_reservoir = 0.0
+  if(abs(cc%scav_N_reservoir)<1e-20) cc%scav_N_reservoir = 0.0
+  if(abs(cc%scav_C_reservoir)<1e-20) cc%scav_C_reservoir = 0.0
+  call check_var_range(cc%nfix_C_reservoir, -1e-10,HUGE(0.0),'update_mycorrhizae #3','cc%nfix_C_reservoir',FATAL)
+  call check_var_range(cc%nfix_N_reservoir, -1e-10,HUGE(0.0),'update_mycorrhizae #3','cc%nfix_N_reservoir',FATAL)
 
   ! Calculate N released to plant
 
@@ -541,7 +541,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   ! Scavenging (AM-style)
   ! slm: *_mgain (marginal gain) variables have units [kgN/kgC]
   if (sp%do_N_scavenging_strategy) then
-     scav_N_to_plant = cc%scav_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
+     scav_N_to_plant = cc%scav_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
      if (cc%scav_C > 0) then
         scav_mgain = (max(0.0,scav_N_to_plant)/dt_fast_yr)/(cc%scav_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
      else ! Use the mycorrhizal N uptake efficiency from myc_scavenger_N_uptake, units of (kgN/kg myc biomass C)
@@ -550,11 +550,11 @@ subroutine  update_mycorrhizae(cc, soilT, &
   else
      scav_N_to_plant = 0.0 ; scav_mgain = 0
   endif
-  cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir - scav_N_to_plant
+  cc%scav_N_reservoir = cc%scav_N_reservoir - scav_N_to_plant
 
   ! Mycorrhizal N mining (ECM-style)
   if (sp%do_N_mining_strategy) then
-     mine_N_to_plant = cc%mine_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
+     mine_N_to_plant = cc%mine_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
      if(cc%mine_C>0) then
         mine_mgain = (max(0.0,mine_N_to_plant)/dt_fast_yr)/(cc%mine_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
      else
@@ -563,7 +563,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   else
       mine_N_to_plant = 0.0 ; mine_mgain = 0.0
   endif
-  cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir - mine_N_to_plant
+  cc%mine_N_reservoir = cc%mine_N_reservoir - mine_N_to_plant
 
   ! Root uptake of nitrogen
   if (C_allocation_to_N_acq>0) then
@@ -574,7 +574,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
 
   ! N fixer
   if (sp%do_N_fixation_strategy) then
-     fix_N_to_plant = cc%N_fixer_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
+     fix_N_to_plant = cc%nfix_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
      if(cc%nfix_C>0) then
         Nfix_mgain = (fix_N_to_plant/dt_fast_yr)/(cc%nfix_C/N_fixer_C_efficiency/N_fixer_turnover_time)
      else
@@ -583,7 +583,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   else
      fix_N_to_plant = 0.0 ; Nfix_mgain = 0.0
   endif
-  cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir - fix_N_to_plant
+  cc%nfix_N_reservoir = cc%nfix_N_reservoir - fix_N_to_plant
 
   ! Apply a smoothing filter to marginal gains, so we can control how fast N strategies change at the ecosystem level
   w = 1.0/(1+sp%tau_smooth_marginal_gain/dt_fast_yr)
@@ -643,12 +643,12 @@ subroutine  update_mycorrhizae(cc, soilT, &
      scav_myc_N_alloc=scav_myc_N_alloc*lim_factor
   endif
 
-  cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir + scav_C_alloc
-  cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir + scav_myc_N_alloc
-  cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir + mine_C_alloc
-  cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir + mine_myc_N_alloc
-  cc%N_fixer_C_reservoir  = cc%N_fixer_C_reservoir  + Nfix_C_alloc
-  cc%N_fixer_N_reservoir  = cc%N_fixer_N_reservoir  + N_fixer_N_alloc
+  cc%scav_C_reservoir = cc%scav_C_reservoir + scav_C_alloc
+  cc%scav_N_reservoir = cc%scav_N_reservoir + scav_myc_N_alloc
+  cc%mine_C_reservoir = cc%mine_C_reservoir + mine_C_alloc
+  cc%mine_N_reservoir = cc%mine_N_reservoir + mine_myc_N_alloc
+  cc%nfix_C_reservoir = cc%nfix_C_reservoir + Nfix_C_alloc
+  cc%nfix_N_reservoir = cc%nfix_N_reservoir + N_fixer_N_alloc
 
   total_plant_N_uptake = scav_N_to_plant + mine_N_to_plant + fix_N_to_plant + root_N_uptake
   cc%stored_N = cc%stored_N + total_plant_N_uptake
@@ -964,12 +964,12 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_mine_plant_N_uptake,     diag, c(1:N), mine_N_to_plant(1:N)/dt_fast_yr, weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_fix_plant_N_uptake,      diag, c(1:N), fix_N_to_plant(1:N)/dt_fast_yr,  weight=c(1:N)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_mrz_scav_N_res,          diag, c(1:N), c(1:N)%scav_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_scav_C_res,          diag, c(1:N), c(1:N)%scav_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_N_res,          diag, c(1:N), c(1:N)%mine_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_C_res,          diag, c(1:N), c(1:N)%mine_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_Nfix_N_res,              diag, c(1:N), c(1:N)%N_fixer_N_reservoir,  weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_Nfix_C_res,              diag, c(1:N), c(1:N)%N_fixer_C_reservoir,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_N_res,          diag, c(1:N), c(1:N)%scav_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_C_res,          diag, c(1:N), c(1:N)%scav_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_N_res,          diag, c(1:N), c(1:N)%mine_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_C_res,          diag, c(1:N), c(1:N)%mine_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_N_res,              diag, c(1:N), c(1:N)%nfix_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_C_res,              diag, c(1:N), c(1:N)%nfix_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
 
   call send_cohort_data(id_Nfix_alloc_smoothed,     diag, c(1:N), c(1:N)%max_Nfix_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_mine_alloc_smoothed, diag, c(1:N), c(1:N)%max_mine_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
@@ -1301,12 +1301,12 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mine_plant_N_uptake,         diag, c(1:M), mine_N_to_plant(1:M)/dt_fast_yr,           weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_fix_plant_N_uptake,          diag, c(1:M), fix_N_to_plant(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_mrz_scav_N_res,              diag, c(1:M), c(1:M)%scav_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_scav_C_res,              diag, c(1:M), c(1:M)%scav_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_N_res,              diag, c(1:M), c(1:M)%mine_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_C_res,              diag, c(1:M), c(1:M)%mine_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_Nfix_N_res,                  diag, c(1:M), c(1:M)%N_fixer_N_reservoir,                weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_Nfix_C_res,                  diag, c(1:M), c(1:M)%N_fixer_C_reservoir,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_N_res,              diag, c(1:M), c(1:M)%scav_N_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_C_res,              diag, c(1:M), c(1:M)%scav_C_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_N_res,              diag, c(1:M), c(1:M)%mine_N_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_C_res,              diag, c(1:M), c(1:M)%mine_C_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_N_res,                  diag, c(1:M), c(1:M)%nfix_N_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_C_res,                  diag, c(1:M), c(1:M)%nfix_C_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
 
   call send_cohort_data(id_Nfix_alloc_smoothed,         diag, c(1:M), c(1:M)%max_Nfix_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_mine_alloc_smoothed,     diag, c(1:M), c(1:M)%max_mine_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)

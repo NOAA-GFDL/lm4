@@ -596,12 +596,12 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(mine_N)
   __MERGE__(nfix_C)
   __MERGE__(nfix_N)
-  __MERGE__(scav_myc_N_reservoir)
-  __MERGE__(scav_myc_C_reservoir)
-  __MERGE__(mine_myc_N_reservoir)
-  __MERGE__(mine_myc_C_reservoir)
-  __MERGE__(N_fixer_N_reservoir)
-  __MERGE__(N_fixer_C_reservoir)
+  __MERGE__(scav_N_reservoir)
+  __MERGE__(scav_C_reservoir)
+  __MERGE__(mine_N_reservoir)
+  __MERGE__(mine_C_reservoir)
+  __MERGE__(nfix_N_reservoir)
+  __MERGE__(nfix_C_reservoir)
   __MERGE__(stored_N)
   __MERGE__(leaf_N)
   __MERGE__(wood_N)
@@ -967,7 +967,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
             vegn%cohorts(i)%nfix_N + &
             vegn%cohorts(i)%mine_N + &
             vegn%cohorts(i)%scav_N + &
-            vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
+            vegn%cohorts(i)%scav_N_reservoir + vegn%cohorts(i)%mine_N_reservoir + vegn%cohorts(i)%nfix_N_reservoir &
            )*vegn%cohorts(i)%nindivs
   enddo
   nitrogen = nitrogen  + sum(vegn%harv_pool_N) + sum(vegn%drop_seed_N) + &
