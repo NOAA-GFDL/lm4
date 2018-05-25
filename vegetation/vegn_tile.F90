@@ -619,9 +619,9 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(scav_alloc_accum)
   __MERGE__(mine_alloc_accum)
   __MERGE__(Nfix_alloc_accum)
-  __MERGE__(max_scav_allocation)
-  __MERGE__(max_mine_allocation)
-  __MERGE__(max_Nfix_allocation)
+  __MERGE__(max_scav_alloc)
+  __MERGE__(max_mine_alloc)
+  __MERGE__(max_Nfix_alloc)
 
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)

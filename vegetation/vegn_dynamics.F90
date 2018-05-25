@@ -611,9 +611,9 @@ subroutine  update_mycorrhizae(cc, soilT, &
   endif
 
   if (smooth_N_uptake_C_allocation) then
-     Nfix_C_alloc = min(C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr, cc%max_Nfix_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
-     mine_C_alloc = min(C_allocation_to_N_acq*mine_exud_frac*dt_fast_yr, cc%max_mine_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
-     scav_C_alloc = min(C_allocation_to_N_acq*scav_exud_frac*dt_fast_yr, cc%max_scav_allocation*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
+     Nfix_C_alloc = min(C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr, cc%max_Nfix_alloc*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
+     mine_C_alloc = min(C_allocation_to_N_acq*mine_exud_frac*dt_fast_yr, cc%max_mine_alloc*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
+     scav_C_alloc = min(C_allocation_to_N_acq*scav_exud_frac*dt_fast_yr, cc%max_scav_alloc*dt_fast_yr*(1.0+sp%alloc_allowed_over_limit))
   else
      Nfix_C_alloc = C_allocation_to_N_acq*Nfix_exud_frac*dt_fast_yr
      mine_C_alloc = C_allocation_to_N_acq*mine_exud_frac*dt_fast_yr
@@ -971,9 +971,9 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_Nfix_N_res,              diag, c(1:N), c(1:N)%nfix_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_C_res,              diag, c(1:N), c(1:N)%nfix_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_Nfix_alloc_smoothed,     diag, c(1:N), c(1:N)%max_Nfix_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_alloc_smoothed, diag, c(1:N), c(1:N)%max_mine_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_scav_alloc_smoothed, diag, c(1:N), c(1:N)%max_scav_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_alloc_smoothed,     diag, c(1:N), c(1:N)%max_Nfix_alloc,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_alloc_smoothed, diag, c(1:N), c(1:N)%max_mine_alloc,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_alloc_smoothed, diag, c(1:N), c(1:N)%max_scav_alloc,  weight=c(1:N)%nindivs, op=OP_SUM)
 
   ! ---- CMOR diagnostics
   if (id_gpp_cmor>0) call send_tile_data(id_gpp_cmor, sum(gpp(1:N)*c(1:N)%nindivs)/seconds_per_year, diag)
@@ -1308,9 +1308,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_Nfix_N_res,                  diag, c(1:M), c(1:M)%nfix_N_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_Nfix_C_res,                  diag, c(1:M), c(1:M)%nfix_C_reservoir,                   weight=c(1:M)%nindivs, op=OP_SUM)
 
-  call send_cohort_data(id_Nfix_alloc_smoothed,         diag, c(1:M), c(1:M)%max_Nfix_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_mine_alloc_smoothed,     diag, c(1:M), c(1:M)%max_mine_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_mrz_scav_alloc_smoothed,     diag, c(1:M), c(1:M)%max_scav_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_alloc_smoothed,         diag, c(1:M), c(1:M)%max_Nfix_alloc,                     weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_mine_alloc_smoothed,     diag, c(1:M), c(1:M)%max_mine_alloc,                     weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mrz_scav_alloc_smoothed,     diag, c(1:M), c(1:M)%max_scav_alloc,                     weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_age,                         diag, c(1:M), c(1:M)%age,                                weight=c(1:M)%nindivs, op=OP_AVERAGE)
 
   ! ---- CMOR diagnostics

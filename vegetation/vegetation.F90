@@ -472,9 +472,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'max_monthly_scav_alloc',cohort_max_monthly_scav_alloc_ptr)
         call get_cohort_data(restart2, 'max_monthly_mine_alloc',cohort_max_monthly_mine_alloc_ptr)
         call get_cohort_data(restart2, 'max_monthly_Nfix_alloc',cohort_max_monthly_Nfix_alloc_ptr)
-        call get_cohort_data(restart2, 'max_scav_allocation',cohort_max_scav_allocation_ptr)
-        call get_cohort_data(restart2, 'max_mine_allocation',cohort_max_mine_allocation_ptr)
-        call get_cohort_data(restart2, 'max_Nfix_allocation',cohort_max_Nfix_allocation_ptr)
+        call get_cohort_data(restart2, 'max_scav_allocation',cohort_max_scav_alloc_ptr)
+        call get_cohort_data(restart2, 'max_mine_allocation',cohort_max_mine_alloc_ptr)
+        call get_cohort_data(restart2, 'max_Nfix_allocation',cohort_max_Nfix_alloc_ptr)
         call get_cohort_data(restart2, 'scav_alloc_accum',cohort_scav_alloc_accum_ptr)
         call get_cohort_data(restart2, 'mine_alloc_accum',cohort_mine_alloc_accum_ptr)
         call get_cohort_data(restart2, 'Nfix_alloc_accum',cohort_Nfix_alloc_accum_ptr)
@@ -668,9 +668,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%max_monthly_scav_alloc = 0.0
         cc%max_monthly_mine_alloc = 0.0
         cc%max_monthly_Nfix_alloc = 0.0
-        cc%max_scav_allocation = 0.0
-        cc%max_mine_allocation = 0.0
-        cc%max_Nfix_allocation = 0.0
+        cc%max_scav_alloc = 0.0
+        cc%max_mine_alloc = 0.0
+        cc%max_Nfix_alloc = 0.0
         cc%scav_alloc_accum = 0.0
         cc%mine_alloc_accum = 0.0
         cc%Nfix_alloc_accum = 0.0
@@ -1458,9 +1458,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'scav_alloc_accum', cohort_scav_alloc_accum_ptr, 'scavenging allocation accumulator','kgC/m2')
   call add_cohort_data(restart2,'mine_alloc_accum', cohort_mine_alloc_accum_ptr, 'mining allocation accumulator','kgC/m2')
   call add_cohort_data(restart2,'Nfix_alloc_accum', cohort_Nfix_alloc_accum_ptr, 'N fixation allocation accumulator','kgC/m2')
-  call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_allocation_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
-  call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_allocation_ptr, 'max allowed allocation to mining','kgC/m2/year')
-  call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_allocation_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
+  call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_alloc_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
+  call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_alloc_ptr, 'max allowed allocation to mining','kgC/m2/year')
+  call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_alloc_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
   call add_cohort_data(restart2,'N_stress_smoothed', cohort_nitrogen_stress_smoothed_ptr, 'Smoothed N stress','Dimensionless')
 
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
@@ -2601,9 +2601,9 @@ subroutine update_vegn_slow( )
         do i = 1,tile%vegn%n_cohorts
            associate(c=>tile%vegn%cohorts(i))
            w = 1.0/(1+spdata(c%species)%tau_smooth_alloc)
-           c%max_Nfix_allocation = w*c%max_monthly_Nfix_alloc + (1-w)*c%max_Nfix_allocation
-           c%max_mine_allocation = w*c%max_monthly_mine_alloc + (1-w)*c%max_mine_allocation
-           c%max_scav_allocation = w*c%max_monthly_scav_alloc + (1-w)*c%max_scav_allocation
+           c%max_Nfix_alloc = w*c%max_monthly_Nfix_alloc + (1-w)*c%max_Nfix_alloc
+           c%max_mine_alloc = w*c%max_monthly_mine_alloc + (1-w)*c%max_mine_alloc
+           c%max_scav_alloc = w*c%max_monthly_scav_alloc + (1-w)*c%max_scav_alloc
 
            c%max_monthly_Nfix_alloc = 0.0
            c%max_monthly_mine_alloc = 0.0
@@ -3357,9 +3357,9 @@ DEFINE_COHORT_ACCESSOR(real,max_monthly_Nfix_alloc)
 DEFINE_COHORT_ACCESSOR(real,Nfix_alloc_accum)
 DEFINE_COHORT_ACCESSOR(real,mine_alloc_accum)
 DEFINE_COHORT_ACCESSOR(real,scav_alloc_accum)
-DEFINE_COHORT_ACCESSOR(real,max_Nfix_allocation)
-DEFINE_COHORT_ACCESSOR(real,max_mine_allocation)
-DEFINE_COHORT_ACCESSOR(real,max_scav_allocation)
+DEFINE_COHORT_ACCESSOR(real,max_Nfix_alloc)
+DEFINE_COHORT_ACCESSOR(real,max_mine_alloc)
+DEFINE_COHORT_ACCESSOR(real,max_scav_alloc)
 DEFINE_COHORT_ACCESSOR(real,nitrogen_stress_smoothed)
 
 ! wolf
