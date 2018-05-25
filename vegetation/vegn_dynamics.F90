@@ -47,9 +47,9 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
-use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
+use soil_carbon_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-    add_litter, debug_pool,deadmic_slow_frac
+    add_litter, debug_pool, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
 use soil_mod, only: Dsdt, root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
@@ -996,7 +996,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   ! accumulators of total input to root litter and soil carbon
   real, dimension(N_C_TYPES) :: &
       leaf_litt_C, leaf_litt_N, & ! fine surface litter per tile, kgC/m2
-      wood_litt_C, wood_litt_N    ! coarse surface litter per tile, kgC/m2
+      wood_litt_C, wood_litt_N, & ! coarse surface litter per tile, kgC/m2
+      tmp
   real, dimension (num_l, N_C_TYPES) :: &
       root_litt_C, root_litt_N    ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
@@ -1128,18 +1129,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! accumulate liter and soil carbon inputs across all cohorts
      ! 20170617: deposit lost N into litter and soil
-     leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
-     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaNL*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
-     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_bsw*cc%nindivs
+     leaf_litt_C(:) = leaf_litt_C(:) + sp%fract_live(:) * deltaBL*cc%nindivs
+     leaf_litt_N(:) = leaf_litt_N(:) + sp%fract_live(:) * deltaNL*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
+     wood_litt_C(:) = wood_litt_C(:) + sp%fract_wood(:) * md_bsw*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
      if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
-             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_bsw/sp%sapwood_c2n
+             sp%fract_wood(:)*md_bsw/sp%sapwood_c2n
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
-        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs* &
-             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*deltaBR
-        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs* &
-             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*deltaNR*(1.0-sp%root_N_retrans_frac)
+        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs*sp%fract_froot(:)*deltaBR
+        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*sp%fract_froot(:)*deltaNR*(1.0-sp%root_N_retrans_frac)
      enddo
 
      ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
@@ -1192,8 +1191,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! First add mycorrhizal and N fixer turnover to soil C pools
      do l = 1, num_l
-        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs*([ 0.0, myc_turnover_C*deadmic_slow_frac, myc_turnover_C*(1-deadmic_slow_frac) ])
-        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*([ 0.0, myc_turnover_N*deadmic_slow_frac, myc_turnover_N*(1-deadmic_slow_frac) ])
+         tmp(C_FAST) = 0.0; tmp(C_SLOW)=myc_turnover_C*deadmic_slow_frac; tmp(C_MIC)=myc_turnover_C*(1-deadmic_slow_frac)
+         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs*tmp(:)
+         tmp(C_FAST) = 0.0; tmp(C_SLOW)=myc_turnover_N*deadmic_slow_frac; tmp(C_MIC)=myc_turnover_N*(1-deadmic_slow_frac)
+         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*tmp(:)
      enddo
 !
 ! bns: 0.05 must be consistent with 0.05 in stress calculation (NOT by-species)

@@ -9,7 +9,7 @@ use constants_mod, only : pi, dens_h2o
 use land_constants_mod, only : Rugas, seconds_per_year
 use fms_mod, only: check_nml_error, file_exist, close_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
-use vegn_data_mod, only: K1,K2
+use vegn_data_mod, only: K1,K2, N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_numerics_mod,only: tridiag
 use land_data_mod, only: log_version
 use land_debug_mod, only: get_current_point, is_watch_point, check_var_range, &
@@ -76,12 +76,6 @@ public :: adjust_pool_ncohorts
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../shared/version_variable.inc"
-
-integer, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
-integer, parameter :: & ! indices of carbon chemical species
-    C_FAST = 1, & ! cellulose (fast)
-    C_SLOW = 2, & ! lignin (slow)
-    C_MIC = 3    ! microbial producs
 
 ! names of the carbon types, for i/o
 character(len=12), parameter :: c_shortname(N_C_TYPES) = (/'fast        ','slow        ','deadmic     '/)
