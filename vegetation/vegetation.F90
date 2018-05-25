@@ -446,12 +446,12 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
 
      if (field_exists(restart2,'myc_scavenger_biomass_C')) then
-        call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
-        call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
-        call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
-        call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
-        call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
-        call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
+        call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_scav_C_ptr )
+        call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_scav_N_ptr )
+        call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_mine_C_ptr )
+        call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_mine_N_ptr )
+        call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_nfix_C_ptr )
+        call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_nfix_N_ptr )
      endif
      if (field_exists(restart2,'cohort_leaf_N')) then
         call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr )
@@ -708,12 +708,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         ! in ppa mode, init_cohort_allometry_ppa sets myc and fixer biomasses to zero, but
         ! we override them with values from namelist here
         associate(sp=>spdata(cc%species))
-        cc%myc_scavenger_biomass_C = init_cohort_myc_scav(n)
-        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-        cc%myc_miner_biomass_C     = init_cohort_myc_mine(n)
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-        cc%N_fixer_biomass_C       = init_cohort_n_fixer(n)
-        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+        cc%scav_C = init_cohort_myc_scav(n) ; cc%scav_N = cc%scav_C/sp%c2n_mycorrhizae
+        cc%mine_C = init_cohort_myc_mine(n) ; cc%mine_N = cc%mine_C/sp%c2n_mycorrhizae
+        cc%nfix_C = init_cohort_n_fixer(n)  ; cc%nfix_N = cc%nfix_C/c2n_N_fixer
 
         cc%K_r = spdata(cc%species)%root_perm
         end associate ! sp
@@ -841,12 +838,9 @@ subroutine add_extra_cohorts()
         cc%DBH_ys = cc%dbh
         cc%BM_ys  = cc%bsw + cc%bwood
 
-        cc%myc_scavenger_biomass_C = extra_cohort_myc_scav(n)
-        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-        cc%myc_miner_biomass_C     = extra_cohort_myc_mine(n)
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-        cc%N_fixer_biomass_C       = extra_cohort_n_fixer(n)
-        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+        cc%scav_C = extra_cohort_myc_scav(n) ; cc%scav_N = cc%scav_C/sp%c2n_mycorrhizae
+        cc%mine_C = extra_cohort_myc_mine(n) ; cc%mine_N = cc%mine_C/sp%c2n_mycorrhizae
+        cc%nfix_C = extra_cohort_n_fixer(n)  ; cc%nfix_N = cc%nfix_C/c2n_N_fixer
 
         if (n0>0) then
            cc%Tv = tile%vegn%cohorts(1)%Tv
@@ -1440,12 +1434,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
   call add_cohort_data(restart2,'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
   call add_cohort_data(restart2,'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
-  call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
-  call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
-  call add_cohort_data(restart2,'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
-  call add_cohort_data(restart2,'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
-  call add_cohort_data(restart2,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_scav_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_scav_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_nfix_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_N', cohort_nfix_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_C', cohort_mine_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_N', cohort_mine_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_stored_N', cohort_stored_N_ptr, 'stored N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg N/m2')
@@ -2776,12 +2770,12 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_seed_N,      tile%diag, cc(1:N), cc(1:N)%seed_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_Ntot,        tile%diag, cc(1:N), cc(1:N)%total_N,   weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_mrz_scav_C, tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_mrz_mine_C, tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_Nfix_C,     tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_mrz_scav_N, tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_mrz_mine_N, tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_Nfix_N,     tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_scav_C, tile%diag, cc(1:N), cc(1:N)%scav_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_mine_C, tile%diag, cc(1:N), cc(1:N)%mine_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Nfix_C,     tile%diag, cc(1:N), cc(1:N)%nfix_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_scav_N, tile%diag, cc(1:N), cc(1:N)%scav_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_mine_N, tile%diag, cc(1:N), cc(1:N)%mine_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Nfix_N,     tile%diag, cc(1:N), cc(1:N)%nfix_N, weight=cc(1:N)%nindivs, op=OP_SUM)
 
      ! ens 021517
      call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
@@ -3338,12 +3332,12 @@ DEFINE_COHORT_ACCESSOR(real,mine_myc_C_reservoir)
 DEFINE_COHORT_ACCESSOR(real,mine_myc_N_reservoir)
 DEFINE_COHORT_ACCESSOR(real,N_fixer_C_reservoir)
 DEFINE_COHORT_ACCESSOR(real,N_fixer_N_reservoir)
-DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
-DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
-DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_C)
-DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_N)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_C)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_N)
+DEFINE_COHORT_ACCESSOR(real,scav_C)
+DEFINE_COHORT_ACCESSOR(real,scav_N)
+DEFINE_COHORT_ACCESSOR(real,mine_C)
+DEFINE_COHORT_ACCESSOR(real,mine_N)
+DEFINE_COHORT_ACCESSOR(real,nfix_C)
+DEFINE_COHORT_ACCESSOR(real,nfix_N)
 DEFINE_COHORT_ACCESSOR(real,stored_N)
 DEFINE_COHORT_ACCESSOR(real,wood_N)
 DEFINE_COHORT_ACCESSOR(real,sapwood_N)

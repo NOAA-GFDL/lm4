@@ -183,23 +183,14 @@ type :: vegn_cohort_type
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
   real :: nitrogen_stress = 0.0
 
-  ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
-  real :: myc_scavenger_biomass_C = 0.0
-  real :: myc_scavenger_biomass_N = 0.0
-  real :: myc_miner_biomass_C = 0.0
-  real :: myc_miner_biomass_N = 0.0
-
-  ! Biomass of symbiotic N fixing microbes
-  real :: N_fixer_biomass_C = 0.0
-  real :: N_fixer_biomass_N = 0.0
+  real :: scav_C = 0.0, scav_N = 0.0 ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
+  real :: mine_C = 0.0, mine_N = 0.0
+  real :: nfix_C = 0.0, nfix_N = 0.0 ! Biomass of symbiotic N fixing microbes
 
   ! C and N reservoirs of symbiotic microbes (used for growth and transfers to plants)
-  real :: scav_myc_N_reservoir = 0.0
-  real :: scav_myc_C_reservoir = 0.0
-  real :: mine_myc_N_reservoir = 0.0
-  real :: mine_myc_C_reservoir = 0.0
-  real :: N_fixer_N_reservoir = 0.0
-  real :: N_fixer_C_reservoir = 0.0
+  real :: scav_myc_C_reservoir = 0.0, scav_myc_N_reservoir = 0.0
+  real :: mine_myc_C_reservoir = 0.0, mine_myc_N_reservoir = 0.0
+  real :: N_fixer_C_reservoir = 0.0, N_fixer_N_reservoir = 0.0
 
   ! Allows cohorts to remember previous marginal gains so shifts in N allocation
   ! can have time scales
@@ -234,9 +225,7 @@ real function plant_C(cc)
           cc%carbon_gain + cc%bwood_gain + &
           cc%growth_previous_day + &
           ! Mycorrhizal and N fixer biomass added by B. Sulman
-          cc%myc_scavenger_biomass_C + &
-          cc%myc_miner_biomass_C + &
-          cc%N_fixer_biomass_C + &
+          cc%scav_C + cc%mine_C + cc%nfix_C + &
           cc%scav_myc_C_reservoir + cc%mine_myc_C_reservoir + cc%N_fixer_C_reservoir
 end function plant_C
 
@@ -249,9 +238,7 @@ real function plant_N(cc)
          cc%wood_N + cc%leaf_N + cc%seed_N + &
          cc%stored_N + &
          ! Symbionts are counted as part of veg, not part of soil
-         cc%N_fixer_biomass_N + &
-         cc%myc_miner_biomass_N + &
-         cc%myc_scavenger_biomass_N + &
+         cc%nfix_N + cc%mine_N + cc%scav_N + &
          cc%scav_myc_N_reservoir + cc%mine_myc_N_reservoir + cc%N_fixer_N_reservoir
 end function plant_N
 
@@ -817,12 +804,9 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   endif
 
   ! Should these have nonzero initial values on initialization/reproduction?
-  cc%myc_scavenger_biomass_C = 0.0
-  cc%myc_scavenger_biomass_N = 0.0
-  cc%myc_miner_biomass_C = 0.0
-  cc%myc_miner_biomass_N = 0.0
-  cc%N_fixer_biomass_C = 0.0
-  cc%N_fixer_biomass_N = 0.0
+  cc%scav_C = 0.0 ; cc%scav_N = 0.0
+  cc%mine_C = 0.0 ; cc%mine_N = 0.0
+  cc%nfix_C = 0.0 ; cc%nfix_N = 0.0
   cc%scav_myc_N_reservoir = 0.0
   cc%scav_myc_C_reservoir = 0.0
   cc%mine_myc_N_reservoir = 0.0

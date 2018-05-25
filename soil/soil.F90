@@ -4137,11 +4137,11 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   logical :: myc_biomass_is_zero
 
   associate(cc=>vegn%cohorts)
-  myc_biomass_is_zero = (sum(cc(:)%myc_scavenger_biomass_C*cc(:)%nindivs)<=0)
+  myc_biomass_is_zero = (sum(cc(:)%scav_C*cc(:)%nindivs)<=0)
   if(.not.myc_biomass_is_zero) then
     do i=1,vegn%n_cohorts
       call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
-      cohort_myc_scav_biomass(:,i) =  cc(i)%myc_scavenger_biomass_C*cc(i)%nindivs*profile
+      cohort_myc_scav_biomass(:,i) =  cc(i)%scav_C*cc(i)%nindivs*profile
     enddo
   else ! myc_biomass_is_zero
     ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
@@ -4245,11 +4245,11 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   logical :: myc_biomass_is_zero
 
   associate(cc=>vegn%cohorts)
-  if(sum(cc(:)%myc_miner_biomass_C*cc(:)%nindivs)>0) then
+  if(sum(cc(:)%mine_C*cc(:)%nindivs)>0) then
     myc_biomass_is_zero = .FALSE.
     do i=1,vegn%n_cohorts
       call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
-      cohort_myc_mine_biomass(:,i) =  cc(i)%myc_miner_biomass_C*cc(i)%nindivs*profile
+      cohort_myc_mine_biomass(:,i) =  cc(i)%mine_C*cc(i)%nindivs*profile
     enddo
   else
     ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
