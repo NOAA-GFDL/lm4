@@ -107,6 +107,8 @@ integer,parameter::FATAL=0,NOTE=1
 real,parameter :: seconds_per_year=86400.0*365.0
 #endif
 
+real, parameter :: zero(N_C_TYPES) = 0.0 ! to avoid dynamically allocated arrays
+
 ! ==== types =================================================================
 
 ! Individual litter cohort with its own carbon pools
@@ -460,13 +462,13 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
             protected_turnover_rate,protected_N_turnover_rate,&
             nitrification,denitrification,N_mineralization,N_immobilization,&
             badCohort)
-    type(soil_pool),intent(inout)::pool
-    real,intent(in)::T,theta,dt,air_filled_porosity,liquid_water,frozen_water,layerThickness
+    type(soil_pool), intent(inout)::pool
+    real,intent(in)  ::T,theta,dt,air_filled_porosity,liquid_water,frozen_water,layerThickness
     real,intent(out) :: C_loss_rate(N_C_TYPES), N_loss_rate(N_C_TYPES) ! loss rates for C and N per time step
-    real,intent(out)::CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
-    real,intent(out)::protected_C_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),&
+    real,intent(out) :: CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
+    real,intent(out) :: protected_C_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),&
         protected_turnover_rate(N_C_TYPES),protected_N_turnover_rate(N_C_TYPES),deadmic_C_produced,deadmic_N_produced
-    integer,intent(out),optional::badCohort
+    integer, intent(out), optional::badCohort
     ! dt is in years!
 
     integer::n
@@ -516,7 +518,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
         call error_mesg('update_pool','Nitrate < 0',FATAL)
     endif
 
-    if(.NOT.allocated(pool%litterCohorts)) call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
+    if(.NOT.allocated(pool%litterCohorts)) call add_litter(pool,zero,zero)
     call cull_cohorts(pool)
 
 
@@ -593,47 +595,44 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
 
 
     ! Xin had N uptake here.  I'm moving it to somewhere in vegetation
-    IF (soil_carbon_option == SOILC_CORPSE_N) THEN
-        !!Nitrification and denitrification after updating all cohorts
-        !!!!!!!!!!!!!!xz Check to add N2O emission, change the gamma_nitr to account nitrogen lost during the nitrification and denitrification processes
-    	nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber's paper(or LM3 code)   kg/m2
-    	!      kg/m2       kg/m2         yr-1                                                                                      kg/m2         yr
-    	pool%nitrif=pool%nitrif + nitrif!xz  --BNS: changed to cumulative
+    if (soil_carbon_option == SOILC_CORPSE_N) then
+       !!Nitrification and denitrification after updating all cohorts
+       !!!!!!!!!!!!!!xz Check to add N2O emission, change the gamma_nitr to account nitrogen lost during the nitrification and denitrification processes
+       nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber's paper(or LM3 code)   kg/m2
+       !      kg/m2       kg/m2         yr-1                                                                                      kg/m2         yr
+       pool%nitrif=pool%nitrif + nitrif!xz  --BNS: changed to cumulative
 
-        pool%ammonium=pool%ammonium-nitrif!xz
-        pool%nitrate=pool%nitrate+gamma_nitr*nitrif!xz   gamma_nitr is set to 1 now.
-        ! Gaseous N losses are going to break N conservation unless we keep track of them
-        !!!!!!!!!!!!!!xz Check [end]
+       pool%ammonium=pool%ammonium-nitrif!xz
+       pool%nitrate=pool%nitrate+gamma_nitr*nitrif!xz   gamma_nitr is set to 1 now.
+       ! Gaseous N losses are going to break N conservation unless we keep track of them
+       !!!!!!!!!!!!!!xz Check [end]
 
-        !!!!!!!!!!!!!xz Denitrification; check with LM3 code; Currently the code only calculate the denitrification rate with Temperature, we might improve it by adding siol water content
-        !!!xz CH note: check the theta condition because the denitri may work differently from the rest of proccesses
-        IF(denitrif_first_order) then
-            IF(theta.gt.denitrif_theta_min)THEN  !xz when the soil water content is higher than minimum soil water content(defined in the parameters), then dinitrification take a potential rate; otherwise it is 0
-                            Denitrif=min(pool%nitrate,Kdenitr(T)*pool%nitrate*dt)
-               if(Denitrif.lt.dfloat(0))then
-                   call error_mesg('update_pool','Denitrif < 0',FATAL)
-               endif
-            ELSE
-               Denitrif=dfloat(0)
-            ENDIF
+       !!!!!!!!!!!!!xz Denitrification; check with LM3 code; Currently the code only calculate the denitrification rate with Temperature, we might improve it by adding siol water content
+       !!!xz CH note: check the theta condition because the denitri may work differently from the rest of proccesses
+       if (denitrif_first_order) then
+           if (theta > denitrif_theta_min) then  !xz when the soil water content is higher than minimum soil water content(defined in the parameters), then dinitrification take a potential rate; otherwise it is 0
+              denitrif = min(pool%nitrate,Kdenitr(T)*pool%nitrate*dt)
+              if(denitrif < 0.0) call error_mesg('update_pool','Denitrif < 0',FATAL)
+           else
+              denitrif = 0.0
+           endif
 
-            !!!!!!!!!!!!!xz update the pool
-            pool%nitrate=pool%nitrate-denitrif
+           !!!!!!!!!!!!!xz update the pool
+           pool%nitrate=pool%nitrate-denitrif
 
-            denitrification=denitrif
-        ENDIF
-        pool%denitrif=pool%denitrif+denitrif
+           denitrification=denitrif
+       endif
+       pool%denitrif=pool%denitrif+denitrif
 
-        nitrification=nitrif
-        N_mineralization = soil_MINERAL
-        N_immobilization = soil_IMM_N
-
-    ELSE
-        nitrification=0.0
-        denitrification=0.0
-        N_mineralization = soil_MINERAL
-        N_immobilization = soil_IMM_N
-    ENDIF
+       nitrification=nitrif
+       N_mineralization = soil_MINERAL
+       N_immobilization = soil_IMM_N
+    else
+       nitrification=0.0
+       denitrification=0.0
+       N_mineralization = soil_MINERAL
+       N_immobilization = soil_IMM_N
+    endif
 
     ! update turnover rates
     total = totalPoolCohort(pool)
@@ -677,6 +676,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     integer, parameter :: EXCESS_N = 1, N_LIMITED = 2, IMMOBILIZATION = 3, N_LIM_TURNED_OFF = -999
 
     real :: maintenance_resp,overflow_resp,carbon_supply,nitrogen_supply !!BNS
+    real :: vNH4, vNO3
 
     maintenance_resp=0.0
     overflow_resp=0.0
@@ -997,13 +997,13 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         ammonium = ammonium + cohort%MINER_gross*dt
 
         ! Immobilized N taken up from NO3 and NH4
-        IF((V_NH4(T)*ammonium+V_NO3(T)*nitrate) > 0)THEN
-           frac_nitrate=V_NO3(T)*nitrate/(V_NH4(T)*ammonium+V_NO3(T)*nitrate)
-           frac_ammonium = 1.0-frac_nitrate
+        vNH4 = V_NH4(T); vNO3 = V_NO3(T)
+        IF((vNH4*ammonium+vNO3*nitrate) > 0)THEN
+           frac_nitrate=vNO3*nitrate/(vNH4*ammonium+vNO3*nitrate)
         ELSE
            frac_nitrate=0.5
-           frac_ammonium=0.5
         ENDIF
+        frac_ammonium = 1.0-frac_nitrate
         nitrate = nitrate - cohort%IMM_N_gross*frac_nitrate*dt
         ammonium = ammonium - cohort%IMM_N_gross*frac_ammonium*dt
 
@@ -1831,7 +1831,7 @@ subroutine add_C_N_to_cohorts(pool,litterC,protectedC,livingMicrobeC,CO2,litterN
   if (any(litterNval<0) .or. any(protectedNval<0) .or. livingMicrobeNval<0) &
             call error_mesg('add_C_N_to_cohorts','Nitrogen added less than zero',FATAL)
 
-  if(.not.allocated(pool%litterCohorts)) call add_litter(pool,[0.0,0.0,0.0],[0.0,0.0,0.0])
+  if(.not.allocated(pool%litterCohorts)) call add_litter(pool,zero,zero)
 
   totalCarbon = 0.0
   do k=1,pool%n_cohorts
@@ -2987,7 +2987,7 @@ subroutine adjust_pool_ncohorts(pool)
 
     !Add empty cohorts until size is correct
     do while (pool%n_cohorts < pool%max_cohorts)
-        call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
+        call add_litter(pool,zero,zero)
     enddo
 end subroutine
 

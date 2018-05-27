@@ -3285,30 +3285,28 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      fineWoodlitter_protected_C_produced, fineWoodlitter_protected_C_turnover_rate, &
      fineWoodlitter_protected_N_produced, fineWoodlitter_protected_N_turnover_rate, &
      coarseWoodlitter_protected_C_produced, coarseWoodlitter_protected_C_turnover_rate, &
-     coarseWoodlitter_protected_N_produced, coarseWoodlitter_protected_N_turnover_rate
-  real :: &
-     protected_C_produced(N_C_TYPES,num_l), protected_C_turnover_rate(N_C_TYPES,num_l), &
-     protected_N_produced(N_C_TYPES,num_l), protected_N_turnover_rate(N_C_TYPES,num_l)
+     coarseWoodlitter_protected_N_produced, coarseWoodlitter_protected_N_turnover_rate, &
+     litter_C_loss_rate, litter_N_loss_rate
+  real, dimension(N_C_TYPES,num_l) :: &
+     protected_C_produced, protected_C_turnover_rate, &
+     protected_N_produced, protected_N_turnover_rate
   real,dimension(N_LITTER_POOLS) :: litter_nitrif, litter_denitrif, litter_N_mineralization, litter_N_immobilization
-  real :: deadmic_C_produced(num_l)
-  real :: deadmic_N_produced(num_l)
-  real :: soil_nitrif(num_l), soil_denitrif(num_l), soil_N_mineralization(num_l), soil_N_immobilization(num_l)
-  real :: litter_C_loss_rate(N_C_TYPES)
-  real :: litter_N_loss_rate(N_C_TYPES)
-  real :: C_loss_rate(size(soil%org_matter),N_C_TYPES)
-  real :: N_loss_rate(size(soil%org_matter),N_C_TYPES)
-  real, dimension(size(soil%org_matter)) :: decomp_T,decomp_theta,ice_porosity
-  real :: A          (size(soil%org_matter)) ! decomp rate reduction due to moisture and temperature
+  real, dimension(num_l) :: &
+     deadmic_C_produced, deadmic_N_produced, &
+     soil_nitrif, soil_denitrif, soil_N_mineralization, soil_N_immobilization, &
+     decomp_T, decomp_theta, ice_porosity, &
+     A  ! decomp rate reduction due to moisture and temperature
+  real, dimension(num_l,N_C_TYPES) :: C_loss_rate, N_loss_rate
 
   integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
   integer :: i,k
   real :: CO2prod
   integer :: point_i,point_j,point_k,point_face
 
-  A(:) = A_function(soil%T(:), soil_theta(soil))
   decomp_T = soil%T(:)
   decomp_theta = soil_theta(soil)
   ice_porosity = soil_ice_porosity(soil)
+  A(:) = A_function(decomp_T, decomp_theta)
 
   vegn%rh=0.0
 
@@ -3363,13 +3361,13 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
   enddo
   do i = 1, N_C_TYPES
-     call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
-     call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
+     if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
+     if (id_rsoil_N(i)>0) call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
   enddo
   ! for budget check
-  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(C_FAST,:))*dt_fast_yr
-  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(C_SLOW,:))*dt_fast_yr
-  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(C_MIC,:)) *dt_fast_yr
+  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(:, C_FAST))*dt_fast_yr
+  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(:, C_SLOW))*dt_fast_yr
+  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(:, C_MIC)) *dt_fast_yr
 
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
