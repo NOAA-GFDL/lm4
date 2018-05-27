@@ -58,7 +58,7 @@ subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativ
   call rhizosphere_frac(vegn, rhiz_frac)
 
   do k = 1,num_l
-     call add_litter(soil%soil_organic_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k), &
+     call add_litter(soil%org_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k), &
                      negativeInputC, negativeInputN)
   enddo
 end subroutine add_root_litter
@@ -80,11 +80,11 @@ subroutine add_root_exudates_0(soil,exudateC,exudateN,ammonium,nitrate)
   if(present(nitrate)) NH4=nitrate
 
   do k=1,num_l
-     call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),   &
+     call add_C_N_to_rhizosphere(soil%org_matter(k),   &
                              newCarbon=[exudateC(k),0.0,0.0], &
                              newNitrogen=[exudateN(k),0.0,0.0]  )
-     soil%soil_organic_matter(k)%ammonium = soil%soil_organic_matter(k)%ammonium+NH4(k)
-     soil%soil_organic_matter(k)%nitrate = soil%soil_organic_matter(k)%nitrate+NO3(k)
+     soil%org_matter(k)%ammonium = soil%org_matter(k)%ammonium+NH4(k)
+     soil%org_matter(k)%nitrate = soil%org_matter(k)%nitrate+NO3(k)
   enddo
 end subroutine add_root_exudates_0
 
@@ -107,9 +107,9 @@ subroutine add_root_exudates_1(soil,cohort,exudateC,exudateN,ammonium,nitrate)
 
   call cohort_root_exudate_profile (cohort, dz(1:num_l), profile)
   do k=1,num_l
-      call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),newCarbon=(/exudateC*profile(k),0.0,0.0/),newNitrogen=[exudateN*profile(k),0.0,0.0])
-      soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium+NH4*profile(k)
-      soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate+NO3*profile(k)
+      call add_C_N_to_rhizosphere(soil%org_matter(k),newCarbon=(/exudateC*profile(k),0.0,0.0/),newNitrogen=[exudateN*profile(k),0.0,0.0])
+      soil%org_matter(k)%ammonium=soil%org_matter(k)%ammonium+NH4*profile(k)
+      soil%org_matter(k)%nitrate=soil%org_matter(k)%nitrate+NO3*profile(k)
   enddo
 end subroutine add_root_exudates_1
 
@@ -199,7 +199,7 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
      call add_litter(soil%litter(CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      call rhizosphere_frac(vegn, rhiz_frac)
      do l = 1,num_l
-        call add_litter(soil%soil_organic_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l), &
+        call add_litter(soil%org_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l), &
                         negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      enddo
   case default

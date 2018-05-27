@@ -252,13 +252,12 @@ type :: soil_tile_type
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
    ! values for CORPSE
    type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
-   type(soil_pool), allocatable :: soil_organic_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
-   integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
-   real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
+   type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
+   integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
+   real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
 
    ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
-   real                   :: gross_nitrogen_flux_into_tile
-   real                   :: gross_nitrogen_flux_out_of_tile
+   real :: gross_nitrogen_flux_into_tile, gross_nitrogen_flux_out_of_tile
 
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
@@ -690,7 +689,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%ssc_in            (num_l),  &
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
-            ptr%soil_organic_matter(num_l),  &
+            ptr%org_matter        (num_l),  &
             ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
@@ -708,7 +707,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
-     call init_soil_pool(ptr%soil_organic_matter(i), Qmax=ptr%pars%Qmax)
+     call init_soil_pool(ptr%org_matter(i), Qmax=ptr%pars%Qmax)
   enddo
   do i = 1,N_LITTER_POOLS
      call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
@@ -1178,7 +1177,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
   do i=1,num_l
-    call combine_pools(s1%soil_organic_matter(i),s2%soil_organic_matter(i),w1,w2)
+    call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
@@ -1960,7 +1959,7 @@ real function soil_tile_carbon (soil)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
      soil_tile_carbon = sum(soil%neg_litt_C)
      do i=1,num_l
-        call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
+        call poolTotals(soil%org_matter(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
      do i = 1,N_LITTER_POOLS
@@ -1985,7 +1984,7 @@ real function soil_tile_nitrogen (soil)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
      soil_tile_nitrogen = sum(soil%neg_litt_N)
      do i=1,num_l
-        call poolTotals(soil%soil_organic_matter(i),totalNitrogen=temp)
+        call poolTotals(soil%org_matter(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
      do i = 1,N_LITTER_POOLS

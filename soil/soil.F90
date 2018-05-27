@@ -654,7 +654,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
                call adjust_pool_ncohorts(tile%soil%litter(i))
             enddo
             do i = 1,num_l
-               call adjust_pool_ncohorts(tile%soil%soil_organic_matter(i))
+               call adjust_pool_ncohorts(tile%soil%org_matter(i))
             enddo
         end do
         do i = 1, N_C_TYPES
@@ -1500,7 +1500,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
             call adjust_pool_ncohorts(tile%soil%litter(i))
          enddo
          do i = 1,num_l
-            call adjust_pool_ncohorts(tile%soil%soil_organic_matter(i))
+            call adjust_pool_ncohorts(tile%soil%org_matter(i))
          enddo
      end do
      do i = 1, N_C_TYPES
@@ -1763,7 +1763,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 !     enddo
 !      do l = 1, num_l
 !         write(*,'(i2.2,x)',advance='NO') l
-!         call debug_pool(soil%soil_organic_matter(l), '')
+!         call debug_pool(soil%org_matter(l), '')
 !      enddo
      write(*,*) '########### end of soil_step_1 input ###########'
   endif
@@ -2128,14 +2128,14 @@ end subroutine soil_step_1
      ! units of delta_time: s
      ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
      where(soil%wl(1:num_l)>1.0e-4)
-        passive_ammonium_uptake(1:num_l) = min(soil%soil_organic_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soil%soil_organic_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
-        passive_nitrate_uptake(1:num_l) = min(soil%soil_organic_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soil%soil_organic_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_ammonium_uptake(1:num_l) = min(soil%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soil%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_nitrate_uptake(1:num_l) = min(soil%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soil%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
      elsewhere
         passive_ammonium_uptake(1:num_l)=0.0
         passive_nitrate_uptake(1:num_l)=0.0
      end where
-     soil%soil_organic_matter(1:num_l)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
-     soil%soil_organic_matter(1:num_l)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
+     soil%org_matter(1:num_l)%ammonium=soil%org_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
+     soil%org_matter(1:num_l)%nitrate=soil%org_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
      passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
      if (cc%nindivs>0) &
            cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
@@ -2874,7 +2874,7 @@ end subroutine soil_step_1
       enddo
       do l = 1, num_l
          write(*,'(i2.2,x)',advance='NO') l
-         call debug_pool(soil%soil_organic_matter(l), '')
+         call debug_pool(soil%org_matter(l), '')
       enddo
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
@@ -2885,7 +2885,7 @@ end subroutine soil_step_1
 !Note: fine wood litter currently not included, just because we haven't implemented anything with it anywhere
 !ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
    if (gw_option == GW_TILED) then
-      call tracer_leaching_with_litter(soil=soil%soil_organic_matter(:),&
+      call tracer_leaching_with_litter(soil=soil%org_matter(:),&
                                         wl=wl_before,&
                                         leaflitter=soil%litter(LEAF),&
                                         woodlitter=soil%litter(CWOOD),&
@@ -2908,7 +2908,7 @@ end subroutine soil_step_1
                                         surf_DOC_loss=surf_DOC_loss,surf_DON_loss=surf_DON_loss,&
                                         surf_NO3_loss=surf_NO3_loss,surf_NH4_loss=surf_NH4_loss)
    else
-    call tracer_leaching_with_litter(soil=soil%soil_organic_matter(:),&
+    call tracer_leaching_with_litter(soil=soil%org_matter(:),&
                                       wl=wl_before,&
                                       leaflitter=soil%litter(LEAF),&
                                       woodlitter=soil%litter(CWOOD),&
@@ -2971,7 +2971,7 @@ end subroutine soil_step_1
       __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
       do l = 1, num_l
          write(*,'(i2.2,x)',advance='NO') l
-         call debug_pool(soil%soil_organic_matter(l), '')
+         call debug_pool(soil%org_matter(l), '')
       enddo
    endif
 
@@ -3131,7 +3131,7 @@ subroutine soil_step_3(soil, diag)
 !     total_carbon=0.0
 
      do l = 1,num_l
-        call poolTotals1 ( soil%soil_organic_matter(l), ncohorts=ncohorts(l), &
+        call poolTotals1 ( soil%org_matter(l), ncohorts=ncohorts(l), &
             litterC=soil_C(:,l), livemicC=livemic_C(l), protectedC=protected_C(:,l), dissolvedC=dissolved_C(:,l), totalC=layer_C(l), &
             litterN=soil_N(:,l), livemicN=livemic_N(l), protectedN=protected_N(:,l), dissolvedN=dissolved_N(:,l), totalN=layer_N(l)  )
      enddo
@@ -3143,8 +3143,8 @@ subroutine soil_step_3(soil, diag)
      total_livemic_N = sum(livemic_N)
      total_prot_N    = sum(protected_N(:,:),2)
      total_diss_N    = sum(dissolved_N(:,:),2)
-     total_NO3       = sum(soil%soil_organic_matter(1:num_l)%nitrate)
-     total_NH4       = sum(soil%soil_organic_matter(1:num_l)%ammonium)
+     total_NO3       = sum(soil%org_matter(1:num_l)%nitrate)
+     total_NH4       = sum(soil%org_matter(1:num_l)%ammonium)
 
      ! --- CMOR vars
      if (id_csoilfast   > 0) call send_tile_data(id_csoilfast,   total_C(C_FAST)+total_C(C_MIC)+total_livemic_C, diag)
@@ -3176,8 +3176,8 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_total_C_layered, layer_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_total_N_layered, layer_N(:)/dz(1:num_l), diag)
 
-     call send_tile_data(id_soil_NO3, soil%soil_organic_matter(1:num_l)%nitrate/dz(1:num_l),diag)
-     call send_tile_data(id_soil_NH4, soil%soil_organic_matter(1:num_l)%ammonium/dz(1:num_l),diag)
+     call send_tile_data(id_soil_NO3, soil%org_matter(1:num_l)%nitrate/dz(1:num_l),diag)
+     call send_tile_data(id_soil_NH4, soil%org_matter(1:num_l)%ammonium/dz(1:num_l),diag)
      call send_tile_data(id_total_NO3, total_NO3, diag)
      call send_tile_data(id_total_NH4, total_NH4, diag)
 
@@ -3294,10 +3294,10 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   real :: soil_nitrif(num_l), soil_denitrif(num_l), soil_N_mineralization(num_l), soil_N_immobilization(num_l)
   real :: litter_C_loss_rate(N_C_TYPES)
   real :: litter_N_loss_rate(N_C_TYPES)
-  real :: C_loss_rate(size(soil%soil_organic_matter),N_C_TYPES)
-  real :: N_loss_rate(size(soil%soil_organic_matter),N_C_TYPES)
-  real, dimension(size(soil%soil_organic_matter)) :: decomp_T,decomp_theta,ice_porosity
-  real :: A          (size(soil%soil_organic_matter)) ! decomp rate reduction due to moisture and temperature
+  real :: C_loss_rate(size(soil%org_matter),N_C_TYPES)
+  real :: N_loss_rate(size(soil%org_matter),N_C_TYPES)
+  real, dimension(size(soil%org_matter)) :: decomp_T,decomp_theta,ice_porosity
+  real :: A          (size(soil%org_matter)) ! decomp rate reduction due to moisture and temperature
 
   integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
   integer :: i,k
@@ -3342,7 +3342,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! Next we have to go through layers and decompose the soil carbon pools
   do k=1,num_l
-      call update_pool(pool=soil%soil_organic_matter(k),T=decomp_T(k),theta=decomp_theta(k),air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
+      call update_pool(pool=soil%org_matter(k),T=decomp_T(k),theta=decomp_theta(k),air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
                 liquid_water=soil%wl(k),frozen_water=soil%ws(k),dt=dt_fast_yr,layerThickness=dz(k),&
                 C_loss_rate=C_loss_rate(k,:), &
                 CO2prod=CO2prod, &
@@ -4093,8 +4093,8 @@ subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
   if(sum(total_root_biomass)==0.0) return
 
   do k=1,num_l
-    ammonium_concentration=soil%soil_organic_matter(k)%ammonium*rhiz_frac(k)/dz(k)
-    nitrate_concentration=soil%soil_organic_matter(k)%nitrate*rhiz_frac(k)/dz(k)
+    ammonium_concentration=soil%org_matter(k)%ammonium*rhiz_frac(k)/dz(k)
+    nitrate_concentration=soil%org_matter(k)%nitrate*rhiz_frac(k)/dz(k)
     do i=1,vegn%n_cohorts
       ammonium_uptake = ammonium_concentration/(ammonium_concentration+spdata(vegn%cohorts(i)%species)%k_ammonium_root_uptake)*&
                           spdata(vegn%cohorts(i)%species)%root_NH4_uptake_rate*dt*dz(k)*cohort_root_biomass(k,i)/total_root_biomass(k)
@@ -4105,15 +4105,15 @@ subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
       total_nitrate_uptake(k)=total_nitrate_uptake(k)+nitrate_uptake
     enddo
   enddo
-  if(any(total_ammonium_uptake(:)>soil%soil_organic_matter(:)%ammonium)) then
-     __DEBUG4__(rhiz_frac,ammonium_concentration,total_ammonium_uptake,soil%soil_organic_matter(:)%ammonium)
+  if(any(total_ammonium_uptake(:)>soil%org_matter(:)%ammonium)) then
+     __DEBUG4__(rhiz_frac,ammonium_concentration,total_ammonium_uptake,soil%org_matter(:)%ammonium)
   endif
-  if(any(total_nitrate_uptake(:)>soil%soil_organic_matter(:)%nitrate)) then
-     __DEBUG3__(nitrate_concentration,total_nitrate_uptake,soil%soil_organic_matter(:)%nitrate)
+  if(any(total_nitrate_uptake(:)>soil%org_matter(:)%nitrate)) then
+     __DEBUG3__(nitrate_concentration,total_nitrate_uptake,soil%org_matter(:)%nitrate)
   endif
   if (update_pools) then
-     soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-total_ammonium_uptake(:)
-     soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-total_nitrate_uptake(:)
+     soil%org_matter(:)%ammonium=soil%org_matter(:)%ammonium-total_ammonium_uptake(:)
+     soil%org_matter(:)%nitrate=soil%org_matter(:)%nitrate-total_nitrate_uptake(:)
   endif
 end subroutine root_N_uptake
 
@@ -4165,9 +4165,9 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
 
   do k=1,num_l
     ! Total uptake rate is calculated based on total mycorrhizal biomass
-    call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(k),total_myc_scav_biomass(k),dz(k),nitrate_uptake,ammonium_uptake)
-    ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(k)%ammonium/dt)
-    nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(k)%nitrate/dt)
+    call mycorrhizal_mineral_N_uptake_rate(soil%org_matter(k),total_myc_scav_biomass(k),dz(k),nitrate_uptake,ammonium_uptake)
+    ammonium_uptake = min(ammonium_uptake,soil%org_matter(k)%ammonium/dt)
+    nitrate_uptake = min(nitrate_uptake,soil%org_matter(k)%nitrate/dt)
 
     ! Uptake by each cohort is scaled by the fraction of total mycorrhizal biomass in that layer
     ! that is owned by the cohort
@@ -4179,19 +4179,19 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
     enddo
 
     ! These debug macros are too long for PGI! Have to break them up if we're going to leave them commented out anyway...
-    !_!_DEBUG3_!_(k,ammonium_uptake/soil%soil_organic_matter(k)%ammonium,nitrate_uptake/soil%soil_organic_matter(k)%nitrate)
-    !_!_DEBUG4_!_(k,total_myc_scav_biomass(k)/dz(k),soil%soil_organic_matter(k)%ammonium/dz(k),soil%soil_organic_matter(k)%nitrate/dz(k))
+    !_!_DEBUG3_!_(k,ammonium_uptake/soil%org_matter(k)%ammonium,nitrate_uptake/soil%org_matter(k)%nitrate)
+    !_!_DEBUG4_!_(k,total_myc_scav_biomass(k)/dz(k),soil%org_matter(k)%ammonium/dz(k),soil%org_matter(k)%nitrate/dz(k))
 
-    if(ammonium_uptake*dt>soil%soil_organic_matter(k)%ammonium) then
-      __DEBUG2__(ammonium_uptake*dt,soil%soil_organic_matter(k)%ammonium)
+    if(ammonium_uptake*dt>soil%org_matter(k)%ammonium) then
+      __DEBUG2__(ammonium_uptake*dt,soil%org_matter(k)%ammonium)
     endif
-    if(nitrate_uptake*dt>soil%soil_organic_matter(k)%nitrate) then
-      __DEBUG2__(nitrate_uptake*dt,soil%soil_organic_matter(k)%nitrate)
+    if(nitrate_uptake*dt>soil%org_matter(k)%nitrate) then
+      __DEBUG2__(nitrate_uptake*dt,soil%org_matter(k)%nitrate)
     endif
 
     if (update_pools .and. .not. myc_biomass_is_zero) then  ! If myc biomass is 0, then no actual N is taken up. It is just being used for efficiency calculation
-       soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake*dt
-       soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake*dt
+       soil%org_matter(k)%ammonium=soil%org_matter(k)%ammonium-ammonium_uptake*dt
+       soil%org_matter(k)%nitrate=soil%org_matter(k)%nitrate-nitrate_uptake*dt
     endif
   enddo
 
@@ -4280,7 +4280,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   total_CO2prod=0.0
 
   do k=1,num_l
-     call mycorrhizal_decomposition(soil%soil_organic_matter(k),total_myc_mine_biomass(k),&
+     call mycorrhizal_decomposition(soil%org_matter(k),total_myc_mine_biomass(k),&
           T(k),theta(k),air_filled_porosity(k),N_uptake,C_uptake,CO2prod,dt,&
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod=total_CO2prod+CO2prod
@@ -4335,7 +4335,7 @@ subroutine redistribute_peat_carbon(soil)
     !For conservation check.
     total_C_before=0.0
     do nn=1,num_l
-    call poolTotals(soil%soil_organic_matter(num_l),layer_total_C)
+    call poolTotals(soil%org_matter(num_l),layer_total_C)
     total_C_before=total_C_before+layer_total_C
     enddo
 
@@ -4347,35 +4347,35 @@ subroutine redistribute_peat_carbon(soil)
     layer_extra_C = layer_total_C-layer_max_C
     if(layer_extra_C>0) then
         fraction_to_remove=1.0-layer_max_C/layer_total_C
-        call transfer_pool_fraction(soil%litter(LEAF),soil%soil_organic_matter(1),fraction_to_remove)
-        call transfer_pool_fraction(soil%litter(CWOOD),soil%soil_organic_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter(LEAF),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter(CWOOD),soil%org_matter(1),fraction_to_remove)
     endif
 
     !Move carbon down if it exceeds layer_max_C
     do nn=1,num_l-1
-        call poolTotals(soil%soil_organic_matter(nn),totalCarbon=layer_total_C)
+        call poolTotals(soil%org_matter(nn),totalCarbon=layer_total_C)
         layer_max_C=dz(nn)*max_soil_C_density
         layer_extra_C=layer_total_C-layer_max_C
         if (layer_extra_C>0) then
             fraction_to_remove=1.0-layer_max_C/layer_total_C
-            call transfer_pool_fraction(soil%soil_organic_matter(nn),soil%soil_organic_matter(nn+1),fraction_to_remove)
+            call transfer_pool_fraction(soil%org_matter(nn),soil%org_matter(nn+1),fraction_to_remove)
             soil%is_peat(nn)=1
         endif
 
         if (layer_extra_C < 0 .and. (soil%is_peat(nn).ne.0) .and. (soil%is_peat(nn+1).ne.0)) then
-             call poolTotals(soil%soil_organic_matter(nn+1),totalCarbon=layer_total_C_2)
+             call poolTotals(soil%org_matter(nn+1),totalCarbon=layer_total_C_2)
              fraction_to_remove = -layer_extra_C/layer_total_C_2
              if (fraction_to_remove > 0.5) then
                 soil%is_peat(nn+1)=0
              else
-                call transfer_pool_fraction(soil%soil_organic_matter(nn+1),soil%soil_organic_matter(nn),fraction_to_remove)
+                call transfer_pool_fraction(soil%org_matter(nn+1),soil%org_matter(nn),fraction_to_remove)
              endif
         endif
     enddo
 
     total_C_after=0.0
     do nn=1,num_l
-    call poolTotals(soil%soil_organic_matter(num_l),layer_total_C)
+    call poolTotals(soil%org_matter(num_l),layer_total_C)
     total_C_after=total_C_after+layer_total_C
     enddo
 
@@ -4977,7 +4977,7 @@ subroutine sc_soil_C_ptr(t,i,j,k,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterC(k)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%litterC(k)
   endif
 end subroutine
 
@@ -4999,7 +4999,7 @@ subroutine sc_soil_N_ptr(t,i,j,k,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterN(k)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%litterN(k)
   endif
 end subroutine
 
@@ -5007,7 +5007,7 @@ subroutine sc_protected_C_ptr(t,i,j,k,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%protectedC(k)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%protectedC(k)
   endif
 end subroutine
 
@@ -5015,7 +5015,7 @@ subroutine sc_protected_N_ptr(t,i,j,k,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%protectedN(k)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%protectedN(k)
   endif
 end subroutine
 
@@ -5023,7 +5023,7 @@ subroutine sc_DOC_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_carbon(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%dissolved_carbon(j)
   endif
 end subroutine
 
@@ -5031,7 +5031,7 @@ subroutine sc_DON_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_nitrogen(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%dissolved_nitrogen(j)
   endif
 end subroutine
 
@@ -5039,7 +5039,7 @@ subroutine sc_C_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%C_in(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%C_in(j)
   endif
 end subroutine
 
@@ -5047,7 +5047,7 @@ subroutine sc_N_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%N_in(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%N_in(j)
   endif
 end subroutine
 
@@ -5055,7 +5055,7 @@ subroutine sc_protected_C_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_in(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%protected_C_in(j)
   endif
 end subroutine
 
@@ -5063,7 +5063,7 @@ subroutine sc_protected_N_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_N_in(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%protected_N_in(j)
   endif
 end subroutine
 
@@ -5071,7 +5071,7 @@ subroutine sc_C_turnover_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%C_turnover(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%C_turnover(j)
   endif
 end subroutine
 
@@ -5079,7 +5079,7 @@ subroutine sc_protected_C_turnover_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_turnover(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%protected_C_turnover(j)
   endif
 end subroutine
 
@@ -5087,7 +5087,7 @@ subroutine sc_N_turnover_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%N_turnover(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%N_turnover(j)
   endif
 end subroutine
 
@@ -5095,7 +5095,7 @@ subroutine sc_protected_N_turnover_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_N_turnover(j)
+     if(associated(t%soil))p=>t%soil%org_matter(i)%protected_N_turnover(j)
   endif
 end subroutine
 
@@ -5103,7 +5103,7 @@ subroutine sc_nitrate_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%nitrate
+     if(associated(t%soil))p=>t%soil%org_matter(i)%nitrate
   endif
 end subroutine
 
@@ -5111,7 +5111,7 @@ subroutine sc_ammonium_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%ammonium
+     if(associated(t%soil))p=>t%soil%org_matter(i)%ammonium
   endif
 end subroutine
 
@@ -5119,7 +5119,7 @@ subroutine sc_nitrif_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%nitrif
+     if(associated(t%soil))p=>t%soil%org_matter(i)%nitrif
   endif
 end subroutine
 
@@ -5127,7 +5127,7 @@ subroutine sc_denitrif_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%denitrif
+     if(associated(t%soil))p=>t%soil%org_matter(i)%denitrif
   endif
 end subroutine
 
@@ -5372,7 +5372,7 @@ end subroutine
 
 !/* #define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_ ## x ## _ptr(t,i,j,p);\ */
 !/* type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\ */
-!/* if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%x;endif;\ */
+!/* if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%x;endif;\ */
 !/* end subroutine */
 
 !DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
@@ -5382,7 +5382,7 @@ subroutine sc_livingMicrobeC_ptr(t,i,j,p)
     integer,intent(in)::i,j
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%livingMicrobeC
+        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%livingMicrobeC
     endif
 end subroutine
 
@@ -5393,7 +5393,7 @@ subroutine sc_CO2_ptr(t,i,j,p)
     integer,intent(in)::i,j
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%CO2
+        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%CO2
     endif
 end subroutine
 
@@ -5404,7 +5404,7 @@ subroutine sc_Rtot_ptr(t,i,j,p)
     integer,intent(in)::i,j
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%Rtot
+        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%Rtot
     endif
 end subroutine
 
@@ -5415,7 +5415,7 @@ subroutine sc_livingMicrobeN_ptr(t,i,j,p)
     integer,intent(in)::i,j
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%livingMicrobeN
+        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%livingMicrobeN
     endif
 end subroutine
 
@@ -5426,7 +5426,7 @@ subroutine sc_originalLitterC_ptr(t,i,j,p)
     integer,intent(in)::i,j
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%originalLitterC
+        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%originalLitterC
     endif
 end subroutine
 
@@ -5437,7 +5437,7 @@ subroutine sc_originalLitterN_ptr(t,i,j,p)
     integer,intent(in)::i,j
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%originalLitterN
+        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%originalLitterN
     endif
 end subroutine
 
