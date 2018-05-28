@@ -987,49 +987,49 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, lnd%time, '<ctype> soil nitrogen respiration', 'kg N/(m3 year)', missing_value=-100.0 )
 
   ! litter fields
-  id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C', &
+  id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_dissolved_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_diss_C', &
+  id_litter_dissolved_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_diss_C', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_protected_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_prot_C', &
+  id_litter_protected_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_prot_C', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter protected carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C_leaching', &
+  id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C_leaching', &
        axes(1:1), lnd%time, '<ltype> litter <ctype> C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_litter_rsoil_C(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>',  &
+  id_litter_rsoil_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C_resp',  &
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> carbon degradation', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_C', &
+  id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_C', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_tot_C', &
+  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_C', &
        axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
-  id_nlittercohorts(:) = register_litter_diag_fields ( module_name, 'n_<ltype>litter_cohorts', axes(1:1),  &
+  id_nlittercohorts(:) = register_litter_diag_fields ( module_name, '<ltype>litt_n_cohorts', axes(1:1),  &
        lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
 
-  id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_DON_leaching', &
+  id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_DON_leaching', &
        axes(1:1), lnd%time, '<ltype> litter <ctype> DON leaching','kg/(m2 s)', missing_value=-100.0)
-  id_litter_total_C_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_tot_C_leaching', &
+  id_litter_total_C_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_C_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter total carbon leaching', 'kg C/m2/s', missing_value=-100.0 )
-  id_litter_total_ON_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_tot_ON_leaching', &
+  id_litter_total_ON_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_ON_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter total organic N leaching', 'kg N/m2/s', missing_value=-100.0 )
-  id_litter_NO3_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_tot_NO3_leaching', &
+  id_litter_NO3_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_NO3_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter NO3 leaching', 'kg N/m2/s', missing_value=-100.0 )
-  id_litter_NH4_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_tot_NH4_leaching', &
+  id_litter_NH4_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_NH4_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter NH4 leaching', 'kg N/m2/s', missing_value=-100.0 )
 
-  id_litter_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_N', &
+  id_litter_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_N', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_dissolved_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_diss_N', &
+  id_litter_dissolved_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_diss_N', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_protected_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_prot_N', &
+  id_litter_protected_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_prot_N', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter protected nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>_N',  &
+  id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_N_resp',  &
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> nitrogen degradation', 'kg N/(m2 year)', missing_value=-100.0 )
-  id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_N', &
+  id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_N', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_tot_N', &
+  id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_N', &
        axes(1:1),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litter_NH4', &
+  id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NH4', &
       axes(1:1),  lnd%time, '<ltype> litter ammonium', 'kg N/m2', missing_value=-100.0 )
-  id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litter_NO3', &
+  id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NO3', &
        axes(1:1),  lnd%time, '<ltype> litter nitrate', 'kg N/m2', missing_value=-100.0 )
 
 
@@ -1061,17 +1061,17 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
-  id_deadmic_total_C = register_tiled_diag_field ( module_name, 'deadmic_tot_C', axes(1:1),  &
+  id_deadmic_total_C = register_tiled_diag_field ( module_name, 'dmic_tot_C', axes(1:1),  &
        lnd%time, 'total dead microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_deadmic_total_N = register_tiled_diag_field ( module_name, 'deadmic_tot_N', axes(1:1),  &
+  id_deadmic_total_N = register_tiled_diag_field ( module_name, 'dmic_tot_N', axes(1:1),  &
        lnd%time, 'total dead microbe soil nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_livemic_C = register_tiled_diag_field ( module_name, 'live_microbe_C', axes,  &
        lnd%time, 'Total live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_livemic_N = register_tiled_diag_field ( module_name, 'live_microbe_N', axes,  &
        lnd%time, 'Total live microbe soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_livemic_total_C = register_tiled_diag_field ( module_name, 'livemic_tot_C', axes(1:1),  &
+  id_livemic_total_C = register_tiled_diag_field ( module_name, 'lmic_tot_C', axes(1:1),  &
        lnd%time, 'total live microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_livemic_total_N = register_tiled_diag_field ( module_name, 'livemic_tot_N', axes(1:1),  &
+  id_livemic_total_N = register_tiled_diag_field ( module_name, 'lmic_tot_N', axes(1:1),  &
        lnd%time, 'total live microbe soil nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_protected_total_C = register_tiled_diag_field ( module_name, 'prot_tot_C', axes(1:1),  &
        lnd%time, 'total protected soil carbon', 'kg C/m2', missing_value=-100.0 )
