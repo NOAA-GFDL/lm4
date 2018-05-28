@@ -127,8 +127,8 @@ integer, parameter, public :: &
      CWOOD             = 2    ! coarse wood litter
 
 character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
-     'leaf            ', &
-     'cwood           '  ]
+     'lf              ', &
+     'cw              '  ]
 
 character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
      'leaf            ', &
