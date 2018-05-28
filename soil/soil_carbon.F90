@@ -78,7 +78,7 @@ character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../shared/version_variable.inc"
 
 ! names of the carbon types, for i/o
-character(len=12), parameter :: c_shortname(N_C_TYPES) = (/'fast        ','slow        ','deadmic     '/)
+character(len=12), parameter :: c_shortname(N_C_TYPES) = (/'fast        ','slow        ','dmic        '/)
 character(len=12), parameter :: c_longname(N_C_TYPES)  = (/'fast        ','slow        ','dead microbe'/)
 
 ! soil carbon options
