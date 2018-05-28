@@ -1115,34 +1115,36 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
            'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
 
-  id_litter_buff_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_C_<ctype>', (/id_ug/), &
+  ! intermediate carbon pools for CORPSE soil carbon configurations
+  id_litter_buff_C(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_buff_C_<ctype>', (/id_ug/), &
        time, 'intermediate pool of <ltype> <ctype> litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_litter_buff_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_N_<ctype>', (/id_ug/), &
+  id_litter_buff_N(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_buff_N_<ctype>', (/id_ug/), &
        time, 'intermediate pool of <ltype> <ctype> litter nitrogen', 'kg N/m2', missing_value=-999.0)
-  id_litter_rate_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_C_<ctype>', (/id_ug/), &
+  id_litter_rate_C(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_rate_C_<ctype>', (/id_ug/), &
        time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil carbon', 'kg C/(m2 yr)', missing_value=-999.0)
-  id_litter_rate_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_N_<ctype>', (/id_ug/), &
+  id_litter_rate_N(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_rate_N_<ctype>', (/id_ug/), &
        time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil nitrogen', 'kg N/(m2 yr)', missing_value=-999.0)
 
-  id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_ug/), &
+  ! intermediate carbon pools for CENTURY-like soil carbon configurations
+  id_fsc_pool_ag = register_tiled_diag_field ('soil', 'fsc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_ag = register_tiled_diag_field (module_name, 'fsc_rate_ag', (/id_ug/), &
+  id_fsc_rate_ag = register_tiled_diag_field ('soil', 'fsc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_ssc_pool_ag = register_tiled_diag_field (module_name, 'ssc_pool_ag', (/id_ug/), &
+  id_ssc_pool_ag = register_tiled_diag_field ('soil', 'ssc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_ug/), &
+  id_ssc_rate_ag = register_tiled_diag_field ('soil', 'ssc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
 
-  id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_ug/), &
+  id_fsc_pool_bg = register_tiled_diag_field ('soil', 'fsc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_ug/), &
+  id_fsc_rate_bg = register_tiled_diag_field ('soil', 'fsc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_ssc_pool_bg = register_tiled_diag_field (module_name, 'ssc_pool_bg', (/id_ug/), &
+  id_ssc_pool_bg = register_tiled_diag_field ('soil', 'ssc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_bg = register_tiled_diag_field (module_name, 'ssc_rate_bg', (/id_ug/), &
+  id_ssc_rate_bg = register_tiled_diag_field ('soil', 'ssc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
 
