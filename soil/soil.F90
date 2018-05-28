@@ -957,9 +957,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'protected soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
   id_protected_N = register_tiled_diag_field ( module_name, 'prot_soil_N', axes,  &
        lnd%time, 'protected soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
-  id_total_C_layered = register_tiled_diag_field ( module_name, 'tot_soil_C_layered', &
+  id_total_C_layered = register_tiled_diag_field ( module_name, 'soil_C', &
        axes, lnd%time, 'total soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_total_N_layered = register_tiled_diag_field ( module_name, 'tot_soil_N_layered', axes,  &
+  id_total_N_layered = register_tiled_diag_field ( module_name, 'soil_N', axes,  &
        lnd%time, 'total soil nitrogen', 'kg N/m3', missing_value=-100.0 )
 
   ! by-carbon-species diag fields
@@ -999,7 +999,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> carbon degradation', 'kg C/(m2 year)', missing_value=-100.0 )
   id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_C', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_C', &
+  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_C', &
        axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
   id_nlittercohorts(:) = register_litter_diag_fields ( module_name, '<ltype>litt_n_cohorts', axes(1:1),  &
        lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
@@ -1025,7 +1025,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> nitrogen degradation', 'kg N/(m2 year)', missing_value=-100.0 )
   id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_N', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_N', &
+  id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_N', &
        axes(1:1),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NH4', &
       axes(1:1),  lnd%time, '<ltype> litter ammonium', 'kg N/m2', missing_value=-100.0 )
