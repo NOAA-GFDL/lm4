@@ -1307,7 +1307,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_mass_content_of_nitrogen', fill_missing=.TRUE.)
   id_nProduct = register_tiled_diag_field( cmor_name, 'nProduct', (/id_ug/), &
-       time, 'Nitrogen Mass in Products of Land Use Change x', 'kg m-2', missing_value=-999.0, &
+       time, 'Nitrogen Mass in Products of Land Use Change', 'kg m-2', missing_value=-999.0, &
        standard_name='nitrogen_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
 end subroutine
