@@ -35,14 +35,14 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
-     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname
+     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
 use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool, tracer_leaching_with_litter,transfer_pool_fraction, N_C_TYPES, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, &
+     C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, c_diagname, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -843,7 +843,7 @@ function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
 
   do i = 1, N_C_TYPES
      id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<ctype>',trim(c_shortname(i)))), &
+             trim(replace_text(field_name,'<ctype>',trim(c_diagname(i)))), &
              axes, init_time, &
              trim(replace_text(long_name,'<ctype>',trim(c_longname(i)))), &
              units, missing_value, range, op, standard_name)
@@ -872,7 +872,7 @@ function register_litter_diag_fields(module_name, field_name, axes, init_time, &
 
   do i = 1, N_LITTER_POOLS
      id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<ltype>',trim(l_shortname(i)))), &
+             trim(replace_text(field_name,'<ltype>',trim(l_diagname(i)))), &
              axes, init_time, &
              trim(replace_text(long_name,'<ltype>',trim(l_longname(i)))), &
              units, missing_value, range, op, standard_name)
@@ -903,8 +903,8 @@ function register_litter_soilc_diag_fields(module_name, field_name, axes, init_t
 
   do i = 1, N_C_TYPES
      do k = 1, N_LITTER_POOLS
-        name = replace_text(field_name,'<ctype>',trim(c_shortname(i)))
-        name = replace_text(name,      '<ltype>',trim(l_shortname(k)))
+        name = replace_text(field_name,'<ctype>',trim(c_diagname(i)))
+        name = replace_text(name,      '<ltype>',trim(l_diagname(k)))
         lname = replace_text(long_name,'<ctype>',trim(c_longname(i)))
         lname = replace_text(lname,    '<ltype>',trim(l_longname(k)))
         id(k,i) = register_tiled_diag_field(module_name, trim(name), axes, init_time, trim(lname), &
@@ -1041,18 +1041,18 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
   id_soil_NH4 = register_tiled_diag_field ( module_name, 'soil_NH4', axes,  &
        lnd%time, 'NH4 per layer', 'kg N/m3', missing_value=-100.0 )
-  id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'tot_denitrification_rate',  &
+  id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'tot_denitrif_rate',  &
        (/id_ug/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
-  id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
+  id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrif_rate', axes,  &
        lnd%time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
-  id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'tot_N_mineralization_rate',  &
+  id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'tot_N_mnrl_rate',  &
        (/id_ug/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
-  id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'tot_N_immobilization_rate',  &
+  id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'tot_N_immob_rate',  &
       (/id_ug/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
       missing_value=-100.0 )
-  id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'tot_nitrification_rate',  &
+  id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'tot_nitrif_rate',  &
        (/id_ug/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
 
@@ -1065,9 +1065,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'total dead microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_deadmic_total_N = register_tiled_diag_field ( module_name, 'dmic_tot_N', axes(1:1),  &
        lnd%time, 'total dead microbe soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_livemic_C = register_tiled_diag_field ( module_name, 'live_microbe_C', axes,  &
+  id_livemic_C = register_tiled_diag_field ( module_name, 'lmic_C', axes,  &
        lnd%time, 'Total live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_livemic_N = register_tiled_diag_field ( module_name, 'live_microbe_N', axes,  &
+  id_livemic_N = register_tiled_diag_field ( module_name, 'lmic_N', axes,  &
        lnd%time, 'Total live microbe soil nitrogen', 'kg N/m3', missing_value=-100.0 )
   id_livemic_total_C = register_tiled_diag_field ( module_name, 'lmic_tot_C', axes(1:1),  &
        lnd%time, 'total live microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
