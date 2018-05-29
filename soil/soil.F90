@@ -1056,8 +1056,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        (/id_ug/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
 
-  id_Qmax = register_tiled_diag_field ( module_name, 'soil_Qmax', axes(1:1),  &
-       lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
+  id_Qmax = register_tiled_static_field ( module_name, 'soil_Qmax', axes(1:1),  &
+       'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
