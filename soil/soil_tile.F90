@@ -126,13 +126,10 @@ integer, parameter, public :: &
      LEAF              = 1, & ! leaf litter
      CWOOD             = 2    ! coarse wood litter
 
-character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
-     'lf              ', &
-     'cw              '  ]
-
-character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
-     'leaf            ', &
-     'coarse wood     '  ]
+character(16), parameter, public :: &
+     l_shortname(N_LITTER_POOLS) = [ 'leaf            ', 'cwood           '  ], & ! for restart field names
+     l_longname (N_LITTER_POOLS) = [ 'leaf            ', 'coarse wood     '  ], & ! for long names
+     l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
 
 ! ==== types =================================================================
 type :: soil_pars_type

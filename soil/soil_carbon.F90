@@ -68,7 +68,7 @@ public :: soil_org_N_deposition
 public :: ammonium_solubility, nitrate_solubility
 
 public :: N_C_TYPES, C_FAST, C_SLOW, C_MIC
-public :: c_shortname, c_longname
+public :: c_shortname, c_longname, c_diagname
 public :: adjust_pool_ncohorts
 ! =====end of public interfaces ==============================================
 
@@ -78,8 +78,10 @@ character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../shared/version_variable.inc"
 
 ! names of the carbon types, for i/o
-character(len=12), parameter :: c_shortname(N_C_TYPES) = (/'fast        ','slow        ','dmic        '/)
-character(len=12), parameter :: c_longname(N_C_TYPES)  = (/'fast        ','slow        ','dead microbe'/)
+character(len=12), parameter :: &
+    c_shortname(N_C_TYPES) = [ 'fast        ', 'slow        ', 'deadmic     ' ], & ! for restart field names 
+    c_longname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dead microbe' ], & ! for long names
+    c_diagname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dmic        ' ]    ! for diag field names
 
 ! soil carbon options
 integer, parameter :: &
