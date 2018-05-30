@@ -1968,11 +1968,6 @@ end subroutine soil_step_1
   real, dimension(num_l)   :: t_soil_tridiag ! soil temperature based on generic tridiagonal solution [K]
   real, dimension(num_l)   :: t_diff ! difference from original advection subroutine [K]
 
-  real :: div_DOC_loss(N_C_TYPES,num_l),  &     ! C leaching
-         leaflitter_DOC_loss(N_C_TYPES),woodlitter_DOC_loss(N_C_TYPES)        ! Surface litter C leaching loss
-  real :: div_DON_loss(N_C_TYPES,num_l)         ! N leaching
-  real :: div_NO3_loss(num_l), div_NH4_loss(num_l)     ! NO3 leaching
-
   real :: surface_water ! diagnostic surface water storage [m]
   real :: inundated_frac ! diagnostic inundated area fraction [-]
   real :: wet_frac ! diagnostic wetland area fraction
@@ -1992,12 +1987,6 @@ end subroutine soil_step_1
   integer :: ipt, jpt, kpt, fpt ! for debug
   real :: bwood  ! woody biomass, [kgC/m2], used only as macroporosity flag
 
-  real :: surf_DOC_loss(N_C_TYPES)! [kg C/m^2] DOC loss from top soil layer to surface runoff due
-                                  ! to efflux
-  real :: surf_DON_loss(N_C_TYPES)! [kg N/m^2] DON loss from top soil layer to surface runoff due
-                                  ! to efflux
-  real :: surf_NO3_loss, surf_NH4_loss ! [kg N/m^2] NH4 and NO3 loss from top soil layer to surface runoff due to efflux
-  real :: total_C_leaching(num_l),total_DON_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
   real :: total_DOC_div           ! [kg C/m^2/s] net total DOC divergence loss rate
   real :: total_DON_div           ! [kg N/m^2/s] net total DON divergence loss rate
   real :: total_NO3_div,total_NH4_div ! [kg N/m^2/s] net total inorganic N divergence loss rates
@@ -2883,59 +2872,27 @@ end subroutine soil_step_1
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
 !ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
-      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
-                                       wl_before, flow, div, &
-                                       soil%div_hlsp_DOC, soil%div_hlsp_DON, &
-                                       soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
-                                       ! output
-                                       del_leaflitter_DOC=leaflitter_DOC_loss, del_woodlitter_DOC=woodlitter_DOC_loss,&
-                                       div_DOC_loss=div_DOC_loss, div_DON_loss=div_DON_loss, &
-                                       div_NO3_loss=div_NO3_loss, div_NH4_loss=div_NH4_loss, &
-                                       surf_DOC_loss=surf_DOC_loss, surf_DON_loss=surf_DON_loss, &
-                                       surf_NO3_loss=surf_NO3_loss, surf_NH4_loss=surf_NH4_loss)
-
-   ! Diagnostic. Later pass this back to land_model for transfer to rivers.
-   total_DOC_div = sum(surf_DOC_loss(:))
-   total_DON_div = sum(surf_DON_loss(:))
-   total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
-   total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
-   do l=1,num_l
-      total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
-      total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
-   end do
+   call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
+            wl_before, flow, div, &
+            soil%div_hlsp_DOC, soil%div_hlsp_DON, &
+            soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
+            ! output
+            total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
 
    !FIXME BNS: What if there is net flow of nitrogen into tile from other hillslope tiles?
-   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + total_DON_div+total_NO3_div+total_NH4_div
+   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile &
+            + total_DON_div + total_NO3_div + total_NH4_div
 
-   total_DOC_div = total_DOC_div/delta_time
-   total_DON_div = total_DON_div/delta_time
-   total_NO3_div = total_NO3_div/delta_time
-   total_NH4_div = total_NH4_div/delta_time
    if (i_river_DOC/=NO_TRACER) then
-       soil_tr_runf(i_river_DOC) = total_DOC_div
+       soil_tr_runf(i_river_DOC) = total_DOC_div/delta_time
        DOC_to_atmos = 0.0
    else
        ! if we don't have DOC river tracer, DOC loss goes directly to the atmosphere
-       DOC_to_atmos = total_DOC_div
+       DOC_to_atmos = total_DOC_div/delta_time
    endif
-   if (i_river_DON/=NO_TRACER) &
-       soil_tr_runf(i_river_DON) = total_DON_div
-   if (i_river_NO3/=NO_TRACER) &
-       soil_tr_runf(i_river_NO3) = total_NO3_div
-   if (i_river_NH4/=NO_TRACER) &
-       soil_tr_runf(i_river_NH4) = total_NH4_div
-
-   if (is_watch_point()) then
-      write(*,*)'##### soil_step_2 checkpoint 7 #####'
-      do l = 1,N_LITTER_POOLS
-         call debug_pool(soil%litter(l),trim(l_shortname(l))//'Litter')
-      enddo
-      __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
-      do l = 1, num_l
-         write(*,'(i2.2,x)',advance='NO') l
-         call debug_pool(soil%org_matter(l), '')
-      enddo
-   endif
+   if (i_river_DON/=NO_TRACER) soil_tr_runf(i_river_DON) = total_DON_div/delta_time
+   if (i_river_NO3/=NO_TRACER) soil_tr_runf(i_river_NO3) = total_NO3_div/delta_time
+   if (i_river_NH4/=NO_TRACER) soil_tr_runf(i_river_NH4) = total_NH4_div/delta_time
 
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
@@ -3022,10 +2979,6 @@ end subroutine soil_step_1
      call send_tile_data(id_reflux, reflux, diag)
   end if
   call send_tile_data(id_macro_infilt, flow_macro, diag)
-  call send_tile_data(id_total_DOC_div_loss, total_DOC_div, diag)
-  call send_tile_data(id_total_DON_div_loss, total_DON_div, diag)
-  call send_tile_data(id_total_NO3_div_loss, total_NO3_div, diag)
-  call send_tile_data(id_total_NH4_div_loss, total_NH4_div, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
 end subroutine soil_step_2
@@ -3291,15 +3244,11 @@ end subroutine tracer_advection
 
 ! =============================================================================
 subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
-                                        wl, flow, div, &
-                                        div_hlsp_DOC,div_hlsp_DON,&
-                                        div_hlsp_NO3,div_hlsp_NH4,&
-
-                                        del_leaflitter_DOC, del_woodlitter_DOC,&
-                                        div_DOC_loss, div_DON_loss,&
-                                        div_NO3_loss,div_NH4_loss,&
-                                        surf_DOC_loss,surf_DON_loss,&
-                                        surf_NO3_loss,surf_NH4_loss)
+         wl, flow, div, &
+         div_hlsp_DOC,div_hlsp_DON,&
+         div_hlsp_NO3,div_hlsp_NH4,&
+         ! output
+         total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
 
   type(soil_pool),intent(inout) :: soilc(:), leaflitter, woodlitter
   !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/dt's unit.!!! I assume here the unit is mm/yr
@@ -3310,14 +3259,15 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
   real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
   real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
 
-  real, intent(out) :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
-  real, intent(out) :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
-  real, intent(out) :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
-!!!!!!!xz [end]
-  real, intent(out) :: &
-     div_DOC_loss(:,:), div_DON_loss(:,:), &
-     del_leaflitter_DOC(:),del_woodlitter_DOC(:), &
-     div_NH4_loss(:), div_NO3_loss(:)
+  real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
+
+  real :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
+  real :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
+  real :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
+  real :: &
+     div_DOC_loss(N_C_TYPES,num_l), div_DON_loss(N_C_TYPES,num_l), &
+     del_leaflitter_DOC(N_C_TYPES), del_woodlitter_DOC(N_C_TYPES), &
+     div_NH4_loss(num_l), div_NO3_loss(num_l)
   type(diag_buff_type), intent(inout) :: diag
 
   real :: &
@@ -3624,19 +3574,43 @@ ENDIF
     call deposit_dissolved_C(soilc(ii))
   enddo
 
+  
   end associate ! dt
 
+  ! sum up the totals
+  total_DOC_div = sum(surf_DOC_loss(:))
+  total_DON_div = sum(surf_DON_loss(:))
+  total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
+  total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
+  do l=1,num_l
+     total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
+     total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
+  end do
+
+!   if (is_watch_point()) then
+!      write(*,*)'##### soil_step_2 checkpoint 7 #####'
+!      do l = 1,N_LITTER_POOLS
+!         call debug_pool(soil%litter(l),trim(l_shortname(l))//'Litter')
+!      enddo
+!      __DEBUG3__(del_leaflitter_DOC,del_wooditter_DOC,total_DOC_div)
+!      do l = 1, num_l
+!         write(*,'(i2.2,x)',advance='NO') l
+!         call debug_pool(soil%org_matter(l), '')
+!      enddo
+!   endif
+
+  ! ---- diagnostic section
   do i = 1, N_C_TYPES
-    call send_tile_data(id_litter_C_leaching(LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
-    call send_tile_data(id_litter_C_leaching(CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
-    call send_tile_data(id_C_leaching(i), del_soil_DOC(i,:)/delta_time,diag)
-    call send_tile_data(id_litter_DON_leaching(LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
-    call send_tile_data(id_litter_DON_leaching(CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
-    call send_tile_data(id_DON_leaching(i), del_soil_DON(i,:)/delta_time,diag)
+     call send_tile_data(id_litter_C_leaching(LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_litter_C_leaching(CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_C_leaching(i), del_soil_DOC(i,:)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_DON_leaching(i), del_soil_DON(i,:)/delta_time,diag)
   enddo
   do l=1,num_l
-     total_C_leaching(l) = sum(del_soil_DOC(:,l))/delta_time
-     total_DON_leaching(l) = sum(del_soil_DON(:,l))/delta_time
+      total_C_leaching(l) = sum(del_soil_DOC(:,l))/delta_time
+      total_DON_leaching(l) = sum(del_soil_DON(:,l))/delta_time
   end do
   call send_tile_data(id_total_C_leaching, total_C_leaching, diag)
   call send_tile_data(id_total_ON_leaching, total_DON_leaching, diag)
@@ -3653,6 +3627,11 @@ ENDIF
   if (gw_option == GW_TILED) then
      call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
   end if
+
+  call send_tile_data(id_total_DOC_div_loss, total_DOC_div/delta_time, diag)
+  call send_tile_data(id_total_DON_div_loss, total_DON_div/delta_time, diag)
+  call send_tile_data(id_total_NO3_div_loss, total_NO3_div/delta_time, diag)
+  call send_tile_data(id_total_NH4_div_loss, total_NH4_div/delta_time, diag)
 
 end subroutine tracer_leaching_with_litter
 
