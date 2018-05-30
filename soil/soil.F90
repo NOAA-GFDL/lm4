@@ -3330,6 +3330,7 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,w
 end subroutine tracer_advection
 
 
+! =============================================================================
 subroutine tracer_leaching_with_litter(soilc,wl,leaflitter,woodlitter,flow,div,del_soil_DOC,&
   del_leaflitter_DOC,del_woodlitter_DOC,div_DOC_loss,&
   tiled,div_hlsp_DOC,surf_DOC_loss,div_hlsp_DON,surf_DON_loss,div_hlsp_NO3,surf_NO3_loss,div_hlsp_NH4,surf_NH4_loss,&
@@ -3342,82 +3343,72 @@ subroutine tracer_leaching_with_litter(soilc,wl,leaflitter,woodlitter,flow,div,d
   real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
   logical, intent(in) :: tiled ! flag for tiled hydrology
 
+!!!!!!!xz we might need to update this part sine CH and Ben's code do not have N lost from run off ; need to consider to add surf_DON_loss; and div_hlsp_DON
+  real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+  real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
+  real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+
+  real, intent(out) :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
+  real, intent(out) :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
+  real, intent(out) :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
+!!!!!!!xz [end]
+  real, intent(out) :: &
+     del_soil_DOC(:,:),del_soil_DON(:,:),div_DOC_loss(:,:),del_leaflitter_DOC(:),del_woodlitter_DOC(:),&
+     del_leaflitter_DON(:),del_woodlitter_DON(:),div_DON_loss(:,:),del_soil_NH4(:),del_soil_NO3(:),&
+     del_leaflitter_NH4, del_leaflitter_NO3, del_woodlitter_NH4, del_woodlitter_NO3,&
+     div_NH4_loss(:),div_NO3_loss(:) !xz
+
+
   !xz note: wl soil layer water volumn, mm^3/mm^2, defined by CH ; div, divergent flux or 
   ! horizontal flow; del is the change along the time dimension
+  real, parameter :: dens_h2o = 1000.0 !xz
+  real, parameter :: minwl    = 0.1 ! [mm]
 
 
+  real :: DOC(N_C_TYPES,num_l+1), DON(N_C_TYPES,num_l+1), NH4_dissolved(num_l+1), NO3_dissolved(num_l+1)!xz
+  real, dimension(N_C_TYPES,num_l+1) :: div_loss,div_loss_N!xz
+  real, dimension(num_l+1)           :: div_loss_NO3,div_loss_NH4
 
-    real,parameter::dens_h2o=1000.0 !xz
+  real :: d_DOC(N_C_TYPES,num_l+1),d_DON(N_C_TYPES,num_l+1),d_NH4(num_l+1),d_NO3(num_l+1)!xz
 
+  real,dimension(num_l+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
+  integer::l,ii
 
-!!!!!!!xz we might need to update this part sine CH and Ben's code do not have N lost from run off ; need to consider to add surf_DON_loss; and div_hlsp_DON
-    real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence
-                                                    ! loss from tile calculated in hlsp_hydrology
-    real, optional, intent(out) :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff
-    real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
-                                                    ! loss from tile calculated in hlsp_hydrology
-    real, optional, intent(out) :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
-    real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence
-                                                    ! loss from tile calculated in hlsp_hydrology
-    real, optional, intent(out) :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
-!!!!!!!xz [end]
-
-    real, intent(out), optional :: &
-       del_soil_DOC(:,:),del_soil_DON(:,:),div_DOC_loss(:,:),del_leaflitter_DOC(:),del_woodlitter_DOC(:),&
-       del_leaflitter_DON(:),del_woodlitter_DON(:),div_DON_loss(:,:),del_soil_NH4(:),del_soil_NO3(:),&
-       del_leaflitter_NH4, del_leaflitter_NO3, del_woodlitter_NH4, del_woodlitter_NO3,&
-       div_NH4_loss(:),div_NO3_loss(:) !xz
-
-
-
-    real :: DOC(N_C_TYPES,num_l+1), DON(N_C_TYPES,num_l+1), NH4_dissolved(num_l+1), NO3_dissolved(num_l+1)!xz
-
-
-    real,dimension(N_C_TYPES,num_l+1) :: div_loss,div_loss_N!xz
-    real,dimension(num_l+1)           :: div_loss_NO3,div_loss_NH4
-
-    real::d_DOC(N_C_TYPES,num_l+1),d_DON(N_C_TYPES,num_l+1),d_NH4(num_l+1),d_NO3(num_l+1)!xz
-
-    real,dimension(num_l+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
-    integer::l,ii
-
-    real::litterThickness,leaflitterTotalC,woodlitterTotalC,DONbefore(num_l+1),leaf_DOC_frac,leaf_DON_frac,&
-                        NH4before(num_l+1),NO3before(num_l+1),leaf_NH4_frac,leaf_NO3_frac
+  real :: litterThickness,leaflitterTotalC,woodlitterTotalC,DONbefore(num_l+1),leaf_DOC_frac,leaf_DON_frac,&
+                      NH4before(num_l+1),NO3before(num_l+1),leaf_NH4_frac,leaf_NO3_frac
 
 !!!!!!!xz Not in CH's code. need to consider add N here as well.
-    real :: surf_DOC_loss_loc(N_C_TYPES), surf_DON_loss_loc(N_C_TYPES), surf_NO3_loss_loc, surf_NH4_loss_loc
-    real, parameter :: minwl = 0.1 ! [mm]
 !!!!!!!xz [end]
 
   real :: mass0, mass1 ! for conservation checks
 
-    associate (dt=>delta_time)
-    !For now, use a mininum litter thickness of 5 mm
-    call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
-    call poolTotals(woodlitter, totalCarbon=woodlitterTotalC)
-    litterThickness = max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
+  associate (dt=>delta_time)
+
+  !For now, use a mininum litter thickness of 5 mm
+  call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
+  call poolTotals(woodlitter, totalCarbon=woodlitterTotalC)
+  litterThickness = max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
 
 !!!!!!!xz note: please make sure the unit of flow is ????
-    flow_with_litter(1)=0.0
-    flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
-    flow_with_litter=flow_with_litter/1000 !xz change the div unit from mm to m
+  flow_with_litter(1)=0.0
+  flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
+  flow_with_litter = flow_with_litter/1000 !xz change the div unit from mm to m
 
-    !flow_with_litter(1)=0.0/dens_h2o*dt  !m !CH's code if the unit of flow is kg/m2/yr
-    !flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)/dens_h2o*dt   !m
+  !flow_with_litter(1)=0.0/dens_h2o*dt  !m !CH's code if the unit of flow is kg/m2/yr
+  !flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)/dens_h2o*dt   !m
 
+  div_with_litter(1)=0.0
+  div_with_litter(2:size(flow_with_litter))=div(:)*dt ! div is in mm/s
+  div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
 
-    div_with_litter(1)=0.0
-    div_with_litter(2:size(flow_with_litter))=div(:)*dt ! div is in mm/s
-    div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
+  !div_with_litter(1)=0.0/dens_h2o*dt!xz!CH's code if the unit of flow is kg/m2/yr
+  !div_with_litter(2:size(flow_with_litter))=div(:)/dens_h2o*dt  !m? !xz
 
-    !div_with_litter(1)=0.0/dens_h2o*dt!xz!CH's code if the unit of flow is kg/m2/yr
-    !div_with_litter(2:size(flow_with_litter))=div(:)/dens_h2o*dt  !m? !xz
+  dz_with_litter(1)=litterThickness
+  dz_with_litter(2:size(dz_with_litter)) = dz(:) !!xz assume the unit of dz is m
 
-    dz_with_litter(1)=litterThickness
-    dz_with_litter(2:size(dz_with_litter)) = dz(:) !!xz assume the unit of dz is m
-
-    !flow_with_litter(:)=0.0
-    !flow_with_litter(2:)=1e-3
+  !flow_with_litter(:)=0.0
+  !flow_with_litter(2:)=1e-3
 
 
 IF(soil_carbon_option == SOILC_CORPSE_N) THEN
@@ -3473,13 +3464,13 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
        div_loss_NO3(2:num_l+1) = div_hlsp_NO3(:)*dt
        div_loss_NH4(2:num_l+1) = div_hlsp_NH4(:)*dt
        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff -- BNS: include litter layer in this??
-          surf_NO3_loss_loc = -NO3_dissolved(2) * flow(1) / wl(1)
-          surf_NO3_loss_loc = min(surf_NO3_loss_loc, NO3_dissolved(2))
-          surf_NH4_loss_loc = -NH4_dissolved(2) * flow(1) / wl(1)
-          surf_NH4_loss_loc = min(surf_NH4_loss_loc, NH4_dissolved(2))
+          surf_NO3_loss = -NO3_dissolved(2) * flow(1) / wl(1)
+          surf_NO3_loss = min(surf_NO3_loss, NO3_dissolved(2))
+          surf_NH4_loss = -NH4_dissolved(2) * flow(1) / wl(1)
+          surf_NH4_loss = min(surf_NH4_loss, NH4_dissolved(2))
        end if
-       div_loss_NO3(2) = min(div_loss_NO3(2), NO3_dissolved(2) - surf_NO3_loss_loc)
-       div_loss_NH4(2) = min(div_loss_NH4(2), NH4_dissolved(2) - surf_NH4_loss_loc)
+       div_loss_NO3(2) = min(div_loss_NO3(2), NO3_dissolved(2) - surf_NO3_loss)
+       div_loss_NH4(2) = min(div_loss_NH4(2), NH4_dissolved(2) - surf_NH4_loss)
        do l=3,num_l+1
           div_loss_NO3(l) = min(div_loss_NO3(l), NO3_dissolved(l))
           div_loss_NH4(l) = min(div_loss_NH4(l), NH4_dissolved(l))
@@ -3488,8 +3479,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
        ! that will be effectively rectified by subtracting from the flux to stream. In rare
        ! situations, that could lead to a negative stream DOC flux.
 
-       NH4_dissolved(2)=NH4_dissolved(2)-surf_NH4_loss_loc
-       NO3_dissolved(2)=NO3_dissolved(2)-surf_NO3_loss_loc
+       NH4_dissolved(2)=NH4_dissolved(2)-surf_NH4_loss
+       NO3_dissolved(2)=NO3_dissolved(2)-surf_NO3_loss
     end if
 
     NH4_dissolved(:)=NH4_dissolved(:)-div_loss_NH4(:)  !aggiorno la quantita' di ammonio in soluzione nel suolo togliendo la parte che e' uscita con il flusso laterale
@@ -3505,32 +3496,30 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     woodlitter%nitrate=woodlitter%nitrate + NO3_dissolved(1)*(1.0-leaf_NO3_frac)
 	soilc(:)%nitrate=soilc(:)%nitrate + NO3_dissolved(2:num_l+1)
 
-        if(present(del_soil_NH4)) del_soil_NH4(:)=d_NH4(2:num_l+1)  !variazione con la percolazione del contenuto di NH4 nel suolo
-        if(present(del_soil_NO3)) del_soil_NO3(:)=d_NO3(2:num_l+1)
+        del_soil_NH4(:)=d_NH4(2:num_l+1)  !variazione con la percolazione del contenuto di NH4 nel suolo
+        del_soil_NO3(:)=d_NO3(2:num_l+1)
 
-        if(present(del_leaflitter_NH4)) del_leaflitter_NH4=d_NH4(1)*leaf_NH4_frac
-        if(present(del_leaflitter_NO3)) del_leaflitter_NO3=d_NO3(1)*leaf_NO3_frac
-    if(present(del_woodlitter_NH4)) del_woodlitter_NH4=d_NH4(1)*(1.0-leaf_NH4_frac)
-        if(present(del_woodlitter_NO3)) del_woodlitter_NO3=d_NO3(1)*(1.0-leaf_NO3_frac)
+        del_leaflitter_NH4=d_NH4(1)*leaf_NH4_frac
+        del_leaflitter_NO3=d_NO3(1)*leaf_NO3_frac
+        del_woodlitter_NH4=d_NH4(1)*(1.0-leaf_NH4_frac)
+        del_woodlitter_NO3=d_NO3(1)*(1.0-leaf_NO3_frac)
 
 
-        if(present(div_NH4_loss)) div_NH4_loss(:)=div_loss_NH4(2:num_l+1)
-        if(present(div_NO3_loss)) div_NO3_loss(:)=div_loss_NO3(2:num_l+1)
+        div_NH4_loss(:)=div_loss_NH4(2:num_l+1)
+        div_NO3_loss(:)=div_loss_NO3(2:num_l+1)
 
 !!!!!!!!!!!!!!!!!!xz [End] CH's code for Nitrogen
 ELSE  ! End of code if SOILC_CORPSE_N
-    if(present(surf_NO3_loss)) surf_NO3_loss=0.0
-    if(present(surf_NH4_loss)) surf_NH4_loss=0.0
-    if(present(del_soil_NH4)) del_soil_NH4=0.0
-    if(present(del_soil_NO3)) del_soil_NO3=0.0
-    if(present(del_leaflitter_NH4)) del_leaflitter_NH4=0.0
-    if(present(del_leaflitter_NO3)) del_leaflitter_NO3=0.0
-    if(present(del_woodlitter_NH4)) del_woodlitter_NH4=0.0
-    if(present(del_woodlitter_NO3)) del_woodlitter_NO3=0.0
-    if(present(div_NH4_loss)) div_NH4_loss=0.0
-    if(present(div_NO3_loss)) div_NO3_loss=0.0
-
-
+    surf_NO3_loss=0.0
+    surf_NH4_loss=0.0
+    del_soil_NH4=0.0
+    del_soil_NO3=0.0
+    del_leaflitter_NH4=0.0
+    del_leaflitter_NO3=0.0
+    del_woodlitter_NH4=0.0
+    del_woodlitter_NO3=0.0
+    div_NH4_loss=0.0
+    div_NO3_loss=0.0
 ENDIF
 
   call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Doesn't take porosity into account
@@ -3539,8 +3528,8 @@ ENDIF
     call dissolve_carbon(soilc(ii),wl(ii)/(dens_h2o*dz(ii)))
   enddo
 
-    surf_DOC_loss_loc(:) = 0.0
-    surf_DON_loss_loc(:) = 0.0
+    surf_DOC_loss(:) = 0.0
+    surf_DON_loss(:) = 0.0
     do ii=1,N_C_TYPES
        DOC(ii,1)=leaflitter%dissolved_carbon(ii)+woodlitter%dissolved_carbon(ii)
 
@@ -3571,10 +3560,10 @@ ENDIF
        if (tiled) then ! reset div_loss(ii,2:num_l+1) according to values calculated in hlsp_hydrology
           div_loss(ii,2:num_l+1) = div_hlsp_DOC(ii,:)*dt
           if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
-             surf_DOC_loss_loc(ii) = -DOC(ii, 2) * flow(1) / wl(1)
-             surf_DOC_loss_loc(ii) = min(surf_DOC_loss_loc(ii), DOC(ii,2))
+             surf_DOC_loss(ii) = -DOC(ii, 2) * flow(1) / wl(1)
+             surf_DOC_loss(ii) = min(surf_DOC_loss(ii), DOC(ii,2))
           end if
-          div_loss(ii,2) = min(div_loss(ii,2), DOC(ii,2) - surf_DOC_loss_loc(ii))
+          div_loss(ii,2) = min(div_loss(ii,2), DOC(ii,2) - surf_DOC_loss(ii))
           do l=3,num_l+1
              div_loss(ii,l) = min(div_loss(ii,l), DOC(ii,l))
           end do
@@ -3583,19 +3572,18 @@ ENDIF
           ! situations, that could lead to a negative stream DOC flux.
        end if
        DOC(ii,:)=DOC(ii,:)-div_loss(ii,:)
-       DOC(ii,2)=DOC(ii,2)-surf_DOC_loss_loc(ii)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+       DOC(ii,2)=DOC(ii,2)-surf_DOC_loss(ii)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
        ! Xin says this line was a mistake
 
        leaflitter%dissolved_carbon(ii)=DOC(ii,1)*leaf_DOC_frac
        woodlitter%dissolved_carbon(ii)=DOC(ii,1)*(1.0-leaf_DOC_frac)
        soilc(:)%dissolved_carbon(ii)=DOC(ii,2:num_l+1)
 
-       if(present(del_soil_DOC)) del_soil_DOC(ii,:)=d_DOC(ii,2:num_l+1)
-       if(present(del_leaflitter_DOC)) del_leaflitter_DOC(ii)=d_DOC(ii,1)*leaf_DOC_frac
-       if(present(del_woodlitter_DOC)) del_woodlitter_DOC(ii)=d_DOC(ii,1)*(1.0-leaf_DOC_frac)
+       del_soil_DOC(ii,:)=d_DOC(ii,2:num_l+1)
+       del_leaflitter_DOC(ii)=d_DOC(ii,1)*leaf_DOC_frac
+       del_woodlitter_DOC(ii)=d_DOC(ii,1)*(1.0-leaf_DOC_frac)
 
-       if(present(div_DOC_loss)) div_DOC_loss(ii,:)=div_loss(ii,2:num_l+1)
-       if(present(surf_DOC_loss)) surf_DOC_loss(ii) = surf_DOC_loss_loc(ii)!!xz This line does not exist in CH's code
+       div_DOC_loss(ii,:)=div_loss(ii,2:num_l+1)
 
 !!!!!xz Nitrogen
 
@@ -3618,10 +3606,10 @@ ENDIF
         if (tiled) then ! reset div_loss(ii,2:num_l+1) according to values calculated in hlsp_hydrology
            div_loss_N(ii,2:num_l+1) = div_hlsp_DON(ii,:)*dt
            if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
-              surf_DON_loss_loc(ii) = -DON(ii, 2) * flow(1) / wl(1)
-              surf_DON_loss_loc(ii) = min(surf_DON_loss_loc(ii), DON(ii,2))
+              surf_DON_loss(ii) = -DON(ii, 2) * flow(1) / wl(1)
+              surf_DON_loss(ii) = min(surf_DON_loss(ii), DON(ii,2))
            end if
-           div_loss_N(ii,2) = min(div_loss_N(ii,2), DON(ii,2) - surf_DON_loss_loc(ii))
+           div_loss_N(ii,2) = min(div_loss_N(ii,2), DON(ii,2) - surf_DON_loss(ii))
            do l=3,num_l+1
               div_loss_N(ii,l) = min(div_loss_N(ii,l), DON(ii,l))
            end do
@@ -3630,7 +3618,7 @@ ENDIF
            ! situations, that could lead to a negative stream DOC flux.
         end if
 
-        DON(ii,2)=DON(ii,2)-surf_DON_loss_loc(ii)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+        DON(ii,2)=DON(ii,2)-surf_DON_loss(ii)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
        ! Xin says this line was a mistake
 
 
@@ -3642,19 +3630,19 @@ ENDIF
                 woodlitter%dissolved_nitrogen(ii)=DON(ii,1)*(1.0-leaf_DON_frac)
                 soilc(:)%dissolved_nitrogen(ii)=DON(ii,2:num_l+1)
 
-                if(present(del_soil_DON)) del_soil_DON(ii,:)=d_DON(ii,2:num_l+1)
-                if(present(del_leaflitter_DON)) del_leaflitter_DON(ii)=d_DON(ii,1)*leaf_DON_frac
-                if(present(del_woodlitter_DON)) del_woodlitter_DON(ii)=d_DON(ii,1)*(1.0-leaf_DON_frac)
+                del_soil_DON(ii,:)=d_DON(ii,2:num_l+1)
+                del_leaflitter_DON(ii)=d_DON(ii,1)*leaf_DON_frac
+                del_woodlitter_DON(ii)=d_DON(ii,1)*(1.0-leaf_DON_frac)
 
-                if(present(div_DON_loss)) div_DON_loss(ii,:)=div_loss_N(ii,2:num_l+1)
+                div_DON_loss(ii,:)=div_loss_N(ii,2:num_l+1)
 
     ELSE
 
-                if(present(del_soil_DON)) del_soil_DON(ii,:)=0.0
-                if(present(del_leaflitter_DON)) del_leaflitter_DON(ii)=0.0
-                if(present(del_woodlitter_DON)) del_woodlitter_DON(ii)=0.0
+                del_soil_DON(ii,:)=0.0
+                del_leaflitter_DON(ii)=0.0
+                del_woodlitter_DON(ii)=0.0
 
-                if(present(div_DON_loss)) div_DON_loss(ii,:)=0.0
+                div_DON_loss(ii,:)=0.0
     ENDIF
 
 !!!!xz Nitrogen [end]
