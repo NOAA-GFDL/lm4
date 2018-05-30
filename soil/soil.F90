@@ -3134,454 +3134,6 @@ subroutine soil_step_3(soil, diag)
 
 end subroutine soil_step_3
 
-!!!xz this following subroutine is adopted from CH's code using concentration over water; please note that the units of some input variables are different. I kept tracer_advection_ORI following this subroutine
-subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,wl)  ! wl was added here compared to the old version
-    real,intent(inout),dimension(:):: tracer_mass  ! Per layer (not per unit water)
-    real,intent(in),dimension(:)   :: flow  ! Total flow, not flow rate [mm]
-    real,intent(in),dimension(:)   :: div   ! Horizontal divergence (layer total, not rate) [mm]
-    real,intent(in),dimension(:)   :: dz    ! Layer thickness
-    real,intent(in),dimension(:)   :: wl    ! water content [kg/m^2] by layer before Richards (1:num_l)
-    real,intent(out),dimension(:)  :: del_tracer,divergence_loss ! Change in tracer mass, and divergence part
-
-    real,dimension(size(tracer_mass)) :: aaa,bbb,ccc,ddd,wl_litter    ! Matrix coefficients for aaa*dx[i-1] + bbb*dx[i] + ccc*dx[i+1] = ddd
-    real,dimension(size(tracer_mass)) :: u_minus,u_plus   ! For weighting of flow upstream/downstream
-    real,dimension(size(tracer_mass)) :: tracer_concentration ! [kg C/m^3 soil]
-    integer::ll,nlayers
-    ! real,dimension(size(tracer_mass)) ::flow_eff ! flow adjusted to be units of [m], weighted by 1/wl  ZACK'S CODE
-    real, parameter :: minwl = 0.1 ! [mm] minimum allowed wl
-    real, parameter :: dens_h2o=1000.   ! kg/m3
-!    real*8,parameter::porosity=0.3  !CH valore inventato  !xz volumn of water over volumn of soil; need to consider to change!!
-    !real,intent(in)::theta
-    !real*8::dt=1.0/(48.0*365.0)
-
-    nlayers=size(tracer_mass)
-    wl_litter(1)=dz(1)     ! m
-    do ll=2,nlayers
-       wl_litter(ll)=max(wl(ll-1), minwl)/dens_h2o  ! m
-    enddo
-
-    tracer_concentration=tracer_mass/wl_litter   ! kg/m3  ! concentration computed over the volume of water
-
-    u_minus = 1.
-    where (flow.lt.0.) u_minus = 0.
-    do ll = 1, nlayers-1
-        u_plus(ll) = 1. - u_minus(ll+1)
-    enddo
-
-    ! Top layer, uses upper bound concentration
-
-    ll=1
-    aaa(ll)= 0.0 ! flow(ll)*u_minus(ll)
-    bbb(ll)= flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
-  !   m           m                          m                           m
-
-    ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)   BEN CODE ORIGINAL
-    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
-    ! [kg/m^2]         =       [m]        *    [kg/m^3]
-
-    ccc(ll)= -flow(ll+1)*u_plus(ll)
-    ! m
-
-    ddd(ll)= - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
- !    kg/m2          kg/m3                       m                    kg/m3                 m
-
-    do ll=2,nlayers-1
-        !aaa(ll)=flow(ll)*u_minus(ll)     !BEN ORIGINAL
-        !bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - dz(ll)
-        !divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
-        !ccc(ll)=-flow(ll+1)*u_plus(ll)
-        !ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll)) - tracer_concentration(ll+1)*ccc(ll)
-
-!Adapted from ZACK's CODE
-     aaa(ll)=flow(ll)*u_minus(ll)
-        bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
-        divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)     ! [kg/m^3]
-!         kg/m2            =    m           *    kg/m3
-        ccc(ll)=-flow(ll+1)*u_plus(ll)   !m
-        ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
-   !    kg/m2
-    enddo
-
-
-    !bottom layer, flow out is zero
-   ! ll=nlayers
-   ! aaa(ll)=flow(ll)*u_minus(ll)
-   ! bbb(ll)= flow(ll)*(1-u_minus(ll)) - dz(ll)
-   ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
-   ! ccc(ll)= 0.0
-   ! ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll))
-
-!Adapted from ZACK's CODE
-    ll=nlayers
-    aaa(ll)=flow(ll)*u_minus(ll)
-    bbb(ll)= flow(ll)*(1-u_minus(ll)) - wl_litter(ll)
-    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
-    ccc(ll)= 0.0
-    ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll))
-
-
-    !Solve the linear algebra problem
-    if(nlayers.gt.1) then
-        call tridiag(aaa,bbb,ccc,ddd,del_tracer)  !kg/m3
-    else
-        del_tracer=0.0
-    endif
-
-    del_tracer=del_tracer*wl_litter   !kg/m2   !variazione del tracer
-    tracer_mass=tracer_mass+del_tracer    !kg/m2
-    divergence_loss=divergence_loss
-
-    where(divergence_loss>tracer_mass) divergence_loss=tracer_mass
-end subroutine tracer_advection
-
-
-! =============================================================================
-subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
-         wl, flow, div, &
-         div_hlsp_DOC,div_hlsp_DON,&
-         div_hlsp_NO3,div_hlsp_NH4,&
-         ! output
-         total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
-
-  type(diag_buff_type), intent(inout) :: diag
-  type(soil_pool),intent(inout) :: soilc(:), leaflitter, woodlitter
-  !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time's unit.!!! I assume here the unit is mm/yr
-  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
-
-!!!!!!!xz we might need to update this part sine CH and Ben's code do not have N lost from run off ; need to consider to add surf_DON_loss; and div_hlsp_DON
-  real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
-  real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
-  real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
-
-  real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
-
-  ! ---- local vars
-  real :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
-  real :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
-  real :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
-  real :: &
-     div_DOC_loss(N_C_TYPES,num_l), div_DON_loss(N_C_TYPES,num_l), div_NH4_loss(num_l), div_NO3_loss(num_l), &
-     del_soil_DOC(N_C_TYPES,num_l), del_soil_DON(N_C_TYPES,num_l), del_soil_NH4(num_l), del_soil_NO3(num_l), &
-     del_leaflitter_DOC(N_C_TYPES), del_leaflitter_DON(N_C_TYPES), del_leaflitter_NH4, del_leaflitter_NO3, &
-     del_woodlitter_DOC(N_C_TYPES), del_woodlitter_DON(N_C_TYPES), del_woodlitter_NH4, del_woodlitter_NO3
-
-
-  !xz note: wl soil layer water volumn, mm^3/mm^2, defined by CH ; div, divergent flux or 
-  ! horizontal flow; del is the change along the time dimension
-  real, parameter :: dens_h2o = 1000.0 !xz
-  real, parameter :: minwl    = 0.1 ! [mm]
-
-  real :: DOC(N_C_TYPES,num_l+1), DON(N_C_TYPES,num_l+1), NH4_dissolved(num_l+1), NO3_dissolved(num_l+1)!xz
-  real, dimension(N_C_TYPES,num_l+1) :: div_loss, div_loss_N!xz
-  real, dimension(num_l+1)           :: div_loss_NO3, div_loss_NH4
-
-  real :: d_DOC(N_C_TYPES,num_l+1),d_DON(N_C_TYPES,num_l+1),d_NH4(num_l+1),d_NO3(num_l+1)!xz
-
-  real,dimension(num_l+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
-  integer :: i,l
-
-  real :: litterThickness,leaflitterTotalC,woodlitterTotalC,leaf_DOC_frac,leaf_DON_frac,&
-            leaf_NH4_frac,leaf_NO3_frac
-
-!!!!!!!xz Not in CH's code. need to consider add N here as well.
-!!!!!!!xz [end]
-
-  real :: mass0, mass1 ! for conservation checks
-  real :: total_C_leaching(num_l),total_DON_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
-
-  !For now, use a mininum litter thickness of 5 mm
-  call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
-  call poolTotals(woodlitter, totalCarbon=woodlitterTotalC)
-  litterThickness = max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
-
-!!!!!!!xz note: please make sure the unit of flow is ????
-  flow_with_litter(1)=0.0
-  flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
-  flow_with_litter = flow_with_litter/1000 !xz change the div unit from mm to m
-
-  !flow_with_litter(1)=0.0/dens_h2o*delta_time  !m !CH's code if the unit of flow is kg/m2/yr
-  !flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)/dens_h2o*delta_time   !m
-
-  div_with_litter(1)=0.0
-  div_with_litter(2:size(flow_with_litter))=div(:)*delta_time ! div is in mm/s
-  div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
-
-  !div_with_litter(1)=0.0/dens_h2o*delta_time!xz!CH's code if the unit of flow is kg/m2/yr
-  !div_with_litter(2:size(flow_with_litter))=div(:)/dens_h2o*delta_time  !m? !xz
-
-  dz_with_litter(1)=litterThickness
-  dz_with_litter(2:size(dz_with_litter)) = dz(:) !!xz assume the unit of dz is m
-
-  if (soil_carbon_option == SOILC_CORPSE_N) then
-     !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
-     ! Probably should include wood litter in this too
-     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
-     if (leaflitterTotalC+woodlitterTotalC>0) then
-        !  leaf_NH4_frac = leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
-        leaf_NH4_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
-     else
-        leaf_NH4_frac = 0.5 ! slm: does it make sense?
-     endif
-
-     NH4_dissolved(1)=(leaflitter%ammonium + woodlitter%ammonium)*ammonium_solubility  !kg/m2
-     leaflitter%ammonium=leaflitter%ammonium-leaflitter%ammonium*ammonium_solubility
-     woodlitter%ammonium=woodlitter%ammonium-woodlitter%ammonium*ammonium_solubility
-     NH4_dissolved(2:num_l+1)=soilc(:)%ammonium*ammonium_solubility  !kg/m2
-     soilc(:)%ammonium=soilc(:)%ammonium*(1-ammonium_solubility)
-
-     if (leaflitterTotalC+woodlitterTotalC > 0) then
-        !  leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
-        leaf_NO3_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
-     else
-        leaf_NO3_frac = 0.0
-     endif
-     NO3_dissolved(1)=(leaflitter%nitrate + woodlitter%nitrate)*nitrate_solubility   !kg/m2
-     leaflitter%nitrate=leaflitter%nitrate-leaflitter%nitrate*nitrate_solubility
-     woodlitter%nitrate=woodlitter%nitrate-woodlitter%nitrate*nitrate_solubility
-     NO3_dissolved(2:num_l+1)=soilc(:)%nitrate*nitrate_solubility   !kg/m2
-     soilc(:)%nitrate=soilc(:)%nitrate*(1-nitrate_solubility)
-
-     call check_var_range(NH4_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NH4_dissolved before advect.',FATAL)
-     call check_var_range(NO3_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NO3_dissolved before advect.',FATAL)
-
-     mass0 = sum(NH4_dissolved)
-     call tracer_advection(NH4_dissolved(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_NH4(:),div_loss_NH4(:),wl(:))
-     mass1 = sum(NH4_dissolved)
-     call check_conservation('tracer_leaching_with_litter','NH4_dissolved', mass0, mass1, nitrogen_cons_tol )
-     call check_var_range(NH4_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NH4_dissolved after advect.',FATAL)
-
-     mass0 = sum(NO3_dissolved)
-     call tracer_advection(NO3_dissolved(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_NO3(:),div_loss_NO3(:),wl(:))
-     mass1 = sum(NO3_dissolved)
-     call check_conservation('tracer_leaching_with_litter','NO3_dissolved', mass0, mass1, nitrogen_cons_tol )
-     call check_var_range(NO3_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NO3_dissolved after advect.',FATAL)
-
-     !la subroutine tracer_advection mi rida' il valore de la quantita di tracer_dissolved gia' aggiornata con la percolazione che entra ed esce dallo strato di suolo
-     !la variazione di massa e' pari a d_NH4 o d_NO3
-
-     if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
-        div_loss_NO3(2:num_l+1) = div_hlsp_NO3(:)*delta_time
-        div_loss_NH4(2:num_l+1) = div_hlsp_NH4(:)*delta_time
-        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff -- BNS: include litter layer in this??
-           surf_NO3_loss = -NO3_dissolved(2) * flow(1) / wl(1)
-           surf_NO3_loss = min(surf_NO3_loss, NO3_dissolved(2))
-           surf_NH4_loss = -NH4_dissolved(2) * flow(1) / wl(1)
-           surf_NH4_loss = min(surf_NH4_loss, NH4_dissolved(2))
-        end if
-        div_loss_NO3(2) = min(div_loss_NO3(2), NO3_dissolved(2) - surf_NO3_loss)
-        div_loss_NH4(2) = min(div_loss_NH4(2), NH4_dissolved(2) - surf_NH4_loss)
-        do l=3,num_l+1
-           div_loss_NO3(l) = min(div_loss_NO3(l), NO3_dissolved(l))
-           div_loss_NH4(l) = min(div_loss_NH4(l), NH4_dissolved(l))
-        end do
-        ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
-        ! that will be effectively rectified by subtracting from the flux to stream. In rare
-        ! situations, that could lead to a negative stream DOC flux.
-
-        NH4_dissolved(2)=NH4_dissolved(2)-surf_NH4_loss
-        NO3_dissolved(2)=NO3_dissolved(2)-surf_NO3_loss
-     end if
-     NH4_dissolved(:)=NH4_dissolved(:)-div_loss_NH4(:)  !aggiorno la quantita' di ammonio in soluzione nel suolo togliendo la parte che e' uscita con il flusso laterale
-     NO3_dissolved(:)=NO3_dissolved(:)-div_loss_NO3(:)
-
-
-     leaflitter%ammonium=leaflitter%ammonium + NH4_dissolved(1)*leaf_NH4_frac
-     woodlitter%ammonium=woodlitter%ammonium + NH4_dissolved(1)*(1.0-leaf_NH4_frac)
-
-     soilc(:)%ammonium=soilc(:)%ammonium + NH4_dissolved(2:num_l+1)
-
-     leaflitter%nitrate=leaflitter%nitrate + NO3_dissolved(1)*leaf_NO3_frac
-     woodlitter%nitrate=woodlitter%nitrate + NO3_dissolved(1)*(1.0-leaf_NO3_frac)
-     soilc(:)%nitrate=soilc(:)%nitrate + NO3_dissolved(2:num_l+1)
-
-     del_soil_NH4(:)=d_NH4(2:num_l+1)  !variazione con la percolazione del contenuto di NH4 nel suolo
-     del_soil_NO3(:)=d_NO3(2:num_l+1)
-
-     del_leaflitter_NH4=d_NH4(1)*leaf_NH4_frac
-     del_leaflitter_NO3=d_NO3(1)*leaf_NO3_frac
-     del_woodlitter_NH4=d_NH4(1)*(1.0-leaf_NH4_frac)
-     del_woodlitter_NO3=d_NO3(1)*(1.0-leaf_NO3_frac)
-
-     div_NH4_loss(:)=div_loss_NH4(2:num_l+1)
-     div_NO3_loss(:)=div_loss_NO3(2:num_l+1)
-     !!!!!!!!!!!!!!!!!!xz [End] CH's code for Nitrogen
-  else  ! End of code if SOILC_CORPSE_N
-     surf_NO3_loss=0.0
-     surf_NH4_loss=0.0
-     del_soil_NH4=0.0
-     del_soil_NO3=0.0
-     del_leaflitter_NH4=0.0
-     del_leaflitter_NO3=0.0
-     del_woodlitter_NH4=0.0
-     del_woodlitter_NO3=0.0
-     div_NH4_loss=0.0
-     div_NO3_loss=0.0
-  endif
-
-  call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Doesn't take porosity into account
-  call dissolve_carbon(woodlitter,wl(1)/(dens_h2o*dz(1)))
-  do i=1, num_l
-    call dissolve_carbon(soilc(i),wl(i)/(dens_h2o*dz(i)))
-  enddo
-
-  surf_DOC_loss(:) = 0.0
-  surf_DON_loss(:) = 0.0
-  do i=1,N_C_TYPES
-     DOC(i,1)=leaflitter%dissolved_carbon(i)+woodlitter%dissolved_carbon(i)
-     if(DOC(i,1)>0) then
-         leaf_DOC_frac=leaflitter%dissolved_carbon(i)/DOC(i,1)
-     else
-         leaf_DOC_frac=0.0
-     endif
-     DOC(i,2:num_l+1)=soilc(:)%dissolved_carbon(i)
-
-     call check_var_range(DOC(i,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(i))//',:) before advec.',FATAL)
-     mass0 = sum(DOC(i,:))
-     call tracer_advection(DOC(i,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DOC(i,:),div_loss(i,:),wl(:))!xz
-     mass1 = sum(DOC(i,:))
-     call check_var_range(DOC(i,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(i))//',:) after advec.',FATAL)
-     call check_conservation('tracer_leaching_with_litter','DOC('//trim(c_shortname(i))//',:)', mass0,mass1, carbon_cons_tol )
-
-     if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
-        div_loss(i,2:num_l+1) = div_hlsp_DOC(i,:)*delta_time
-        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
-           surf_DOC_loss(i) = -DOC(i, 2) * flow(1) / wl(1)
-           surf_DOC_loss(i) = min(surf_DOC_loss(i), DOC(i,2))
-        end if
-        div_loss(i,2) = min(div_loss(i,2), DOC(i,2) - surf_DOC_loss(i))
-        do l=3,num_l+1
-           div_loss(i,l) = min(div_loss(i,l), DOC(i,l))
-        end do
-        ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
-        ! that will be effectively rectified by subtracting from the flux to stream. In rare
-        ! situations, that could lead to a negative stream DOC flux.
-     end if
-     DOC(i,:)=DOC(i,:)-div_loss(i,:)
-     DOC(i,2)=DOC(i,2)-surf_DOC_loss(i)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
-     ! Xin says this line was a mistake
-
-     leaflitter%dissolved_carbon(i)=DOC(i,1)*leaf_DOC_frac
-     woodlitter%dissolved_carbon(i)=DOC(i,1)*(1.0-leaf_DOC_frac)
-     soilc(:)%dissolved_carbon(i)=DOC(i,2:num_l+1)
-
-     del_soil_DOC(i,:)=d_DOC(i,2:num_l+1)
-     del_leaflitter_DOC(i)=d_DOC(i,1)*leaf_DOC_frac
-     del_woodlitter_DOC(i)=d_DOC(i,1)*(1.0-leaf_DOC_frac)
-
-     div_DOC_loss(i,:)=div_loss(i,2:num_l+1)
-
-     !!!!!xz Nitrogen
-     if (soil_carbon_option == SOILC_CORPSE_N) then
-        DON(i,1)=leaflitter%dissolved_nitrogen(i)+woodlitter%dissolved_nitrogen(i)!xz
-        if(DON(i,1)>0) then
-            leaf_DON_frac=leaflitter%dissolved_nitrogen(i)/DON(i,1)
-        else
-            leaf_DON_frac=0.0
-        endif !xz
-        DON(i,2:num_l+1)=soilc(:)%dissolved_nitrogen(i)!xz
-        call check_var_range(DON(i,:), -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'DON('//trim(c_shortname(i))//',:) before advec.',FATAL)
-
-        mass0 = sum(DON(i,:))
-        call tracer_advection(DON(i,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DON(i,:),div_loss_N(i,:),wl(:))
-        mass1 = sum(DON(i,:))
-        call check_conservation('tracer_leaching_with_litter','DON('//trim(c_shortname(i))//',:)', mass0,mass1, nitrogen_cons_tol )
-
-        if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
-           div_loss_N(i,2:num_l+1) = div_hlsp_DON(i,:)*delta_time
-           if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
-              surf_DON_loss(i) = -DON(i, 2) * flow(1) / wl(1)
-              surf_DON_loss(i) = min(surf_DON_loss(i), DON(i,2))
-           end if
-           div_loss_N(i,2) = min(div_loss_N(i,2), DON(i,2) - surf_DON_loss(i))
-           do l=3,num_l+1
-              div_loss_N(i,l) = min(div_loss_N(i,l), DON(i,l))
-           end do
-           ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
-           ! that will be effectively rectified by subtracting from the flux to stream. In rare
-           ! situations, that could lead to a negative stream DOC flux.
-        end if
-        DON(i,2)=DON(i,2)-surf_DON_loss(i)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
-        ! Xin says this line was a mistake
-
-        DON(i,:)=DON(i,:)-div_loss_N(i,:)
-
-        leaflitter%dissolved_nitrogen(i)=DON(i,1)*leaf_DON_frac
-        woodlitter%dissolved_nitrogen(i)=DON(i,1)*(1.0-leaf_DON_frac)
-        soilc(:)%dissolved_nitrogen(i)=DON(i,2:num_l+1)
-
-        del_soil_DON(i,:)=d_DON(i,2:num_l+1)
-        del_leaflitter_DON(i)=d_DON(i,1)*leaf_DON_frac
-        del_woodlitter_DON(i)=d_DON(i,1)*(1.0-leaf_DON_frac)
-
-        div_DON_loss(i,:)=div_loss_N(i,2:num_l+1)
-     else
-        del_soil_DON(i,:)=0.0
-        del_leaflitter_DON(i)=0.0
-        del_woodlitter_DON(i)=0.0
-
-        div_DON_loss(i,:)=0.0
-     endif
-     !!!!xz Nitrogen [end]
-  enddo
-
-  call check_var_range(woodlitter%dissolved_nitrogen, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'woodlitter%dissolved_nitrogen',FATAL)
-  call deposit_dissolved_C(leaflitter)
-  call deposit_dissolved_C(woodlitter)
-  do i=1, num_l
-    call deposit_dissolved_C(soilc(i))
-  enddo
-
-  ! sum up the totals
-  total_DOC_div = sum(surf_DOC_loss(:))
-  total_DON_div = sum(surf_DON_loss(:))
-  total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
-  total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
-  do l=1,num_l
-     total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
-     total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
-  end do
-
-  ! ---- diagnostic section
-  do i = 1, N_C_TYPES
-     call send_tile_data(id_litter_C_leaching(LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
-     call send_tile_data(id_litter_C_leaching(CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
-     call send_tile_data(id_C_leaching(i), del_soil_DOC(i,:)/delta_time,diag)
-     call send_tile_data(id_litter_DON_leaching(LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
-     call send_tile_data(id_litter_DON_leaching(CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
-     call send_tile_data(id_DON_leaching(i), del_soil_DON(i,:)/delta_time,diag)
-  enddo
-  if (id_total_C_leaching>0) then
-      do l=1,num_l
-          total_C_leaching(l) = sum(del_soil_DOC(:,l))/delta_time
-      end do
-      call send_tile_data(id_total_C_leaching, total_C_leaching, diag)
-  endif
-  if (id_total_ON_leaching>0) then
-      do l=1,num_l
-          total_DON_leaching(l) = sum(del_soil_DON(:,l))/delta_time
-      end do
-      call send_tile_data(id_total_ON_leaching, total_DON_leaching, diag)
-  endif
-  call send_tile_data(id_NO3_leaching, del_soil_NO3/delta_time, diag)
-  call send_tile_data(id_NH4_leaching, del_soil_NH4/delta_time, diag)
-  call send_tile_data(id_litter_total_C_leaching(LEAF),sum(del_leaflitter_DOC)/delta_time,diag)
-  call send_tile_data(id_litter_total_ON_leaching(LEAF),sum(del_leaflitter_DON)/delta_time,diag)
-  call send_tile_data(id_litter_NO3_leaching(LEAF),del_leaflitter_NO3/delta_time,diag)
-  call send_tile_data(id_litter_NH4_leaching(LEAF),del_leaflitter_NH4/delta_time,diag)
-  call send_tile_data(id_litter_total_C_leaching(CWOOD),sum(del_woodlitter_DOC)/delta_time,diag)
-  call send_tile_data(id_litter_total_ON_leaching(CWOOD),sum(del_woodlitter_DON)/delta_time,diag)
-  call send_tile_data(id_litter_NO3_leaching(CWOOD),del_woodlitter_NO3/delta_time,diag)
-  call send_tile_data(id_litter_NH4_leaching(CWOOD),del_woodlitter_NH4/delta_time,diag)
-  if (gw_option == GW_TILED) then
-     call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
-  end if
-
-  call send_tile_data(id_total_DOC_div_loss, total_DOC_div/delta_time, diag)
-  call send_tile_data(id_total_DON_div_loss, total_DON_div/delta_time, diag)
-  call send_tile_data(id_total_NO3_div_loss, total_NO3_div/delta_time, diag)
-  call send_tile_data(id_total_NH4_div_loss, total_NH4_div/delta_time, diag)
-
-end subroutine tracer_leaching_with_litter
 
 ! ============================================================================
 subroutine Dsdt(vegn, soil, diag, soilt, theta)
@@ -4371,6 +3923,456 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
          /((aquifer_heat_cap+soil%groundwater(1)-d_GW) + flow(num_l+1))
 end subroutine advection_tri
 
+
+! ============================================================================
+!!!xz this following subroutine is adopted from CH's code using concentration over water; please note that the units of some input variables are different. I kept tracer_advection_ORI following this subroutine
+subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,wl)  ! wl was added here compared to the old version
+    real,intent(inout),dimension(:):: tracer_mass  ! Per layer (not per unit water)
+    real,intent(in),dimension(:)   :: flow  ! Total flow, not flow rate [mm]
+    real,intent(in),dimension(:)   :: div   ! Horizontal divergence (layer total, not rate) [mm]
+    real,intent(in),dimension(:)   :: dz    ! Layer thickness
+    real,intent(in),dimension(:)   :: wl    ! water content [kg/m^2] by layer before Richards (1:num_l)
+    real,intent(out),dimension(:)  :: del_tracer,divergence_loss ! Change in tracer mass, and divergence part
+
+    real,dimension(size(tracer_mass)) :: aaa,bbb,ccc,ddd,wl_litter    ! Matrix coefficients for aaa*dx[i-1] + bbb*dx[i] + ccc*dx[i+1] = ddd
+    real,dimension(size(tracer_mass)) :: u_minus,u_plus   ! For weighting of flow upstream/downstream
+    real,dimension(size(tracer_mass)) :: tracer_concentration ! [kg C/m^3 soil]
+    integer::ll,nlayers
+    ! real,dimension(size(tracer_mass)) ::flow_eff ! flow adjusted to be units of [m], weighted by 1/wl  ZACK'S CODE
+    real, parameter :: minwl = 0.1 ! [mm] minimum allowed wl
+    real, parameter :: dens_h2o=1000.   ! kg/m3
+!    real*8,parameter::porosity=0.3  !CH valore inventato  !xz volumn of water over volumn of soil; need to consider to change!!
+    !real,intent(in)::theta
+    !real*8::dt=1.0/(48.0*365.0)
+
+    nlayers=size(tracer_mass)
+    wl_litter(1)=dz(1)     ! m
+    do ll=2,nlayers
+       wl_litter(ll)=max(wl(ll-1), minwl)/dens_h2o  ! m
+    enddo
+
+    tracer_concentration=tracer_mass/wl_litter   ! kg/m3  ! concentration computed over the volume of water
+
+    u_minus = 1.
+    where (flow.lt.0.) u_minus = 0.
+    do ll = 1, nlayers-1
+        u_plus(ll) = 1. - u_minus(ll+1)
+    enddo
+
+    ! Top layer, uses upper bound concentration
+
+    ll=1
+    aaa(ll)= 0.0 ! flow(ll)*u_minus(ll)
+    bbb(ll)= flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
+  !   m           m                          m                           m
+
+    ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)   BEN CODE ORIGINAL
+    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+    ! [kg/m^2]         =       [m]        *    [kg/m^3]
+
+    ccc(ll)= -flow(ll+1)*u_plus(ll)
+    ! m
+
+    ddd(ll)= - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
+ !    kg/m2          kg/m3                       m                    kg/m3                 m
+
+    do ll=2,nlayers-1
+        !aaa(ll)=flow(ll)*u_minus(ll)     !BEN ORIGINAL
+        !bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - dz(ll)
+        !divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+        !ccc(ll)=-flow(ll+1)*u_plus(ll)
+        !ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll)) - tracer_concentration(ll+1)*ccc(ll)
+
+!Adapted from ZACK's CODE
+     aaa(ll)=flow(ll)*u_minus(ll)
+        bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
+        divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)     ! [kg/m^3]
+!         kg/m2            =    m           *    kg/m3
+        ccc(ll)=-flow(ll+1)*u_plus(ll)   !m
+        ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
+   !    kg/m2
+    enddo
+
+
+    !bottom layer, flow out is zero
+   ! ll=nlayers
+   ! aaa(ll)=flow(ll)*u_minus(ll)
+   ! bbb(ll)= flow(ll)*(1-u_minus(ll)) - dz(ll)
+   ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+   ! ccc(ll)= 0.0
+   ! ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll))
+
+!Adapted from ZACK's CODE
+    ll=nlayers
+    aaa(ll)=flow(ll)*u_minus(ll)
+    bbb(ll)= flow(ll)*(1-u_minus(ll)) - wl_litter(ll)
+    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+    ccc(ll)= 0.0
+    ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll))
+
+
+    !Solve the linear algebra problem
+    if(nlayers.gt.1) then
+        call tridiag(aaa,bbb,ccc,ddd,del_tracer)  !kg/m3
+    else
+        del_tracer=0.0
+    endif
+
+    del_tracer=del_tracer*wl_litter   !kg/m2   !variazione del tracer
+    tracer_mass=tracer_mass+del_tracer    !kg/m2
+    divergence_loss=divergence_loss
+
+    where(divergence_loss>tracer_mass) divergence_loss=tracer_mass
+end subroutine tracer_advection
+
+
+! ============================================================================
+subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
+         wl, flow, div, &
+         div_hlsp_DOC,div_hlsp_DON,&
+         div_hlsp_NO3,div_hlsp_NH4,&
+         ! output
+         total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
+
+  type(diag_buff_type), intent(inout) :: diag
+  type(soil_pool),intent(inout) :: soilc(:), leaflitter, woodlitter
+  !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time's unit.!!! I assume here the unit is mm/yr
+  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+
+!!!!!!!xz we might need to update this part sine CH and Ben's code do not have N lost from run off ; need to consider to add surf_DON_loss; and div_hlsp_DON
+  real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+  real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
+  real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+
+  real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
+
+  ! ---- local vars
+  real :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
+  real :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
+  real :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
+  real :: &
+     div_DOC_loss(N_C_TYPES,num_l), div_DON_loss(N_C_TYPES,num_l), div_NH4_loss(num_l), div_NO3_loss(num_l), &
+     del_soil_DOC(N_C_TYPES,num_l), del_soil_DON(N_C_TYPES,num_l), del_soil_NH4(num_l), del_soil_NO3(num_l), &
+     del_leaflitter_DOC(N_C_TYPES), del_leaflitter_DON(N_C_TYPES), del_leaflitter_NH4, del_leaflitter_NO3, &
+     del_woodlitter_DOC(N_C_TYPES), del_woodlitter_DON(N_C_TYPES), del_woodlitter_NH4, del_woodlitter_NO3
+
+
+  !xz note: wl soil layer water volumn, mm^3/mm^2, defined by CH ; div, divergent flux or 
+  ! horizontal flow; del is the change along the time dimension
+  real, parameter :: dens_h2o = 1000.0 !xz
+  real, parameter :: minwl    = 0.1 ! [mm]
+
+  real :: DOC(N_C_TYPES,num_l+1), DON(N_C_TYPES,num_l+1), NH4_dissolved(num_l+1), NO3_dissolved(num_l+1)!xz
+  real, dimension(N_C_TYPES,num_l+1) :: div_loss, div_loss_N!xz
+  real, dimension(num_l+1)           :: div_loss_NO3, div_loss_NH4
+
+  real :: d_DOC(N_C_TYPES,num_l+1),d_DON(N_C_TYPES,num_l+1),d_NH4(num_l+1),d_NO3(num_l+1)!xz
+
+  real,dimension(num_l+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
+  integer :: i,l
+
+  real :: litterThickness,leaflitterTotalC,woodlitterTotalC,leaf_DOC_frac,leaf_DON_frac,&
+            leaf_NH4_frac,leaf_NO3_frac
+
+!!!!!!!xz Not in CH's code. need to consider add N here as well.
+!!!!!!!xz [end]
+
+  real :: mass0, mass1 ! for conservation checks
+  real :: total_C_leaching(num_l),total_DON_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
+
+  !For now, use a mininum litter thickness of 5 mm
+  call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
+  call poolTotals(woodlitter, totalCarbon=woodlitterTotalC)
+  litterThickness = max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
+
+!!!!!!!xz note: please make sure the unit of flow is ????
+  flow_with_litter(1)=0.0
+  flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
+  flow_with_litter = flow_with_litter/1000 !xz change the div unit from mm to m
+
+  !flow_with_litter(1)=0.0/dens_h2o*delta_time  !m !CH's code if the unit of flow is kg/m2/yr
+  !flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)/dens_h2o*delta_time   !m
+
+  div_with_litter(1)=0.0
+  div_with_litter(2:size(flow_with_litter))=div(:)*delta_time ! div is in mm/s
+  div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
+
+  !div_with_litter(1)=0.0/dens_h2o*delta_time!xz!CH's code if the unit of flow is kg/m2/yr
+  !div_with_litter(2:size(flow_with_litter))=div(:)/dens_h2o*delta_time  !m? !xz
+
+  dz_with_litter(1)=litterThickness
+  dz_with_litter(2:size(dz_with_litter)) = dz(:) !!xz assume the unit of dz is m
+
+  if (soil_carbon_option == SOILC_CORPSE_N) then
+     !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
+     ! Probably should include wood litter in this too
+     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
+     if (leaflitterTotalC+woodlitterTotalC>0) then
+        !  leaf_NH4_frac = leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
+        leaf_NH4_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
+     else
+        leaf_NH4_frac = 0.5 ! slm: does it make sense?
+     endif
+
+     NH4_dissolved(1)=(leaflitter%ammonium + woodlitter%ammonium)*ammonium_solubility  !kg/m2
+     leaflitter%ammonium=leaflitter%ammonium-leaflitter%ammonium*ammonium_solubility
+     woodlitter%ammonium=woodlitter%ammonium-woodlitter%ammonium*ammonium_solubility
+     NH4_dissolved(2:num_l+1)=soilc(:)%ammonium*ammonium_solubility  !kg/m2
+     soilc(:)%ammonium=soilc(:)%ammonium*(1-ammonium_solubility)
+
+     if (leaflitterTotalC+woodlitterTotalC > 0) then
+        !  leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+        leaf_NO3_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
+     else
+        leaf_NO3_frac = 0.0
+     endif
+     NO3_dissolved(1)=(leaflitter%nitrate + woodlitter%nitrate)*nitrate_solubility   !kg/m2
+     leaflitter%nitrate=leaflitter%nitrate-leaflitter%nitrate*nitrate_solubility
+     woodlitter%nitrate=woodlitter%nitrate-woodlitter%nitrate*nitrate_solubility
+     NO3_dissolved(2:num_l+1)=soilc(:)%nitrate*nitrate_solubility   !kg/m2
+     soilc(:)%nitrate=soilc(:)%nitrate*(1-nitrate_solubility)
+
+     call check_var_range(NH4_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NH4_dissolved before advect.',FATAL)
+     call check_var_range(NO3_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NO3_dissolved before advect.',FATAL)
+
+     mass0 = sum(NH4_dissolved)
+     call tracer_advection(NH4_dissolved(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_NH4(:),div_loss_NH4(:),wl(:))
+     mass1 = sum(NH4_dissolved)
+     call check_conservation('tracer_leaching_with_litter','NH4_dissolved', mass0, mass1, nitrogen_cons_tol )
+     call check_var_range(NH4_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NH4_dissolved after advect.',FATAL)
+
+     mass0 = sum(NO3_dissolved)
+     call tracer_advection(NO3_dissolved(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_NO3(:),div_loss_NO3(:),wl(:))
+     mass1 = sum(NO3_dissolved)
+     call check_conservation('tracer_leaching_with_litter','NO3_dissolved', mass0, mass1, nitrogen_cons_tol )
+     call check_var_range(NO3_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NO3_dissolved after advect.',FATAL)
+
+     !la subroutine tracer_advection mi rida' il valore de la quantita di tracer_dissolved gia' aggiornata con la percolazione che entra ed esce dallo strato di suolo
+     !la variazione di massa e' pari a d_NH4 o d_NO3
+
+     if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
+        div_loss_NO3(2:num_l+1) = div_hlsp_NO3(:)*delta_time
+        div_loss_NH4(2:num_l+1) = div_hlsp_NH4(:)*delta_time
+        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff -- BNS: include litter layer in this??
+           surf_NO3_loss = -NO3_dissolved(2) * flow(1) / wl(1)
+           surf_NO3_loss = min(surf_NO3_loss, NO3_dissolved(2))
+           surf_NH4_loss = -NH4_dissolved(2) * flow(1) / wl(1)
+           surf_NH4_loss = min(surf_NH4_loss, NH4_dissolved(2))
+        end if
+        div_loss_NO3(2) = min(div_loss_NO3(2), NO3_dissolved(2) - surf_NO3_loss)
+        div_loss_NH4(2) = min(div_loss_NH4(2), NH4_dissolved(2) - surf_NH4_loss)
+        do l=3,num_l+1
+           div_loss_NO3(l) = min(div_loss_NO3(l), NO3_dissolved(l))
+           div_loss_NH4(l) = min(div_loss_NH4(l), NH4_dissolved(l))
+        end do
+        ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+        ! that will be effectively rectified by subtracting from the flux to stream. In rare
+        ! situations, that could lead to a negative stream DOC flux.
+
+        NH4_dissolved(2)=NH4_dissolved(2)-surf_NH4_loss
+        NO3_dissolved(2)=NO3_dissolved(2)-surf_NO3_loss
+     end if
+     NH4_dissolved(:)=NH4_dissolved(:)-div_loss_NH4(:)  !aggiorno la quantita' di ammonio in soluzione nel suolo togliendo la parte che e' uscita con il flusso laterale
+     NO3_dissolved(:)=NO3_dissolved(:)-div_loss_NO3(:)
+
+
+     leaflitter%ammonium=leaflitter%ammonium + NH4_dissolved(1)*leaf_NH4_frac
+     woodlitter%ammonium=woodlitter%ammonium + NH4_dissolved(1)*(1.0-leaf_NH4_frac)
+
+     soilc(:)%ammonium=soilc(:)%ammonium + NH4_dissolved(2:num_l+1)
+
+     leaflitter%nitrate=leaflitter%nitrate + NO3_dissolved(1)*leaf_NO3_frac
+     woodlitter%nitrate=woodlitter%nitrate + NO3_dissolved(1)*(1.0-leaf_NO3_frac)
+     soilc(:)%nitrate=soilc(:)%nitrate + NO3_dissolved(2:num_l+1)
+
+     del_soil_NH4(:)=d_NH4(2:num_l+1)  !variazione con la percolazione del contenuto di NH4 nel suolo
+     del_soil_NO3(:)=d_NO3(2:num_l+1)
+
+     del_leaflitter_NH4=d_NH4(1)*leaf_NH4_frac
+     del_leaflitter_NO3=d_NO3(1)*leaf_NO3_frac
+     del_woodlitter_NH4=d_NH4(1)*(1.0-leaf_NH4_frac)
+     del_woodlitter_NO3=d_NO3(1)*(1.0-leaf_NO3_frac)
+
+     div_NH4_loss(:)=div_loss_NH4(2:num_l+1)
+     div_NO3_loss(:)=div_loss_NO3(2:num_l+1)
+     !!!!!!!!!!!!!!!!!!xz [End] CH's code for Nitrogen
+  else  ! End of code if SOILC_CORPSE_N
+     surf_NO3_loss=0.0
+     surf_NH4_loss=0.0
+     del_soil_NH4=0.0
+     del_soil_NO3=0.0
+     del_leaflitter_NH4=0.0
+     del_leaflitter_NO3=0.0
+     del_woodlitter_NH4=0.0
+     del_woodlitter_NO3=0.0
+     div_NH4_loss=0.0
+     div_NO3_loss=0.0
+  endif
+
+  call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Doesn't take porosity into account
+  call dissolve_carbon(woodlitter,wl(1)/(dens_h2o*dz(1)))
+  do i=1, num_l
+    call dissolve_carbon(soilc(i),wl(i)/(dens_h2o*dz(i)))
+  enddo
+
+  surf_DOC_loss(:) = 0.0
+  surf_DON_loss(:) = 0.0
+  do i=1,N_C_TYPES
+     DOC(i,1)=leaflitter%dissolved_carbon(i)+woodlitter%dissolved_carbon(i)
+     if(DOC(i,1)>0) then
+         leaf_DOC_frac=leaflitter%dissolved_carbon(i)/DOC(i,1)
+     else
+         leaf_DOC_frac=0.0
+     endif
+     DOC(i,2:num_l+1)=soilc(:)%dissolved_carbon(i)
+
+     call check_var_range(DOC(i,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(i))//',:) before advec.',FATAL)
+     mass0 = sum(DOC(i,:))
+     call tracer_advection(DOC(i,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DOC(i,:),div_loss(i,:),wl(:))!xz
+     mass1 = sum(DOC(i,:))
+     call check_var_range(DOC(i,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(i))//',:) after advec.',FATAL)
+     call check_conservation('tracer_leaching_with_litter','DOC('//trim(c_shortname(i))//',:)', mass0,mass1, carbon_cons_tol )
+
+     if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
+        div_loss(i,2:num_l+1) = div_hlsp_DOC(i,:)*delta_time
+        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
+           surf_DOC_loss(i) = -DOC(i, 2) * flow(1) / wl(1)
+           surf_DOC_loss(i) = min(surf_DOC_loss(i), DOC(i,2))
+        end if
+        div_loss(i,2) = min(div_loss(i,2), DOC(i,2) - surf_DOC_loss(i))
+        do l=3,num_l+1
+           div_loss(i,l) = min(div_loss(i,l), DOC(i,l))
+        end do
+        ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+        ! that will be effectively rectified by subtracting from the flux to stream. In rare
+        ! situations, that could lead to a negative stream DOC flux.
+     end if
+     DOC(i,:)=DOC(i,:)-div_loss(i,:)
+     DOC(i,2)=DOC(i,2)-surf_DOC_loss(i)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+     ! Xin says this line was a mistake
+
+     leaflitter%dissolved_carbon(i)=DOC(i,1)*leaf_DOC_frac
+     woodlitter%dissolved_carbon(i)=DOC(i,1)*(1.0-leaf_DOC_frac)
+     soilc(:)%dissolved_carbon(i)=DOC(i,2:num_l+1)
+
+     del_soil_DOC(i,:)=d_DOC(i,2:num_l+1)
+     del_leaflitter_DOC(i)=d_DOC(i,1)*leaf_DOC_frac
+     del_woodlitter_DOC(i)=d_DOC(i,1)*(1.0-leaf_DOC_frac)
+
+     div_DOC_loss(i,:)=div_loss(i,2:num_l+1)
+
+     !!!!!xz Nitrogen
+     if (soil_carbon_option == SOILC_CORPSE_N) then
+        DON(i,1)=leaflitter%dissolved_nitrogen(i)+woodlitter%dissolved_nitrogen(i)!xz
+        if(DON(i,1)>0) then
+            leaf_DON_frac=leaflitter%dissolved_nitrogen(i)/DON(i,1)
+        else
+            leaf_DON_frac=0.0
+        endif !xz
+        DON(i,2:num_l+1)=soilc(:)%dissolved_nitrogen(i)!xz
+        call check_var_range(DON(i,:), -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'DON('//trim(c_shortname(i))//',:) before advec.',FATAL)
+
+        mass0 = sum(DON(i,:))
+        call tracer_advection(DON(i,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DON(i,:),div_loss_N(i,:),wl(:))
+        mass1 = sum(DON(i,:))
+        call check_conservation('tracer_leaching_with_litter','DON('//trim(c_shortname(i))//',:)', mass0,mass1, nitrogen_cons_tol )
+
+        if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
+           div_loss_N(i,2:num_l+1) = div_hlsp_DON(i,:)*delta_time
+           if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
+              surf_DON_loss(i) = -DON(i, 2) * flow(1) / wl(1)
+              surf_DON_loss(i) = min(surf_DON_loss(i), DON(i,2))
+           end if
+           div_loss_N(i,2) = min(div_loss_N(i,2), DON(i,2) - surf_DON_loss(i))
+           do l=3,num_l+1
+              div_loss_N(i,l) = min(div_loss_N(i,l), DON(i,l))
+           end do
+           ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+           ! that will be effectively rectified by subtracting from the flux to stream. In rare
+           ! situations, that could lead to a negative stream DOC flux.
+        end if
+        DON(i,2)=DON(i,2)-surf_DON_loss(i)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+        ! Xin says this line was a mistake
+
+        DON(i,:)=DON(i,:)-div_loss_N(i,:)
+
+        leaflitter%dissolved_nitrogen(i)=DON(i,1)*leaf_DON_frac
+        woodlitter%dissolved_nitrogen(i)=DON(i,1)*(1.0-leaf_DON_frac)
+        soilc(:)%dissolved_nitrogen(i)=DON(i,2:num_l+1)
+
+        del_soil_DON(i,:)=d_DON(i,2:num_l+1)
+        del_leaflitter_DON(i)=d_DON(i,1)*leaf_DON_frac
+        del_woodlitter_DON(i)=d_DON(i,1)*(1.0-leaf_DON_frac)
+
+        div_DON_loss(i,:)=div_loss_N(i,2:num_l+1)
+     else
+        del_soil_DON(i,:)=0.0
+        del_leaflitter_DON(i)=0.0
+        del_woodlitter_DON(i)=0.0
+
+        div_DON_loss(i,:)=0.0
+     endif
+     !!!!xz Nitrogen [end]
+  enddo
+
+  call check_var_range(woodlitter%dissolved_nitrogen, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'woodlitter%dissolved_nitrogen',FATAL)
+  call deposit_dissolved_C(leaflitter)
+  call deposit_dissolved_C(woodlitter)
+  do i=1, num_l
+    call deposit_dissolved_C(soilc(i))
+  enddo
+
+  ! sum up the totals
+  total_DOC_div = sum(surf_DOC_loss(:))
+  total_DON_div = sum(surf_DON_loss(:))
+  total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
+  total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
+  do l=1,num_l
+     total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
+     total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
+  end do
+
+  ! ---- diagnostic section
+  do i = 1, N_C_TYPES
+     call send_tile_data(id_litter_C_leaching(LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_litter_C_leaching(CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_C_leaching(i), del_soil_DOC(i,:)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_DON_leaching(i), del_soil_DON(i,:)/delta_time,diag)
+  enddo
+  if (id_total_C_leaching>0) then
+      do l=1,num_l
+          total_C_leaching(l) = sum(del_soil_DOC(:,l))/delta_time
+      end do
+      call send_tile_data(id_total_C_leaching, total_C_leaching, diag)
+  endif
+  if (id_total_ON_leaching>0) then
+      do l=1,num_l
+          total_DON_leaching(l) = sum(del_soil_DON(:,l))/delta_time
+      end do
+      call send_tile_data(id_total_ON_leaching, total_DON_leaching, diag)
+  endif
+  call send_tile_data(id_NO3_leaching, del_soil_NO3/delta_time, diag)
+  call send_tile_data(id_NH4_leaching, del_soil_NH4/delta_time, diag)
+  call send_tile_data(id_litter_total_C_leaching(LEAF),sum(del_leaflitter_DOC)/delta_time,diag)
+  call send_tile_data(id_litter_total_ON_leaching(LEAF),sum(del_leaflitter_DON)/delta_time,diag)
+  call send_tile_data(id_litter_NO3_leaching(LEAF),del_leaflitter_NO3/delta_time,diag)
+  call send_tile_data(id_litter_NH4_leaching(LEAF),del_leaflitter_NH4/delta_time,diag)
+  call send_tile_data(id_litter_total_C_leaching(CWOOD),sum(del_woodlitter_DOC)/delta_time,diag)
+  call send_tile_data(id_litter_total_ON_leaching(CWOOD),sum(del_woodlitter_DON)/delta_time,diag)
+  call send_tile_data(id_litter_NO3_leaching(CWOOD),del_woodlitter_NO3/delta_time,diag)
+  call send_tile_data(id_litter_NH4_leaching(CWOOD),del_woodlitter_NH4/delta_time,diag)
+  if (gw_option == GW_TILED) then
+     call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
+  end if
+
+  call send_tile_data(id_total_DOC_div_loss, total_DOC_div/delta_time, diag)
+  call send_tile_data(id_total_DON_div_loss, total_DON_div/delta_time, diag)
+  call send_tile_data(id_total_NO3_div_loss, total_NO3_div/delta_time, diag)
+  call send_tile_data(id_total_NH4_div_loss, total_NH4_div/delta_time, diag)
+
+end subroutine tracer_leaching_with_litter
 
 ! ============================================================================
 ! given soil tile, returns carbon content of various components of litter
