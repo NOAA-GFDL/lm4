@@ -998,17 +998,17 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
 
 
-  id_mrz_scav_C = register_cohort_diag_field ( module_name, 'mrz_scav_biomass_C',  &
+  id_mrz_scav_C = register_cohort_diag_field ( module_name, 'scav_C',  &
        (/id_ug/), time, 'scavenger mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_mine_C = register_cohort_diag_field ( module_name, 'mrz_mine_biomass_C',  &
+  id_mrz_mine_C = register_cohort_diag_field ( module_name, 'mine_C',  &
        (/id_ug/), time, 'miner mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_Nfix_C = register_cohort_diag_field ( module_name, 'Nfix_biomass_C',  &
+  id_Nfix_C     = register_cohort_diag_field ( module_name, 'Nfix_C',  &
        (/id_ug/), time, 'symbiotic N fixer biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_scav_N = register_cohort_diag_field ( module_name, 'mrz_scav_biomass_N',  &
+  id_mrz_scav_N = register_cohort_diag_field ( module_name, 'scav_N',  &
        (/id_ug/), time, 'scavenger mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
-  id_mrz_mine_N = register_cohort_diag_field ( module_name, 'mrz_mine_biomass_N',  &
+  id_mrz_mine_N = register_cohort_diag_field ( module_name, 'mine_N',  &
        (/id_ug/), time, 'miner mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
-  id_Nfix_N = register_cohort_diag_field ( module_name, 'Nfix_biomass_N',  &
+  id_Nfix_N     = register_cohort_diag_field ( module_name, 'Nfix_N',  &
        (/id_ug/), time, 'symbiotic N fixer biomass N', 'kg N/m2', missing_value=-1.0 )
 
   id_bsw_max = register_cohort_diag_field ( module_name, 'bsw_max',  &

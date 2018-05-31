@@ -226,16 +226,16 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        (/id_ug/), time, 'average cohort age', 'years', &
        missing_value=-100.0)
 
-  id_mrz_scav_alloc = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_alloc',  &
+  id_mrz_scav_alloc = register_cohort_diag_field ( diag_mod_name, 'scav_alloc',  &
        (/id_ug/), time, 'C allocation to scavenger mycorrhizae', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_mrz_scav_immob = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_immob',  &
+  id_mrz_scav_immob = register_cohort_diag_field ( diag_mod_name, 'scav_immob',  &
         (/id_ug/), time, 'N immobilization by scavenger mycorrhizae', 'kg N/(m2 year)', &
         missing_value=-100.0 )
-  id_mrz_mine_alloc = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_alloc',  &
+  id_mrz_mine_alloc = register_cohort_diag_field ( diag_mod_name, 'mine_alloc',  &
        (/id_ug/), time, 'C allocation to miner mycorrhizae', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_mrz_mine_immob = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_immob',  &
+  id_mrz_mine_immob = register_cohort_diag_field ( diag_mod_name, 'mine_immob',  &
        (/id_ug/), time, 'N immobilization by miner mycorrhizae', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_Nfix_alloc = register_cohort_diag_field ( diag_mod_name, 'Nfix_alloc',  &
@@ -244,10 +244,10 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_Nfix_mgain = register_cohort_diag_field ( diag_mod_name, 'Nfix_mgain',  &
        (/id_ug/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)/kgC', &
        missing_value=-100.0 )
-  id_mrz_scav_mgain = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_mgain',  &
+  id_mrz_scav_mgain = register_cohort_diag_field ( diag_mod_name, 'scav_mgain',  &
        (/id_ug/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', &
        'kg N/(m2 year)/kgC', missing_value=-100.0 )
-  id_mrz_mine_mgain = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_mgain',  &
+  id_mrz_mine_mgain = register_cohort_diag_field ( diag_mod_name, 'mine_mgain',  &
        (/id_ug/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', &
        'kg N/(m2 year)/kg C', missing_value=-100.0 )
   id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
@@ -275,22 +275,22 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_fix_plant_N_uptake = register_cohort_diag_field ( diag_mod_name, 'plant_Nfix_N_uptake',  &
         (/id_ug/), time, 'Plant N uptake from N fixers', 'kg N/m2/year', missing_value=-1.0 )
 
-  id_mrz_scav_N_uptake = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_N_uptake',  &
+  id_mrz_scav_N_uptake = register_cohort_diag_field ( diag_mod_name, 'scav_N_uptake',  &
        (/id_ug/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
-  id_mrz_mine_N_uptake = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_N_uptake',  &
+  id_mrz_mine_N_uptake = register_cohort_diag_field ( diag_mod_name, 'mine_N_uptake',  &
        (/id_ug/), time, 'N uptake by miner mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
   id_symbiotic_N_fixation = register_cohort_diag_field ( diag_mod_name, 'symbiotic_N_fixation',  &
        (/id_ug/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
   id_active_root_N_uptake = register_cohort_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
        (/id_ug/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
 
-  id_mrz_scav_C_res = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_res_C',  &
+  id_mrz_scav_C_res = register_cohort_diag_field ( diag_mod_name, 'scav_res_C',  &
        (/id_ug/), time, 'Scavenger mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_scav_N_res = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_res_N',  &
+  id_mrz_scav_N_res = register_cohort_diag_field ( diag_mod_name, 'scav_res_N',  &
        (/id_ug/), time, 'Scavenger mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
-  id_mrz_mine_C_res = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_res_C',  &
+  id_mrz_mine_C_res = register_cohort_diag_field ( diag_mod_name, 'mine_res_C',  &
        (/id_ug/), time, 'Miner mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_mine_N_res = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_res_N',  &
+  id_mrz_mine_N_res = register_cohort_diag_field ( diag_mod_name, 'mine_res_N',  &
        (/id_ug/), time, 'Miner mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
   id_Nfix_C_res = register_cohort_diag_field ( diag_mod_name, 'Nfix_res_C',  &
        (/id_ug/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
@@ -299,9 +299,9 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
 
   id_Nfix_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'Nfix_alloc_smoothed',  &
        (/id_ug/), time, 'Plant C allocation to N fixers smoothed', 'kg N/m2/year', missing_value=-1.0 )
-  id_mrz_mine_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'mrz_mine_alloc_smoothed',  &
+  id_mrz_mine_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'mine_alloc_smoothed',  &
        (/id_ug/), time, 'Plant C allocation to N miners smoothed', 'kg N/m2/year', missing_value=-1.0 )
-  id_mrz_scav_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'mrz_scav_alloc_smoothed',  &
+  id_mrz_scav_alloc_smoothed = register_cohort_diag_field ( diag_mod_name, 'scav_alloc_smoothed',  &
        (/id_ug/), time, 'C allocation to N scavengers smoothed', 'kg N/m2/year', missing_value=-1.0 )
 
   ! set the default sub-sampling filter for CMOR variables
