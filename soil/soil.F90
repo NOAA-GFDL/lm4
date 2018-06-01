@@ -4101,7 +4101,13 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
   !div_with_litter(2:size(flow_with_litter))=div(:)/dens_h2o*delta_time  !m? !xz
 
   dz_with_litter(1)=litterThickness
-  dz_with_litter(2:size(dz_with_litter)) = dz(:) !!xz assume the unit of dz is m
+  dz_with_litter(2:size(dz_with_litter)) = dz(1:num_l) !!xz assume the unit of dz is m
+
+  surf_NH4_loss = 0.0      ;  surf_NO3_loss      = 0.0 
+  del_soil_NH4  = 0.0      ;  del_soil_NO3       = 0.0
+  del_leaflitter_NH4 = 0.0 ;  del_leaflitter_NO3 = 0.0
+  del_woodlitter_NH4 = 0.0 ;  del_woodlitter_NO3 = 0.0
+  div_NH4_loss=0.0         ;  div_NO3_loss       = 0.0
 
   if (soil_carbon_option == SOILC_CORPSE_N) then
      !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
@@ -4196,17 +4202,6 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
      div_NH4_loss(:)=div_loss_NH4(2:num_l+1)
      div_NO3_loss(:)=div_loss_NO3(2:num_l+1)
      !!!!!!!!!!!!!!!!!!xz [End] CH's code for Nitrogen
-  else  ! End of code if SOILC_CORPSE_N
-     surf_NO3_loss=0.0
-     surf_NH4_loss=0.0
-     del_soil_NH4=0.0
-     del_soil_NO3=0.0
-     del_leaflitter_NH4=0.0
-     del_leaflitter_NO3=0.0
-     del_woodlitter_NH4=0.0
-     del_woodlitter_NO3=0.0
-     div_NH4_loss=0.0
-     div_NO3_loss=0.0
   endif
 
   call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Doesn't take porosity into account
