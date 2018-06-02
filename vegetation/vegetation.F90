@@ -234,7 +234,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool_C(N_HARV_POOLS), id_harv_pool_N(N_HARV_POOLS), &
    id_harv_rate_C(N_HARV_POOLS), id_tot_harv_pool_C, id_tot_harv_rate_C, id_tot_harv_pool_N, &
    id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
-   id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
+   id_ssc_out, id_deadmic_out, id_veg_in, id_veg_out, &
    id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
    id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
    id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
@@ -341,7 +341,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   integer, intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
 
   ! ---- local vars
-  integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: n_accum
@@ -1340,7 +1339,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
   character:: spnames(fm_field_name_len, nspecies) ! names of the species
-  integer :: sp_dim,text_dim,spnames_id
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
@@ -2338,7 +2336,6 @@ subroutine update_derived_vegn_data(vegn)
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
-  real :: stemarea ! individual stem area, for SAI calculations, m2/individual
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
 
   ! determine layer boundaries in the array of cohorts
@@ -2405,8 +2402,6 @@ subroutine update_derived_vegn_data(vegn)
        cc%lai           = spdata(sp)%dat_lai
        cc%root_density  = spdata(sp)%dat_root_density
     endif
-!     stemarea      = 0.035*cc%height ! Federer and Lash, 1978
-!     cc%sai           = stemarea/cc%crownarea*layer_area(cc%layer)
     cc%sai           = spdata(sp)%sai_height_ratio * cc%height ! Federer and Lash, 1978
     cc%leaf_size     = spdata(sp)%leaf_size
     cc%root_zeta     = spdata(sp)%dat_root_zeta
@@ -2495,11 +2490,9 @@ subroutine update_vegn_slow( )
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
-  real :: tc_daily ! daly temperature for dormancy detection, degK
 
   ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0, nmass0
-  real :: dbh_max_N ! max dbh for understory; diag only
+  real :: lmass0, fmass0, cmass0, nmass0
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
@@ -3054,13 +3047,11 @@ subroutine read_remap_species(restart)
 
   ! ---- local vars
   integer :: nsp ! number of input species
-  integer :: spnames_id ! id of the species names table in the netcdf
-  integer :: spnames_len(2)! sizes of the input species text array
   integer :: i, sp
   character(fm_field_name_len), allocatable :: spnames(:)
   character, allocatable :: text(:,:)
   integer, allocatable :: sptable(:) ! table for remapping
-  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
 
   if (.not.field_exists(restart, 'species_names')) then

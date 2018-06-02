@@ -95,7 +95,6 @@ real :: tot_area_soil ! global soil area, m2
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
-integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
 integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age, id_dbh_growth
 integer :: &
@@ -704,9 +703,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real,dimension(vegn%n_cohorts) :: C_alloc_to_N_acq, scav_C_alloc, mine_C_alloc, Nfix_C_alloc
   real,dimension(vegn%n_cohorts) :: N_fixation, root_exudate_C, root_exudate_N, myc_CO2_prod
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
-  real :: myc_N_uptake, myc_C_uptake
   real,dimension(vegn%n_cohorts) :: total_plant_N_uptake, scav_N_to_plant, mine_N_to_plant, fix_N_to_plant
-  real :: excess_C, current_root_exudation, scav_efficiency, mine_efficiency, total_N_leakage(num_l)
+  real :: scav_efficiency, mine_efficiency, total_N_leakage(num_l)
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
   real :: w ! smoothing weight
 
@@ -990,8 +988,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: md_bsw  ! total sapwood loss
   real :: deltaBL, deltaBR, deltaNL, deltaNR ! leaf and fine root carbon tendencies
   integer :: i, l, M
-  real :: NSC_supply,LR_demand,LR_deficit
-  real :: R_days,fNSC,fLFR,fStem,fSeed
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   ! accumulators of total input to root litter and soil carbon
   real, dimension(N_C_TYPES) :: &
@@ -1011,7 +1007,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
       total_root_exudate_C, & ! total root exudate per tile, kgC/m2
       total_root_exudate_N, & ! total root exudate per tile, kgN/m2
       total_N_leakage, total_myc_Nmin
-  real :: excess_C, current_root_exudation, scav_efficiency, mine_efficiency
+  real :: scav_efficiency, mine_efficiency
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
   real :: w ! smoothing weight
@@ -1325,15 +1321,10 @@ subroutine vegn_growth (vegn, diag)
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
-  real :: cmass0,cmass1 ! for debug only
   integer :: i, N
   real, dimension(vegn%n_cohorts) :: &
      wood_prod, leaf_root_gr, sw_seed_gr, deltaDBH
   real :: f, borrowed
-
-  if (is_watch_point()) then
-     cmass0 = vegn_tile_carbon(vegn)
-  endif
 
  ! write(*,*) 'counting cohorts: ', vegn%n_cohorts
   do i = 1, vegn%n_cohorts

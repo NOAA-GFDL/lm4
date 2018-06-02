@@ -130,10 +130,7 @@ real    :: init_wtdep           = -1.         ! positive value activates hydrost
                                               ! overriding init_w
 real    :: init_groundwater     =   0.        ! cold-start gw storage
 real    :: lrunf_ie_min         = -1.0e-4     ! trigger for clip and runoff
-real    :: lrunf_ie_tol         =  1.e-12
 character(len=16) :: albedo_to_use = ''       ! or 'albedo-map' or 'brdf-maps'
-logical :: allow_negative_rie   = .false.
-logical :: baseflow_where_frozen = .false.
 logical :: write_when_flagged   = .false.
 logical :: corrected_lm2_gw     = .true.
 logical :: use_fringe           = .false.
@@ -142,10 +139,8 @@ logical :: lrunf_from_div       = .true.
 logical :: cold_infilt          = .false.
 logical :: bottom_up_cold_infilt= .false.
 logical :: use_depth_to_wt_4    = .false.
-logical :: always_use_bsw       = .false.
 logical :: harmonic_mean_K      = .false.
 logical :: verbose              = .false.
-logical :: no_min_Dpsi          = .false.
 logical :: div_bug_fix          = .false.
 logical :: require_pos_hcap     = .false.
 real    :: active_layer_drainage_acceleration = 0.
@@ -159,17 +154,13 @@ logical :: write_soil_carbon_restart = .FALSE. ! indicates whether to write
 logical :: horiz_init_wt        = .false.   ! initialize horizontal water table, if gw_option == GW_TILED
 logical :: use_coldstart_wtt_data = .false. ! read additional data for soil initialization
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
-logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are set to zero
                                             ! in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
 real    :: cold_depth           = 0.
-real    :: Wl_min               = -1.e20
 real    :: bwood_macinf         = -1.
-integer :: max_iter_trans = 100 ! max number of iterations for psi_crown_min
 integer :: layer_for_gw_switch = 1000000 ! to accelerate permafrost gw shutoff
-real    :: eps_trans     = 1.e-7 ! convergence crit for psi_crown_min
 logical :: supercooled_rnu = .true. ! Excess ice converted to supercooled water for runoff.
 real    :: wet_depth = 0.6 ! [m] water table depth threshold for diagnosing wetland fraction
 real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water saturation
@@ -185,27 +176,25 @@ real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
                     init_w,   init_wtdep,    &
-                    init_groundwater, lrunf_ie_min, lrunf_ie_tol, &
+                    init_groundwater, lrunf_ie_min, &
                     cpw, clw, csw, &
                     albedo_to_use, &
-                    allow_negative_rie, &
-                    baseflow_where_frozen, &
                     write_when_flagged, &
                     corrected_lm2_gw, &
                     use_fringe, &
                     cold_infilt, bottom_up_cold_infilt, &
-                    use_depth_to_wt_4, always_use_bsw, &
-                    harmonic_mean_K, verbose, no_min_Dpsi, div_bug_fix, &
+                    use_depth_to_wt_4, &
+                    harmonic_mean_K, verbose, div_bug_fix, &
                     require_pos_hcap, &
                     push_down_sfc_excess, lrunf_from_div, &
                     active_layer_drainage_acceleration, hlf_factor, &
                     gw_flux_max, aquifer_heat_cap, use_tridiag_foradvec, &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
-                    allow_neg_rnu, allow_neg_wl, prohibit_negative_water_div, &
+                    allow_neg_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
-                    cold_depth, Wl_min, &
+                    cold_depth, &
                     bwood_macinf, &
-                    max_iter_trans, layer_for_gw_switch, eps_trans, &
+                    layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
                     max_soil_C_density, max_litter_thickness, r_rhiz
@@ -257,7 +246,6 @@ integer :: &
     id_protected_N, id_livemic_total_N, id_deadmic_total_N, id_fsn, id_ssn, &
     id_livemic_C, id_total_soil_C, id_dissolved_total_C, id_total_C_layered, &
     id_livemic_N, id_total_soil_N, id_dissolved_total_N, id_total_N_layered, &
-    id_tile_N_gain, id_tile_N_loss, &
     id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C, &
     id_negative_litter_N(N_C_TYPES), id_tot_negative_litter_N
 
@@ -311,7 +299,6 @@ subroutine read_soil_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: l
 
   call read_soil_data_namelist(use_single_geo,gw_option)
 
@@ -925,7 +912,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   ! ---- local vars
   integer :: axes(2)
   integer :: id_zhalf
-  integer :: i, l
+  integer :: l
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -1908,7 +1895,7 @@ end subroutine soil_step_1
        dW_l, & ! tendency of soil water mass [mm]
        DPsi
   real, dimension(num_l+1) :: flow, & ! downwards flow at layer interface above [mm/timestep]
-       infilt, flow_accum
+       infilt
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
@@ -1942,27 +1929,24 @@ end subroutine soil_step_1
        active_layer_thickness, d_psi, d_psi_s, psi_star, &
        depth_to_cf_1, depth_to_cf_3, &
        depth_to_wt_1, depth_to_wt_2, depth_to_wt_2a, depth_to_wt_2b, depth_to_wt_3, depth_to_wt_4, &
-       storage_2, deficit_2, deficit_3, deficit_4, deficit, dum1, dum2, dum3
+       storage_2, deficit_2, deficit_3, deficit_4, deficit
   logical :: stiff
   logical :: hlsp_stiff ! were all the horizontal conductivities zero at the call to hlsp_hydrology_1?
   real :: zimh, ziph, dTr_g(num_l), dTr_s(num_l)
-  integer :: n_iter, l, l_max_active_layer, i
+  integer :: n_iter, l, l_max_active_layer
   real :: &
        uptake(num_l),   & ! uptake by roots per layer, kg/(m2 s)
        uptake1(num_l),  & ! uptake by roots per layer per individual, kg/(indiv s)
        soil_uptake_frac(num_l), & ! fraction of uptake for each layer, for LM2 mode only
        tot_nindivs,     & ! total number of individuals, for soil_uptake_frac normalization
        transp1,         & ! transpiration per individual, kg/(indiv s)
-       uptake_tot,      & ! total uptake, kg/(m2 s)
        uptake_pos,      & ! sum of the positive uptake, kg/(m2 s)
        uptake_T_new, & ! updated average temperature of uptaken water, deg K
        uptake_T_corr,& ! correction for uptake temperature, deg K
        Tu,           & ! temperature of water taken up from (or added to) a layer, deg K
        psi_x0          ! water potential inside roots (in xylem) at zero depth, m
   type(vegn_cohort_type), pointer :: cc
-  real :: Theta ! for debug printout only
   integer :: ic ! cohort iterator
-  integer :: severity ! for negative wl checking
 
   ! For testing tridiagonal solution
   real, dimension(num_l)   :: t_soil_tridiag ! soil temperature based on generic tridiagonal solution [K]
@@ -3163,15 +3147,9 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   type(diag_buff_type), intent(inout) :: diag
 
   real :: leaflitter_deadmic_C_produced, leaflitter_deadmic_N_produced
-  real :: fineWoodlitter_deadmic_C_produced, fineWoodlitter_deadmic_N_produced
-  real :: coarseWoodlitter_deadmic_C_produced, coarseWoodlitter_deadmic_N_produced
   real, dimension(N_C_TYPES) :: &
      leaflitter_protected_C_produced, leaflitter_protected_C_turnover_rate, &
      leaflitter_protected_N_produced, leaflitter_protected_N_turnover_rate, &
-     fineWoodlitter_protected_C_produced, fineWoodlitter_protected_C_turnover_rate, &
-     fineWoodlitter_protected_N_produced, fineWoodlitter_protected_N_turnover_rate, &
-     coarseWoodlitter_protected_C_produced, coarseWoodlitter_protected_C_turnover_rate, &
-     coarseWoodlitter_protected_N_produced, coarseWoodlitter_protected_N_turnover_rate, &
      litter_C_loss_rate, litter_N_loss_rate
   real, dimension(N_C_TYPES,num_l) :: &
      protected_C_produced, protected_C_turnover_rate, &
@@ -3187,7 +3165,6 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
   integer :: i,k
   real :: CO2prod
-  integer :: point_i,point_j,point_k,point_face
 
   decomp_T = soil%T(:)
   decomp_theta = soil_theta(soil)
@@ -3446,7 +3423,7 @@ end subroutine soil_push_down_excess
   ! ---- local vars ----------------------------------------------------------
   integer l, ipt, jpt, kpt, fpt, l_internal
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  real aaa, bbb, ccc, ddd, xxx, dW_l_internal, w_to_move_up
   logical flag
 
   flag = .false.
@@ -4392,7 +4369,6 @@ end subroutine get_soil_litter_C
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
-! Mineral nitrogen is taken up from the rhizosphere only
 subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
   real,intent(out),dimension(:)::N_uptake_cohorts  ! Units of per individual
   type(vegn_tile_type),intent(in)::vegn
@@ -4402,7 +4378,7 @@ subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
 
   real :: nitrate_uptake, ammonium_uptake, ammonium_concentration, nitrate_concentration
   real :: rhiz_frac(num_l)
-  real,dimension(num_l) :: profile, vegn_uptake_term, total_ammonium_uptake,total_nitrate_uptake
+  real,dimension(num_l) :: profile, total_ammonium_uptake,total_nitrate_uptake
   real::cohort_root_biomass(num_l,vegn%n_cohorts),total_root_biomass(num_l)
   integer :: k,i
 
@@ -4458,10 +4434,9 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   logical, intent(in) :: update_pools
   real, intent(out) :: myc_efficiency ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 
-  real,dimension(num_l) :: profile, vegn_uptake_term
+  real,dimension(num_l) :: profile
   real::nitrate_uptake,ammonium_uptake
   real::cohort_myc_scav_biomass(num_l,vegn%n_cohorts),total_myc_scav_biomass(num_l)
-  real,dimension(num_l):: myc_biomass_tiny, N_uptake_tiny ! For calculating return on investment when myc biomass is zero
   real::litterThickness,totalC
   integer::k,i
   logical :: myc_biomass_is_zero
@@ -4566,7 +4541,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   logical, intent(in)  :: update_pools
   real, intent(out)     :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 
-  real, dimension(num_l) :: profile, vegn_uptake_term
+  real, dimension(num_l) :: profile
   real :: N_uptake,C_uptake,CO2prod
   real, dimension(num_l) :: T, theta, air_filled_porosity
   real::cohort_myc_mine_biomass(num_l,vegn%n_cohorts),total_myc_mine_biomass(num_l)

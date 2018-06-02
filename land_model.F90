@@ -270,11 +270,8 @@ integer :: &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
-  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_parnet, id_grnd_rh, id_cana_rh, &
-  id_DOCrunf, id_dis_DOC, id_DONrunf, id_dis_DON, &
-  id_NH4runf, id_dis_NH4,id_NO3runf, id_dis_NO3
+  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh
 ! diagnostic ids for canopy air tracers (moist mass ratio)
-integer, allocatable :: id_cana_tr(:)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 
 ! IDs of CMOR/CMIP variables
@@ -332,12 +329,11 @@ subroutine land_model_init &
   type(time_type), intent(in) :: dt_slow   ! slow time step
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: ncid, varid
   integer :: unit, ierr, io
   integer :: id_band, id_zfull ! IDs of land diagnostic axes
   integer :: id_ug !<Unstructured axis id.
   logical :: used                        ! return value of send_data diagnostics routine
-  integer :: i,j,k,l
+  integer :: k,l
   integer :: n_cohorts  ! number of cohorts in the current tile (1 if no vegetation)
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
@@ -804,7 +800,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   real :: glac(size(glac0(:))), lake(size(lake0(:))), &
           soil(size(soil0(:))), vegn(size(vegn0(:)))
   type(land_tile_type), pointer :: tile
-  integer :: i,j,k
+  integer :: i,j
   real :: factor ! normalizing factor for the tile areas
   real :: frac
   type(land_tile_enum_type) :: first_non_vegn ! position of first non-vegetated tile in the list
@@ -1056,10 +1052,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real :: runoff_c_sg(lnd%is:lnd%ie,lnd%js:lnd%je,n_river_tracers)
 
   logical :: used          ! return value of send_data diagnostics routine
-  real, allocatable :: runoff_1d(:),runoff_snow_1d(:),runoff_heat_1d(:)
   integer :: i,j,k,l   ! lon, lat, and tile indices
-  integer :: i_species ! river tracer iterator
-  integer :: i1        ! index used to iterate over grid cells efficiently
   integer :: is,ie,js,je ! horizontal bounds of the override buffer
   type(land_tile_enum_type) :: ce ! tile enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
@@ -1102,7 +1095,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,id_area,id_z0m,id_z0s,       &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t) &
-!$OMP                                  private(i1,i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts)
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
@@ -3138,7 +3131,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   real :: &
      vegn_Tv,     &
      vegn_cover,  &
-     vegn_height, vegn_lai, vegn_sai, cana_co2
+     vegn_height, vegn_lai, vegn_sai
   logical :: do_update
 
   real :: cosz    ! cosine of solar zenith angle
@@ -3146,7 +3139,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   real :: rrsun   ! earth-sun distance (r) relative to semi-major axis
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
-  integer :: band ! spectral band iterator
   integer :: i, j, m, tr
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
