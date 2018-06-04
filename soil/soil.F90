@@ -64,7 +64,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, field_exists
 use vegn_data_mod, only: K1, K2, spdata
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     cohort_uptake_profile, cohort_root_litter_profile
+     cohort_uptake_profile, cohort_root_litter_profile, cohort_root_properties
 
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &
@@ -4369,57 +4369,52 @@ end subroutine get_soil_litter_C
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
-subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
-  real,intent(out),dimension(:)::N_uptake_cohorts  ! Units of per individual
-  type(vegn_tile_type),intent(in)::vegn
-  type(soil_tile_type),intent(inout)::soil
-  real,intent(in)::dt
-  logical, intent(in) :: update_pools
+subroutine root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
+  type(soil_tile_type), intent(inout) :: soil
+  type(vegn_tile_type), intent(in)    :: vegn
+  real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
+  real,    intent(in)  :: dt ! in years
+  logical, intent(in)  :: update_pools
 
-  real :: nitrate_uptake, ammonium_uptake, ammonium_concentration, nitrate_concentration
-  real :: rhiz_frac(num_l)
-  real,dimension(num_l) :: profile, total_ammonium_uptake,total_nitrate_uptake
-  real::cohort_root_biomass(num_l,vegn%n_cohorts),total_root_biomass(num_l)
+  real :: amm, nit ! ammonium and nitrate concentrations, kg N/m3
+  real :: nit_uptake, amm_uptake
+  real, dimension(num_l) :: tot_amm_uptake, tot_nit_uptake
   integer :: k,i
+  real :: root_length(num_l)  ! root length of individual, per unit of depth
+  real :: root_surface        ! root surface area, per layer
+  real :: K_r ! root membrane permeability, not used
+  real :: root_radius
 
-  call rhizosphere_frac(vegn, rhiz_frac)
+  N_uptake       = 0.0
+  tot_amm_uptake = 0.0
+  tot_nit_uptake = 0.0
 
-  do i=1,vegn%n_cohorts
-    call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
-    cohort_root_biomass(:,i) =  vegn%cohorts(i)%br*vegn%cohorts(i)%nindivs*profile
+  do i = 1,vegn%n_cohorts
+     associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
+     call cohort_root_properties (cc, dz(1:num_l), root_length, K_r, root_radius)
+     do k = 1,num_l
+        ! calculate ammonium and nitrate concentrations in this layer
+        amm = soil%org_matter(k)%ammonium / dz(k)
+        nit = soil%org_matter(k)%nitrate  / dz(k)
+        ! calculate individuals root area in this layer
+        root_surface = 2 * PI * root_radius * root_length(k) * dz(k)
+        amm_uptake = amm/(amm+sp%k_ammonium_root_uptake) * sp%root_NH4_uptake_rate * root_surface * dt
+        nit_uptake = nit/(nit+sp%k_nitrate_root_uptake)  * sp%root_NO3_uptake_rate * root_surface * dt
+        N_uptake(i) = N_uptake(i) + amm_uptake + nit_uptake
+        tot_amm_uptake(k) = tot_amm_uptake(k) + amm_uptake * cc%nindivs
+        tot_nit_uptake(k) = tot_nit_uptake(k) + nit_uptake * cc%nindivs
+     enddo
+     end associate
   enddo
-
-  total_root_biomass = sum(cohort_root_biomass,dim=2)
-
-  N_uptake_cohorts=0.0
-  total_ammonium_uptake=0.0
-  total_nitrate_uptake=0.0
-
-  ! If there is no root biomass, skip the rest since there's no uptake in that case
-  if(sum(total_root_biomass)==0.0) return
-
-  do k=1,num_l
-    ammonium_concentration=soil%org_matter(k)%ammonium*rhiz_frac(k)/dz(k)
-    nitrate_concentration=soil%org_matter(k)%nitrate*rhiz_frac(k)/dz(k)
-    do i=1,vegn%n_cohorts
-      ammonium_uptake = ammonium_concentration/(ammonium_concentration+spdata(vegn%cohorts(i)%species)%k_ammonium_root_uptake)*&
-                          spdata(vegn%cohorts(i)%species)%root_NH4_uptake_rate*dt*dz(k)*cohort_root_biomass(k,i)/total_root_biomass(k)
-      nitrate_uptake = nitrate_concentration/(nitrate_concentration+spdata(vegn%cohorts(i)%species)%k_nitrate_root_uptake)*&
-                          spdata(vegn%cohorts(i)%species)%root_NO3_uptake_rate*dt*dz(k)*cohort_root_biomass(k,i)/total_root_biomass(k)
-      N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)/vegn%cohorts(i)%nindivs
-      total_ammonium_uptake(k)=total_ammonium_uptake(k)+ammonium_uptake
-      total_nitrate_uptake(k)=total_nitrate_uptake(k)+nitrate_uptake
-    enddo
-  enddo
-  if(any(total_ammonium_uptake(:)>soil%org_matter(:)%ammonium)) then
-     __DEBUG4__(rhiz_frac,ammonium_concentration,total_ammonium_uptake,soil%org_matter(:)%ammonium)
+  if(any(tot_amm_uptake(:)>soil%org_matter(:)%ammonium)) then
+     __DEBUG3__(amm,tot_amm_uptake,soil%org_matter(:)%ammonium)
   endif
-  if(any(total_nitrate_uptake(:)>soil%org_matter(:)%nitrate)) then
-     __DEBUG3__(nitrate_concentration,total_nitrate_uptake,soil%org_matter(:)%nitrate)
+  if(any(tot_nit_uptake(:)>soil%org_matter(:)%nitrate)) then
+     __DEBUG3__(nit,tot_nit_uptake,soil%org_matter(:)%nitrate)
   endif
   if (update_pools) then
-     soil%org_matter(:)%ammonium=soil%org_matter(:)%ammonium-total_ammonium_uptake(:)
-     soil%org_matter(:)%nitrate=soil%org_matter(:)%nitrate-total_nitrate_uptake(:)
+     soil%org_matter(:)%ammonium = soil%org_matter(:)%ammonium - tot_amm_uptake(:)
+     soil%org_matter(:)%nitrate  = soil%org_matter(:)%nitrate  - tot_nit_uptake(:)
   endif
 end subroutine root_N_uptake
 
