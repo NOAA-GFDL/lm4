@@ -106,7 +106,7 @@ public :: soil_data_beta
 
 public :: Dsdt
 public :: get_soil_litter_C
-public :: root_N_uptake
+public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
@@ -4369,7 +4369,7 @@ end subroutine get_soil_litter_C
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
-subroutine root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
+subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
@@ -4416,7 +4416,7 @@ subroutine root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
      soil%org_matter(:)%ammonium = soil%org_matter(:)%ammonium - tot_amm_uptake(:)
      soil%org_matter(:)%nitrate  = soil%org_matter(:)%nitrate  - tot_nit_uptake(:)
   endif
-end subroutine root_N_uptake
+end subroutine active_root_N_uptake
 
 
 ! ============================================================================

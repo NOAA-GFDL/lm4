@@ -51,7 +51,7 @@ use soil_carbon_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC, soil_carbon_option,
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, debug_pool, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
-use soil_mod, only: Dsdt, root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
+use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
 implicit none
 private
@@ -742,7 +742,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
     call myc_scavenger_N_uptake(soil,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
     call myc_miner_N_uptake(soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
-    call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+    call active_root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
   endif
 
   do i = 1, vegn%n_cohorts
@@ -1048,7 +1048,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
     call myc_scavenger_N_uptake(soil,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
     call myc_miner_N_uptake(soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
-    call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+    call active_root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
   endif
 
   do i = 1, vegn%n_cohorts
