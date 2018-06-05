@@ -462,7 +462,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call read_field( 'INPUT/geohydrology.nc','soil_e_depth', gw_param, interp='bilinear' )
 
            if (slope_exp.gt.0.01) then
-           ! ZMS It's probably inconsistent to leave in this if statement.
+           ! ZMS It is probably inconsistent to leave in this if statement.
                call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
                                'running with tiled hillslope model.  This may be inconsistent.', WARNING)
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
@@ -2871,7 +2871,7 @@ end subroutine soil_step_1
        soil_tr_runf(i_river_DOC) = total_DOC_div/delta_time
        DOC_to_atmos = 0.0
    else
-       ! if we don't have DOC river tracer, DOC loss goes directly to the atmosphere
+       ! if we do not have DOC river tracer, DOC loss goes directly to the atmosphere
        DOC_to_atmos = total_DOC_div/delta_time
    endif
    if (i_river_DON/=NO_TRACER) soil_tr_runf(i_river_DON) = total_DON_div/delta_time
@@ -4013,7 +4013,7 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
 
   type(diag_buff_type), intent(inout) :: diag
   type(soil_pool),intent(inout) :: soilc(:), leaflitter, woodlitter
-  !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time's unit.!!! I assume here the unit is mm/yr
+  !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time unit.!!! I assume here the unit is mm/yr
   real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
 
 !!!!!!!xz we might need to update this part sine CH and Ben's code do not have N lost from run off ; need to consider to add surf_DON_loss; and div_hlsp_DON
@@ -4181,7 +4181,7 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
      !!!!!!!!!!!!!!!!!!xz [End] CH's code for Nitrogen
   endif
 
-  call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Doesn't take porosity into account
+  call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Does not take porosity into account
   call dissolve_carbon(woodlitter,wl(1)/(dens_h2o*dz(1)))
   do i=1, num_l
     call dissolve_carbon(soilc(i),wl(i)/(dens_h2o*dz(i)))
@@ -4380,10 +4380,7 @@ subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
   real :: nit_uptake, amm_uptake
   real, dimension(num_l) :: tot_amm_uptake, tot_nit_uptake
   integer :: k,i
-  real :: root_length(num_l)  ! root length of individual, per unit of depth
-  real :: root_surface        ! root surface area, per layer
-  real :: K_r ! root membrane permeability, not used
-  real :: root_radius
+  real :: root_surface ! root surface area, per layer
 
   N_uptake       = 0.0
   tot_amm_uptake = 0.0
@@ -4391,13 +4388,12 @@ subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
 
   do i = 1,vegn%n_cohorts
      associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
-     call cohort_root_properties (cc, dz(1:num_l), root_length, K_r, root_radius)
      do k = 1,num_l
         ! calculate ammonium and nitrate concentrations in this layer
         amm = soil%org_matter(k)%ammonium / dz(k)
         nit = soil%org_matter(k)%nitrate  / dz(k)
         ! calculate individuals root area in this layer
-        root_surface = 2 * PI * root_radius * root_length(k) * dz(k)
+        root_surface = 2 * PI * cc%r_r * cc%root_length(k) * dz(k)
         amm_uptake = amm/(amm+sp%k_ammonium_root_uptake) * sp%root_NH4_uptake_rate * root_surface * dt
         nit_uptake = nit/(nit+sp%k_nitrate_root_uptake)  * sp%root_NO3_uptake_rate * root_surface * dt
         N_uptake(i) = N_uptake(i) + amm_uptake + nit_uptake
@@ -4481,7 +4477,7 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
       endif
     enddo
 
-    ! These debug macros are too long for PGI! Have to break them up if we're going to leave them commented out anyway...
+    ! These debug macros are too long for PGI! Have to break them up if we are going to leave them commented out anyway...
     !_!_DEBUG3_!_(k,ammonium_uptake/soil%org_matter(k)%ammonium,nitrate_uptake/soil%org_matter(k)%nitrate)
     !_!_DEBUG4_!_(k,total_myc_scav_biomass(k)/dz(k),soil%org_matter(k)%ammonium/dz(k),soil%org_matter(k)%nitrate/dz(k))
 
