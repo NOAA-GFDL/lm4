@@ -615,7 +615,7 @@ subroutine land_transitions (time)
   type(time_type), intent(in) :: time
 
   ! ---- local vars.
-  integer :: i,j,k1,k2,i1,i2,l
+  integer :: i,k1,k2,i1,i2,l
   real    :: frac(lnd%ls:lnd%le)
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
@@ -1203,7 +1203,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   type(tran_type), pointer :: tran(:,:)    ! transition info
 
   ! ---- local vars
-  integer :: i,j,k,sec,days, l
+  integer :: k,sec,days,l
   type(tran_type), pointer :: ptr(:,:) => NULL()
   real    :: part_of_year
   logical :: used
@@ -1259,7 +1259,7 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   real :: w  ! time interpolation weight
   real :: dt ! current time interval, in years
   real :: sum(size(frac(:)))
-  integer :: i,j,l
+  integer :: l
   character(len=256) :: msg
 
   msg = ''

@@ -817,7 +817,6 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
   real                , intent(in) :: tau
 
   real :: vegn_bwood
-  integer :: i
 
   if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
      vegn_bwood = vegn_tile_bwood(vegn)

@@ -52,7 +52,7 @@ subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativ
   real, intent(in) :: litterN(num_l,N_C_TYPES) ! kg C/(m2 of soil)
   real, intent(inout), optional :: negativeInputC(N_C_TYPES), negativeInputN(N_C_TYPES)
 
-  integer :: i,k
+  integer :: k
   real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
 
   call rhizosphere_frac(vegn, rhiz_frac)

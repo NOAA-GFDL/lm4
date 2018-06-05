@@ -64,7 +64,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, field_exists
 use vegn_data_mod, only: K1, K2, spdata
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     cohort_uptake_profile, cohort_root_litter_profile, cohort_root_properties
+     cohort_uptake_profile, cohort_root_litter_profile
 
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &

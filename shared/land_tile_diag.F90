@@ -104,8 +104,8 @@ character(32), parameter :: opstrings(6) = (/ & ! symbolic names of the aggregat
 
 ! How to add new cohort filter or aggregator in few simple steps:
 ! 
-! Let's use aggregation by dbh bins as an example.
-! (1) add new unique constant to the list of cohort filters (don't forget to
+! Let us use aggregation by dbh bins as an example.
+! (1) add new unique constant to the list of cohort filters (do not forget to
 !     increase the constant for their number), for example:
 ! 
 ! integer, parameter :: N_COHORT_FILTERS = 8 ! number of possible distinct cohort filters
@@ -619,8 +619,6 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
   integer :: i
-  integer :: isel    ! selector iterator
-  integer :: opcode  ! code of the tile aggregation operation
   type(tiled_diag_field_type), pointer :: new_fields(:)
   logical :: do_log
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
@@ -1322,7 +1320,6 @@ function aggregate(data,weight,opcode,mask) result(ret)
   logical, intent(in) :: mask(:)
 
   real :: w
-  integer :: i
 
   select case(opcode)
   case(OP_SUM)

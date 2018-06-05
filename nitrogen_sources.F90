@@ -663,7 +663,6 @@ subroutine fert_data_get(fert, t0,t1,fert_rate)
   ! ---- local vars
   integer :: i1,i2 ! record indices
   integer :: ierr ! error code
-  integer :: i,j
   real    :: w
   real    :: t0r, t1r ! real values of t0,t1, days since the beginning of
                       ! current time interval in the input data
@@ -720,7 +719,7 @@ subroutine fert_data_get(fert, t0,t1,fert_rate)
           interp_method='conservative',&
           mask_in=mask_in, is_latlon_in=.TRUE. )
      ! note that mask_out does not seem to be set if both input and output grids
-     ! are lat-lon (horiz_interp_new_2d, line 546). So it's pretty useless in
+     ! are lat-lon (horiz_interp_new_2d, line 546). So it is pretty useless in
      ! this case.
 
      ! interpolate input fields
