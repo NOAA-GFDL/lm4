@@ -282,6 +282,7 @@ integer :: id_sftlf, id_sftgif ! static fractions
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
   id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_cLand, id_nbp, &
+  id_ec, id_eow, id_esn, id_et, id_nLand, &
 ! various fractions
   id_vegFrac, id_pastureFrac, id_residualFrac, &
   id_cropFrac, id_cropFracC3, id_cropFracC4, &
@@ -2238,7 +2239,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_hevap,   hevap,                              tile%diag)
   call send_tile_data(id_levap,   sum(f(:)*(vegn_levap+vegn_uptk))+snow_levap+subs_levap, &
                                                                       tile%diag)
-  call send_tile_data(id_levapv,  sum(f(:)*vegn_levap),                  tile%diag)
+  call send_tile_data(id_levapv,  sum(f(:)*vegn_levap),               tile%diag)
   call send_tile_data(id_levaps,  snow_levap,                         tile%diag)
   call send_tile_data(id_levapg,  subs_levap,                         tile%diag)
   call send_tile_data(id_hlevap,  sum(f(:)*cpw*vegn_levap*(vegn_T-tfreeze)) &
@@ -2312,7 +2313,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_qco2,    tile%cana%tr(ico2),                 tile%diag)
   call send_tile_data(id_qco2_dvmr,&
        tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
-  call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
+  call send_tile_data(id_fco2,  vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos, tile%diag)
   call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
   call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
   call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
@@ -2347,7 +2348,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   else
      call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
   endif
-  call send_tile_data(id_evspsblveg, sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
+  if(id_evspsblveg > 0) call send_tile_data(id_evspsblveg, sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
+  if(id_ec         > 0) call send_tile_data(id_ec,         sum(f(:)*vegn_levap),              tile%diag)
+  if(associated(tile%lake)) then
+     call send_tile_data(id_eow, subs_levap,                          tile%diag)
+  else
+     call send_tile_data(id_eow, 0.0,                                 tile%diag)
+  endif
+  call send_tile_data(id_esn, snow_fevap+snow_levap,                  tile%diag)
+  call send_tile_data(id_et,  land_evap,                              tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
   if (id_hfdsn>0) then
      if (snow_active) then
@@ -2366,7 +2375,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
-  if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_co2, tile%diag)
+  if (id_nLand > 0) &
+      call send_tile_data(id_nLand, land_tile_nitrogen(tile),         tile%diag)
+  if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_CO2-DOC_to_atmos, tile%diag)
 end subroutine update_land_model_fast_0d
 
 
@@ -3945,6 +3956,18 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
+  id_ec = register_tiled_diag_field ( cmor_name, 'ec', axes, time, &
+             'Interception evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='liquid_water_evaporation_flux_from_canopy', fill_missing=.TRUE.)
+  id_eow = register_tiled_diag_field ( cmor_name, 'eow', axes, time, &
+             'Open Water Evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='liquid_water_evaporation_flux_from_open_water', fill_missing=.TRUE.)
+  id_esn = register_tiled_diag_field ( cmor_name, 'esn', axes, time, &
+             'Snow Evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='water_evaporation_flux', fill_missing=.TRUE.)
+  id_et = register_tiled_diag_field ( cmor_name, 'et', axes, time, &
+             'Total Evapotranspiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='surface_evapotranspiration', fill_missing=.TRUE.)
 
   id_snw = register_tiled_diag_field ( cmor_name, 'snw', axes, time, &
              'Surface Snow Amount','kg m-2', standard_name='surface_snow_amount', &
@@ -3966,9 +3989,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Downward Heat Flux into Snow Where Land over Land','W m-2', standard_name='surface_downward_heat_flux_in_snow', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
 
-  id_tws = register_diag_field(cmor_name, 'tws', axes, time, &
+  id_tws = register_diag_field(cmor_name, 'mrtws', axes, time, &
              'Terrestrial Water Storage','kg m-2', &
-             standard_name='canopy_and_surface_and_subsurface_water_amount', &
+             standard_name='total_water_storage', &
              area=get_area_id('land'))
   call diag_field_add_attribute(id_tws,'cell_methods','area: mean')
   call diag_field_add_attribute(id_tws,'ocean_fillvalue',0.0)
@@ -3983,7 +4006,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Surface Upwelling Shortwave on Land Use Tile', 'W m-2', &
              missing_value=-1.0e+20, standard_name='surface_upwelling_shortwave_flux_in_air')
   id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
-             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
+             'Snow Water Equivalent on Land Use Tile','m', standard_name='lwe_thickness_of_surface_snow_amount', &
              missing_value=-1.0e+20, fill_missing=.FALSE. )
   id_tslsiLut = register_tiled_diag_field ( cmor_name, 'tslsiLut', axes, time, &
              'Surface Skin Temperature on Land Use Tile', 'K', &
@@ -4051,7 +4074,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
              'Total Carbon in All Terrestrial Carbon Pools', 'kg m-2', &
-             standard_name='total_land_carbon', &
+             standard_name='mass_content_of_carbon_in_vegetation_and_litter_and_soil_and_forestry_and_agricultural_products', &
              missing_value=-1.0, fill_missing=.TRUE. )
   ! add alias for compatibility with older diag tables
   call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
@@ -4067,6 +4090,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'kg m-2 s-1', missing_value=-1.0, &
              standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
              fill_missing=.TRUE. )
+  call add_tiled_diag_field_alias ( id_nbp, cmor_name, 'necbLut', axes, time, &
+             'net rate of C accumulation (or loss) on land use tile', &
+             'kg m-2 s-1', missing_value=-1.0, &
+             standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
+             fill_missing=.TRUE. )
+
+  id_nLand = register_tiled_diag_field ( cmor_name, 'nLand', axes, time, &
+             'Total nitrogen in all terrestrial nitrogen pools', 'kg m-2', &
+             standard_name='mass_content_of_nitrogen_in_vegetation_and_litter_and_soil_and_forestry_and_agricultural_products', &
+             missing_value=-1.0, fill_missing=.TRUE. )
 end subroutine land_diag_init
 
 

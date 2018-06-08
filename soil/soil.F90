@@ -289,8 +289,10 @@ integer :: id_st_diff
 
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
-    id_csoilfast, id_csoilmedium, id_csoilslow, id_cLitter, id_cLitterCwd
+    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
+    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, &
+    id_cSoilAbove1m, &
+    id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1367,10 +1369,10 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsfl = register_tiled_diag_field ( cmor_name, 'mrsfl', axes,  &
        lnd%time, 'Frozen Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='frozen_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='frozen_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsll = register_tiled_diag_field ( cmor_name, 'mrsll', axes,  &
        lnd%time, 'Liquid Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='liquid_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
        lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
@@ -1393,7 +1395,7 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
   id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:1),  &
        lnd%time, 'Soil Liquid Water Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_liquid_water_content', fill_missing=.TRUE.)
+       standard_name='liquid_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:1),  &
        lnd%time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='surface_runoff_flux', fill_missing=.TRUE.)
@@ -1403,6 +1405,12 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   call add_tiled_diag_field_alias ( id_mrro, cmor_name, 'mrroLut',  axes(1:1),  &
        lnd%time, 'Total Runoff From Land Use Tile', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='runoff_flux', fill_missing=.FALSE.)
+  id_mrfsofr = register_tiled_diag_field ( cmor_name, 'mrfsofr', axes,  &
+       lnd%time, 'Average layer fraction of frozen moisture', '1', missing_value=-100.0, &
+       standard_name='mass_fraction_of_frozen_water_in_soil_moisture', fill_missing=.TRUE.)
+  id_mrlqso  = register_tiled_diag_field ( cmor_name, 'mrlqso', axes,  &
+       lnd%time, 'Average layer fraction of liquid moisture', '1', missing_value=-100.0, &
+       standard_name='mass_fraction_of_unfrozen_water_in_soil_moisture', fill_missing=.TRUE.)
 
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
@@ -1410,6 +1418,9 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:1),  &
        lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_carbon_content', fill_missing=.FALSE.)
+  id_cSoilAbove1m = register_tiled_diag_field ( cmor_name, 'cSoilAbove1m', axes(1:1),  &
+       lnd%time, 'Carbon mass in soil pool above 1m depth', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content', fill_missing=.TRUE.)
 
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
        lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
@@ -1420,6 +1431,10 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
        lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
+  id_cSoilLevels = register_tiled_diag_field ( cmor_name, 'cSoilLevels', axes,  lnd%time, &
+       'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
+       'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content', fill_missing=.TRUE.)
   id_cLitter = register_tiled_diag_field ( cmor_name, 'cLitter', axes(1:1), &
        lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
        missing_value=-100.0, standard_name='litter_carbon_content', &
@@ -1430,11 +1445,12 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        standard_name='litter_carbon_content', fill_missing=.FALSE.)
   id_cLitterCwd = register_tiled_diag_field ( cmor_name, 'cLitterCwd', axes(1:1), &
        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
-       missing_value=-100.0, standard_name='litter_wood_debris_carbon_content', &
+       missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
        fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.TRUE.)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
@@ -1443,6 +1459,27 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
        fill_missing=.FALSE.)
+
+  id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
+       lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_nitrogen_content', fill_missing=.TRUE.)
+  id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
+       lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nMineralNH4 = register_tiled_diag_field ( cmor_name, 'nMineralNH4', axes(1:1),  &
+       lnd%time, 'Mineral ammonium in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_ammonium_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nMineralNO3 = register_tiled_diag_field ( cmor_name, 'nMineralNO3', axes(1:1),  &
+       lnd%time, 'Mineral nitrate in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_nitrate_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nLitter = register_tiled_diag_field ( cmor_name, 'nLitter', axes(1:1), &
+       lnd%time, 'Nitrogen Mass in Litter Pool', 'kg m-2', &
+       missing_value=-100.0, standard_name='litter_mass_content_of_nitrogen', &
+       fill_missing=.TRUE.)
+  id_nLitterCwd = register_tiled_diag_field ( cmor_name, 'nLitterCwd', axes(1:1), &
+       lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
+       fill_missing=.TRUE.)
 
 end subroutine soil_diag_init
 
@@ -2996,6 +3033,8 @@ end subroutine soil_step_1
   if (id_mrs1mLut > 0) call send_tile_data(id_mrs1mLut, sum((soil%wl+soil%ws)*mrs1m_weight), diag)
   if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
+  if (id_mrfsofr > 0) call send_tile_data(id_mrfsofr, max(0.0,soil%ws)/max(soil%wl+soil%ws,1e-17), diag)
+  if (id_mrlqso  > 0) call send_tile_data(id_mrlqso,  max(0.0,soil%wl)/max(soil%wl+soil%ws,1e-17), diag)
   call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
   call send_tile_data(id_mrro,  lrunf_ie+lrunf_sn+lrunf_bf+lrunf_nu, diag)
 
@@ -3111,7 +3150,7 @@ subroutine soil_step_3(soil, diag)
   real :: total_C(N_C_TYPES), total_livemic_C, total_prot_C(N_C_TYPES), total_diss_C(N_C_TYPES), &
           total_N(N_C_TYPES), total_livemic_N, total_prot_N(N_C_TYPES), total_diss_N(N_C_TYPES)
   real :: total_NO3, total_NH4
-  real :: total_litter_C ! total C in all litter, for diagnostics
+  real :: total_litter_C, total_litter_N ! total C and N in all litter, for diagnostics
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -3124,6 +3163,7 @@ subroutine soil_step_3(soil, diag)
      if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
      call send_tile_data(id_csoilslow, 0.0, diag)
      if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
+     if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
      ! --- end of CMOR vars
   case (SOILC_CORPSE, SOILC_CORPSE_N)
 !     total_carbon=0.0
@@ -3144,6 +3184,19 @@ subroutine soil_step_3(soil, diag)
      total_NO3       = sum(soil%soil_organic_matter(1:num_l)%nitrate)
      total_NH4       = sum(soil%soil_organic_matter(1:num_l)%ammonium)
 
+     ! --- CMOR vars
+     if (id_csoilfast   > 0) call send_tile_data(id_csoilfast,   total_C(C_FAST)+total_C(C_MIC)+total_livemic_C, diag)
+     if (id_csoilmedium > 0) call send_tile_data(id_csoilmedium, total_C(C_SLOW),      diag)
+     if (id_csoilslow   > 0) call send_tile_data(id_csoilslow,   sum(total_prot_C(:)), diag)
+     if (id_csoil       > 0) call send_tile_data(id_csoil,       sum(layer_C(:)),      diag)
+     if (id_cSoilLevels > 0) call send_tile_data(id_cSoilLevels, layer_C(:),           diag)
+     if (id_cSoilAbove1m > 0) call send_tile_data(id_cSoilAbove1m, sum(layer_C(:)*mrs1m_weight(:)), diag)
+
+     if (id_nSoil       > 0) call send_tile_data(id_nSoil,       sum(layer_N(:)),      diag)
+     if (id_nMineral    > 0) call send_tile_data(id_nMineral,    total_NO3+total_NH4,  diag)
+     if (id_nMineralNH4 > 0) call send_tile_data(id_nMineralNH4, total_NH4,            diag)
+     if (id_nMineralNO3 > 0) call send_tile_data(id_nMineralNO3, total_NO3,            diag)
+     ! --- end of CMOR vars
 
      call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
      do i = 1, N_C_TYPES
@@ -3174,7 +3227,7 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_total_NH4, total_NH4, diag)
 
      ! leaf litter diagnostics
-     total_litter_C = 0.0
+     total_litter_C = 0.0; total_litter_N = 0.0
      do k = 1, N_LITTER_POOLS
         call poolTotals1 (soil%litter(k), ncohorts=litter_ncohorts, &
             litterC=litter_C(:), livemicC=litter_livemic_C, protectedC=litter_protected_C(:), dissolvedC=litter_dissolved_C(:), totalC=litter_total_C, &
@@ -3190,6 +3243,7 @@ subroutine soil_step_3(soil, diag)
         total_NO3       = total_NO3 + soil%litter(k)%nitrate
         total_NH4       = total_NO3 + soil%litter(k)%ammonium
         total_litter_C  = total_litter_C + litter_total_C
+        total_litter_N  = total_litter_N + litter_total_N
 
         call send_tile_data(id_nlittercohorts(k), real(litter_ncohorts), diag)
         call send_tile_data(id_litter_livemic_C(k), litter_livemic_C, diag)
@@ -3207,7 +3261,10 @@ subroutine soil_step_3(soil, diag)
            call send_tile_data(id_litter_dissolved_N(k,i), soil%litter(k)%dissolved_nitrogen(i), diag)
         enddo
         ! CMOR diagnostics
-        if (k==CWOOD) call send_tile_data(id_cLitterCwd, litter_total_C, diag)
+        if (k==CWOOD) then 
+           call send_tile_data(id_cLitterCwd, litter_total_C, diag)
+           call send_tile_data(id_nLitterCwd, litter_total_N, diag)
+        endif
      enddo
 
      ! diagnostic of totals
@@ -3226,11 +3283,8 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_total_soil_C, sum(total_C+total_diss_C+total_prot_C)+total_livemic_C, diag)
      call send_tile_data(id_total_soil_N, sum(total_N+total_diss_N+total_prot_N)+total_livemic_N, diag)
      ! --- CMOR vars
-     call send_tile_data(id_csoilfast,   total_C(C_FAST), diag)
-     call send_tile_data(id_csoilmedium, total_C(C_SLOW), diag)
-     call send_tile_data(id_csoilslow,   0.0,             diag)
-     call send_tile_data(id_csoil, total_C(C_FAST)+total_C(C_SLOW), diag)
      call send_tile_data(id_cLitter, total_litter_C, diag)
+     call send_tile_data(id_nLitter, total_litter_N, diag)
      ! --- end of CMOR vars
   case default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)

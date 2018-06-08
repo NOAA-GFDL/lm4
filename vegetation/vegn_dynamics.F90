@@ -329,7 +329,7 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='plant_respiration_carbon_flux', fill_missing=.TRUE.)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_plant_respiration', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
@@ -2190,7 +2190,7 @@ subroutine vegn_phenology_ppa(tile)
      ! leaves falling at the end of a growing season
      if(cc%status==LEAF_OFF .AND. ( cc%bl>0 .OR. ( sp%lifeform==FORM_GRASS .AND. ( cc%bl>0 .OR. cc%bsw>0)))) then
          dead_leaves_C = leaf_fall_rate * max(cc%bl,0.0)
-         dead_leaves_N = leaf_fall_rate * min(cc%leaf_N,0.0)
+         dead_leaves_N = leaf_fall_rate * max(cc%leaf_N,0.0)
          dead_roots_C  = root_mort_rate * max(cc%br,0.0)
          dead_roots_N  = root_mort_rate * max(cc%root_N,0.0)
          dead_stem_C   = 0.0
