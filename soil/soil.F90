@@ -3432,7 +3432,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
              (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
-  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif/dt_fast_yr/dz, diag)
+  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif(:)/dt_fast_yr/dz(1:num_l), diag)
   if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
              (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
   if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
