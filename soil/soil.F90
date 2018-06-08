@@ -736,23 +736,22 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
         do i = 1,N_C_TYPES
            ! C inputs
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_in','zfull',sc_protected_C_in_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_C_in','zfull',sc_C_in_ptr, i)
-           do k = 1,N_LITTER_POOLS
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_in',sc_litter_C_in_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_in',sc_litter_N_in_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_turnover_accumulated', sc_litter_C_turnover_ptr, i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_turnover_accumulated', sc_litter_N_turnover_ptr, i,k)
-           enddo
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',sc_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_turnover','zfull',sc_C_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC_in','zfull',sc_protected_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC_turnover','zfull',sc_protected_C_turnover_ptr, i)
            ! N inputs
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_N_in','zfull',sc_protected_N_in_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_N_in','zfull',sc_N_in_ptr, i)
-           ! C turnover rates
-           call get_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull',sc_C_turnover_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull',sc_protected_C_turnover_ptr, i)
-           ! N turnover rates
-           call get_tile_data(restart,trim(c_shortname(i))//'_N_turnover_accumulated','zfull',sc_N_turnover_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_N_turnover_accumulated','zfull',sc_protected_N_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N_in','zfull',sc_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N_turnover','zfull',sc_N_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN_in','zfull',sc_protected_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN_turnover','zfull',sc_protected_N_turnover_ptr, i)
+           ! C and N litter inputs
+           do k = 1,N_LITTER_POOLS
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_in',sc_litter_C_in_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_in',sc_litter_N_in_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_turnover', sc_litter_C_turnover_ptr, i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_turnover', sc_litter_N_turnover_ptr, i,k)
+           enddo
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -1578,35 +1577,34 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
         do i = 1,N_C_TYPES
            ! C inputs
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_in','zfull',&
-                    sc_protected_C_in_ptr, i,'protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
-           call add_tile_data(restart,trim(c_shortname(i))//'_C_in','zfull',&
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',&
                     sc_C_in_ptr, i, trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_C_turnover','zfull', &
+                    sc_C_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedC_in','zfull',&
+                    sc_protected_C_in_ptr, i,'protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedC_turnover','zfull', &
+                    sc_protected_C_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           ! N_inputs
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_N_in','zfull',&
+                    sc_N_in_ptr, i, trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_N_turnover','zfull', &
+                    sc_N_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedN_in','zfull',&
+                    sc_protected_N_in_ptr, i,'protected '//trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedN_turnover','zfull', &
+                    sc_protected_N_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           ! C and N litter inputs
            do k = 1,N_LITTER_POOLS
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_in', &
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_in', &
                     sc_litter_C_in_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter carbon input','kg C/m2')
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_in', &
-                    sc_litter_N_in_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen input','kg C/m2')
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_turnover_accumulated', &
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_turnover', &
                     sc_litter_C_turnover_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter carbon turnover', 'year-1')
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_turnover_accumulated', &
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_in', &
+                    sc_litter_N_in_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen input','kg C/m2')
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_turnover', &
                     sc_litter_C_turnover_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen turnover', 'year-1')
            enddo
-           ! N_inputs
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_N_in','zfull',&
-                    sc_protected_N_in_ptr, i,'protected '//trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
-           call add_tile_data(restart,trim(c_shortname(i))//'_N_in','zfull',&
-                    sc_N_in_ptr, i, trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
-           ! C turnover rates
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull', &
-                    sc_protected_C_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
-           call add_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull', &
-                    sc_C_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
-           ! N turnover rates
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_N_turnover_accumulated','zfull', &
-                    sc_protected_N_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
-           call add_tile_data(restart,trim(c_shortname(i))//'_N_turnover_accumulated','zfull', &
-                    sc_N_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -3249,7 +3247,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
              (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
-  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif/dt_fast_yr/dz, diag)
+  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif(1:num_l)/dt_fast_yr/dz(1:num_l), diag)
   if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
              (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
   if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
