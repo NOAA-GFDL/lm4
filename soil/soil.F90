@@ -4261,7 +4261,7 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      endif
   enddo
 
-  myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_scav_biomass)
+  myc_efficiency = sum(N_uptake_cohorts*cc(1:vegn%n_cohorts)%nindivs)/sum(total_myc_scav_biomass)
   ! If myc biomass was zero, then the calculation used a "virtual" biomass and there is no real uptake
   if (myc_biomass_is_zero) then
      N_uptake_cohorts(:) = 0.0
@@ -4356,7 +4356,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
      enddo
   enddo
 
-  myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_mine_biomass)
+  myc_efficiency = sum(N_uptake_cohorts*cc(1:vegn%n_cohorts)%nindivs)/sum(total_myc_mine_biomass)
 
   ! If myc biomass was zero, then the calculation used a tiny "virtual" biomass and there is no real uptake or CO2 production
   if (myc_biomass_is_zero) then
