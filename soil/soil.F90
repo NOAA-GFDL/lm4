@@ -663,13 +663,11 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',sc_livingMicrobeC_ptr)
         call get_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr)
         call get_tile_data(restart,'Rtot', 'zfull','soilCCohort',sc_Rtot_ptr)
-        call get_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', sc_originalLitterC_ptr)
 
         do i = 1,N_LITTER_POOLS
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_Rtot',      'litterCCohort', sc_litter_Rtot_ptr, i)
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_originalCohortC', 'litterCCohort',sc_litter_originalLitterC_ptr, i)
         enddo
 
         if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
@@ -694,7 +692,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            enddo
         enddo
         call get_tile_data(restart,'liveMicN', 'zfull','soilCCohort', sc_livingMicrobeN_ptr)
-        call get_tile_data(restart,'originalCohortN', 'zfull','soilCCohort', sc_originalLitterN_ptr)
         call get_tile_data(restart,'soil_NO3', 'zfull', sc_nitrate_ptr)
         call get_tile_data(restart,'soil_NH4', 'zfull', sc_ammonium_ptr)
         call get_tile_data(restart,'soil_nitrif', 'zfull', sc_nitrif_ptr)
@@ -704,7 +701,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
         do k = 1,N_LITTER_POOLS
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_originalCohortN', 'litterCCohort', sc_litter_originalLitterN_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr,k)
@@ -1511,13 +1507,11 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'liveMic' ,'zfull','soilCCohort',sc_livingMicrobeC_ptr,'Living microbial carbon','kg/m2')
      call add_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr,'Cohort CO2 generated','kg/m2')
      call add_tile_data(restart,'Rtot','zfull','soilCCohort',sc_Rtot_ptr,'Total degradation','kg/m2')
-     call add_tile_data(restart,'originalCohortC','zfull','soilCCohort',sc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
      do k = 1,N_LITTER_POOLS
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_C','litterCCohort',sc_litter_livingMicrobeC_ptr,k,trim(l_longname(k))//' litter live microbe C','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','litterCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_Rtot','litterCCohort',sc_litter_Rtot_ptr,k,trim(l_longname(k))//' litter total degradation','kg/m2')
-        call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortC','litterCCohort',sc_litter_originalLitterC_ptr,k,trim(l_longname(k))//' litter cohort original carbon','kg/m2')
      enddo
 
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
@@ -1536,7 +1530,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         enddo
         call add_tile_data(restart,'liveMicN', 'zfull','soilCCohort', sc_livingMicrobeN_ptr,'Living microbial nitrogen','kg/m2')
         ! FIXME slm: why "original" carbon and nitrogen are is in g/m2
-        call add_tile_data(restart,'originalCohortN', 'zfull','soilCCohort', sc_originalLitterN_ptr,'Cohort original nitrogen','g/m2')
         call add_tile_data(restart,'soil_NO3', 'zfull', sc_nitrate_ptr,'Soil nitrate content','kg/m2')
         call add_tile_data(restart,'soil_NH4', 'zfull', sc_ammonium_ptr,'Soil ammonium content','kg/m2')
         call add_tile_data(restart,'soil_nitrif', 'zfull', sc_nitrif_ptr,'Soil cumulative nitrification','kg/m2')
@@ -1544,7 +1537,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
         do k = 1,N_LITTER_POOLS
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr, k, trim(l_longname(k))//' litter live microbe N','kg/m2')
-           call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortN', 'litterCCohort', sc_litter_originalLitterN_ptr, k, trim(l_longname(k))//' litter cohort original N','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr, k, trim(l_longname(k))//' litter nitrate content','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr, k, trim(l_longname(k))//' litter ammonium content','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr, k, trim(l_longname(k))//' litter cumulative nitrification','kg/m2')

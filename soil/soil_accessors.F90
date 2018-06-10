@@ -707,26 +707,6 @@ subroutine sc_litter_Rtot_ptr(t,i,j,p)
     endif
 end subroutine
 
-subroutine sc_litter_originalLitterC_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%originalLitterC
-    endif
-end subroutine
-
-subroutine sc_litter_originalLitterN_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%originalLitterN
-    endif
-end subroutine
-
 subroutine sc_litter_litterC_ptr(t,i,j,k,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i,j,k
@@ -804,26 +784,6 @@ subroutine sc_livingMicrobeN_ptr(t,i,j,p)
     p=>NULL()
     if(associated(t))then
         if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%livingMicrobeN
-    endif
-end subroutine
-
-subroutine sc_originalLitterC_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%originalLitterC
-    endif
-end subroutine
-
-subroutine sc_originalLitterN_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%originalLitterN
     endif
 end subroutine
 

@@ -133,9 +133,6 @@ type litterCohort
     real :: MINER_gross     = 0.0  ! x2z Actual gross inorganic N mineralization
     real :: MINER_prod      = 0.0  ! x2z Actual gross inorganic N mineralization
     real :: IMM_Nprod       = 0.0  ! x2z Actual gross inorganic N mineralization
-
-    real :: originalLitterC = 0.0  ! Keep track for carbon balance check
-    real :: originalLitterN = 0.0  ! Keep track for N balance check
 end type litterCohort
 
 
@@ -483,8 +480,8 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
             Prate_limited(N_C_TYPES),Prate_limited_N(N_C_TYPES),prevC(N_C_TYPES),prevN(N_C_TYPES),&
             temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
 
-    real::activeVolume,inactiveVolume,cohortVolume! xz
-    real::nitrif,Denitrif! xz
+    real :: cohortVolume! xz
+    real :: nitrif, Denitrif! xz
 
     type(litterCohort) :: total
 
@@ -496,7 +493,6 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
 !          write(*,*) 'cohort ',n
 !          __DEBUG1__(pool%litterCohorts(n)%litterC)
 !          __DEBUG1__(pool%litterCohorts(n)%protectedC)
-!           __DEBUG2__(pool%litterCohorts(n)%livingMicrobeC,pool%litterCohorts(n)%originalLitterC)
 !           __DEBUG1__(pool%litterCohorts(n)%CO2)
 !       enddo
 !    endif
@@ -536,7 +532,6 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     Prate_limited=pool%protection_rate*protection_species*pool%Qmax
     Prate_limited_N=pool%protection_rate_N*protection_species_N*pool%Qmax
 
-    ! Need to convert originalLitterC into a meaningful volume, since it will keep increasing as cohorts are combined
     ! How about this: non-mineralized C keeps volume based on estimated density
     ! Volume of mineralized C is just capped at remaining layer volume, with the assumption that the mineralized portion
     ! of volume for all cohorts just gets intermingled and does not need to sum to layer volume
@@ -548,9 +543,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     DO n=1,pool%n_cohorts
         prevC=pool%litterCohorts(n)%litterC
         prevN=pool%litterCohorts(n)%litterN
-        activeVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
-        inactiveVolume=min(pool%litterCohorts(n)%originalLitterC/litterDensity,layerThickness)-activeVolume
-        cohortVolume=activeVolume+max(0.0,inactiveVolume)
+        cohortVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
         call update_cohort(cohort=pool%litterCohorts(n),nitrate=pool%nitrate,ammonium=pool%ammonium,cohortVolume=cohortVolume,T=T,theta=max(theta,0.0),&
                         air_filled_porosity=max(air_filled_porosity,0.0),&
                         protection_rate=Prate_limited,protection_rate_N=Prate_limited_N,&
@@ -1094,7 +1087,6 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
        print *,'Maintenance resp',maintenance_resp*dt
        print *,'Uptake resp',totalResp*(1.0-eup)*dt
        print *,'Denitrif',denitrif_NO3_demand
-       print *,'Cohort C - required total',cohortCSum(cohort)-cohort%originalLitterC
        print *,'Nitrate',nitrate
        call error_mesg('update_cohort','Cohort invalid',FATAL)
     endif
@@ -1232,15 +1224,12 @@ pure subroutine initializeCohort(cohort,litterInputC,litterInputN,initialMicrobe
     if (present(multiplier)) multiplierval=multiplier
 
 
-    ! originalLitterC is there to check carbon conservation
-    cohort%originalLitterC=(sum(litterInputCval)+CO2val+initialMicrobeCval+sum(initialProtectedCval))*multiplierval
     cohort%litterC=litterInputCval*multiplierval
     cohort%protectedC=initialProtectedCval*multiplierval
     cohort%livingMicrobeC=initialMicrobeCval*multiplierval
     cohort%CO2=CO2val*multiplierval
     cohort%Rtot=0.0
 
-    cohort%originalLitterN=(sum(litterInputNval)+initialMicrobeNval+sum(initialProtectedNval))*multiplierval
     cohort%litterN=litterInputNval*multiplierval
     cohort%protectedN=initialProtectedNval*multiplierval
     cohort%livingMicrobeN=initialMicrobeNval*multiplierval
@@ -1505,8 +1494,6 @@ subroutine mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosit
     if (update_pools) then
        pool%litterCohorts(nn)%litterC = pool%litterCohorts(nn)%litterC - potential_tempResp*dt
        pool%litterCohorts(nn)%litterN = pool%litterCohorts(nn)%litterN - pot_tempN_decomposed*dt
-       pool%litterCohorts(nn)%originalLitterC = pool%litterCohorts(nn)%originalLitterC - sum(potential_tempResp*eup_myc)*dt
-       pool%litterCohorts(nn)%originalLitterN = pool%litterCohorts(nn)%originalLitterN - sum(pot_tempN_decomposed)*dt
        pool%litterCohorts(nn)%CO2 = pool%litterCohorts(nn)%CO2 + sum(potential_tempResp*(1-eup_myc))*dt
        pool%ammonium = pool%ammonium + sum(pot_tempN_decomposed*(1.0-mup_myc))*dt
     endif
@@ -1522,12 +1509,10 @@ subroutine debug_cohort(c)
    __DEBUG___(c%protectedC)
    __DEBUG___(c%livingMicrobeC)
    __DEBUG___(c%CO2)
-   __DEBUG___(c%originalLitterC)
 
    __DEBUG___(c%litterN)
    __DEBUG___(c%protectedN)
    __DEBUG___(c%livingMicrobeN)
-   __DEBUG___(c%originalLitterN)
    write(*,*)
 end subroutine debug_cohort
 
@@ -1565,7 +1550,6 @@ subroutine print_cohort(cohort)
     type(litterCohort)::cohort
 
     WRITE (*,*) '----------------'
-    WRITE (*,*) 'Original C =',cohort%originalLitterC
     WRITE (*,*) 'Unprotected C=',cohort%litterC
     WRITE (*,*) 'Living microbial C =',cohort%livingMicrobeC
     WRITE (*,*) 'Protected C =',cohort%protectedC
@@ -1576,7 +1560,6 @@ subroutine print_cohort(cohort)
     WRITE (*,*) '----------------'
 
     WRITE (*,*) '----------------'
-    WRITE (*,*) 'Original N =',cohort%originalLitterN
     WRITE (*,*) 'Unprotected N=',cohort%litterN
     WRITE (*,*) 'Living microbial N =',cohort%livingMicrobeN
     WRITE (*,*) 'Protected N =',cohort%protectedN
@@ -1601,20 +1584,14 @@ logical function check_cohort(cohort) result(cohortGood)
     real,parameter :: tol_roundoff = 1.e-11    ! [kg C/m^2] tolerance for roundoff error in soil carbon numerics
 
     cohortGood=.NOT. ( &
-     (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2,cohort%livingMicrobeN).lt.-tol_roundoff) .OR. &
-    is_nan(cohort%originalLitterC) .OR. &
+     (min(cohort%livingMicrobeC,cohort%CO2,cohort%livingMicrobeN).lt.-tol_roundoff) .OR. &
     is_nan(cohort%livingMicrobeC) .OR. &
     is_nan(cohort%CO2)  .OR. &
     cohort%livingMicrobeN.lt.0 .OR. &
-    is_nan(cohort%originalLitterN) .OR. &
     is_nan(cohort%livingMicrobeN) &
     )
 
-   cohortC=cohortCSum(cohort)
-  !if(cohortC .GT. 0.0) cohortGood = cohortGood .AND. (abs(cohortC-cohort%originalLitterC)/cohortC) .LT. tol
-  ! ZMS Make this an either relative or absolute balance check to allow roundoff error for infinitessimal pools in deep layers
-    if(cohortC .GT. 0.0) cohortGood = cohortGood .AND. &
-              (abs(cohortC-cohort%originalLitterC)/cohortC .LT. tol .OR. abs(cohortC-cohort%originalLitterC) .LT. tol_roundoff)
+    cohortC=cohortCSum(cohort)
 
     DO n=1,N_C_TYPES
         tempGood = .NOT. ( &
@@ -1636,7 +1613,6 @@ logical function check_cohort(cohort) result(cohortGood)
     ! IF(.NOT. cohortGood) THEN
 !        WRITE (*,*)'Cohort carbon pool error:'
 !        call print_cohort(cohort)
-!        WRITE (*,*)'Sum =',cohortCSum(cohort),'Difference =',cohortCSum(cohort)-(cohort%originalLitterC)
     !    call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
     !  ENDIF
 
@@ -1855,13 +1831,11 @@ subroutine add_C_N_to_cohorts(pool,litterC,protectedC,livingMicrobeC,CO2,litterN
      pool%litterCohorts(k)%protectedC=pool%litterCohorts(k)%protectedC+protectedCval*weight
      pool%litterCohorts(k)%livingMicrobeC=pool%litterCohorts(k)%livingMicrobeC+livingMicrobeCval*weight
      pool%litterCohorts(k)%CO2=pool%litterCohorts(k)%CO2+CO2val*weight
-     pool%litterCohorts(k)%originalLitterC=pool%litterCohorts(k)%originalLitterC+(sum(litterCval+protectedCval)+livingMicrobeCval+CO2val)*weight
 
      if (soil_carbon_option == SOILC_CORPSE_N) then  ! May be unnecessary to "if" this if these are always zero?
         pool%litterCohorts(k)%litterN=pool%litterCohorts(k)%litterN+litterNval*weight! xz
         pool%litterCohorts(k)%protectedN=pool%litterCohorts(k)%protectedN+protectedNval*weight! xz
         pool%litterCohorts(k)%livingMicrobeN=pool%litterCohorts(k)%livingMicrobeN+livingMicrobeNval*weight! xz
-        pool%litterCohorts(k)%originalLitterN=pool%litterCohorts(k)%originalLitterN+(sum(litterNval+protectedNval)+livingMicrobeNval)*weight! xz
      endif
   enddo
 
@@ -1963,34 +1937,28 @@ subroutine remove_C_N_fraction_from_pool(pool,fractionC,fractionN,litterC_remove
            temp2=pool%litterCohorts(ii)%litterC*min(1.0,fractionC)*C_litterFactor
            litterC_removed=litterC_removed+temp2
            pool%litterCohorts(ii)%litterC=pool%litterCohorts(ii)%litterC-temp2
-           pool%litterCohorts(ii)%originalLitterC=pool%litterCohorts(ii)%originalLitterC-sum(temp2)
 
            temp2=pool%litterCohorts(ii)%protectedC*min(1.0,fractionC)*C_protectedFactor
            protectedC_removed=protectedC_removed+temp2
            pool%litterCohorts(ii)%protectedC=pool%litterCohorts(ii)%protectedC-temp2
-           pool%litterCohorts(ii)%originalLitterC=pool%litterCohorts(ii)%originalLitterC-sum(temp2)
 
            temp=pool%litterCohorts(ii)%livingMicrobeC*min(1.0,fractionC)*liveMicrobeFactor
            liveMicrobeC_removed=liveMicrobeC_removed+temp
            pool%litterCohorts(ii)%livingMicrobeC=pool%litterCohorts(ii)%livingMicrobeC-temp
-           pool%litterCohorts(ii)%originalLitterC=pool%litterCohorts(ii)%originalLitterC-temp
 
            ! Nitrogen
            if(soil_carbon_option == SOILC_CORPSE_N) THEN
                temp2=pool%litterCohorts(ii)%litterN*min(1.0,fractionN)*N_litterFactor
                litterN_removed=litterN_removed+temp2
                pool%litterCohorts(ii)%litterN=pool%litterCohorts(ii)%litterN-temp2
-               pool%litterCohorts(ii)%originalLitterN=pool%litterCohorts(ii)%originalLitterN-sum(temp2)
 
                temp2=pool%litterCohorts(ii)%protectedN*min(1.0,fractionN)*N_protectedFactor
                protectedN_removed=protectedN_removed+temp2
                pool%litterCohorts(ii)%protectedN=pool%litterCohorts(ii)%protectedN-temp2
-               pool%litterCohorts(ii)%originalLitterN=pool%litterCohorts(ii)%originalLitterN-sum(temp2)
 
                temp=pool%litterCohorts(ii)%livingMicrobeN*min(1.0,fractionN)*liveMicrobeFactor
                liveMicrobeN_removed=liveMicrobeN_removed+temp
                pool%litterCohorts(ii)%livingMicrobeN=pool%litterCohorts(ii)%livingMicrobeN-temp
-               pool%litterCohorts(ii)%originalLitterN=pool%litterCohorts(ii)%originalLitterN-temp
            ELSE
                litterN_removed=0.0
                protectedN_removed=0.0
@@ -2058,8 +2026,6 @@ subroutine combine_cohorts(cohort1,cohort2,result)
 
     result%CO2=(cohort1%CO2 + cohort2%CO2)
     result%Rtot=(cohort1%Rtot + cohort2%Rtot)
-    result%originalLitterC=(cohort1%originalLitterC + cohort2%originalLitterC)
-    result%originalLitterN=(cohort1%originalLitterN + cohort2%originalLitterN)! xz
     result%MINER_prod=(cohort1%MINER_prod + cohort2%MINER_prod)! xz
     result%IMM_Nprod=(cohort1%IMM_Nprod + cohort2%IMM_Nprod)! xz
     result%MINER_gross=(cohort1%MINER_gross + cohort2%MINER_gross)
