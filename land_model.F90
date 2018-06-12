@@ -167,6 +167,12 @@ logical :: prohibit_negative_canopy_water = .TRUE. ! if true, the solution of en
               ! balance is iterated (at most max_canopy_water_steps) to ensure
               ! water and snow on leaves do not go negative
 integer :: max_canopy_water_steps = 2
+logical :: improve_lw_derivatives = .FALSE.
+real    :: lw_delta_T_thresh = 25.0 ! temperature change during time step that 
+              ! triggers recalculation of longwave radiation derivatives for improvement
+              ! of linearization. Note that linearization around temperature at the start
+              ! if time step leads to LW emission underestimate of about 20 W/m2 at
+              ! delta_T = 25K
 character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
@@ -204,6 +210,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           cpw, clw, csw, min_sum_lake_frac, min_frac, &
                           gfrac_tol, discharge_tol, &
                           improve_solution, solution_tol, max_improv_steps, &
+                          improve_lw_derivatives, lw_delta_T_thresh, &
                           con_fac_large, con_fac_small, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
@@ -1404,7 +1411,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   integer :: ierr
   integer :: tr ! tracer index
   logical :: conserve_glacier_mass, snow_active, redo_leaf_water
-  integer :: canopy_water_step
+  integer :: canopy_water_step, lw_step
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
@@ -1584,12 +1591,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      vegn_fsw = vegn_fsw+f(k)*SUM(swnet(k,:))
   enddo
 
-! [X.X] using long-wave optical properties, calculate the explicit long-wave
-!       radiative balances and their derivatives w.r.t. temperatures
-  call land_lw_balance(ILa_dn, vegn_layer, f, vegn_T, grnd_T, &
-     tile%vegn_tran_lw,tile%vegn_refl_lw,tile%surf_refl_lw, &
-     flwv0, flwg0, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg)
-
 ! [X.0] calculate the latent heats of vaporization at appropriate temperatures
   if (use_tfreeze_in_grnd_latent) then
     grnd_latent = hlv + hlf*grnd_subl
@@ -1627,355 +1628,371 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     vT = vegn_T-tfreeze
   endif
 
-  do canopy_water_step = 1,max_canopy_water_steps
-     if(is_watch_point()) then
-        write(*,*)'#### input data for the matrix ####'
-        __DEBUG1__(canopy_water_step)
-        __DEBUG1__(delta_time)
-        __DEBUG1__(canopy_air_mass)
-        __DEBUG1__(vegn_T)
-        __DEBUG1__(vT)
-        __DEBUG1__(vegn_Wl)
-        __DEBUG1__(vegn_Ws)
-        __DEBUG2__(grnd_T,gT)
-        __DEBUG1__(grnd_rh)
-        __DEBUG2__(cana_T,cT)
-        __DEBUG1__(cana_q)
-        __DEBUG2__(evap_T,eT)
-        __DEBUG2__(precip_T,pT)
-        __DEBUG2__(precip_l, precip_s)
-        __DEBUG1__(vegn_prec_l)
-        __DEBUG1__(vegn_prec_s)
-        __DEBUG1__(vegn_drip_l)
-        __DEBUG1__(vegn_drip_s)
-        __DEBUG1__(vegn_ifrac)
-        __DEBUG1__(vegn_lai)
-        __DEBUG1__(ILa_dn)
-        __DEBUG2__(ISa_dn_dir(1),ISa_dn_dir(2))
-        __DEBUG2__(ISa_dn_dif(1),ISa_dn_dif(2))
-        __DEBUG1__(sum(swnet(:,:),2))
-        __DEBUG2__(fswg, vegn_fsw)
-        __DEBUG1__(vegn_hcap)
-        __DEBUG1__(hlv_Tv)
-        __DEBUG1__(hlv_Tu)
-        __DEBUG1__(hls_Tv)
-        __DEBUG2__(G0, DGDTg)
-        __DEBUG2__(Ha0, DHaDTc)
-        __DEBUG2__(Ea0, DEaDqc)
-        __DEBUG1__(Hv0)
-        __DEBUG1__(DHvDTv)
-        __DEBUG1__(DHvDTc)
-        __DEBUG1__(Et0)
-        __DEBUG1__(DEtDTv)
-        __DEBUG1__(DEtDqc)
-        __DEBUG1__(DEtDwl)
-        __DEBUG1__(DEtDwf)
-        __DEBUG1__(Eli0)
-        __DEBUG1__(DEliDTv)
-        __DEBUG1__(DEliDqc)
-        __DEBUG1__(DEliDwl)
-        __DEBUG1__(DEliDwf)
-        __DEBUG1__(Esi0)
-        __DEBUG1__(DEsiDTv)
-        __DEBUG1__(DEsiDqc)
-        __DEBUG1__(DEsiDwl)
-        __DEBUG1__(DEsiDwf)
-        __DEBUG3__(Hg0, DHgDTg, DHgDTc)
-        __DEBUG3__(Eg0, DEgDTg, DEgDqc)
-        __DEBUG1__(flwv0)
-        write(*,*)'DflwvDTv:'
-        do k = 1,N
-           write(*,'(i12.3,99(x,g23.16))') k, DflwvDTv(k,:)
-        enddo
-        __DEBUG2__(flwg0, DflwgDTg)
-        __DEBUG1__(DflwgDTv)
-   !     __DEBUG3__(flwv0(1), DflwvDTg(1), DflwvDTv(1,1))
-   !     __DEBUG3__(flwg0, DflwgDTg, DflwgDTv(1))
-        __DEBUG2__(tile%e_res_1,tile%e_res_2)
-        __DEBUG1__(f)
-     endif
+! [X.X] using long-wave optical properties, calculate the explicit long-wave
+!       radiative balances and their derivatives w.r.t. temperatures
+  delta_Tv(:) = 0.0; delta_Tg = 0.0
+  do lw_step = 1,2
+     call land_lw_balance(ILa_dn, vegn_layer, f, vegn_T, delta_Tv, grnd_T, delta_Tg, &
+        tile%vegn_tran_lw,tile%vegn_refl_lw,tile%surf_refl_lw, &
+        flwv0, flwg0, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg)
 
-     ! calculate indices for equation system:
-     iqc=1;  iTc=2;  iTv=3;  iwl=iTv+N;  iwf=iwl+N
-
-     A(:,:) = 0
-   ! [X.1] form the system of equations for implicit scheme, such that A*X = B1*delta_Tg+B2*delta_psig+B0
-   ! [X.1.1] equation of canopy air mass balance
-     A(iqc,iqc) = canopy_air_mass/delta_time &
-        -sum((DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))*f(:))-DEgDqc+DEaDqc
-     A(iqc,iTc) = 0
-     do k = 1,N
-        A(iqc,iTv+k-1) = -f(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k))
-        A(iqc,iwl+k-1) = -f(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
-        A(iqc,iwf+k-1) = -f(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
-     enddo
-     B0(iqc)  = sum(f(:)*(Esi0(:)+Eli0(:)+Et0(:)))+Eg0-Ea0
-     B1(iqc)  = DEgDTg
-     B2(iqc)  = DEgDpsig
-   ! [X.1.2] equation of canopy air energy balance
-#ifdef USE_DRY_CANA_MASS
-     A(iTc,iqc) = canopy_air_mass*cpw*cT/delta_time &
-#else
-     A(iTc,iqc) = canopy_air_mass*(cpw*cT-cp_air*cana_T)/delta_time &
-#endif
-          - cpw*sum(f(:)*vT(:)*(DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))) &
-          - cpw*gT*DEgDqc + cpw*eT*DEaDqc
-#ifdef USE_DRY_CANA_MASS
-     A(iTc,iTc) = canopy_air_mass*cp_air/delta_time &
-#else
-     A(iTc,iTc) = canopy_air_mass*(cp_air+cana_q*(cpw-cp_air))/delta_time &
-#endif
-          - sum(f(:)*DHvDTc(:)) - DHgDTc + DHaDTc
-     do k = 1,N
-        A(iTc,iTv+k-1) = -f(k)*(DHvDTv(k)+cpw*vT(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k)))
-        A(iTc,iwl+k-1) =            -f(k)*cpw*vT(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
-        A(iTc,iwf+k-1) =            -f(k)*cpw*vT(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
-     enddo
-     B0(iTc)  = sum(f(:)*Hv0(:)) + Hg0 - Ha0 &
-        + cpw*sum(f(:)*vT(:)*(Et0(:)+Eli0(:)+Esi0(:)))+cpw*gT*Eg0-cpw*eT*Ea0 &
-        - tile%e_res_1 - tile%e_res_2
-     B1(iTc)  = DHgDTg + cpw*gT*DEgDTg
-     B2(iTc)  =          cpw*gT*DEgDpsig
-   ! [X.1.3] equation of canopy energy balance
-     do k = 1,N
-        A(iTv+k-1,iqc) = hlv_Tu(k)*DEtDqc(k)+hlv_Tv(k)*DEliDqc(k)+hls_Tv(k)*DEsiDqc(k)
-        A(iTv+k-1,iTc) = DHvDTc(k)
-        A(iTv+k-1,iTv+k-1) = vegn_hcap(k)/delta_time &
-          +DHvDTv(k) &
-          +hlv_Tu(k)*DEtDTv(k) + hlv_Tv(k)*DEliDTv(k) + hls_Tv(k)*DEsiDTv(k) &
-          +clw*vegn_drip_l(k) + csw*vegn_drip_s(k)
-        ! add matrix of long-wave derivatives
-        do k1=1,N
-           A(iTv+k-1,iTv+k1-1) = A(iTv+k-1,iTv+k1-1)-DflwvDTv(k,k1)
-        enddo
-        A(iTv+k-1,iwl+k-1) = clw*vT(k)/delta_time &
-          +hlv_Tu(k)*DEtDwl(k) + hlv_Tv(k)*DEliDwl(k) + hls_Tv(k)*DEsiDwl(k)
-        A(iTv+k-1,iwf+k-1) = csw*vT(k)/delta_time &
-          +hlv_Tu(k)*DEtDwf(k) + hlv_Tv(k)*DEliDwf(k) + hls_Tv(k)*DEsiDwf(k)
-        B0(iTv+k-1) = sum(swnet(k,:)) &
-          + flwv0(k) - Hv0(k) - hlv_Tu(k)*Et0(k) - Hlv_Tv(k)*Eli0(k) - hls_Tv(k)*Esi0(k) &
-          + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
-          - clw*vegn_drip_l(k)*vT(k) - csw*vegn_drip_s(k)*vT(k)
-        B1(iTv+k-1) = DflwvDTg(k)
-        B2(iTv+k-1) = 0
-     enddo
-   ! [X.1.4] equation of intercepted liquid water mass balance
-     do k = 1,N
-        A(iwl+k-1,iqc) = DEliDqc(k)
-        A(iwl+k-1,iTc) = 0
-        A(iwl+k-1,iTv+k-1) = DEliDTv(k)
-        A(iwl+k-1,iwl+k-1) = 1.0/delta_time + DEliDwl(k)
-        A(iwl+k-1,iwf+k-1) = DEliDwf(k)
-        B0(iwl+k-1)  = -Eli0(k) + vegn_prec_l(k)*vegn_ifrac(k) - vegn_drip_l(k)
-        B1(iwl+k-1)  = 0
-        B2(iwl+k-1)  = 0
-     enddo
-   ! [X.1.5] equation of intercepted frozen water mass balance
-     do k = 1,N
-        A(iwf+k-1,iqc) = DEsiDqc(k)
-        A(iwf+k-1,iTc) = 0
-        A(iwf+k-1,iTv+k-1) = DEsiDTv(k)
-        A(iwf+k-1,iwl+k-1) = DEsiDwl(k)
-        A(iwf+k-1,iwf+k-1) = 1.0/delta_time + DEsiDwf(k)
-        B0(iwf+k-1)  = -Esi0(k) + vegn_prec_s(k)*vegn_ifrac(k) - vegn_drip_s(k)
-        B1(iwf+k-1)  = 0
-        B2(iwf+k-1)  = 0
-     enddo
-   ! [X.1.6] if LAI becomes zero (and, therefore, all fluxes from vegetation and
-   ! their derivatives must be zero too) and heat capacity of the vegetation is
-   ! zero, we get a degenerate case. Still, the drip may be non-zero because some
-   ! water may remain from before leaf drop, and non-zero energy residual can be
-   ! carried over from the previous time step.
-   !
-   ! To prevent temperature from going haywire in those cases, we simply replace the
-   ! equations of canopy energy and mass balance with the following:
-   ! vegn_T + delta_Tv = cana_T + delta_Tc
-   ! delta_Wl = -vegn_drip_l*delta_time
-   ! delta_Ws = -vegn_drip_s*delta_time
-   ! The residual vegn_Wl and vegn_Ws, if any, are taken care of by the overflow
-   ! calculations.
-   !
-   ! NOTE: currently vegn_hcap cannot be zero if mcv_min namelist parameter is not
-   ! zero (and it is not by default, it is actually pretty big). Also, in non-vegetated
-   ! tiles vegn_hcap is set to 1. So this degenerate case never happens in typical
-   ! configurations. The only way for this to happen is to set mcv_min=0 and drop
-   ! leaves
-     do k = 1,N
-        if(DHvDTv(k)==0.and.vegn_hcap(k)==0.and.vegn_lai(k)==0) then
-          ! vegn_T + delta_Tv = cana_T + delta_Tc
-          A(iTv+k-1,:)   = 0
-          A(iTv+k-1,iTc) = -1
-          A(iTv+k-1,iTv+k-1) = +1
-          B0(iTv+k-1) = cana_T - vegn_T(k)
-          B1(iTv+k-1) = 0
-          ! delta_Wl = -vegn_drip_l*delta_time
-          A(iwl+k-1,:)   = 0
-          A(iwl+k-1,iwl+k-1) = 1
-          B0(iwl+k-1) = -vegn_drip_l(k)*delta_time
-          B1(iwl+k-1) = 0
-          ! delta_Ws = -vegn_drip_s*delta_time
-          A(iwf+k-1,:)   = 0
-          A(iwf+k-1,iwf+k-1) = 1
-          B0(iwf+k-1) = -vegn_drip_s(k)*delta_time
-          B1(iwf+k-1) = 0
+     do canopy_water_step = 1,max_canopy_water_steps
+        if(is_watch_point()) then
+           write(*,*)'#### input data for the matrix ####'
+           __DEBUG1__(canopy_water_step)
+           __DEBUG1__(delta_time)
+           __DEBUG1__(canopy_air_mass)
+           __DEBUG1__(vegn_T)
+           __DEBUG1__(vT)
+           __DEBUG1__(vegn_Wl)
+           __DEBUG1__(vegn_Ws)
+           __DEBUG2__(grnd_T,gT)
+           __DEBUG1__(grnd_rh)
+           __DEBUG2__(cana_T,cT)
+           __DEBUG1__(cana_q)
+           __DEBUG2__(evap_T,eT)
+           __DEBUG2__(precip_T,pT)
+           __DEBUG2__(precip_l, precip_s)
+           __DEBUG1__(vegn_prec_l)
+           __DEBUG1__(vegn_prec_s)
+           __DEBUG1__(vegn_drip_l)
+           __DEBUG1__(vegn_drip_s)
+           __DEBUG1__(vegn_ifrac)
+           __DEBUG1__(vegn_lai)
+           __DEBUG1__(ILa_dn)
+           __DEBUG2__(ISa_dn_dir(1),ISa_dn_dir(2))
+           __DEBUG2__(ISa_dn_dif(1),ISa_dn_dif(2))
+           __DEBUG1__(sum(swnet(:,:),2))
+           __DEBUG2__(fswg, vegn_fsw)
+           __DEBUG1__(vegn_hcap)
+           __DEBUG1__(hlv_Tv)
+           __DEBUG1__(hlv_Tu)
+           __DEBUG1__(hls_Tv)
+           __DEBUG2__(G0, DGDTg)
+           __DEBUG2__(Ha0, DHaDTc)
+           __DEBUG2__(Ea0, DEaDqc)
+           __DEBUG1__(Hv0)
+           __DEBUG1__(DHvDTv)
+           __DEBUG1__(DHvDTc)
+           __DEBUG1__(Et0)
+           __DEBUG1__(DEtDTv)
+           __DEBUG1__(DEtDqc)
+           __DEBUG1__(DEtDwl)
+           __DEBUG1__(DEtDwf)
+           __DEBUG1__(Eli0)
+           __DEBUG1__(DEliDTv)
+           __DEBUG1__(DEliDqc)
+           __DEBUG1__(DEliDwl)
+           __DEBUG1__(DEliDwf)
+           __DEBUG1__(Esi0)
+           __DEBUG1__(DEsiDTv)
+           __DEBUG1__(DEsiDqc)
+           __DEBUG1__(DEsiDwl)
+           __DEBUG1__(DEsiDwf)
+           __DEBUG3__(Hg0, DHgDTg, DHgDTc)
+           __DEBUG3__(Eg0, DEgDTg, DEgDqc)
+           __DEBUG1__(flwv0)
+           write(*,*)'DflwvDTv:'
+           do k = 1,N
+              write(*,'(i12.3,99(x,g23.16))') k, DflwvDTv(k,:)
+           enddo
+           __DEBUG2__(flwg0, DflwgDTg)
+           __DEBUG1__(DflwgDTv)
+      !     __DEBUG3__(flwv0(1), DflwvDTg(1), DflwvDTv(1,1))
+      !     __DEBUG3__(flwg0, DflwgDTg, DflwgDTv(1))
+           __DEBUG2__(tile%e_res_1,tile%e_res_2)
+           __DEBUG1__(f)
         endif
-     enddo
 
-     if(is_watch_point()) then
-        write(*,*)'#### A ####'
-        do ii = 1, size(A,1)
-!           write(*,'(99g23.16)')(A(ii,jj),jj=1,size(A,2))
-            do jj = 1,size(A,2)
-               if (A(ii,jj) == 0) then
-                  write(*,'(a3)',advance='no') '0'
-               else if (A(ii,jj) > 0) then
-                  write(*,'(a3)',advance='no') '+'
-               else if (A(ii,jj) < 0) then
-                  write(*,'(a3)',advance='no') '-'
-               endif
-            enddo
-            write(*,*)
-        enddo
-        write(*,*)'#### B0, B1, B2 ####'
-        do ii = 1, size(A,1)
-           write(*,'(i3.3, 99g23.16)')ii, B0(ii),B1(ii),B2(ii)
-        enddo
-     endif
+        ! calculate indices for equation system:
+        iqc=1;  iTc=2;  iTv=3;  iwl=iTv+N;  iwf=iwl+N
 
-   ! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
-   !       linear equation for delta_Tg and delta_psig
-     ALUD = A
-     call ludcmp(ALUD,indx,ierr)
-     if (ierr/=0)&
-          call land_error_message('update_land_model_fast_0D: Matrix is singular',WARNING)
-     if (improve_solution) then
-        call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
-        call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
-        call lubksb_and_improve(A,ALUD,indx,B2,max_improv_steps,solution_tol,X2)
-     else
-        X0 = B0; X1=B1; X2=B2
-        call lubksb(ALUD,indx,X0)
-        call lubksb(ALUD,indx,X1)
-        call lubksb(ALUD,indx,X2)
-     endif
-
-   !  if(is_watch_point()) then
-   !     write(*,*)'#### solution: X0, X1, X2 ####'
-   !     do ii = 1, size(A,1)
-   !        __DEBUG3__(X0(ii),X1(ii),X2(ii))
-   !     enddo
-   !     write(*,*)'#### solution check ####'
-   !     do ii = 1, size(A,1)
-   !        sum0 = 0; sum1 = 0; sum2=0
-   !        do jj = 1, size(A,2)
-   !           sum0 = sum0 + A(ii,jj)*X0(jj)
-   !           sum1 = sum1 + A(ii,jj)*X1(jj)
-   !           sum2 = sum2 + A(ii,jj)*X2(jj)
-   !        enddo
-   !        __DEBUG3__(sum0-B0(ii),sum1-B1(ii),sum2-B2(ii))
-   !     enddo
-   !  endif
-   ! the result of this solution is a set of expressions for delta_xx in terms
-   ! of delta_Tg and delta_psig:
-   ! delta_xx(i) = X0(i) + X1(i)*delta_Tg + X2(i)*delta_psig.
-
-     ! solve the non-linear equation for energy balance at the surface.
-
-     call land_surface_energy_balance( &
-          grnd_T, grnd_liq, grnd_ice, grnd_latent, grnd_Tf, grnd_E_min, &
-          grnd_E_max, fswg, &
-          flwg0 + sum(X0(iTv:iTv+N-1)*DflwgDTv(:)), &
-          DflwgDTg + sum(X1(iTv:iTv+N-1)*DflwgDTv(:)),&
-          sum(X2(iTv:iTv+N-1)*DflwgDTv(:)), &
-          Hg0 + X0(iTc)*DHgDTc, DHgDTg + X1(iTc)*DHgDTc, X2(iTc)*DHgDTc,   &
-          Eg0 + X0(iqc)*DEgDqc, DEgDTg + X1(iqc)*DEgDqc, DEgDpsig + X2(iqc)*DEgDqc,   &
-          G0,                       DGDTg, &
-          ! output
-          delta_Tg, delta_psig, Mg_imp )
-
-   ! [X.5] calculate final value of other tendencies
-     delta_qc = X0(iqc) + X1(iqc)*delta_Tg + X2(iqc)*delta_psig
-     delta_Tc = X0(iTc) + X1(iTc)*delta_Tg + X2(iTc)*delta_psig
-     delta_Tv(:) = X0(iTv:iTv+N-1) + X1(iTv:iTv+N-1)*delta_Tg + X2(iTv:iTv+N-1)*delta_psig
-     delta_wl(:) = X0(iwl:iwl+N-1) + X1(iwl:iwl+N-1)*delta_Tg + X2(iwl:iwl+N-1)*delta_psig
-     delta_ws(:) = X0(iwf:iwf+N-1) + X1(iwf:iwf+N-1)*delta_Tg + X2(iwf:iwf+N-1)*delta_psig
-
-   ! [X.6] calculate updated values of energy balance components used in further
-   !       calculations
-     flwg       = flwg0 + DflwgDTg*delta_Tg + sum(DflwgDTv(:)*delta_Tv(:))
-     evapg      = Eg0   + DEgDTg*delta_Tg   + DEgDpsig*delta_psig + DEgDqc*delta_qc
-     sensg      = Hg0   + DHgDTg*delta_Tg   + DHgDTc*delta_Tc
-     grnd_flux  = G0    + DGDTg*delta_Tg
-     vegn_sens  = Hv0   + DHvDTv*delta_Tv   + DHvDTc*delta_Tc
-     vegn_flw   = 0
-     do k = 1,N
-        vegn_levap(k) = Eli0(k)  + DEliDTv(k)*delta_Tv(k)  + DEliDqc(k)*delta_qc + DEliDwl(k)*delta_wl(k) + DEliDwf(k)*delta_ws(k)
-        vegn_fevap(k) = Esi0(k)  + DEsiDTv(k)*delta_Tv(k)  + DEsiDqc(k)*delta_qc + DEsiDwl(k)*delta_wl(k) + DEsiDwf(k)*delta_ws(k)
-        vegn_uptk (k) = Et0 (k)  + DEtDTv (k)*delta_Tv(k)  + DEtDqc (k)*delta_qc + DEtDwl (k)*delta_wl(k) + DEtDwf (k)*delta_ws(k)
-        vegn_lwnet(k) = flwv0(k) + sum(DflwvDTv(k,:)*delta_Tv(:)) + DflwvDTg(k)*delta_Tg
-        vegn_flw = vegn_flw + f(k)*vegn_lwnet(k)
-     enddo
-     land_evap  = Ea0   + DEaDqc*delta_qc
-     land_sens  = Ha0   + DHaDTc*delta_Tc
-   ! [X.7] calculate energy residuals due to cross-product of time tendencies
-#ifdef USE_DRY_CANA_MASS
-     tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
-#else
-     tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
-#endif
-     tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
-   ! calculate the final value upward long-wave radiation flux from the land, to be
-   ! returned to the flux exchange.
-     tile%lwup = ILa_dn - vegn_flw - flwg
-
-     if(is_watch_point())then
-        write(*,*)'#### ground balance'
-        __DEBUG2__(fswg,flwg)
-        __DEBUG2__(sensg,evapg*grnd_latent)
-        __DEBUG1__(grnd_flux)
-        __DEBUG1__(Mg_imp)
-        write(*,*)'#### implicit time steps'
-        __DEBUG3__(delta_Tg, grnd_T,  grnd_T+delta_Tg )
-        __DEBUG1__(delta_psig)
-        __DEBUG2__(delta_qc, cana_q+delta_qc )
-        __DEBUG2__(delta_Tc, cana_T+delta_Tc )
-        __DEBUG1__(delta_Tv)
-        __DEBUG1__(delta_wl)
-        __DEBUG1__(delta_ws)
-        __DEBUG1__(vegn_T+delta_Tv )
-        __DEBUG1__(vegn_Wl+delta_wl)
-        __DEBUG1__(vegn_Ws+delta_ws)
-        __DEBUG2__(tile%e_res_1, tile%e_res_2)
-        write(*,*)'#### resulting fluxes'
-        __DEBUG4__(flwg, evapg, sensg, grnd_flux)
-        __DEBUG1__(vegn_levap)
-        __DEBUG1__(vegn_fevap)
-        __DEBUG1__(vegn_uptk)
-        __DEBUG1__(vegn_sens)
-        __DEBUG1__(vegn_lwnet)
-        __DEBUG1__(vegn_flw)
-        __DEBUG1__(land_evap)
-     endif
-
-     redo_leaf_water = .FALSE.
-     if (prohibit_negative_canopy_water) then
+        A(:,:) = 0
+      ! [X.1] form the system of equations for implicit scheme, such that A*X = B1*delta_Tg+B2*delta_psig+B0
+      ! [X.1.1] equation of canopy air mass balance
+        A(iqc,iqc) = canopy_air_mass/delta_time &
+           -sum((DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))*f(:))-DEgDqc+DEaDqc
+        A(iqc,iTc) = 0
         do k = 1,N
-          if (vegn_Wl(k)+delta_wl(k)<0) then
-             redo_leaf_water = .TRUE.
-             Eli0(k) = vegn_Wl(k)/delta_time + vegn_prec_l(k)*vegn_ifrac(k) - vegn_drip_l(k)
-             DEliDTv(k) = 0.0;  DEliDqc(k) = 0.0
-             DEliDwl(k) = 0.0;  DEliDwf(k) = 0.0
-          endif
-          if (vegn_Ws(k)+delta_ws(k)<0) then
-             redo_leaf_water = .TRUE.
-             Esi0(k) = vegn_Ws(k)/delta_time + vegn_prec_s(k)*vegn_ifrac(k) - vegn_drip_s(k)
-             DEsiDTv(k) = 0.0;  DEsiDqc(k) = 0.0
-             DEsiDwl(k) = 0.0;  DEsiDwf(k) = 0.0
-          endif
+           A(iqc,iTv+k-1) = -f(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k))
+           A(iqc,iwl+k-1) = -f(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
+           A(iqc,iwf+k-1) = -f(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
         enddo
-     endif
-     if (.not.redo_leaf_water) exit ! from loop
-  enddo ! canopy_water_step
+        B0(iqc)  = sum(f(:)*(Esi0(:)+Eli0(:)+Et0(:)))+Eg0-Ea0
+        B1(iqc)  = DEgDTg
+        B2(iqc)  = DEgDpsig
+      ! [X.1.2] equation of canopy air energy balance
+#ifdef USE_DRY_CANA_MASS
+        A(iTc,iqc) = canopy_air_mass*cpw*cT/delta_time &
+#else
+        A(iTc,iqc) = canopy_air_mass*(cpw*cT-cp_air*cana_T)/delta_time &
+#endif
+             - cpw*sum(f(:)*vT(:)*(DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))) &
+             - cpw*gT*DEgDqc + cpw*eT*DEaDqc
+#ifdef USE_DRY_CANA_MASS
+        A(iTc,iTc) = canopy_air_mass*cp_air/delta_time &
+#else
+        A(iTc,iTc) = canopy_air_mass*(cp_air+cana_q*(cpw-cp_air))/delta_time &
+#endif
+             - sum(f(:)*DHvDTc(:)) - DHgDTc + DHaDTc
+        do k = 1,N
+           A(iTc,iTv+k-1) = -f(k)*(DHvDTv(k)+cpw*vT(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k)))
+           A(iTc,iwl+k-1) =            -f(k)*cpw*vT(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
+           A(iTc,iwf+k-1) =            -f(k)*cpw*vT(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
+        enddo
+        B0(iTc)  = sum(f(:)*Hv0(:)) + Hg0 - Ha0 &
+           + cpw*sum(f(:)*vT(:)*(Et0(:)+Eli0(:)+Esi0(:)))+cpw*gT*Eg0-cpw*eT*Ea0 &
+           - tile%e_res_1 - tile%e_res_2
+        B1(iTc)  = DHgDTg + cpw*gT*DEgDTg
+        B2(iTc)  =          cpw*gT*DEgDpsig
+      ! [X.1.3] equation of canopy energy balance
+        do k = 1,N
+           A(iTv+k-1,iqc) = hlv_Tu(k)*DEtDqc(k)+hlv_Tv(k)*DEliDqc(k)+hls_Tv(k)*DEsiDqc(k)
+           A(iTv+k-1,iTc) = DHvDTc(k)
+           A(iTv+k-1,iTv+k-1) = vegn_hcap(k)/delta_time &
+             +DHvDTv(k) &
+             +hlv_Tu(k)*DEtDTv(k) + hlv_Tv(k)*DEliDTv(k) + hls_Tv(k)*DEsiDTv(k) &
+             +clw*vegn_drip_l(k) + csw*vegn_drip_s(k)
+           ! add matrix of long-wave derivatives
+           do k1=1,N
+              A(iTv+k-1,iTv+k1-1) = A(iTv+k-1,iTv+k1-1)-DflwvDTv(k,k1)
+           enddo
+           A(iTv+k-1,iwl+k-1) = clw*vT(k)/delta_time &
+             +hlv_Tu(k)*DEtDwl(k) + hlv_Tv(k)*DEliDwl(k) + hls_Tv(k)*DEsiDwl(k)
+           A(iTv+k-1,iwf+k-1) = csw*vT(k)/delta_time &
+             +hlv_Tu(k)*DEtDwf(k) + hlv_Tv(k)*DEliDwf(k) + hls_Tv(k)*DEsiDwf(k)
+           B0(iTv+k-1) = sum(swnet(k,:)) &
+             + flwv0(k) - Hv0(k) - hlv_Tu(k)*Et0(k) - Hlv_Tv(k)*Eli0(k) - hls_Tv(k)*Esi0(k) &
+             + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
+             - clw*vegn_drip_l(k)*vT(k) - csw*vegn_drip_s(k)*vT(k)
+           B1(iTv+k-1) = DflwvDTg(k)
+           B2(iTv+k-1) = 0
+        enddo
+      ! [X.1.4] equation of intercepted liquid water mass balance
+        do k = 1,N
+           A(iwl+k-1,iqc) = DEliDqc(k)
+           A(iwl+k-1,iTc) = 0
+           A(iwl+k-1,iTv+k-1) = DEliDTv(k)
+           A(iwl+k-1,iwl+k-1) = 1.0/delta_time + DEliDwl(k)
+           A(iwl+k-1,iwf+k-1) = DEliDwf(k)
+           B0(iwl+k-1)  = -Eli0(k) + vegn_prec_l(k)*vegn_ifrac(k) - vegn_drip_l(k)
+           B1(iwl+k-1)  = 0
+           B2(iwl+k-1)  = 0
+        enddo
+      ! [X.1.5] equation of intercepted frozen water mass balance
+        do k = 1,N
+           A(iwf+k-1,iqc) = DEsiDqc(k)
+           A(iwf+k-1,iTc) = 0
+           A(iwf+k-1,iTv+k-1) = DEsiDTv(k)
+           A(iwf+k-1,iwl+k-1) = DEsiDwl(k)
+           A(iwf+k-1,iwf+k-1) = 1.0/delta_time + DEsiDwf(k)
+           B0(iwf+k-1)  = -Esi0(k) + vegn_prec_s(k)*vegn_ifrac(k) - vegn_drip_s(k)
+           B1(iwf+k-1)  = 0
+           B2(iwf+k-1)  = 0
+        enddo
+      ! [X.1.6] if LAI becomes zero (and, therefore, all fluxes from vegetation and
+      ! their derivatives must be zero too) and heat capacity of the vegetation is
+      ! zero, we get a degenerate case. Still, the drip may be non-zero because some
+      ! water may remain from before leaf drop, and non-zero energy residual can be
+      ! carried over from the previous time step.
+      !
+      ! To prevent temperature from going haywire in those cases, we simply replace the
+      ! equations of canopy energy and mass balance with the following:
+      ! vegn_T + delta_Tv = cana_T + delta_Tc
+      ! delta_Wl = -vegn_drip_l*delta_time
+      ! delta_Ws = -vegn_drip_s*delta_time
+      ! The residual vegn_Wl and vegn_Ws, if any, are taken care of by the overflow
+      ! calculations.
+      !
+      ! NOTE: currently vegn_hcap cannot be zero if mcv_min namelist parameter is not
+      ! zero (and it is not by default, it is actually pretty big). Also, in non-vegetated
+      ! tiles vegn_hcap is set to 1. So this degenerate case never happens in typical
+      ! configurations. The only way for this to happen is to set mcv_min=0 and drop
+      ! leaves
+        do k = 1,N
+           if(DHvDTv(k)==0.and.vegn_hcap(k)==0.and.vegn_lai(k)==0) then
+             ! vegn_T + delta_Tv = cana_T + delta_Tc
+             A(iTv+k-1,:)   = 0
+             A(iTv+k-1,iTc) = -1
+             A(iTv+k-1,iTv+k-1) = +1
+             B0(iTv+k-1) = cana_T - vegn_T(k)
+             B1(iTv+k-1) = 0
+             ! delta_Wl = -vegn_drip_l*delta_time
+             A(iwl+k-1,:)   = 0
+             A(iwl+k-1,iwl+k-1) = 1
+             B0(iwl+k-1) = -vegn_drip_l(k)*delta_time
+             B1(iwl+k-1) = 0
+             ! delta_Ws = -vegn_drip_s*delta_time
+             A(iwf+k-1,:)   = 0
+             A(iwf+k-1,iwf+k-1) = 1
+             B0(iwf+k-1) = -vegn_drip_s(k)*delta_time
+             B1(iwf+k-1) = 0
+           endif
+        enddo
+
+        if(is_watch_point()) then
+           write(*,*)'#### A ####'
+           do ii = 1, size(A,1)
+   !           write(*,'(99g23.16)')(A(ii,jj),jj=1,size(A,2))
+               do jj = 1,size(A,2)
+                  if (A(ii,jj) == 0) then
+                     write(*,'(a3)',advance='no') '0'
+                  else if (A(ii,jj) > 0) then
+                     write(*,'(a3)',advance='no') '+'
+                  else if (A(ii,jj) < 0) then
+                     write(*,'(a3)',advance='no') '-'
+                  endif
+               enddo
+               write(*,*)
+           enddo
+           write(*,*)'#### B0, B1, B2 ####'
+           do ii = 1, size(A,1)
+              write(*,'(i3.3, 99g23.16)')ii, B0(ii),B1(ii),B2(ii)
+           enddo
+        endif
+
+      ! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
+      !       linear equation for delta_Tg and delta_psig
+        ALUD = A
+        call ludcmp(ALUD,indx,ierr)
+        if (ierr/=0)&
+             call land_error_message('update_land_model_fast_0D: Matrix is singular',WARNING)
+        if (improve_solution) then
+           call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
+           call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
+           call lubksb_and_improve(A,ALUD,indx,B2,max_improv_steps,solution_tol,X2)
+        else
+           X0 = B0; X1=B1; X2=B2
+           call lubksb(ALUD,indx,X0)
+           call lubksb(ALUD,indx,X1)
+           call lubksb(ALUD,indx,X2)
+        endif
+
+      !  if(is_watch_point()) then
+      !     write(*,*)'#### solution: X0, X1, X2 ####'
+      !     do ii = 1, size(A,1)
+      !        __DEBUG3__(X0(ii),X1(ii),X2(ii))
+      !     enddo
+      !     write(*,*)'#### solution check ####'
+      !     do ii = 1, size(A,1)
+      !        sum0 = 0; sum1 = 0; sum2=0
+      !        do jj = 1, size(A,2)
+      !           sum0 = sum0 + A(ii,jj)*X0(jj)
+      !           sum1 = sum1 + A(ii,jj)*X1(jj)
+      !           sum2 = sum2 + A(ii,jj)*X2(jj)
+      !        enddo
+      !        __DEBUG3__(sum0-B0(ii),sum1-B1(ii),sum2-B2(ii))
+      !     enddo
+      !  endif
+      ! the result of this solution is a set of expressions for delta_xx in terms
+      ! of delta_Tg and delta_psig:
+      ! delta_xx(i) = X0(i) + X1(i)*delta_Tg + X2(i)*delta_psig.
+
+        ! solve the non-linear equation for energy balance at the surface.
+
+        call land_surface_energy_balance( &
+             grnd_T, grnd_liq, grnd_ice, grnd_latent, grnd_Tf, grnd_E_min, &
+             grnd_E_max, fswg, &
+             flwg0 + sum(X0(iTv:iTv+N-1)*DflwgDTv(:)), &
+             DflwgDTg + sum(X1(iTv:iTv+N-1)*DflwgDTv(:)),&
+             sum(X2(iTv:iTv+N-1)*DflwgDTv(:)), &
+             Hg0 + X0(iTc)*DHgDTc, DHgDTg + X1(iTc)*DHgDTc, X2(iTc)*DHgDTc,   &
+             Eg0 + X0(iqc)*DEgDqc, DEgDTg + X1(iqc)*DEgDqc, DEgDpsig + X2(iqc)*DEgDqc,   &
+             G0,                       DGDTg, &
+             ! output
+             delta_Tg, delta_psig, Mg_imp )
+
+      ! [X.5] calculate final value of other tendencies
+        delta_qc = X0(iqc) + X1(iqc)*delta_Tg + X2(iqc)*delta_psig
+        delta_Tc = X0(iTc) + X1(iTc)*delta_Tg + X2(iTc)*delta_psig
+        delta_Tv(:) = X0(iTv:iTv+N-1) + X1(iTv:iTv+N-1)*delta_Tg + X2(iTv:iTv+N-1)*delta_psig
+        delta_wl(:) = X0(iwl:iwl+N-1) + X1(iwl:iwl+N-1)*delta_Tg + X2(iwl:iwl+N-1)*delta_psig
+        delta_ws(:) = X0(iwf:iwf+N-1) + X1(iwf:iwf+N-1)*delta_Tg + X2(iwf:iwf+N-1)*delta_psig
+
+      ! [X.6] calculate updated values of energy balance components used in further
+      !       calculations
+        flwg       = flwg0 + DflwgDTg*delta_Tg + sum(DflwgDTv(:)*delta_Tv(:))
+        evapg      = Eg0   + DEgDTg*delta_Tg   + DEgDpsig*delta_psig + DEgDqc*delta_qc
+        sensg      = Hg0   + DHgDTg*delta_Tg   + DHgDTc*delta_Tc
+        grnd_flux  = G0    + DGDTg*delta_Tg
+        vegn_sens  = Hv0   + DHvDTv*delta_Tv   + DHvDTc*delta_Tc
+        vegn_flw   = 0
+        do k = 1,N
+           vegn_levap(k) = Eli0(k)  + DEliDTv(k)*delta_Tv(k)  + DEliDqc(k)*delta_qc + DEliDwl(k)*delta_wl(k) + DEliDwf(k)*delta_ws(k)
+           vegn_fevap(k) = Esi0(k)  + DEsiDTv(k)*delta_Tv(k)  + DEsiDqc(k)*delta_qc + DEsiDwl(k)*delta_wl(k) + DEsiDwf(k)*delta_ws(k)
+           vegn_uptk (k) = Et0 (k)  + DEtDTv (k)*delta_Tv(k)  + DEtDqc (k)*delta_qc + DEtDwl (k)*delta_wl(k) + DEtDwf (k)*delta_ws(k)
+           vegn_lwnet(k) = flwv0(k) + sum(DflwvDTv(k,:)*delta_Tv(:)) + DflwvDTg(k)*delta_Tg
+           vegn_flw = vegn_flw + f(k)*vegn_lwnet(k)
+        enddo
+        land_evap  = Ea0   + DEaDqc*delta_qc
+        land_sens  = Ha0   + DHaDTc*delta_Tc
+      ! [X.7] calculate energy residuals due to cross-product of time tendencies
+#ifdef USE_DRY_CANA_MASS
+        tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
+#else
+        tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
+#endif
+        tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
+      ! calculate the final value upward long-wave radiation flux from the land, to be
+      ! returned to the flux exchange.
+        tile%lwup = ILa_dn - vegn_flw - flwg
+
+        if(is_watch_point())then
+           write(*,*)'#### ground balance'
+           __DEBUG2__(fswg,flwg)
+           __DEBUG2__(sensg,evapg*grnd_latent)
+           __DEBUG1__(grnd_flux)
+           __DEBUG1__(Mg_imp)
+           write(*,*)'#### implicit time steps'
+           __DEBUG3__(delta_Tg, grnd_T,  grnd_T+delta_Tg )
+           __DEBUG1__(delta_psig)
+           __DEBUG2__(delta_qc, cana_q+delta_qc )
+           __DEBUG2__(delta_Tc, cana_T+delta_Tc )
+           __DEBUG1__(delta_Tv)
+           __DEBUG1__(delta_wl)
+           __DEBUG1__(delta_ws)
+           __DEBUG1__(vegn_T+delta_Tv )
+           __DEBUG1__(vegn_Wl+delta_wl)
+           __DEBUG1__(vegn_Ws+delta_ws)
+           __DEBUG2__(tile%e_res_1, tile%e_res_2)
+           write(*,*)'#### resulting fluxes'
+           __DEBUG4__(flwg, evapg, sensg, grnd_flux)
+           __DEBUG1__(vegn_levap)
+           __DEBUG1__(vegn_fevap)
+           __DEBUG1__(vegn_uptk)
+           __DEBUG1__(vegn_sens)
+           __DEBUG1__(vegn_lwnet)
+           __DEBUG1__(vegn_flw)
+           __DEBUG1__(land_evap)
+        endif
+
+        redo_leaf_water = .FALSE.
+        if (prohibit_negative_canopy_water) then
+           do k = 1,N
+             if (vegn_Wl(k)+delta_wl(k)<0) then
+                redo_leaf_water = .TRUE.
+                Eli0(k) = vegn_Wl(k)/delta_time + vegn_prec_l(k)*vegn_ifrac(k) - vegn_drip_l(k)
+                DEliDTv(k) = 0.0;  DEliDqc(k) = 0.0
+                DEliDwl(k) = 0.0;  DEliDwf(k) = 0.0
+             endif
+             if (vegn_Ws(k)+delta_ws(k)<0) then
+                redo_leaf_water = .TRUE.
+                Esi0(k) = vegn_Ws(k)/delta_time + vegn_prec_s(k)*vegn_ifrac(k) - vegn_drip_s(k)
+                DEsiDTv(k) = 0.0;  DEsiDqc(k) = 0.0
+                DEsiDwl(k) = 0.0;  DEsiDwf(k) = 0.0
+             endif
+           enddo
+        endif
+        if (.not.redo_leaf_water) exit ! from loop
+     enddo ! canopy_water_step
+     call check_var_range(delta_Tv,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tv', WARNING)
+     call check_var_range(delta_Tg,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tg', WARNING)
+
+     if (.not.improve_lw_derivatives) exit ! from loop
+     if (all(delta_Tv<lw_delta_T_thresh).and.delta_Tg<lw_delta_T_thresh) exit ! from loop
+     ! otherwise redo longwave radiation calculations with new values of delta_Tv, delta_Tg 
+     ! to get better approximation of long-wave radiation derivatives.
+  enddo ! lw_step
 
   ! [*] start of step_2 updates
   ! update canopy air temperature and specific humidity
@@ -2629,7 +2646,7 @@ end subroutine land_surface_energy_balance
 ! given downward long-wave flux from the atmosphere, and optical properties
 ! of vegetation and ground surface, calculates radiative balances of canopy
 ! layers and ground surface, and their derivatives w.r.t. temperatures
-subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, surf_T, &
+subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, vegn_dT, surf_T, surf_dT, &
   vegn_tran_lw, vegn_refl_lw, surf_refl_lw, &
   flwv, flwg, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg )
 
@@ -2637,7 +2654,9 @@ subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, surf_T, &
   integer, intent(in) :: layer(:) ! layer number for cohort, top-down
   real, intent(in) :: frac(:)   ! fractional crown area of cohorts
   real, intent(in) :: vegn_T(:) ! canopy temperatures, deg K
+  real, intent(in) :: vegn_dT(:)! expected change of canopy temperatures during this time step, deg K
   real, intent(in) :: surf_T    ! ground surface temperature, deg K
+  real, intent(in) :: surf_dT   ! expected change of ground surface temperature during this time step, deg K
   real, intent(in) :: vegn_tran_lw(:) ! transmittance of cohort canopies to long-wave radiation
   real, intent(in) :: vegn_refl_lw(:) ! reflectance of cohort canopies to long-wave radiation
   real, intent(in) :: surf_refl_lw ! reflectance of ground surface to long-wave
@@ -2751,7 +2770,7 @@ subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, surf_T, &
      ! for other layers w.r.t k-th temperature due to linearity of the system.
      ! See radiation notes (end of multi-layer long-wave flux section) for
      ! details.
-     bbrad(:) = 0 ; bbrad(k)    = 4*stefan*vegn_emis_lw(k)*vegn_T(k)**3
+     bbrad(:) = 0 ; bbrad(k)    = 4*stefan*vegn_emis_lw(k)*(vegn_T(k)+0.5*vegn_dT(k))**3
      B(:)     = 0 ; B(layer(k)) = bbrad(k)*frac(k)
      ! recalculate integral emission for "surrogate emissions"
      emis(N) = 0.0
@@ -2776,7 +2795,7 @@ subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, surf_T, &
   ! w.r.t. ground temperature
   ! surrogate "emission" for the ground
   bbrad(:)= 0 ; B(:) = 0
-  emis(N) = 4*stefan*surf_emis_lw*surf_T**3
+  emis(N) = 4*stefan*surf_emis_lw*(surf_T+0.5*surf_dT)**3
   do i = N,1,-1
      emis(i-1) = B(i) + layer_tran_lw(i)*(emis(i)+B(i)*refl(i))*scale(i)
   enddo
