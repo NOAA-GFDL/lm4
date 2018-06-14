@@ -834,7 +834,7 @@ subroutine add_extra_cohorts()
         cc%status  = LEAF_ON
 
         call init_cohort_allometry_ppa(cc, extra_cohort_height(n), extra_cohort_nsc_frac(n), extra_cohort_nsn_frac(n))
-        call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
+        call init_cohort_hydraulics(cc, tile%soil%pars%psi_sat_ref) ! adam wolf
         cc%DBH_ys = cc%dbh
         cc%BM_ys  = cc%bsw + cc%bwood
 
