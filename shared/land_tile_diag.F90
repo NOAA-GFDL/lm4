@@ -839,7 +839,7 @@ subroutine send_tile_data_1d(id, x, buffer)
 #endif
 
   ! store the data
-  buffer%data(is:ie) = x(:)
+  buffer%data(is:ie) = x(1:(ie-is+1))
   buffer%mask(is:ie) = .TRUE.
 
   ! increment sent data counter
