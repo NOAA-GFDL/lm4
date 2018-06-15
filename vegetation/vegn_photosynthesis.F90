@@ -956,17 +956,17 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
 
      ! do forward elimination
      gamma_r = DuxDpr - DurDpr
-     if (gamma_r .ge. TINY(gamma_r)) gamma_r = 1.0/gamma_r
+     if(abs(gamma_r) .ge. TINY(abs(gamma_r))) gamma_r = 1.0/gamma_r
      ar = (ur0-ux0)*gamma_r
      br = -gamma_r*DuxDpx
 
      gamma_x = DulDpx - DuxDpx - br*DuxDpr
-     if (gamma_x .ge. TINY(gamma_x)) gamma_x = 1.0/gamma_x
+     if(abs(gamma_x) .ge. TINY(abs(gamma_x))) gamma_x = 1.0/gamma_x
      ax = (ux0-ul0+ar*DuxDpr)*gamma_x
      bx = -gamma_x*DulDpl
 
      gamma_l = DetDpl - DulDpl - bx*DulDpx
-     if(gamma_l .ge. TINY(gamma_l)) then
+     if(abs(gamma_l) .ge. TINY(abs(gamma_l))) then
         gamma_l = 1.0/gamma_l
      else
         ! this happened at least once due to precision loss
