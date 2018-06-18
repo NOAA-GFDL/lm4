@@ -167,12 +167,11 @@ logical :: prohibit_negative_canopy_water = .TRUE. ! if true, the solution of en
               ! balance is iterated (at most max_canopy_water_steps) to ensure
               ! water and snow on leaves do not go negative
 integer :: max_canopy_water_steps = 2
-logical :: improve_lw_derivatives = .FALSE.
-real    :: lw_delta_T_thresh = 25.0 ! temperature change during time step that 
+real    :: lw_delta_T_thresh = 1.0e36 ! temperature change during time step that
               ! triggers recalculation of longwave radiation derivatives for improvement
-              ! of linearization. Note that linearization around temperature at the start
+              ! of its linearization. Note that linearization around temperature at the start
               ! if time step leads to LW emission underestimate of about 20 W/m2 at
-              ! delta_T = 25K
+              ! delta_T = 25K. Huge default value turns LW linearization improvement off
 character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
@@ -210,7 +209,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           cpw, clw, csw, min_sum_lake_frac, min_frac, &
                           gfrac_tol, discharge_tol, &
                           improve_solution, solution_tol, max_improv_steps, &
-                          improve_lw_derivatives, lw_delta_T_thresh, &
+                          lw_delta_T_thresh, &
                           con_fac_large, con_fac_small, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
@@ -840,9 +839,9 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
      ! do the renormalization again
      factor = sum(soil)+sum(glac)+sum(lake)
      if(factor>0)then
-	glac = glac/factor
-	lake = lake/factor
-	soil = soil/factor
+        glac = glac/factor
+        lake = lake/factor
+        soil = soil/factor
      endif
   endif
 
@@ -1978,12 +1977,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         endif
         if (.not.redo_leaf_water) exit ! from loop
      enddo ! canopy_water_step
-     call check_var_range(delta_Tv,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tv', WARNING)
-     call check_var_range(delta_Tg,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tg', WARNING)
-
-     if (.not.improve_lw_derivatives) exit ! from loop
+     ! call check_var_range(delta_Tv,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tv', WARNING)
+     ! call check_var_range(delta_Tg,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tg', WARNING)
      if (all(delta_Tv<lw_delta_T_thresh).and.delta_Tg<lw_delta_T_thresh) exit ! from loop
-     ! otherwise redo longwave radiation calculations with new values of delta_Tv, delta_Tg 
+     ! otherwise redo longwave radiation calculations with new values of delta_Tv, delta_Tg
      ! to get better approximation of long-wave radiation derivatives.
   enddo ! lw_step
 
@@ -2189,7 +2186,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
   if(calc_carbon_cons) then
      ! BNS: This will likely fail if DOC river tracer is not present and running in CORPSE mode with C_leaching_solubility>0
-     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time 
+     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time
      if (i_river_DOC/=NO_TRACER) &
          v0 = v0 - subs_tr_runf(i_river_DOC)*delta_time
      cmass1 = land_tile_carbon(tile)
@@ -3019,7 +3016,7 @@ subroutine land_sw_radiation (     &
         write(*,*)
      enddo
      deallocate(layerfrac)
-     
+
      call debug_rad_properties(BAND_VIS,'(VIS)')
      call debug_rad_properties(BAND_NIR,'(NIR)')
   endif
