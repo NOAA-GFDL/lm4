@@ -82,7 +82,7 @@ character(len=*), parameter :: module_name = 'soil_carbon_mod'
 
 ! names of the carbon types, for i/o
 character(len=12), parameter :: &
-    c_shortname(N_C_TYPES) = [ 'fast        ', 'slow        ', 'deadmic     ' ], & ! for restart field names 
+    c_shortname(N_C_TYPES) = [ 'fast        ', 'slow        ', 'deadmic     ' ], & ! for restart field names
     c_longname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dead microbe' ], & ! for long names
     c_diagname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dmic        ' ]    ! for diag field names
 
@@ -151,6 +151,8 @@ type soil_pool
     real :: nitrif   = 0.0, denitrif = 0.0
 
     ! bookkeeping variables for soil carbon acceleration
+    ! represent evolution of X (C or N) pool derivative as simple linear equation:
+    !     dX/dt = input - turnover*X
     real, dimension(N_C_TYPES) :: &
        C_in           = 0.0, N_in           = 0.0, & ! accumulated inputs
        protected_C_in = 0.0, protected_N_in = 0.0, & ! accumulated protected inputs
@@ -1886,97 +1888,70 @@ subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
     enddo
 end subroutine add_C_N_to_rhizosphere
 
+! moves specified amount of substance from source to destination
+elemental subroutine move(src,dst,amount)
+  real, intent(inout) :: src
+  real, intent(inout) :: dst
+  real, intent(in)    :: amount
+
+  src = src - amount
+  dst = dst + amount
+end subroutine move
 
 
 ! Remove a fraction of carbon from all cohorts.  For processes like leaching and bioturbation
-subroutine remove_C_N_fraction_from_pool(pool,fractionC,fractionN,litterC_removed,protectedC_removed,liveMicrobeC_removed,&
-        litterN_removed,protectedN_removed,liveMicrobeN_removed,&
-        C_litterMobility,C_protectedMobility,N_litterMobility,N_protectedMobility,&
+subroutine remove_C_N_fraction_from_pool(pool, fractionC, fractionN, &
+        litterC_removed, protectedC_removed, liveMicrobeC_removed, &
+        litterN_removed, protectedN_removed, liveMicrobeN_removed, &
+        C_litterMobility, C_protectedMobility, &
+        N_litterMobility, N_protectedMobility, &
         livingMicrobeMobility)
-    type(soil_pool),intent(inout) :: pool
-    real,intent(in)  :: fractionC,fractionN
-    real,intent(out) :: litterC_removed(N_C_TYPES),protectedC_removed(N_C_TYPES),liveMicrobeC_removed
-    real,intent(out) :: litterN_removed(N_C_TYPES),protectedN_removed(N_C_TYPES),liveMicrobeN_removed
-    real,intent(in), optional :: C_litterMobility(N_C_TYPES),C_protectedMobility,N_litterMobility(N_C_TYPES),N_protectedMobility,livingMicrobeMobility
+  type(soil_pool),intent(inout) :: pool
+  real,intent(in)  :: fractionC,fractionN
+  real,intent(out) :: litterC_removed(N_C_TYPES),protectedC_removed(N_C_TYPES),liveMicrobeC_removed
+  real,intent(out) :: litterN_removed(N_C_TYPES),protectedN_removed(N_C_TYPES),liveMicrobeN_removed
+  real,intent(in), optional :: C_litterMobility(N_C_TYPES),C_protectedMobility,N_litterMobility(N_C_TYPES),N_protectedMobility,livingMicrobeMobility
 
-    integer::ii
-    real::temp,temp2(N_C_TYPES)
-    real::C_litterFactor(N_C_TYPES),N_litterFactor(N_C_TYPES),C_protectedFactor,N_protectedFactor,liveMicrobeFactor
+  integer :: i
+  real :: C_litt_f(N_C_TYPES), N_litt_f(N_C_TYPES), C_prot_f, N_prot_f, lmic_f
 
-    C_litterFactor=1.0
-    C_protectedFactor=1.0
-    N_litterFactor=1.0
-    N_protectedFactor=1.0
-    liveMicrobeFactor=1.0
+  ! sanity checks
+  call check_var_range(fractionC, 0.0, 1.0, 'remove_C_N_fraction_from_pool', 'fractionC', FATAL)
+  call check_var_range(fractionN, 0.0, 1.0, 'remove_C_N_fraction_from_pool', 'fractionN', FATAL)
 
-    IF (present(C_litterMobility)) C_litterFactor=C_litterMobility
-    IF (present(C_protectedMobility)) C_protectedFactor=C_protectedMobility
-    IF (present(N_litterMobility)) N_litterFactor=N_litterMobility
-    IF (present(N_protectedMobility)) N_protectedFactor=N_protectedMobility
-    IF (present(livingMicrobeMobility)) liveMicrobeFactor=livingMicrobeMobility
+  C_litt_f(:)=1.0 ; C_prot_f=1.0
+  N_litt_f(:)=1.0 ; N_prot_f=1.0
+  lmic_f=1.0
 
-    if(fractionC>1.0) call error_mesg('remove_C_N_fraction_from_pool','fractionC > 1.0',FATAL)
-    if(fractionN>1.0) call error_mesg('remove_C_N_fraction_from_pool','fractionN > 1.0',FATAL)
+  IF (present(C_litterMobility))    C_litt_f(:)    = C_litterMobility(:)
+  IF (present(N_litterMobility))    N_litt_f(:)    = N_litterMobility(:)
+  IF (present(C_protectedMobility)) C_prot_f       = C_protectedMobility
+  IF (present(N_protectedMobility)) N_prot_f       = N_protectedMobility
+  IF (present(livingMicrobeMobility)) lmic_f  = livingMicrobeMobility
 
+  litterC_removed(:)=0.0 ; protectedC_removed(:)=0.0 ; liveMicrobeC_removed=0.0
+  litterN_removed(:)=0.0 ; protectedN_removed(:)=0.0 ; liveMicrobeN_removed=0.0
 
-    litterC_removed=0.0
-    protectedC_removed=0.0
-    liveMicrobeC_removed=0.0
-    litterN_removed=0.0
-    protectedN_removed=0.0
-    liveMicrobeN_removed=0.0
-
-    IF(allocated(pool%litterCohorts)) THEN
-       DO ii=1,pool%n_cohorts
-         if(.NOT. check_cohort(pool%litterCohorts(ii))) then
-             print *,'Invalid cohort:'
-             call print_cohort(pool%litterCohorts(ii))
-             call error_mesg('remove_C_N_fraction_from_pool','cohort invalid (before)',FATAL)
+  if (allocated(pool%litterCohorts)) then
+     associate(cc=>pool%litterCohorts)
+     do i=1,pool%n_cohorts
+         ! Carbon
+        call move(cc(i)%litterC(:),     litterC_removed(:),    cc(i)%litterC(:)     * fractionC*C_litt_f)
+        call move(cc(i)%protectedC(:),  protectedC_removed(:), cc(i)%protectedC(:)  * fractionC*C_prot_f)
+        call move(cc(i)%livingMicrobeC, liveMicrobeC_removed,  cc(i)%livingMicrobeC * fractionC*lmic_f)
+         ! Nitrogen
+        if (soil_carbon_option == SOILC_CORPSE_N) then
+           call move(cc(i)%litterN(:),     litterN_removed(:),    cc(i)%litterN(:)     * fractionN*N_litt_f)
+           call move(cc(i)%protectedN(:),  protectedN_removed(:), cc(i)%protectedN(:)  * fractionN*N_prot_f)
+           call move(cc(i)%livingMicrobeN, liveMicrobeN_removed,  cc(i)%livingMicrobeN * fractionN*lmic_f)
+        endif
+     enddo
+     end associate ! cc
          endif
-           ! Carbon
-           temp2=pool%litterCohorts(ii)%litterC*min(1.0,fractionC)*C_litterFactor
-           litterC_removed=litterC_removed+temp2
-           pool%litterCohorts(ii)%litterC=pool%litterCohorts(ii)%litterC-temp2
-
-           temp2=pool%litterCohorts(ii)%protectedC*min(1.0,fractionC)*C_protectedFactor
-           protectedC_removed=protectedC_removed+temp2
-           pool%litterCohorts(ii)%protectedC=pool%litterCohorts(ii)%protectedC-temp2
-
-           temp=pool%litterCohorts(ii)%livingMicrobeC*min(1.0,fractionC)*liveMicrobeFactor
-           liveMicrobeC_removed=liveMicrobeC_removed+temp
-           pool%litterCohorts(ii)%livingMicrobeC=pool%litterCohorts(ii)%livingMicrobeC-temp
-
-           ! Nitrogen
-           if(soil_carbon_option == SOILC_CORPSE_N) THEN
-               temp2=pool%litterCohorts(ii)%litterN*min(1.0,fractionN)*N_litterFactor
-               litterN_removed=litterN_removed+temp2
-               pool%litterCohorts(ii)%litterN=pool%litterCohorts(ii)%litterN-temp2
-
-               temp2=pool%litterCohorts(ii)%protectedN*min(1.0,fractionN)*N_protectedFactor
-               protectedN_removed=protectedN_removed+temp2
-               pool%litterCohorts(ii)%protectedN=pool%litterCohorts(ii)%protectedN-temp2
-
-               temp=pool%litterCohorts(ii)%livingMicrobeN*min(1.0,fractionN)*liveMicrobeFactor
-               liveMicrobeN_removed=liveMicrobeN_removed+temp
-               pool%litterCohorts(ii)%livingMicrobeN=pool%litterCohorts(ii)%livingMicrobeN-temp
-           ELSE
-               litterN_removed=0.0
-               protectedN_removed=0.0
-               liveMicrobeN_removed=0.0
-           ENDIF
-           if(.NOT. check_cohort(pool%litterCohorts(ii))) then
-               print *,'Invalid cohort:'
-               call print_cohort(pool%litterCohorts(ii))
-               __DEBUG2__(fractionC,fractionN)
-               call error_mesg('remove_C_N_fraction_from_pool','cohort invalid (after)',FATAL)
-           endif
-       ENDDO
-    ENDIF
-    pool%C_in(:) = pool%C_in(:) - litterC_removed(:)
-    pool%N_in(:) = pool%N_in(:) - litterN_removed(:)
-    pool%protected_C_in(:) = pool%protected_C_in(:) - protectedC_removed(:)
-    pool%protected_N_in(:) = pool%protected_N_in(:) - protectedN_removed(:)
-
+  pool%C_in(:) = pool%C_in(:) - litterC_removed(:)
+  pool%N_in(:) = pool%N_in(:) - litterN_removed(:)
+  pool%protected_C_in(:) = pool%protected_C_in(:) - protectedC_removed(:)
+  pool%protected_N_in(:) = pool%protected_N_in(:) - protectedN_removed(:)
 end subroutine remove_C_N_fraction_from_pool
 
 
