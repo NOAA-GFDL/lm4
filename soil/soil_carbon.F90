@@ -459,18 +459,15 @@ subroutine deposit_dissolved_C(pool)
 end subroutine deposit_dissolved_C
 
 
-subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_water,dt,layerThickness,&
+subroutine update_pool(pool,T,theta,air_filled_porosity,dt,layerThickness,&
             C_loss_rate, N_loss_rate, CO2prod, &
-            deadmic_C_produced,deadmic_N_produced,&
-            protected_C_produced,protected_N_produced,&
-            protected_turnover_rate,protected_N_turnover_rate,&
             nitrification,denitrification,N_mineralization,N_immobilization,&
             badCohort)
     type(soil_pool), intent(inout)::pool
-    real,intent(in)  ::T,theta,dt,air_filled_porosity,liquid_water,frozen_water,layerThickness
+    real,intent(in)  ::T,theta,dt,air_filled_porosity,layerThickness
     real,intent(out) :: C_loss_rate(N_C_TYPES), N_loss_rate(N_C_TYPES) ! loss rates for C and N per time step
     real,intent(out) :: CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
-    real,intent(out) :: protected_C_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),&
+    real :: protected_C_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),&
         protected_turnover_rate(N_C_TYPES),protected_N_turnover_rate(N_C_TYPES),deadmic_C_produced,deadmic_N_produced
     integer, intent(out), optional::badCohort
     ! dt is in years!
