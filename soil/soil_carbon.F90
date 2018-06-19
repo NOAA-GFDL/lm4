@@ -475,10 +475,10 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
 
   integer :: n
 
-  real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),temp_protected(N_C_TYPES),temp_N_protected(N_C_TYPES),&
+  real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),&
           tempCO2,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
           Prate_limited_C(N_C_TYPES),Prate_limited_N(N_C_TYPES),&
-          temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
+          tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
 
   real :: cohortVolume! xz
   real :: nitrif, Denitrif! xz
@@ -516,10 +516,9 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
                      air_filled_porosity=max(air_filled_porosity,0.0),&
                      protection_rate=Prate_limited_C,protection_rate_N=Prate_limited_N,&
                      dt=dt,&
-                     totalResp=tempresp,totalN_decomposed=temp_N_decomposed,deadmic_C_produced=temp_deadmic_C,deadmic_N_produced=temp_deadmic_N,&
-                     protected_produced=temp_protected,protected_N_produced=temp_N_protected,&
+                     totalResp=tempresp,totalN_decomposed=temp_N_decomposed,&
                      protected_turnover_rate=temp_protected_turnover_rate,protected_N_turnover_rate=temp_protected_N_turnover_rate,&
-                     CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif,livemic_C_produced=temp_livemic_C,livemic_N_produced=temp_livemic_N)
+                     CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif)
 
      C_loss_rate=C_loss_rate+tempresp
      N_loss_rate=N_loss_rate+temp_N_decomposed
@@ -586,22 +585,35 @@ end subroutine update_pool
 
 
 ! Do litter respiration and microbial turnover for one litter cohort
-subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled_porosity,protection_rate,protection_rate_N,dt,&
-        totalResp,deadmic_C_produced,deadmic_N_produced,protected_produced,protected_N_produced,&
-        protected_turnover_rate,protected_N_turnover_rate,CO2prod,totalN_decomposed,IMM_Nprod,MINERAL_prod,denitrif,livemic_C_produced,livemic_N_produced) ! xz
-    type(litterCohort),intent(inout)::cohort
-    real,intent(out)::totalResp(N_C_TYPES),CO2prod,protected_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),protected_turnover_rate(N_C_TYPES), &
-        protected_N_turnover_rate(N_C_TYPES),deadmic_C_produced,deadmic_N_produced,IMM_Nprod,MINERAL_prod,denitrif,livemic_C_produced,livemic_N_produced
-    real,intent(in)::cohortVolume,T,theta,dt,protection_rate(N_C_TYPES),protection_rate_N(N_C_TYPES) ! Temperature, volumetric water content, delta time
-    real,intent(in)::air_filled_porosity
-    real,intent(inout)::nitrate, ammonium
+subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_filled_porosity, &
+        protection_rate, protection_rate_N, dt, &
+        ! output
+        totalResp, &
+        protected_turnover_rate, protected_N_turnover_rate, CO2prod, totalN_decomposed, &
+        IMM_Nprod, MINERAL_prod, denitrif) ! xz
+  type(litterCohort), intent(inout) :: cohort
+  real,intent(inout) :: nitrate, ammonium
+  real,intent(in) :: &
+     cohortVolume,        &
+     T,                   & ! temperature, K
+     theta,               & ! soil moisture
+     air_filled_porosity, & ! m3/m3
+     protection_rate(N_C_TYPES), protection_rate_N(N_C_TYPES), &
+     dt                     ! time step, years
+  real,intent(out) :: &
+     totalResp(N_C_TYPES), &
+     totalN_decomposed(N_C_TYPES), &
+     protected_turnover_rate(N_C_TYPES), protected_N_turnover_rate(N_C_TYPES), &
+     CO2prod, &
+     IMM_Nprod,MINERAL_prod,denitrif
+
     real::frac_nitrate,frac_ammonium
 
+    real :: deadmic_C_produced, deadmic_N_produced, livemic_C_produced, livemic_N_produced
     real::microbeTurnover,temp_C_microbes,CN_imbalance_term,temp_N_microbes
     real::potential_tempResp(N_C_TYPES),tempResp(N_C_TYPES)
     real,dimension(N_C_TYPES)::protectedCTurnover,newProtectedC,protectedNturnover,newProtectedN
 
-    real::totalN_decomposed(N_C_TYPES)
     real::pot_tempN_decomposed(N_C_TYPES), potential_N_decomp(N_C_TYPES),tempN_decomposed(N_C_TYPES)
     real::denitrif_NO3_demand ! kgN/m2/year
     real,dimension(N_C_TYPES):: denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
@@ -820,54 +832,13 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         endif
 
         ! !Check for validity of C/N
-        IF(cohort%livingMicrobeN<0) then
-            print *,'et',et
-            print *,'microbeTurnover',microbeTurnover*dt
-            print *,'microbeTurnover_N',microbeTurnover*et/CN_microb*dt
-            print *,'CN_imbalance_term',CN_imbalance_term
-            print *,'N_LIM_STATE', N_LIM_STATE
-            print *,'N supply',dt*nitrogen_supply
-            print *,'livemic_N_produced',livemic_N_produced
-            print *,'carbon_supply',carbon_supply
-            print *,'maintenance_resp',maintenance_resp
-            print *,'dN for live microb N',dt*(sum(mup*tempN_decomposed)-CN_imbalance_term-(microbeTurnover*et)/CN_microb)
-            print *,'theta',theta
-            print *,'T',T
-            print *,'IMM_max',cohort%IMM_N_max
-            print *,'ammonium',ammonium
-            print *,'nitrate',nitrate
-            print *,'Live microbe N',cohort%livingMicrobeN
-            print *,'Immobilized inorganic N',cohort%IMM_N_gross*dt
-            print *,'Mineralized organic N',cohort%MINER_gross*dt
-            print *,'Denitrified NO3',denitrif_NO3_demand
-            print *,'Denitrification resp',denitrif_Resp
-            print *,'Previous microbe N',temp_N_microbes
-            print *,'Previous microbe C',temp_C_microbes
-            print *,'dt',dt
-            print *,'Live microbe C',cohort%livingMicrobeC
-
-            call print_cohort(cohort)
-            call error_mesg('update_cohort','Microbe N < 0',FATAL)
-        ENDIF
+        call check_var_range(cohort%livingMicrobeC,0.0,HUGE(1.0),'update_cohort','cohort%livingMicrobeC',FATAL)
+        call check_var_range(cohort%livingMicrobeN,0.0,HUGE(1.0),'update_cohort','cohort%livingMicrobeN',FATAL)
 
         if(cohort%livingMicrobeN>1d-8) then
-           IF(abs((cohort%livingMicrobeC/cohort%livingMicrobeN)-CN_microb).ge.1d-5)THEN
-               WRITE(*,*)'The fix C/N microbial ratio is not respected after the decomposition processes'
-               write(*,*)'C/N',cohort%livingMicrobeC/cohort%livingMicrobeN
-               call print_cohort(cohort)
-               call error_mesg('update_cohort','Microbe C:N not preserved',FATAL)
-           ENDIF
+           call check_var_range(cohort%livingMicrobeC/cohort%livingMicrobeN,  &
+                          CN_microb-1e-5, CN_microb+1e5, 'update_cohort', 'living microbe C:N ratio',       FATAL)
         endif
-
-        IF(cohort%livingMicrobeC<0) then
-            print *,'Live microbe C',cohort%livingMicrobeC
-            print *,'Respired C',tempResp*dt
-            print *,'microbe turnover',dt*microbeTurnover
-            print *,'Previous microbe C',temp_C_microbes
-            print *,'dt',dt
-            call print_cohort(cohort)
-            call error_mesg('update_cohort','Microbe C < 0',FATAL)
-        ENDIF
 
         deadmic_C_produced=dt*microbeTurnover*et
         cohort%litterC(3)=cohort%litterC(3)+deadmic_C_produced*(1.0-deadmic_slow_frac)! kg/m2
@@ -885,39 +856,8 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
             cohort%IMM_N_gross=-CN_imbalance_term
             cohort%MINER_gross=sum((1-mup)*tempN_decomposed)
         ENDIF
-
-
-        if(cohort%IMM_N_gross<0.0 .OR. cohort%MINER_gross<0.0) then
-            print *,'Immob',cohort%IMM_N_gross
-            print *,'Mineralization',cohort%MINER_gross
-
-            print *,'et',et
-            print *,'microbeTurnover',microbeTurnover*dt
-            print *,'microbeTurnover_N',microbeTurnover*et/CN_microb*dt
-            print *,'CN_imbalance_term',CN_imbalance_term
-            print *,'N_LIM_STATE', N_LIM_STATE
-            print *,'N supply',dt*nitrogen_supply
-            print *,'livemic_N_produced',livemic_N_produced
-            print *,'carbon_supply',carbon_supply
-            print *,'maintenance_resp',maintenance_resp
-            print *,'dN for live microb N',dt*(sum(mup*tempN_decomposed)-CN_imbalance_term-(microbeTurnover*et)/CN_microb)
-            print *,'theta',theta
-            print *,'T',T
-            print *,'IMM_max',cohort%IMM_N_max
-            print *,'ammonium',ammonium
-
-            print *,'nitrate',nitrate
-            print *,'Live microbe N',cohort%livingMicrobeN
-            print *,'Immobilized inorganic N',cohort%IMM_N_gross*dt
-            print *,'Mineralized organic N',cohort%MINER_gross*dt
-            print *,'Previous microbe N',temp_N_microbes
-            print *,'Previous microbe C',temp_C_microbes
-            print *,'dt',dt
-            print *,'Live microbe C',cohort%livingMicrobeC
-
-            call print_cohort(cohort)
-            call error_mesg('update_cohort','N Min < 0 or N immob < 0',FATAL)
-        endif
+        call check_var_range(cohort%IMM_N_gross,0.0,HUGE(1.0),'update_cohort','cohort%IMM_N_gross',FATAL)
+        call check_var_range(cohort%MINER_gross,0.0,HUGE(1.0),'update_cohort','cohort%MINER_gross',FATAL)
 
         ! This includes denitrification resp added above
         CO2prod=dt*(sum(tempResp*(1.0-eup))+microbeTurnover*(1.0-et)+overflow_resp) ! kg/m2
@@ -968,15 +908,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
 
         CO2prod=dt*(sum(tempResp*(1.0-eup))+microbeTurnover*(1.0-et))
 
-        IF(cohort%livingMicrobeC<0) then
-            print *,'Live microbe C',cohort%livingMicrobeC
-                print *,'Respired C',tempResp*dt
-            print *,'microbe turnover',dt*microbeTurnover
-                print *,'Previous microbe C',temp_C_microbes
-            print *,'dt',dt
-            call print_cohort(cohort)
-            call error_mesg('update_cohort','Microbe C < 0',FATAL)
-        ENDIF
+        call check_var_range(cohort%livingMicrobeC,0.0,HUGE(1.0),'update_cohort','cohort%livingMicrobeC',FATAL)
 
         tempN_decomposed = 0.0
         cohort%IMM_N_gross=0.0
@@ -1027,7 +959,6 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     cohort%protectedC = cohort%protectedC + newProtectedC - dt*protectedCturnover
     cohort%litterC = cohort%litterC - newProtectedC + dt*protectedCturnover
 
-    protected_produced=newProtectedC
     protected_turnover_rate=protectedCturnover
 
     IF(soil_carbon_option == SOILC_CORPSE_N) THEN
@@ -1046,10 +977,8 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         cohort%protectedN = cohort%protectedN + newProtectedN - dt*protectedNturnover
         cohort%litterN = cohort%litterN - newProtectedN + dt*protectedNturnover
 
-        protected_N_produced=newProtectedN  ! kg/m2
         protected_N_turnover_rate=protectedNturnover  ! kg/m2/year
     ELSE
-        protected_N_produced=0.0
         protected_N_turnover_rate=0.0
     ENDIF
 
