@@ -3152,7 +3152,6 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      A  ! decomp rate reduction due to moisture and temperature
   real, dimension(num_l,N_C_TYPES) :: C_loss_rate, N_loss_rate
 
-  integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
   integer :: i,k
   real :: CO2prod
 
@@ -3170,13 +3169,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             dt=dt_fast_yr,layerThickness=dz(1),&
             C_loss_rate=litter_C_loss_rate, CO2prod=CO2prod, &
             N_loss_rate=litter_N_loss_rate, &
-            badCohort=badCohort,&
             nitrification=litter_nitrif(k), denitrification=litter_denitrif(k),&
             N_mineralization=litter_N_mineralization(k), N_immobilization=Litter_N_immobilization(k))
-     IF (badCohort.ne.0) THEN
-        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
-        call land_error_message('Dsdt: Found bad cohort in '//trim(l_longname(k))//' litter.',FATAL)
-     ENDIF
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
      ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers
      ! for litter diagnostic output.
@@ -3199,14 +3193,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
                 C_loss_rate=C_loss_rate(k,:), &
                 CO2prod=CO2prod, &
                 N_loss_rate=N_loss_rate(k,:), &
-                badCohort=badCohort,&
                 nitrification=soil_nitrif(k),denitrification=soil_denitrif(k),&
                 N_mineralization=soil_N_mineralization(k),N_immobilization=soil_N_immobilization(k))
-    IF (badCohort.ne.0) THEN
-        WRITE (*,*) 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
-        call land_error_message('Dsdt: Found bad cohort in layer'//trim(string(k))//' of soil carbon.',FATAL)
-    ENDIF
-
     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
   enddo
   do i = 1, N_C_TYPES

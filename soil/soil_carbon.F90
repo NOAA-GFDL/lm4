@@ -394,8 +394,6 @@ subroutine dissolve_carbon(pool,theta)
   real :: C_dissolved(N_C_TYPES),protectedC_dissolved(N_C_TYPES),livemicrobeC_dissolved
   real :: N_dissolved(N_C_TYPES),protectedN_dissolved(N_C_TYPES),livemicrobeN_dissolved
 
-  integer :: k ! cohort iterator, for debug only
-
   if (theta <= 0.0) return ! do nothing if water in not positive
 
   C_dissolution_rate=C_leaching_solubility*theta
@@ -459,188 +457,132 @@ subroutine deposit_dissolved_C(pool)
 end subroutine deposit_dissolved_C
 
 
-subroutine update_pool(pool,T,theta,air_filled_porosity,dt,layerThickness,&
+! ======================================================================================
+subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, &
+            ! output
             C_loss_rate, N_loss_rate, CO2prod, &
-            nitrification,denitrification,N_mineralization,N_immobilization,&
-            badCohort)
-    type(soil_pool), intent(inout)::pool
-    real,intent(in)  ::T,theta,dt,air_filled_porosity,layerThickness
-    real,intent(out) :: C_loss_rate(N_C_TYPES), N_loss_rate(N_C_TYPES) ! loss rates for C and N per time step
-    real,intent(out) :: CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
-    real :: protected_C_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),&
-        protected_turnover_rate(N_C_TYPES),protected_N_turnover_rate(N_C_TYPES),deadmic_C_produced,deadmic_N_produced
-    integer, intent(out), optional::badCohort
-    ! dt is in years!
+            nitrification, denitrification, N_mineralization, N_immobilization)
+  type(soil_pool), intent(inout):: pool ! carbon pool to update
+  real,intent(in)  :: &
+     T,                   & ! temperature, K
+     theta,               & ! soil moisture
+     dt,                  & ! time step, years
+     air_filled_porosity, & ! porosity, m3/m3
+     layerThickness         ! layer thickness, m
+  real, intent(out) :: C_loss_rate(N_C_TYPES), N_loss_rate(N_C_TYPES) ! loss rates for C and N per time step
+  real, intent(out) :: CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
 
-    integer::n
+  real :: protected_turnover_rate(N_C_TYPES), protected_N_turnover_rate(N_C_TYPES)
 
-    real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),temp_protected(N_C_TYPES),temp_N_protected(N_C_TYPES),&
-            tempCO2,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
-            Prate_limited(N_C_TYPES),Prate_limited_N(N_C_TYPES),prevC(N_C_TYPES),prevN(N_C_TYPES),&
-            temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
+  integer :: n
 
-    real :: cohortVolume! xz
-    real :: nitrif, Denitrif! xz
+  real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),temp_protected(N_C_TYPES),temp_N_protected(N_C_TYPES),&
+          tempCO2,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
+          Prate_limited_C(N_C_TYPES),Prate_limited_N(N_C_TYPES),&
+          temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
 
-    type(litterCohort) :: total
+  real :: cohortVolume! xz
+  real :: nitrif, Denitrif! xz
 
-!   if (is_watch_point()) then
-!      write(*,*)'##### update_pool input ####'
-!      __DEBUG4__(T,theta,dt,air_filled_porosity)
-!      __DEBUG3__(liquid_water,frozen_water,layerThickness)
-!      do n=1, pool%n_cohorts
-!          write(*,*) 'cohort ',n
-!          __DEBUG1__(pool%litterCohorts(n)%litterC)
-!          __DEBUG1__(pool%litterCohorts(n)%protectedC)
-!           __DEBUG1__(pool%litterCohorts(n)%CO2)
-!       enddo
-!    endif
+  type(litterCohort) :: total
 
-    C_loss_rate(:)=0.0
-    N_loss_rate(:)=0.0
-    CO2prod=0.0
-    protected_C_produced=0.0
-    protected_turnover_rate=0.0
-    nitrif=0.0! xz
-    denitrification=0.0
-    protected_N_produced=0.0
-    protected_N_turnover_rate=0.0
-    deadmic_C_produced=0.0
-    deadmic_N_produced=0.0
-    soil_IMM_N=0.0
-    soil_MINERAL=0.0
+  C_loss_rate(:)=0.0 ; protected_turnover_rate(:)=0.0
+  N_loss_rate(:)=0.0 ; protected_N_turnover_rate(:)=0.0
+  CO2prod=0.0
+  nitrif=0.0! xz
+  denitrification=0.0
 
+  soil_IMM_N=0.0
+  soil_MINERAL=0.0
 
-    if(present(badCohort)) badCohort=0
+  call check_var_range(pool%nitrate, -1e-11, HUGE(1.0), 'update_pool', 'nitrate',FATAL)
 
+  if(.NOT.allocated(pool%litterCohorts)) call add_litter(pool,zero,zero)
+  call cull_cohorts(pool)
 
-    if(pool%nitrate<-1e-11 .AND. soil_carbon_option == SOILC_CORPSE_N) THEN
-        call error_mesg('update_pool','Nitrate < 0',FATAL)
-    endif
+  ! Protection rate is multiplied by available space, so protected C does not exceed Pmax
+  ! However, the rate is not adjusted for each cohort, so it may go slightly above the pool Pmax
+  ! ---   Based on conversation with Melanie Mayes, I am changing this so Qmax affects the protected
+  ! ---   carbon formation rate rather than the maximum.
 
-    if(.NOT.allocated(pool%litterCohorts)) call add_litter(pool,zero,zero)
-    call cull_cohorts(pool)
+  Prate_limited_C = pool%protection_rate*protection_species*pool%Qmax
+  Prate_limited_N = pool%protection_rate_N*protection_species_N*pool%Qmax
 
+  ! How about this: non-mineralized C keeps volume based on estimated density
+  ! Volume of mineralized C is just capped at remaining layer volume, with the assumption that the mineralized portion
+  ! of volume for all cohorts just gets intermingled and does not need to sum to layer volume
+  do n=1,pool%n_cohorts
+     cohortVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
+     call update_cohort(cohort=pool%litterCohorts(n),nitrate=pool%nitrate,ammonium=pool%ammonium,cohortVolume=cohortVolume,T=T,theta=max(theta,0.0),&
+                     air_filled_porosity=max(air_filled_porosity,0.0),&
+                     protection_rate=Prate_limited_C,protection_rate_N=Prate_limited_N,&
+                     dt=dt,&
+                     totalResp=tempresp,totalN_decomposed=temp_N_decomposed,deadmic_C_produced=temp_deadmic_C,deadmic_N_produced=temp_deadmic_N,&
+                     protected_produced=temp_protected,protected_N_produced=temp_N_protected,&
+                     protected_turnover_rate=temp_protected_turnover_rate,protected_N_turnover_rate=temp_protected_N_turnover_rate,&
+                     CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif,livemic_C_produced=temp_livemic_C,livemic_N_produced=temp_livemic_N)
 
+     C_loss_rate=C_loss_rate+tempresp
+     N_loss_rate=N_loss_rate+temp_N_decomposed
 
-    ! Protection rate is multiplied by available space, so protected C does not exceed Pmax
-    ! However, the rate is not adjusted for each cohort, so it may go slightly above the pool Pmax
-    ! ---   Based on conversation with Melanie Mayes, I am changing this so Qmax affects the protected
-    ! ---   carbon formation rate rather than the maximum.
+     protected_turnover_rate=protected_turnover_rate+temp_protected_turnover_rate
+     protected_N_turnover_rate=protected_N_turnover_rate+temp_protected_N_turnover_rate
 
-    Prate_limited=pool%protection_rate*protection_species*pool%Qmax
-    Prate_limited_N=pool%protection_rate_N*protection_species_N*pool%Qmax
+     CO2prod=CO2prod+tempCO2
 
-    ! How about this: non-mineralized C keeps volume based on estimated density
-    ! Volume of mineralized C is just capped at remaining layer volume, with the assumption that the mineralized portion
-    ! of volume for all cohorts just gets intermingled and does not need to sum to layer volume
-!    if (is_watch_point()) then
-!       write(*,*) '##### update_pool outpt #####'
-!    endif
+     soil_MINERAL=soil_MINERAL+temp_MINERAL  ! xz kg/m2
+     soil_IMM_N=soil_IMM_N+tempIMM_N ! xz kg/m2
+     denitrification = denitrification + denitrif*dt ! kgN/m2
+  enddo
 
+  ! Xin had N uptake here.  I'm moving it to somewhere in vegetation
+  if (soil_carbon_option == SOILC_CORPSE_N) then
+     !!Nitrification and denitrification after updating all cohorts
+     !!!!!!!!!!!!!!xz Check to add N2O emission, change the gamma_nitr to account nitrogen lost during the nitrification and denitrification processes
+     nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber's paper(or LM3 code)   kg/m2
+     !      kg/m2       kg/m2         yr-1                                                                                      kg/m2         yr
+     pool%nitrif=pool%nitrif + nitrif!xz  --BNS: changed to cumulative
 
-    DO n=1,pool%n_cohorts
-        prevC=pool%litterCohorts(n)%litterC
-        prevN=pool%litterCohorts(n)%litterN
-        cohortVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
-        call update_cohort(cohort=pool%litterCohorts(n),nitrate=pool%nitrate,ammonium=pool%ammonium,cohortVolume=cohortVolume,T=T,theta=max(theta,0.0),&
-                        air_filled_porosity=max(air_filled_porosity,0.0),&
-                        protection_rate=Prate_limited,protection_rate_N=Prate_limited_N,&
-                        dt=dt,&
-                        totalResp=tempresp,totalN_decomposed=temp_N_decomposed,deadmic_C_produced=temp_deadmic_C,deadmic_N_produced=temp_deadmic_N,&
-                        protected_produced=temp_protected,protected_N_produced=temp_N_protected,&
-                        protected_turnover_rate=temp_protected_turnover_rate,protected_N_turnover_rate=temp_protected_N_turnover_rate,&
-                        CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif,livemic_C_produced=temp_livemic_C,livemic_N_produced=temp_livemic_N)
-        IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
-            if(present(badCohort)) badCohort=n
-            WRITE (*,*) 'UPDATE_POOL: Cohort',n,'of',pool%n_cohorts,'bad'
-            call print_cohort(pool%litterCohorts(n))
-            WRITE (*,*) 'Dissolved carbon =',pool%dissolved_carbon
-            WRITE (*,*) 'Latest respiration:',tempResp*dt
-            WRITE (*,*) 'Previous unprotected C:',prevC
-            WRITE (*,*) 'Previous unprotected N:',prevN
-            WRITE (*,*) 'Pool Nitrate:',pool%nitrate
-            WRITE (*,*) 'Pool ammonium:',pool%ammonium
-        ENDIF
+     pool%ammonium=pool%ammonium-nitrif!xz
+     pool%nitrate=pool%nitrate+gamma_nitr*nitrif!xz   gamma_nitr is set to 1 now.
+     ! Gaseous N losses are going to break N conservation unless we keep track of them
+     !!!!!!!!!!!!!!xz Check [end]
 
-        C_loss_rate=C_loss_rate+tempresp
-        N_loss_rate=N_loss_rate+temp_N_decomposed
+     !!!!!!!!!!!!!xz Denitrification; check with LM3 code; Currently the code only calculate the denitrification rate with Temperature, we might improve it by adding siol water content
+     !!!xz CH note: check the theta condition because the denitri may work differently from the rest of proccesses
+     if (denitrif_first_order) then
+         if (theta > denitrif_theta_min) then  !xz when the soil water content is higher than minimum soil water content(defined in the parameters), then dinitrification take a potential rate; otherwise it is 0
+            denitrif = min(pool%nitrate,Kdenitr(T)*pool%nitrate*dt)
+         else
+            denitrif = 0.0
+         endif
+         call check_var_range(denitrif, 0.0, HUGE(1.0), 'update_pool', 'denitrif',FATAL)
 
-        protected_C_produced=protected_C_produced+temp_protected
-        protected_N_produced=protected_N_produced+temp_N_protected
+         !!!!!!!!!!!!!xz update the pool
+         pool%nitrate=pool%nitrate-denitrif
 
-        protected_turnover_rate=protected_turnover_rate+temp_protected_turnover_rate
-        protected_N_turnover_rate=protected_N_turnover_rate+temp_protected_N_turnover_rate
+         denitrification=denitrif
+     endif
+     pool%denitrif=pool%denitrif+denitrif
 
-        deadmic_C_produced=deadmic_C_produced+temp_deadmic_C
-        deadmic_N_produced=deadmic_N_produced+temp_deadmic_N
+     nitrification=nitrif
+  else
+     nitrification=0.0
+     denitrification=0.0
+  endif
+  N_mineralization = soil_MINERAL
+  N_immobilization = soil_IMM_N
 
-        ! livemic_C_produced=livemic_C_produced+temp_livemic_C! kg/m2
-        ! livemic_N_produced=livemic_N_produced+temp_livemic_N  ! xz kg/m2
-
-        CO2prod=CO2prod+tempCO2
-
-        soil_MINERAL=soil_MINERAL+temp_MINERAL  ! xz kg/m2
-        soil_IMM_N=soil_IMM_N+tempIMM_N ! xz kg/m2
-        denitrification = denitrification + denitrif*dt ! kgN/m2
-
-!        if (is_watch_point()) then
-!           __DEBUG4__(cohortVolume,T,theta,air_filled_porosity)
-!           __DEBUG3__(Prate_limited,tempCO2,CO2prod)
-!        endif
-    ENDDO
-
-
-    ! Xin had N uptake here.  I'm moving it to somewhere in vegetation
-    if (soil_carbon_option == SOILC_CORPSE_N) then
-       !!Nitrification and denitrification after updating all cohorts
-       !!!!!!!!!!!!!!xz Check to add N2O emission, change the gamma_nitr to account nitrogen lost during the nitrification and denitrification processes
-       nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber's paper(or LM3 code)   kg/m2
-       !      kg/m2       kg/m2         yr-1                                                                                      kg/m2         yr
-       pool%nitrif=pool%nitrif + nitrif!xz  --BNS: changed to cumulative
-
-       pool%ammonium=pool%ammonium-nitrif!xz
-       pool%nitrate=pool%nitrate+gamma_nitr*nitrif!xz   gamma_nitr is set to 1 now.
-       ! Gaseous N losses are going to break N conservation unless we keep track of them
-       !!!!!!!!!!!!!!xz Check [end]
-
-       !!!!!!!!!!!!!xz Denitrification; check with LM3 code; Currently the code only calculate the denitrification rate with Temperature, we might improve it by adding siol water content
-       !!!xz CH note: check the theta condition because the denitri may work differently from the rest of proccesses
-       if (denitrif_first_order) then
-           if (theta > denitrif_theta_min) then  !xz when the soil water content is higher than minimum soil water content(defined in the parameters), then dinitrification take a potential rate; otherwise it is 0
-              denitrif = min(pool%nitrate,Kdenitr(T)*pool%nitrate*dt)
-              if(denitrif < 0.0) call error_mesg('update_pool','Denitrif < 0',FATAL)
-           else
-              denitrif = 0.0
-           endif
-
-           !!!!!!!!!!!!!xz update the pool
-           pool%nitrate=pool%nitrate-denitrif
-
-           denitrification=denitrif
-       endif
-       pool%denitrif=pool%denitrif+denitrif
-
-       nitrification=nitrif
-       N_mineralization = soil_MINERAL
-       N_immobilization = soil_IMM_N
-    else
-       nitrification=0.0
-       denitrification=0.0
-       N_mineralization = soil_MINERAL
-       N_immobilization = soil_IMM_N
-    endif
-
-    ! update turnover rates
-    total = totalPoolCohort(pool)
-    where (total%litterC(:)>0) &
-        pool%C_turnover(:) = pool%C_turnover(:)+C_loss_rate(:)/total%litterC(:)
-    where (total%litterN(:)>0) &
-        pool%N_turnover(:) = pool%N_turnover(:)+N_loss_rate(:)/total%litterN(:)
-    where (total%protectedC(:)>0) &
-        pool%protected_C_turnover(:) = pool%protected_C_turnover(:)+protected_turnover_rate(:)/total%protectedC(:)
-    where (total%protectedN(:)>0) &
-        pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+protected_N_turnover_rate(:)/total%litterN(:)
+  ! update turnover rates
+  total = totalPoolCohort(pool)
+  where (total%litterC(:)>0) &
+      pool%C_turnover(:) = pool%C_turnover(:)+C_loss_rate(:)/total%litterC(:)
+  where (total%litterN(:)>0) &
+      pool%N_turnover(:) = pool%N_turnover(:)+N_loss_rate(:)/total%litterN(:)
+  where (total%protectedC(:)>0) &
+      pool%protected_C_turnover(:) = pool%protected_C_turnover(:)+protected_turnover_rate(:)/total%protectedC(:)
+  where (total%protectedN(:)>0) &
+      pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+protected_N_turnover_rate(:)/total%litterN(:)
 end subroutine update_pool
 
 
@@ -1134,6 +1076,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         protected_N_turnover_rate=0.0
     ENDIF
 
+    call assert_cohort(cohort) ! die if cohort is bad
 end subroutine update_cohort
 
 
@@ -1573,6 +1516,33 @@ subroutine print_cohort(cohort)
 end subroutine
 
 
+! ====================================================================================
+! sanity check for cohort
+subroutine assert_cohort(cohort)
+  type(litterCohort), intent(in) :: cohort
+
+  ! ZMS
+  real, parameter :: tol_roundoff = 1.e-11    ! [kg C/m^2] tolerance for roundoff error in soil carbon numerics
+  character(*), parameter :: tag = 'check_cohort'
+
+  call check_var_range(cohort%CO2,            -tol_roundoff, HUGE(1.0), tag, 'CO2', FATAL)
+  call check_var_range(cohort%livingMicrobeC, -tol_roundoff, HUGE(1.0), tag, 'livingMicrobeC', FATAL)
+  call check_var_range(cohort%livingMicrobeN, 0.0,           HUGE(1.0), tag, 'livingMicrobeN', FATAL)
+
+  call check_var_range(cohort%litterC,         -tol_roundoff, HUGE(1.0), tag, 'litterC', FATAL)
+  call check_var_range(cohort%litterN,         -tol_roundoff, HUGE(1.0), tag, 'litterN', FATAL)
+  call check_var_range(cohort%protectedC,      -tol_roundoff, HUGE(1.0), tag, 'protectedC', FATAL)
+  call check_var_range(cohort%protectedN,      -tol_roundoff, HUGE(1.0), tag, 'protectedN', FATAL)
+
+  call check_var_range(cohort%IMM_N_gross,      -tol_roundoff, HUGE(1.0), tag, 'IMM_N_gross', FATAL)
+  call check_var_range(cohort%MINER_gross,      -tol_roundoff, HUGE(1.0), tag, 'MINER_gross', FATAL)
+
+  if (cohort%livingMicrobeN>0.0) then
+     call check_var_range(cohort%livingMicrobeC/cohort%livingMicrobeN,  &
+                          CN_microb-0.1, CN_microb+0.1, tag, 'living microbe C:N ratio', FATAL)
+  endif
+end subroutine assert_cohort
+
 ! Check for carbon balance and invalid values
 logical function check_cohort(cohort) result(cohortGood)
     type(litterCohort),intent(in)::cohort
@@ -1624,7 +1594,6 @@ logical function check_cohort(cohort) result(cohortGood)
 
 
 end function check_cohort
-
 
 real function cohortCSum(cohort,only_active)
   type(litterCohort), intent(in) :: cohort
