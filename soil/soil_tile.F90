@@ -41,7 +41,6 @@ public :: soil_tile_heat, soil_tile_carbon, soil_tile_nitrogen
 public :: read_soil_data_namelist
 
 public :: soil_ice_porosity
-public :: soil_ave_ice_porosity
 
 public :: soil_data_radiation
 public :: soil_roughness
@@ -1348,29 +1347,6 @@ function soil_ice_porosity(soil) result(ice_porosity)
         ice_porosity(k) = min(max(soil%ws(k)/(dens_h2o*dz(k)),0.0)/(soil%pars%vwc_sat),1.0)
     enddo
 end function soil_ice_porosity
-
-
-! ============================================================================
-function soil_ave_ice_porosity(soil,depth) result (A) ; real :: A
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(in)                 :: depth ! averaging depth
-
-  real    :: w ! averaging weight
-  real    :: N ! normalizing factor for averaging
-  real    :: z ! current depth, m
-  integer :: k
-
-  A = 0 ; N = 0 ; z = 0
-  do k = 1, num_l
-     w = dz(k) * exp(-(z+dz(k)/2)/depth)
-     A = A +min(max(soil%ws(k)/(dens_h2o*dz(k)),0.0)/&
-          (soil%pars%vwc_sat),1.0) * w
-     N = N + w
-     z = z + dz(k)
-     if (z.gt.depth) exit
-  enddo
-  A = A/N
-end function soil_ave_ice_porosity
 
 
 ! ============================================================================
