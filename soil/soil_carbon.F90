@@ -45,7 +45,6 @@ public :: read_soil_carbon_namelist
 
 public :: deposit_dissolved_C
 public :: dissolve_carbon
-public :: print_cohort
 
 public :: cull_cohorts
 public :: transfer_pool_fraction
@@ -641,11 +640,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     MINERAL_prod=0.0
     IMM_Nprod=0.0
 
-    if(.NOT. check_cohort(cohort)) THEN
-       call print_cohort(cohort)
-       call error_mesg('update_cohort','Cohort invalid at beginning of subroutine',FATAL)
-    endif
-
+    call check_cohort(cohort,'update_cohort input')
 
     ! Calculate potential respiration rate (if not N limited)
     ! Litter
@@ -1013,25 +1008,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
 
     denitrif = denitrif_NO3_demand
 
-    if(.NOT. check_cohort(cohort)) THEN
-       call print_cohort(cohort)
-       print *,'N limitation type',N_LIM_STATE
-       print *,'CO2 produced',CO2prod
-       print *,'Overflow resp',overflow_resp*dt
-       print *,'CN imbalance',CN_imbalance_term*dt
-       print *,'C supply',carbon_supply*dt
-       print *,'N supply',nitrogen_supply*dt
-       print *,'Microbe C prod',livemic_C_produced
-       print *,'Microbe N prod',livemic_N_produced
-       print *,'Dead mic C prod',deadmic_C_produced
-       print *,'Dead mic N prod',deadmic_N_produced
-       print *,'Maintenance resp',maintenance_resp*dt
-       print *,'Uptake resp',totalResp*(1.0-eup)*dt
-       print *,'Denitrif',denitrif_NO3_demand
-       print *,'Nitrate',nitrate
-       call error_mesg('update_cohort','Cohort invalid',FATAL)
-    endif
-
+    call check_cohort(cohort,'update_cohort #1')
 
     ! Update protected carbon
     protectedCturnover = cohort%protectedC/tProtected
@@ -1076,14 +1053,9 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         protected_N_turnover_rate=0.0
     ENDIF
 
-    call assert_cohort(cohort) ! die if cohort is bad
+    call check_cohort(cohort,'end of update_cohort')
 end subroutine update_cohort
 
-
-
-
-
-! COPIED FROM VEGN_DYNAMICS
 ! ============================================================================
 ! The combined reduction in decomposition rate as a funciton of TEMP and MOIST
 ! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
@@ -1518,82 +1490,29 @@ end subroutine
 
 ! ====================================================================================
 ! sanity check for cohort
-subroutine assert_cohort(cohort)
+subroutine check_cohort(cohort, tag)
   type(litterCohort), intent(in) :: cohort
+  character(*),       intent(in) :: tag
 
-  ! ZMS
-  real, parameter :: tol_roundoff = 1.e-11    ! [kg C/m^2] tolerance for roundoff error in soil carbon numerics
-  character(*), parameter :: tag = 'check_cohort'
+  real, parameter :: tol_roundoff = 1.e-11  ! ZMS ! [kg C/m^2] tolerance for roundoff error in soil carbon numerics
 
-  call check_var_range(cohort%CO2,            -tol_roundoff, HUGE(1.0), tag, 'CO2', FATAL)
+  call check_var_range(cohort%CO2,            -tol_roundoff, HUGE(1.0), tag, 'CO2',            FATAL)
   call check_var_range(cohort%livingMicrobeC, -tol_roundoff, HUGE(1.0), tag, 'livingMicrobeC', FATAL)
   call check_var_range(cohort%livingMicrobeN, 0.0,           HUGE(1.0), tag, 'livingMicrobeN', FATAL)
 
-  call check_var_range(cohort%litterC,         -tol_roundoff, HUGE(1.0), tag, 'litterC', FATAL)
-  call check_var_range(cohort%litterN,         -tol_roundoff, HUGE(1.0), tag, 'litterN', FATAL)
-  call check_var_range(cohort%protectedC,      -tol_roundoff, HUGE(1.0), tag, 'protectedC', FATAL)
-  call check_var_range(cohort%protectedN,      -tol_roundoff, HUGE(1.0), tag, 'protectedN', FATAL)
+  call check_var_range(cohort%litterC,        -tol_roundoff, HUGE(1.0), tag, 'litterC',        FATAL)
+  call check_var_range(cohort%litterN,        -tol_roundoff, HUGE(1.0), tag, 'litterN',        FATAL)
+  call check_var_range(cohort%protectedC,     -tol_roundoff, HUGE(1.0), tag, 'protectedC',     FATAL)
+  call check_var_range(cohort%protectedN,     -tol_roundoff, HUGE(1.0), tag, 'protectedN',     FATAL)
 
-  call check_var_range(cohort%IMM_N_gross,      -tol_roundoff, HUGE(1.0), tag, 'IMM_N_gross', FATAL)
-  call check_var_range(cohort%MINER_gross,      -tol_roundoff, HUGE(1.0), tag, 'MINER_gross', FATAL)
+  call check_var_range(cohort%IMM_N_gross,    -tol_roundoff, HUGE(1.0), tag, 'IMM_N_gross',    FATAL)
+  call check_var_range(cohort%MINER_gross,    -tol_roundoff, HUGE(1.0), tag, 'MINER_gross',    FATAL)
 
   if (cohort%livingMicrobeN>0.0) then
      call check_var_range(cohort%livingMicrobeC/cohort%livingMicrobeN,  &
-                          CN_microb-0.1, CN_microb+0.1, tag, 'living microbe C:N ratio', FATAL)
+                          CN_microb-0.1, CN_microb+0.1, tag, 'living microbe C:N ratio',       FATAL)
   endif
-end subroutine assert_cohort
-
-! Check for carbon balance and invalid values
-logical function check_cohort(cohort) result(cohortGood)
-    type(litterCohort),intent(in)::cohort
-    integer::n
-    logical:: tempGood
-    real :: cohortC
-    ! ZMS
-    real,parameter :: tol_roundoff = 1.e-11    ! [kg C/m^2] tolerance for roundoff error in soil carbon numerics
-
-    cohortGood=.NOT. ( &
-     (min(cohort%livingMicrobeC,cohort%CO2,cohort%livingMicrobeN).lt.-tol_roundoff) .OR. &
-    is_nan(cohort%livingMicrobeC) .OR. &
-    is_nan(cohort%CO2)  .OR. &
-    cohort%livingMicrobeN.lt.0 .OR. &
-    is_nan(cohort%livingMicrobeN) &
-    )
-
-    cohortC=cohortCSum(cohort)
-
-    DO n=1,N_C_TYPES
-        tempGood = .NOT. ( &
-        (cohort%litterC(n).lt.-tol_roundoff) .OR. &
-        (cohort%protectedC(n).lt.-tol_roundoff) .OR. &
-        (cohort%litterN(n).lt.-tol_roundoff) .OR. &
-        (cohort%protectedN(n).lt.-tol_roundoff) .OR. &
-        (is_nan(cohort%litterC(n))) .OR. &
-        (is_nan(cohort%protectedC(n)))  .OR. &
-        (is_nan(cohort%litterN(n))) .OR. &
-        (is_nan(cohort%protectedN(n)))  &
-        )
-        cohortGood=cohortGood .AND. tempGood
-    ENDDO
-
-
-    cohortGood = cohortGood .AND. (cohort%IMM_N_gross>=-tol_roundoff) .AND. (cohort%MINER_gross>=-tol_roundoff)
-
-    ! IF(.NOT. cohortGood) THEN
-!        WRITE (*,*)'Cohort carbon pool error:'
-!        call print_cohort(cohort)
-    !    call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
-    !  ENDIF
-
-
- if(cohort%livingMicrobeN>0) then
-    IF(abs((cohort%livingMicrobeC/cohort%livingMicrobeN)-CN_microb).ge.1d-1)THEN
-      cohortGood = .FALSE.
-    ENDIF
- endif
-
-
-end function check_cohort
+end subroutine check_cohort
 
 real function cohortCSum(cohort,only_active)
   type(litterCohort), intent(in) :: cohort
@@ -1846,11 +1765,7 @@ subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
     endif
 
     do n=1,pool%n_cohorts
-       IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
-            WRITE (*,*) 'add_C_N_to_rhizosphere: Cohort',n,'of',pool%n_cohorts,'bad'
-            call print_cohort(pool%litterCohorts(n))
-            call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
-       ENDIF
+       call check_cohort(pool%litterCohorts(n),'add_C_N_to_rhizosphere')
     enddo
 end subroutine add_C_N_to_rhizosphere
 
@@ -1943,17 +1858,8 @@ subroutine combine_cohorts(cohort1,cohort2,result)
     type(litterCohort),intent(in)::cohort1,cohort2
     type(litterCohort),intent(out)::result
 
-    if(.NOT. check_cohort(cohort1)) then
-        print *,'Invalid cohort:'
-        call print_cohort(cohort1)
-        call error_mesg('combine_cohorts','cohort1 invalid',FATAL)
-    endif
-
-    if(.NOT. check_cohort(cohort2)) then
-        print *,'Invalid cohort:'
-        call print_cohort(cohort2)
-        call error_mesg('combine_cohorts','cohort2 invalid',FATAL)
-    endif
+    call check_cohort(cohort1,'combine_cohorts: cohort1')
+    call check_cohort(cohort2,'combine_cohorts: cohort2')
 
     call initializeCohort(result)
 
@@ -1976,11 +1882,7 @@ subroutine combine_cohorts(cohort1,cohort2,result)
 
     ! IF (Cbefore.ne.Cafter) PRINT *,'Error in combining cohorts:',Cafter-Cbefore
 
-    if(.NOT. check_cohort(result)) then
-        print *,'Invalid cohort generated'
-        call print_cohort(result)
-        call error_mesg('combine_cohorts','Resulting cohort invalid',FATAL)
-    endif
+    call check_cohort(result, 'combine_cohorts: result')
 end subroutine combine_cohorts
 
 
@@ -2077,24 +1979,14 @@ subroutine transfer_pool_fraction(source, destination, fraction)
     source%denitrif=source%denitrif*(1.0-fraction)
 
     do nn=1,source%n_cohorts
-         IF (.NOT. check_cohort(source%litterCohorts(nn))) THEN
-              WRITE(*,*) 'transfer_pool_fraction: Cohort',nn,'of',source%n_cohorts,'bad'
-            call print_cohort(source%litterCohorts(nn))
-            call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
-       ENDIF
+       call check_cohort(source%litterCohorts(nn),'transfer_pool_fraction: src')
     enddo
 
 
     do nn=1,destination%n_cohorts
-         IF (.NOT. check_cohort(destination%litterCohorts(nn))) THEN
-              WRITE(*,*) 'transfer_pool_fraction: Cohort',nn,'of',destination%n_cohorts,'bad'
-            call print_cohort(destination%litterCohorts(nn))
-            call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
-       ENDIF
+       call check_cohort(destination%litterCohorts(nn),'transfer_pool_fraction: dst')
     enddo
-
-
-end subroutine
+end subroutine transfer_pool_fraction
 
 ! Sums all cohorts in layer into a single cohort
 type(litterCohort) function totalPoolCohort(pool)
