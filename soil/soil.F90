@@ -730,7 +730,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
         call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
      case (SOILC_CORPSE, SOILC_CORPSE_N)
-        call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
         do i = 1,N_C_TYPES
            ! C inputs
            call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',sc_C_in_ptr, i)
@@ -1570,8 +1569,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr,'slow soil carbon input', 'kg C/m2')
 
      case (SOILC_CORPSE, SOILC_CORPSE_N)
-        call add_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr,'aerobic activity modifier', 'unitless')
-
         do i = 1,N_C_TYPES
            ! C inputs
            call add_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',&
@@ -3148,8 +3145,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   real,dimension(N_LITTER_POOLS) :: litter_nitrif, litter_denitrif, litter_N_mineralization, litter_N_immobilization
   real, dimension(num_l) :: &
      soil_nitrif, soil_denitrif, soil_N_mineralization, soil_N_immobilization, &
-     decomp_T, decomp_theta, ice_porosity, &
-     A  ! decomp rate reduction due to moisture and temperature
+     decomp_T, decomp_theta, ice_porosity
   real, dimension(num_l,N_C_TYPES) :: C_loss_rate, N_loss_rate
 
   integer :: i,k
@@ -3158,8 +3154,6 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   decomp_T = soil%T(:)
   decomp_theta = soil_theta(soil)
   ice_porosity = soil_ice_porosity(soil)
-  A(:) = A_function(decomp_T, decomp_theta)
-
   vegn%rh=0.0
 
   !  First surface litter is decomposed
@@ -3206,20 +3200,10 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(:, C_SLOW))*dt_fast_yr
   vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(:, C_MIC)) *dt_fast_yr
 
-
-  ! accumulate decomposition rate reduction for the soil carbon restart output
-  soil%asoil_in(:) = soil%asoil_in(:) + A(:)
-
   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + (sum(soil_denitrif)+sum(litter_denitrif))
-
-  ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
-  !       e.g. weight it with the carbon loss, or something like that
 
   ! ---- diagnostic section
   call send_tile_data(id_rsoil, vegn%rh, diag)
-  ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
-  !       e.g. weight it with the carbon loss, or something like that
-  if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
 
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
              (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
