@@ -26,6 +26,13 @@ private
 
 ! ==== public interfaces =====================================================
 ! ---- public constants
+integer, public, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
+integer, public, parameter :: & ! indices of carbon chemical species
+    C_FAST = 1, & ! cellulose (fast)
+    C_SLOW = 2, & ! lignin (slow)
+    C_MIC  = 3    ! microbial producs
+
+
 integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
 integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
@@ -415,6 +422,10 @@ type spec_data_type
              ! SP_TEMPDEC  : 0.094
              ! SP_TROPICAL : 0.1487
              ! SP_EVERGR   : 0.11
+
+  ! derived data: fractionations of carbon input among various carbon types
+  real, dimension(N_C_TYPES) :: &
+      fract_live, fract_froot, fract_wood
 end type
 
 ! ---- species parameters ----------------------------------------------------
@@ -1197,6 +1208,10 @@ subroutine init_derived_species_data(sp)
 
   ! TODO: calculate seed C:N ratio
 
+  ! initialize fractionations of carbon input among various carbon types
+  sp%fract_live(:)  = [sp%fsc_liv,   1.0-sp%fsc_liv,   0.0]
+  sp%fract_froot(:) = [sp%fsc_froot, 1.0-sp%fsc_froot, 0.0]
+  sp%fract_wood(:)  = [sp%fsc_wood,  1.0-sp%fsc_wood,  0.0]
 end subroutine init_derived_species_data
 
 ! ============================================================================

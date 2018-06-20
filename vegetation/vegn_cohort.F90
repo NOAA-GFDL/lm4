@@ -55,10 +55,10 @@ type :: vegn_cohort_type
   real :: Tv ! canopy temperature, K
 
 ! ---- biological prognostic variables
-! Currently bio prognostic variable is defined as anything that's saved in
+! Currently bio prognostic variable is defined as anything that is saved in
 ! the restart; clearly some vars there are, strictly speaking, diagnostic,
 ! but saved for reproducibility (to avoid recalculation). exceptions :
-! npp_previous_day is left outside, since it's obviously auxiliary; height
+! npp_previous_day is left outside, since it is obviously auxiliary; height
 ! is left outside
   integer :: species = 0   ! vegetation species
   real    :: bl      = 0.0 ! biomass of leaves, kg C/individual
@@ -131,7 +131,7 @@ type :: vegn_cohort_type
                           ! for diagnostics only
 
 ! ---- uptake-related variables
-  real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
+  real    :: root_length(max_lev) = 0.0 ! individual root length per unit depth, m of root/m
   real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
   real    :: r_r = 0.0 ! radius of fine roots, m
   real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
@@ -183,30 +183,21 @@ type :: vegn_cohort_type
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
   real :: nitrogen_stress = 0.0
 
-  ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
-  real :: myc_scavenger_biomass_C = 0.0
-  real :: myc_scavenger_biomass_N = 0.0
-  real :: myc_miner_biomass_C = 0.0
-  real :: myc_miner_biomass_N = 0.0
-
-  ! Biomass of symbiotic N fixing microbes
-  real :: N_fixer_biomass_C = 0.0
-  real :: N_fixer_biomass_N = 0.0
+  real :: scav_C = 0.0, scav_N = 0.0 ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
+  real :: mine_C = 0.0, mine_N = 0.0 ! Biomass of "miner" type mycorrhizae
+  real :: nfix_C = 0.0, nfix_N = 0.0 ! Biomass of symbiotic N fixing microbes
 
   ! C and N reservoirs of symbiotic microbes (used for growth and transfers to plants)
-  real :: scav_myc_N_reservoir = 0.0
-  real :: scav_myc_C_reservoir = 0.0
-  real :: mine_myc_N_reservoir = 0.0
-  real :: mine_myc_C_reservoir = 0.0
-  real :: N_fixer_N_reservoir = 0.0
-  real :: N_fixer_C_reservoir = 0.0
+  real :: scav_C_reservoir = 0.0, scav_N_reservoir = 0.0
+  real :: mine_C_reservoir = 0.0, mine_N_reservoir = 0.0
+  real :: nfix_C_reservoir = 0.0, nfix_N_reservoir = 0.0
 
   ! Allows cohorts to remember previous marginal gains so shifts in N allocation
   ! can have time scales
-  real :: myc_scav_marginal_gain_smoothed = 0.0
-  real :: myc_mine_marginal_gain_smoothed = 0.0
-  real :: N_fix_marginal_gain_smoothed = 0.0
-  real :: rhiz_exud_marginal_gain_smoothed = 0.0
+  real :: scav_mgain_smoothed = 0.0
+  real :: mine_mgain_smoothed = 0.0
+  real :: nfix_mgain_smoothed = 0.0
+  real :: exud_mgain_smoothed = 0.0
 
   real :: max_monthly_scav_alloc = 0.0
   real :: max_monthly_mine_alloc = 0.0
@@ -214,9 +205,9 @@ type :: vegn_cohort_type
   real :: scav_alloc_accum = 0.0
   real :: mine_alloc_accum = 0.0
   real :: Nfix_alloc_accum = 0.0
-  real :: max_scav_allocation = 0.0
-  real :: max_mine_allocation = 0.0
-  real :: max_Nfix_allocation = 0.0
+  real :: max_scav_alloc = 0.0
+  real :: max_mine_alloc = 0.0
+  real :: max_Nfix_alloc = 0.0
   real :: nitrogen_stress_smoothed = 1.0
 end type vegn_cohort_type
 
@@ -234,10 +225,8 @@ real function plant_C(cc)
           cc%carbon_gain + cc%bwood_gain + &
           cc%growth_previous_day + &
           ! Mycorrhizal and N fixer biomass added by B. Sulman
-          cc%myc_scavenger_biomass_C + &
-          cc%myc_miner_biomass_C + &
-          cc%N_fixer_biomass_C + &
-          cc%scav_myc_C_reservoir + cc%mine_myc_C_reservoir + cc%N_fixer_C_reservoir
+          cc%scav_C + cc%mine_C + cc%nfix_C + &
+          cc%scav_C_reservoir + cc%mine_C_reservoir + cc%nfix_C_reservoir
 end function plant_C
 
 ! ============================================================================
@@ -249,16 +238,14 @@ real function plant_N(cc)
          cc%wood_N + cc%leaf_N + cc%seed_N + &
          cc%stored_N + &
          ! Symbionts are counted as part of veg, not part of soil
-         cc%N_fixer_biomass_N + &
-         cc%myc_miner_biomass_N + &
-         cc%myc_scavenger_biomass_N + &
-         cc%scav_myc_N_reservoir + cc%mine_myc_N_reservoir + cc%N_fixer_N_reservoir
+         cc%nfix_N + cc%mine_N + cc%scav_N + &
+         cc%scav_N_reservoir + cc%mine_N_reservoir + cc%nfix_N_reservoir
 end function plant_N
 
 ! ============================================================================
 ! calculates functional dependence of wet canopy function f = x**p and its
 ! derivative, but approximates it with linear function in the vicinity
-! of zero, to make sure that derivative doesn't become infinite
+! of zero, to make sure that derivative does not become infinite
 subroutine wet_frac(w, w_max, p, eps, f, DfDw)
   real, intent(in) :: &
        w, &     ! water content
@@ -267,7 +254,7 @@ subroutine wet_frac(w, w_max, p, eps, f, DfDw)
        eps      ! neighborhood of zero where we approximate x**p with linear function
   real, intent(out) :: &
        f, & ! function value
-       DfDw ! it's derivative
+       DfDw ! function derivative w.r.t. water content
 
   if ( w > w_max ) then
      f = 1; DfDw = 0;
@@ -366,17 +353,19 @@ end subroutine vegn_data_cover
 
 ! ============================================================================
 ! returns properties of the fine roots
-subroutine cohort_root_properties(cohort, dz, vrl, K_r, r_r)
+subroutine cohort_root_properties(cohort, dz, root_length, K_r, r_r)
   type(vegn_cohort_type), intent(in)  :: cohort
   real, intent(in)  :: dz(:)
   real, intent(out) :: &
-       vrl(:), & ! volumetric fine root length, m/m3
-       K_r,    & ! root membrane permeability per unit area, kg/(m3 s)
+       root_length(:), & ! fine root length per unit depth, m of root/m
+       K_r,    & ! root membrane permeability per unit root surface area, kg/(m3 s)
        r_r       ! radius of fine roots, m
+  ! note that in LM3, when the density of individuals per m2 is imposed to be 1,
+  ! "per unit depth" measures are the same as volumetric density measures.
 
   integer :: sp, l
   real :: factor, z
-  real :: vbr ! volumetric biomass of fine roots, kg C/m3
+  real :: vbr ! density of fine roots biomass per unit depth, kg C/m
 
   sp = cohort%species
 
@@ -388,8 +377,8 @@ subroutine cohort_root_properties(cohort, dz, vrl, K_r, r_r)
      ! factor
      vbr = cohort%br * &
           (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))*factor/dz(l)
-     ! calculate the volumetric fine root length
-     vrl(l) = vbr*spdata(sp)%srl
+     ! calculate fine root length per unit depth
+     root_length(l) = vbr*spdata(sp)%srl
 
      z = z + dz(l)
   enddo
@@ -412,7 +401,7 @@ subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
   real, parameter :: res_scaler = mol_air/mol_h2o  ! scaling factor for water supply
   ! NOTE: there is an inconsistency there between the
   ! units of stomatal conductance [mol/(m2 s)], and the units of humidity deficit [kg/kg],
-  ! in the calculations of water demand. Since the uptake options other than LINEAR can't
+  ! in the calculations of water demand. Since the uptake options other than LINEAR cannot
   ! use res_scaler, in this code the units of humidity deficit are converted to mol/mol,
   ! and the additional factor is introduced in res_scaler to ensure that the LINEAR uptake
   ! gives the same results.
@@ -526,7 +515,7 @@ end function c3c4
 ! given current conditions, returns type of phenology.
 function phenology_type(c, cm)
   integer :: phenology_type
-  type(vegn_cohort_type), intent(in) :: c  ! cohort (not used???)
+  type(vegn_cohort_type), intent(in) :: c  ! cohort (not used)
   real, intent(in) :: cm ! number of cold months
 
   real :: pe  ! prob evergreen
@@ -561,7 +550,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   pt    = c3c4(c,t_ann,p_ann)
   phent = phenology_type(c, cm)
 
-  if(landuse == LU_CROP) phent = PHEN_DECIDUOUS ! crops can't be evergreen
+  if(landuse == LU_CROP) phent = PHEN_DECIDUOUS ! crops cannot be evergreen
 
   if(pt==PT_C4) then
      spp=SP_C4GRASS;  ! c4 grass
@@ -632,7 +621,6 @@ subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
   real :: biomass_N_demand  ! Live biomass in excess of max (used in N limitation system) -- BNS
-  real :: x_wood,x_leaf,x_root ! For N-limited biomass distribution
   real :: potential_stored_N ! N storage if there is no N-caused change in biomass allocation
   real :: available_N,N_demand,extra_C
 
@@ -659,7 +647,7 @@ subroutine update_biomass_pools(c)
 
   ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
   ! Leaving spring constant 1.0 for now
-  ! Stress is normalized by N demand so it's an index that doesn't depend on total biomass
+  ! Stress is normalized by N demand so it is an index that does not depend on total biomass
 
   ! if (c%total_N>0.0) then
   !  c%nitrogen_stress = -1.0 * ((potential_stored_N) - 2.0*biomass_N_demand)/abs(c%total_N)
@@ -771,7 +759,7 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
                   cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)))
      cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height
   end select
-  if (sp%lifeform == FORM_GRASS) then ! isa 20170705 - grasses don't form heartwood
+  if (sp%lifeform == FORM_GRASS) then ! isa 20170705 - grasses do not form heartwood
      cc%bwood = 0.0
   endif
   cc%bsw   = bw - cc%bwood
@@ -817,18 +805,13 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   endif
 
   ! Should these have nonzero initial values on initialization/reproduction?
-  cc%myc_scavenger_biomass_C = 0.0
-  cc%myc_scavenger_biomass_N = 0.0
-  cc%myc_miner_biomass_C = 0.0
-  cc%myc_miner_biomass_N = 0.0
-  cc%N_fixer_biomass_C = 0.0
-  cc%N_fixer_biomass_N = 0.0
-  cc%scav_myc_N_reservoir = 0.0
-  cc%scav_myc_C_reservoir = 0.0
-  cc%mine_myc_N_reservoir = 0.0
-  cc%mine_myc_C_reservoir = 0.0
-  cc%N_fixer_N_reservoir = 0.0
-  cc%N_fixer_C_reservoir = 0.0
+  cc%scav_C = 0.0 ; cc%scav_N = 0.0
+  cc%mine_C = 0.0 ; cc%mine_N = 0.0
+  cc%nfix_C = 0.0 ; cc%nfix_N = 0.0
+
+  cc%scav_C_reservoir = 0.0 ; cc%scav_N_reservoir = 0.0
+  cc%mine_C_reservoir = 0.0 ; cc%mine_N_reservoir = 0.0
+  cc%nfix_C_reservoir = 0.0 ; cc%nfix_N_reservoir = 0.0
 
   cc%growth_previous_day     = 0.0
   cc%growth_previous_day_tmp = 0.0

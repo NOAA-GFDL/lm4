@@ -428,12 +428,12 @@ subroutine vegn_mergecohorts_lm3(c1,w1,c2,w2)
   __MERGE__(leaf_N) ! Cohort leaf nitrogen
   __MERGE__(root_N) ! Cohort root nitrogen
   __MERGE__(total_N) ! Cohort total nitrogen
-  __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
-  __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
-  __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
-  __MERGE__(myc_miner_biomass_N) ! Miner mycorrhizal biomass N
-  __MERGE__(N_fixer_biomass_C) ! N Fixer biomass C
-  __MERGE__(N_fixer_biomass_N) ! N Fixer biomass N
+  __MERGE__(scav_C) ! Scavenger mycorrhizal biomass C
+  __MERGE__(scav_N) ! Scavenger mycorrhizal biomass N
+  __MERGE__(mine_C) ! Miner mycorrhizal biomass C
+  __MERGE__(mine_N) ! Miner mycorrhizal biomass N
+  __MERGE__(nfix_C) ! N Fixer biomass C
+  __MERGE__(nfix_N) ! N Fixer biomass N
 
   ! should we do update_derived_vegn_data here? to get mcv_dry, etc
   call update_biomass_pools(c2)
@@ -590,18 +590,18 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(theta_av_phen) ! relative soil moisture availability for phenology
   __MERGE__(psist_av_phen) ! water stress for phenology
 
-  __MERGE__(myc_scavenger_biomass_C)
-  __MERGE__(myc_scavenger_biomass_N)
-  __MERGE__(myc_miner_biomass_C)
-  __MERGE__(myc_miner_biomass_N)
-  __MERGE__(N_fixer_biomass_C)
-  __MERGE__(N_fixer_biomass_N)
-  __MERGE__(scav_myc_N_reservoir)
-  __MERGE__(scav_myc_C_reservoir)
-  __MERGE__(mine_myc_N_reservoir)
-  __MERGE__(mine_myc_C_reservoir)
-  __MERGE__(N_fixer_N_reservoir)
-  __MERGE__(N_fixer_C_reservoir)
+  __MERGE__(scav_C)
+  __MERGE__(scav_N)
+  __MERGE__(mine_C)
+  __MERGE__(mine_N)
+  __MERGE__(nfix_C)
+  __MERGE__(nfix_N)
+  __MERGE__(scav_N_reservoir)
+  __MERGE__(scav_C_reservoir)
+  __MERGE__(mine_N_reservoir)
+  __MERGE__(mine_C_reservoir)
+  __MERGE__(nfix_N_reservoir)
+  __MERGE__(nfix_C_reservoir)
   __MERGE__(stored_N)
   __MERGE__(leaf_N)
   __MERGE__(wood_N)
@@ -609,19 +609,19 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(root_N)
   __MERGE__(seed_N)
   __MERGE__(total_N)
-  __MERGE__(myc_scav_marginal_gain_smoothed)
-  __MERGE__(myc_mine_marginal_gain_smoothed)
-  __MERGE__(N_fix_marginal_gain_smoothed)
-  __MERGE__(rhiz_exud_marginal_gain_smoothed)
+  __MERGE__(scav_mgain_smoothed)
+  __MERGE__(mine_mgain_smoothed)
+  __MERGE__(nfix_mgain_smoothed)
+  __MERGE__(exud_mgain_smoothed)
   __MERGE__(max_monthly_scav_alloc)
   __MERGE__(max_monthly_mine_alloc)
   __MERGE__(max_monthly_Nfix_alloc)
   __MERGE__(scav_alloc_accum)
   __MERGE__(mine_alloc_accum)
   __MERGE__(Nfix_alloc_accum)
-  __MERGE__(max_scav_allocation)
-  __MERGE__(max_mine_allocation)
-  __MERGE__(max_Nfix_allocation)
+  __MERGE__(max_scav_alloc)
+  __MERGE__(max_mine_alloc)
+  __MERGE__(max_Nfix_alloc)
 
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)
@@ -817,7 +817,6 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
   real                , intent(in) :: tau
 
   real :: vegn_bwood
-  integer :: i
 
   if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
      vegn_bwood = vegn_tile_bwood(vegn)
@@ -964,10 +963,10 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
             vegn%cohorts(i)%wood_N + vegn%cohorts(i)%leaf_N + vegn%cohorts(i)%seed_N + &
             vegn%cohorts(i)%stored_N + &
             ! Symbionts are counted as part of veg, not part of soil
-            vegn%cohorts(i)%N_fixer_biomass_N + &
-            vegn%cohorts(i)%myc_miner_biomass_N + &
-            vegn%cohorts(i)%myc_scavenger_biomass_N + &
-            vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
+            vegn%cohorts(i)%nfix_N + &
+            vegn%cohorts(i)%mine_N + &
+            vegn%cohorts(i)%scav_N + &
+            vegn%cohorts(i)%scav_N_reservoir + vegn%cohorts(i)%mine_N_reservoir + vegn%cohorts(i)%nfix_N_reservoir &
            )*vegn%cohorts(i)%nindivs
   enddo
   nitrogen = nitrogen  + sum(vegn%harv_pool_N) + sum(vegn%drop_seed_N) + &

@@ -35,14 +35,17 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
-     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname
+     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
+use soil_accessors_mod ! use everything
 
-use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
-     update_pool, tracer_leaching_with_litter,transfer_pool_fraction, N_C_TYPES, &
+use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
+     update_pool,transfer_pool_fraction, N_C_TYPES, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, &
-     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility
+     C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, c_diagname, &
+     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
+     deposit_dissolved_C, dissolve_carbon
+
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, prev_elmt, loop_over_tiles
@@ -65,7 +68,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
 
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &
-     set_current_point, check_var_range, check_conservation, land_error_message
+     set_current_point, check_var_range, check_conservation, land_error_message, &
+     carbon_cons_tol, nitrogen_cons_tol
 use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      uptake_init, uptake_option, darcy2d_uptake, darcy2d_uptake_solver
 
@@ -102,7 +106,7 @@ public :: soil_data_beta
 
 public :: Dsdt
 public :: get_soil_litter_C
-public :: root_N_uptake
+public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
@@ -126,10 +130,7 @@ real    :: init_wtdep           = -1.         ! positive value activates hydrost
                                               ! overriding init_w
 real    :: init_groundwater     =   0.        ! cold-start gw storage
 real    :: lrunf_ie_min         = -1.0e-4     ! trigger for clip and runoff
-real    :: lrunf_ie_tol         =  1.e-12
 character(len=16) :: albedo_to_use = ''       ! or 'albedo-map' or 'brdf-maps'
-logical :: allow_negative_rie   = .false.
-logical :: baseflow_where_frozen = .false.
 logical :: write_when_flagged   = .false.
 logical :: corrected_lm2_gw     = .true.
 logical :: use_fringe           = .false.
@@ -138,10 +139,8 @@ logical :: lrunf_from_div       = .true.
 logical :: cold_infilt          = .false.
 logical :: bottom_up_cold_infilt= .false.
 logical :: use_depth_to_wt_4    = .false.
-logical :: always_use_bsw       = .false.
 logical :: harmonic_mean_K      = .false.
 logical :: verbose              = .false.
-logical :: no_min_Dpsi          = .false.
 logical :: div_bug_fix          = .false.
 logical :: require_pos_hcap     = .false.
 real    :: active_layer_drainage_acceleration = 0.
@@ -155,17 +154,13 @@ logical :: write_soil_carbon_restart = .FALSE. ! indicates whether to write
 logical :: horiz_init_wt        = .false.   ! initialize horizontal water table, if gw_option == GW_TILED
 logical :: use_coldstart_wtt_data = .false. ! read additional data for soil initialization
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
-logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are set to zero
                                             ! in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
 real    :: cold_depth           = 0.
-real    :: Wl_min               = -1.e20
 real    :: bwood_macinf         = -1.
-integer :: max_iter_trans = 100 ! max number of iterations for psi_crown_min
 integer :: layer_for_gw_switch = 1000000 ! to accelerate permafrost gw shutoff
-real    :: eps_trans     = 1.e-7 ! convergence crit for psi_crown_min
 logical :: supercooled_rnu = .true. ! Excess ice converted to supercooled water for runoff.
 real    :: wet_depth = 0.6 ! [m] water table depth threshold for diagnosing wetland fraction
 real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water saturation
@@ -181,27 +176,25 @@ real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
                     init_w,   init_wtdep,    &
-                    init_groundwater, lrunf_ie_min, lrunf_ie_tol, &
+                    init_groundwater, lrunf_ie_min, &
                     cpw, clw, csw, &
                     albedo_to_use, &
-                    allow_negative_rie, &
-                    baseflow_where_frozen, &
                     write_when_flagged, &
                     corrected_lm2_gw, &
                     use_fringe, &
                     cold_infilt, bottom_up_cold_infilt, &
-                    use_depth_to_wt_4, always_use_bsw, &
-                    harmonic_mean_K, verbose, no_min_Dpsi, div_bug_fix, &
+                    use_depth_to_wt_4, &
+                    harmonic_mean_K, verbose, div_bug_fix, &
                     require_pos_hcap, &
                     push_down_sfc_excess, lrunf_from_div, &
                     active_layer_drainage_acceleration, hlf_factor, &
                     gw_flux_max, aquifer_heat_cap, use_tridiag_foradvec, &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
-                    allow_neg_rnu, allow_neg_wl, prohibit_negative_water_div, &
+                    allow_neg_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
-                    cold_depth, Wl_min, &
+                    cold_depth, &
                     bwood_macinf, &
-                    max_iter_trans, layer_for_gw_switch, eps_trans, &
+                    layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
                     max_soil_C_density, max_litter_thickness, r_rhiz
@@ -241,11 +234,8 @@ integer ::  &
     id_cf_1, id_cf_3, id_wt_1, id_wt_2, id_wt_2a, id_wt_2b, id_wt_3, id_wt2_3, id_wt_4, &
     id_div_bf, id_div_if, id_div_al, id_div, &
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
-    id_protected_C_leaching, id_livemic_C_leaching, &
     id_protected_total_C, id_protected_total_N, &
     id_asoil,id_rsoil,&
-    id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
-    id_fast_DON_div_loss,id_slow_DON_div_loss,id_deadmic_DON_div_loss, &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
@@ -256,9 +246,9 @@ integer :: &
     id_protected_N, id_livemic_total_N, id_deadmic_total_N, id_fsn, id_ssn, &
     id_livemic_C, id_total_soil_C, id_dissolved_total_C, id_total_C_layered, &
     id_livemic_N, id_total_soil_N, id_dissolved_total_N, id_total_N_layered, &
-    id_tile_N_gain, id_tile_N_loss, &
     id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C, &
-    id_negative_litter_N(N_C_TYPES), id_tot_negative_litter_N
+    id_negative_litter_N(N_C_TYPES), id_tot_negative_litter_N, &
+    id_soil_DOC, id_soil_DON
 
 integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, id_litter_total_C_leaching, id_litter_total_ON_leaching, id_litter_NO3_leaching, id_litter_NH4_leaching,&
@@ -280,8 +270,8 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 integer :: &
     id_total_NH4,id_total_NO3,&
     id_soil_NO3,id_soil_NH4,&
-    id_total_denitrification_rate,id_soil_denitrification_rate,id_NO3_div_loss,&
-    id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
+    id_total_denitrification_rate,id_soil_denitrification_rate,&
+    id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
     id_total_nitrification_rate
 
 ! test tridiagonal solver for advection
@@ -310,7 +300,6 @@ subroutine read_soil_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: l
 
   call read_soil_data_namelist(use_single_geo,gw_option)
 
@@ -474,7 +463,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call read_field( 'INPUT/geohydrology.nc','soil_e_depth', gw_param, interp='bilinear' )
 
            if (slope_exp.gt.0.01) then
-           ! ZMS It's probably inconsistent to leave in this if statement.
+           ! ZMS It is probably inconsistent to leave in this if statement.
                call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
                                'running with tiled hillslope model.  This may be inconsistent.', WARNING)
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
@@ -657,7 +646,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
                call adjust_pool_ncohorts(tile%soil%litter(i))
             enddo
             do i = 1,num_l
-               call adjust_pool_ncohorts(tile%soil%soil_organic_matter(i))
+               call adjust_pool_ncohorts(tile%soil%org_matter(i))
             enddo
         end do
         do i = 1, N_C_TYPES
@@ -674,20 +663,12 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',sc_livingMicrobeC_ptr)
         call get_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr)
         call get_tile_data(restart,'Rtot', 'zfull','soilCCohort',sc_Rtot_ptr)
-        call get_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', sc_originalLitterC_ptr)
 
         do i = 1,N_LITTER_POOLS
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_Rtot',      'litterCCohort', sc_litter_Rtot_ptr, i)
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_originalCohortC', 'litterCCohort',sc_litter_originalLitterC_ptr, i)
         enddo
-
-        if(field_exists(restart, 'fast_DOC_leached')) then
-           call get_tile_data(restart,'fast_DOC_leached', soil_fast_DOC_leached_ptr)
-           call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
-           call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
-        endif
 
         if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
            call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
@@ -711,7 +692,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            enddo
         enddo
         call get_tile_data(restart,'liveMicN', 'zfull','soilCCohort', sc_livingMicrobeN_ptr)
-        call get_tile_data(restart,'originalCohortN', 'zfull','soilCCohort', sc_originalLitterN_ptr)
         call get_tile_data(restart,'soil_NO3', 'zfull', sc_nitrate_ptr)
         call get_tile_data(restart,'soil_NH4', 'zfull', sc_ammonium_ptr)
         call get_tile_data(restart,'soil_nitrif', 'zfull', sc_nitrif_ptr)
@@ -721,7 +701,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
         do k = 1,N_LITTER_POOLS
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_originalCohortN', 'litterCCohort', sc_litter_originalLitterN_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr,k)
@@ -754,23 +733,22 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
         do i = 1,N_C_TYPES
            ! C inputs
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_in','zfull',sc_protected_C_in_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_C_in','zfull',sc_C_in_ptr, i)
-           do k = 1,N_LITTER_POOLS
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_in',sc_litter_C_in_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_in',sc_litter_N_in_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_turnover_accumulated', sc_litter_C_turnover_ptr, i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_turnover_accumulated', sc_litter_N_turnover_ptr, i,k)
-           enddo
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',sc_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_turnover','zfull',sc_C_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC_in','zfull',sc_protected_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC_turnover','zfull',sc_protected_C_turnover_ptr, i)
            ! N inputs
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_N_in','zfull',sc_protected_N_in_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_N_in','zfull',sc_N_in_ptr, i)
-           ! C turnover rates
-           call get_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull',sc_C_turnover_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull',sc_protected_C_turnover_ptr, i)
-           ! N turnover rates
-           call get_tile_data(restart,trim(c_shortname(i))//'_N_turnover_accumulated','zfull',sc_N_turnover_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_N_turnover_accumulated','zfull',sc_protected_N_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N_in','zfull',sc_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N_turnover','zfull',sc_N_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN_in','zfull',sc_protected_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN_turnover','zfull',sc_protected_N_turnover_ptr, i)
+           ! C and N litter inputs
+           do k = 1,N_LITTER_POOLS
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_in',sc_litter_C_in_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_in',sc_litter_N_in_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_turnover', sc_litter_C_turnover_ptr, i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_turnover', sc_litter_N_turnover_ptr, i,k)
+           enddo
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -851,7 +829,7 @@ function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
 
   do i = 1, N_C_TYPES
      id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<ctype>',trim(c_shortname(i)))), &
+             trim(replace_text(field_name,'<ctype>',trim(c_diagname(i)))), &
              axes, init_time, &
              trim(replace_text(long_name,'<ctype>',trim(c_longname(i)))), &
              units, missing_value, range, op, standard_name)
@@ -880,7 +858,7 @@ function register_litter_diag_fields(module_name, field_name, axes, init_time, &
 
   do i = 1, N_LITTER_POOLS
      id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<ltype>',trim(l_shortname(i)))), &
+             trim(replace_text(field_name,'<ltype>',trim(l_diagname(i)))), &
              axes, init_time, &
              trim(replace_text(long_name,'<ltype>',trim(l_longname(i)))), &
              units, missing_value, range, op, standard_name)
@@ -911,8 +889,8 @@ function register_litter_soilc_diag_fields(module_name, field_name, axes, init_t
 
   do i = 1, N_C_TYPES
      do k = 1, N_LITTER_POOLS
-        name = replace_text(field_name,'<ctype>',trim(c_shortname(i)))
-        name = replace_text(name,      '<ltype>',trim(l_shortname(k)))
+        name = replace_text(field_name,'<ctype>',trim(c_diagname(i)))
+        name = replace_text(name,      '<ltype>',trim(l_diagname(k)))
         lname = replace_text(long_name,'<ctype>',trim(c_longname(i)))
         lname = replace_text(lname,    '<ltype>',trim(l_longname(k)))
         id(k,i) = register_tiled_diag_field(module_name, trim(name), axes, init_time, trim(lname), &
@@ -930,7 +908,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   ! ---- local vars
   integer :: axes(2)
   integer :: id_zhalf
-  integer :: i, l
+  integer :: l
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -946,50 +924,40 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   call set_default_diag_filter('soil')
 
   ! define diagnostic fields
-
-  ! FIXME slm: generalize DOC fields by carbon type
-  id_fast_DOC_div_loss = register_tiled_diag_field ( module_name, 'fast_DOC_div_loss', (/id_ug/),  &
-       lnd%time, 'total fast DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
-  id_slow_DOC_div_loss = register_tiled_diag_field ( module_name, 'slow_DOC_div_loss', (/id_ug/),  &
-       lnd%time, 'total slow DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
-  id_deadmic_DOC_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DOC_div_loss', (/id_ug/),  &
-       lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
-  id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:1), &
+  id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'tot_DOC_div', axes(1:1), &
        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
-  id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'total_DON_div', axes(1:1), &
+  id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'tot_DON_div', axes(1:1), &
        lnd%time, 'total rate of DON divergence loss', 'kg N/m^2/s', missing_value=initval)
-  id_total_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_NO3_div', axes(1:1), &
+  id_total_NO3_div_loss = register_tiled_diag_field ( module_name, 'tot_NO3_div', axes(1:1), &
        lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
-  id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:1), &
+  id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'tot_NH4_div', axes(1:1), &
        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
-   id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
+  id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
         (/id_ug/), lnd%time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
-id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
-       id_fast_DON_div_loss = register_tiled_diag_field ( module_name, 'fast_DON_div_loss', (/id_ug/),  &
-            lnd%time, 'total fast DON divergence loss', 'kg N/m2', missing_value=-100.0 )
-       id_slow_DON_div_loss = register_tiled_diag_field ( module_name, 'slow_DON_div_loss', (/id_ug/),  &
-            lnd%time, 'total slow DON divergence loss', 'kg N/m2', missing_value=-100.0 )
-       id_deadmic_DON_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DON_div_loss', (/id_ug/),  &
-            lnd%time, 'total dead microbe DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+  id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        axes(1:1), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
 
-  id_protected_C = register_tiled_diag_field ( module_name, 'protected_soil_C', axes,  &
-       lnd%time, 'protected soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
-  id_protected_N = register_tiled_diag_field ( module_name, 'protected_soil_N', axes,  &
-       lnd%time, 'protected soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
-  id_total_C_layered = register_tiled_diag_field ( module_name, 'total_soil_C_layered', &
+  id_protected_C = register_tiled_diag_field ( module_name, 'prot_soil_C', axes,  &
+       lnd%time, 'protected soil carbon content', 'kg C/m3', missing_value=-100.0 )
+  id_protected_N = register_tiled_diag_field ( module_name, 'prot_soil_N', axes,  &
+       lnd%time, 'protected soil nitrogen content', 'kg N/m3', missing_value=-100.0 )
+  id_total_C_layered = register_tiled_diag_field ( module_name, 'soil_C', &
        axes, lnd%time, 'total soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_total_N_layered = register_tiled_diag_field ( module_name, 'total_soil_N_layered', axes,  &
+  id_total_N_layered = register_tiled_diag_field ( module_name, 'soil_N', axes,  &
        lnd%time, 'total soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+  id_soil_DOC = register_tiled_diag_field ( module_name, 'soil_DOC', axes,  &
+       lnd%time, 'dissolved organic carbon', 'kg C/m3', missing_value=-100.0 )
+  id_soil_DON = register_tiled_diag_field ( module_name, 'soil_DON', axes,  &
+       lnd%time, 'dissolved organic nitrogen', 'kg C/m3', missing_value=-100.0 )
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
        axes, lnd%time, '<ctype> soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_soil_dissolved_C(:) = register_soilc_diag_fields(module_name, '<ctype>_dissolved_C', &
+  id_soil_dissolved_C(:) = register_soilc_diag_fields(module_name, '<ctype>_diss_C', &
        axes, lnd%time, '<ctype> dissolved soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_soil_protected_C(:) = register_soilc_diag_fields(module_name, '<ctype>_protected_C', &
+  id_soil_protected_C(:) = register_soilc_diag_fields(module_name, '<ctype>_prot_C', &
        axes, lnd%time, '<ctype> protected soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
        axes, lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
@@ -1001,130 +969,121 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
 
   id_soil_N(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_N', &
        axes, lnd%time, '<ctype> soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_soil_dissolved_N(:) = register_soilc_diag_fields(module_name, '<ctype>_dissolved_N', &
+  id_soil_dissolved_N(:) = register_soilc_diag_fields(module_name, '<ctype>_diss_N', &
        axes, lnd%time, '<ctype> dissolved soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_soil_protected_N(:) = register_soilc_diag_fields(module_name, '<ctype>_protected_N', &
+  id_soil_protected_N(:) = register_soilc_diag_fields(module_name, '<ctype>_prot_N', &
        axes, lnd%time, '<ctype> protected soil nitrogen', 'kg N/m3', missing_value=-100.0 )
   id_rsoil_N(:) = register_soilc_diag_fields(module_name, 'rsoil_N_<ctype>', &
        axes, lnd%time, '<ctype> soil nitrogen respiration', 'kg N/(m3 year)', missing_value=-100.0 )
 
   ! litter fields
-  id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C', &
+  id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_dissolved_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_dissolved_C', &
+  id_litter_dissolved_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_diss_C', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_protected_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_protected_C', &
+  id_litter_protected_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_prot_C', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter protected carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C_leaching', &
+  id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C_leaching', &
        axes(1:1), lnd%time, '<ltype> litter <ctype> C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_litter_rsoil_C(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>',  &
+  id_litter_rsoil_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C_resp',  &
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> carbon degradation', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_C', &
+  id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_C', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_C', &
+  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_C', &
        axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
-  id_nlittercohorts(:) = register_litter_diag_fields ( module_name, 'n_<ltype>litter_cohorts', axes(1:1),  &
+  id_nlittercohorts(:) = register_litter_diag_fields ( module_name, '<ltype>litt_n_cohorts', axes(1:1),  &
        lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
 
-  id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_DON_leaching', &
+  id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_DON_leaching', &
        axes(1:1), lnd%time, '<ltype> litter <ctype> DON leaching','kg/(m2 s)', missing_value=-100.0)
-  id_litter_total_C_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_C_leaching', &
+  id_litter_total_C_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_C_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter total carbon leaching', 'kg C/m2/s', missing_value=-100.0 )
-  id_litter_total_ON_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_ON_leaching', &
+  id_litter_total_ON_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_DON_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter total organic N leaching', 'kg N/m2/s', missing_value=-100.0 )
-  id_litter_NO3_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_NO3_leaching', &
+  id_litter_NO3_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_NO3_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter NO3 leaching', 'kg N/m2/s', missing_value=-100.0 )
-  id_litter_NH4_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_NH4_leaching', &
+  id_litter_NH4_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_NH4_leaching', &
        axes(1:1),  lnd%time, '<ltype> litter NH4 leaching', 'kg N/m2/s', missing_value=-100.0 )
 
-  id_litter_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_N', &
+  id_litter_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_N', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_dissolved_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_dissolved_N', &
+  id_litter_dissolved_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_diss_N', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_protected_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_protected_N', &
+  id_litter_protected_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_prot_N', &
        axes(1:1), lnd%time, '<ctype> <ltype> litter protected nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>_N',  &
+  id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_N_resp',  &
        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> nitrogen degradation', 'kg N/(m2 year)', missing_value=-100.0 )
-!  id_litter_N_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_N_leaching', &
-!       axes(1:1), lnd%time, '<ltype> litter <ctype> N leaching','kg/(m2 s)', missing_value=-100.0)
-  id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_N', &
+  id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_N', &
        axes(1:1),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_N', &
+  id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_N', &
        axes(1:1),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
- id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litter_ammonium', &
+  id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NH4', &
       axes(1:1),  lnd%time, '<ltype> litter ammonium', 'kg N/m2', missing_value=-100.0 )
-  id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litter_nitrate', &
+  id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NO3', &
        axes(1:1),  lnd%time, '<ltype> litter nitrate', 'kg N/m2', missing_value=-100.0 )
 
 
-  id_total_NH4 = register_tiled_diag_field ( module_name, 'total_soil_NH4', axes(1:1),  &
+  id_total_NH4 = register_tiled_diag_field ( module_name, 'tot_soil_NH4', axes(1:1),  &
       lnd%time, 'total NH4 including litter', 'kg N/m2', missing_value=-100.0 )
-  id_total_NO3 = register_tiled_diag_field ( module_name, 'total_soil_NO3', axes(1:1),  &
+  id_total_NO3 = register_tiled_diag_field ( module_name, 'tot_soil_NO3', axes(1:1),  &
        lnd%time, 'total NO3 including litter', 'kg N/m2', missing_value=-100.0 )
   id_soil_NO3 = register_tiled_diag_field ( module_name, 'soil_NO3', axes,  &
-       lnd%time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
+       lnd%time, 'soil NO3 content', 'kg N/m3', missing_value=-100.0 )
   id_soil_NH4 = register_tiled_diag_field ( module_name, 'soil_NH4', axes,  &
-       lnd%time, 'NH4 per layer', 'kg N/m3', missing_value=-100.0 )
-  id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'total_denitrification_rate',  &
+       lnd%time, 'soil NH4 content', 'kg N/m3', missing_value=-100.0 )
+  id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'tot_denitrif_rate',  &
        (/id_ug/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
- id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
-       lnd%time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
-  id_NO3_div_loss = register_tiled_diag_field ( module_name, 'NO3_div_loss', axes(1:1), &
-       lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
-  id_NH4_div_loss = register_tiled_diag_field ( module_name, 'NH4_div_loss', axes(1:1), &
-        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
-  id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'total_N_mineralization_rate',  &
+  id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrif_rate', axes,  &
+       lnd%time, 'Denitrification rate', 'kg N/m3/year', missing_value=-100.0 )
+  id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'tot_N_mnrl_rate',  &
        (/id_ug/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
- id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'total_N_immobilization_rate',  &
+  id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'tot_N_immob_rate',  &
       (/id_ug/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
       missing_value=-100.0 )
-  id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'total_nitrification_rate',  &
+  id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'tot_nitrif_rate',  &
        (/id_ug/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
 
-  id_Qmax = register_tiled_diag_field ( module_name, 'soil_Qmax', axes(1:1),  &
-       lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
+  id_Qmax = register_tiled_static_field ( module_name, 'soil_Qmax', axes(1:1),  &
+       'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
-  id_deadmic_total_C = register_tiled_diag_field ( module_name, 'deadmic_total_C', axes(1:1),  &
+  id_deadmic_total_C = register_tiled_diag_field ( module_name, 'tot_dmic_C', axes(1:1),  &
        lnd%time, 'total dead microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_deadmic_total_N = register_tiled_diag_field ( module_name, 'deadmic_total_N', axes(1:1),  &
+  id_deadmic_total_N = register_tiled_diag_field ( module_name, 'tot_dmic_N', axes(1:1),  &
        lnd%time, 'total dead microbe soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_livemic_C = register_tiled_diag_field ( module_name, 'live_microbe_C', axes,  &
+  id_livemic_C = register_tiled_diag_field ( module_name, 'lmic_soil_C', axes,  &
        lnd%time, 'Total live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_livemic_N = register_tiled_diag_field ( module_name, 'live_microbe_N', axes,  &
+  id_livemic_N = register_tiled_diag_field ( module_name, 'lmic_soil_N', axes,  &
        lnd%time, 'Total live microbe soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_livemic_total_C = register_tiled_diag_field ( module_name, 'livemic_total_C', axes(1:1),  &
+  id_livemic_total_C = register_tiled_diag_field ( module_name, 'tot_lmic_C', axes(1:1),  &
        lnd%time, 'total live microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_livemic_total_N = register_tiled_diag_field ( module_name, 'livemic_total_N', axes(1:1),  &
+  id_livemic_total_N = register_tiled_diag_field ( module_name, 'tot_lmic_N', axes(1:1),  &
        lnd%time, 'total live microbe soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_protected_total_C = register_tiled_diag_field ( module_name, 'protected_total_C', axes(1:1),  &
+  id_protected_total_C = register_tiled_diag_field ( module_name, 'tot_prot_C', axes(1:1),  &
        lnd%time, 'total protected soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_protected_total_N = register_tiled_diag_field ( module_name, 'protected_total_N', axes(1:1),  &
+  id_protected_total_N = register_tiled_diag_field ( module_name, 'tot_prot_N', axes(1:1),  &
        lnd%time, 'total protected soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_dissolved_total_C = register_tiled_diag_field ( module_name, 'dissolved_total_C', axes(1:1),  &
+  id_dissolved_total_C = register_tiled_diag_field ( module_name, 'tot_diss_C', axes(1:1),  &
        lnd%time, 'total dissolved soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_dissolved_total_N = register_tiled_diag_field ( module_name, 'dissolved_total_N', axes(1:1),  &
+  id_dissolved_total_N = register_tiled_diag_field ( module_name, 'tot_diss_N', axes(1:1),  &
        lnd%time, 'total dissolved soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_total_soil_C = register_tiled_diag_field ( module_name, 'total_soil_C', axes(1:1),  &
+  id_total_soil_C = register_tiled_diag_field ( module_name, 'tot_soil_C', axes(1:1),  &
        lnd%time, 'total soil carbon', 'kg C/m2', missing_value=-100.0 )
-  id_total_soil_N = register_tiled_diag_field ( module_name, 'total_soil_N', axes(1:1),  &
+  id_total_soil_N = register_tiled_diag_field ( module_name, 'tot_soil_N', axes(1:1),  &
        lnd%time, 'total soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_total_C_leaching = register_tiled_diag_field ( module_name, 'total_C_leaching', axes, &
+  id_total_C_leaching = register_tiled_diag_field ( module_name, 'soil_DOC_leaching', axes, &
        lnd%time, 'net layer total vertical soil C leaching', 'kg/(m2 s)', missing_value=initval)
-  id_total_ON_leaching = register_tiled_diag_field ( module_name, 'total_ON_leaching', axes, &
+  id_total_ON_leaching = register_tiled_diag_field ( module_name, 'soil_DON_leaching', axes, &
        lnd%time, 'net layer total vertical soil organic N leaching', 'kg/(m2 s)', missing_value=initval)
   id_NO3_leaching = register_tiled_diag_field ( module_name, 'NO3_leaching', axes, &
        lnd%time, 'net layer vertical soil NO3 leaching', 'kg/(m2 s)', missing_value=initval)
   id_NH4_leaching = register_tiled_diag_field ( module_name, 'NH4_leaching', axes, &
        lnd%time, 'net layer vertical soil NH4 leaching', 'kg/(m2 s)', missing_value=initval)
-  ! id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
-  !      lnd%time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
-  !id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
-  !     lnd%time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+
   id_surf_DOC_loss = register_tiled_diag_field ( module_name, 'surf_DOC_loss', axes(1:1), &
        lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
        missing_value=initval)
@@ -1532,7 +1491,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
             call adjust_pool_ncohorts(tile%soil%litter(i))
          enddo
          do i = 1,num_l
-            call adjust_pool_ncohorts(tile%soil%soil_organic_matter(i))
+            call adjust_pool_ncohorts(tile%soil%org_matter(i))
          enddo
      end do
      do i = 1, N_C_TYPES
@@ -1548,20 +1507,15 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'liveMic' ,'zfull','soilCCohort',sc_livingMicrobeC_ptr,'Living microbial carbon','kg/m2')
      call add_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr,'Cohort CO2 generated','kg/m2')
      call add_tile_data(restart,'Rtot','zfull','soilCCohort',sc_Rtot_ptr,'Total degradation','kg/m2')
-     call add_tile_data(restart,'originalCohortC','zfull','soilCCohort',sc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
      do k = 1,N_LITTER_POOLS
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_C','litterCCohort',sc_litter_livingMicrobeC_ptr,k,trim(l_longname(k))//' litter live microbe C','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','litterCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_Rtot','litterCCohort',sc_litter_Rtot_ptr,k,trim(l_longname(k))//' litter total degradation','kg/m2')
-        call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortC','litterCCohort',sc_litter_originalLitterC_ptr,k,trim(l_longname(k))//' litter cohort original carbon','kg/m2')
      enddo
 
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
 
-     call add_tile_data(restart,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, 'Cumulative fast DOC leached out of the column', 'kg/m2')
-     call add_tile_data(restart,'slow_DOC_leached',     soil_slow_DOC_leached_ptr, 'Cumulative slow DOC leached out of the column', 'kg/m2')
-     call add_tile_data(restart,'deadmic_DOC_leached',  soil_deadmic_DOC_leached_ptr, 'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
      if (soil_carbon_option == SOILC_CORPSE_N) then
         do i = 1, N_C_TYPES
            call add_tile_data(restart,trim(c_shortname(i))//'_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr,i,trim(c_longname(i))//' soil nitrogen','kg/m2')
@@ -1576,7 +1530,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         enddo
         call add_tile_data(restart,'liveMicN', 'zfull','soilCCohort', sc_livingMicrobeN_ptr,'Living microbial nitrogen','kg/m2')
         ! FIXME slm: why "original" carbon and nitrogen are is in g/m2
-        call add_tile_data(restart,'originalCohortN', 'zfull','soilCCohort', sc_originalLitterN_ptr,'Cohort original nitrogen','g/m2')
         call add_tile_data(restart,'soil_NO3', 'zfull', sc_nitrate_ptr,'Soil nitrate content','kg/m2')
         call add_tile_data(restart,'soil_NH4', 'zfull', sc_ammonium_ptr,'Soil ammonium content','kg/m2')
         call add_tile_data(restart,'soil_nitrif', 'zfull', sc_nitrif_ptr,'Soil cumulative nitrification','kg/m2')
@@ -1584,7 +1537,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
         do k = 1,N_LITTER_POOLS
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr, k, trim(l_longname(k))//' litter live microbe N','kg/m2')
-           call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortN', 'litterCCohort', sc_litter_originalLitterN_ptr, k, trim(l_longname(k))//' litter cohort original N','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr, k, trim(l_longname(k))//' litter nitrate content','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr, k, trim(l_longname(k))//' litter ammonium content','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr, k, trim(l_longname(k))//' litter cumulative nitrification','kg/m2')
@@ -1622,35 +1574,34 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
         do i = 1,N_C_TYPES
            ! C inputs
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_in','zfull',&
-                    sc_protected_C_in_ptr, i,'protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
-           call add_tile_data(restart,trim(c_shortname(i))//'_C_in','zfull',&
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',&
                     sc_C_in_ptr, i, trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_C_turnover','zfull', &
+                    sc_C_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedC_in','zfull',&
+                    sc_protected_C_in_ptr, i,'protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedC_turnover','zfull', &
+                    sc_protected_C_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           ! N_inputs
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_N_in','zfull',&
+                    sc_N_in_ptr, i, trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'_soil_N_turnover','zfull', &
+                    sc_N_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedN_in','zfull',&
+                    sc_protected_N_in_ptr, i,'protected '//trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'ProtectedN_turnover','zfull', &
+                    sc_protected_N_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           ! C and N litter inputs
            do k = 1,N_LITTER_POOLS
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_in', &
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_in', &
                     sc_litter_C_in_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter carbon input','kg C/m2')
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_in', &
-                    sc_litter_N_in_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen input','kg C/m2')
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_C_turnover_accumulated', &
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_turnover', &
                     sc_litter_C_turnover_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter carbon turnover', 'year-1')
-              call add_tile_data(restart,trim(l_shortname(k))//'litter_'//trim(c_shortname(i))//'_N_turnover_accumulated', &
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_in', &
+                    sc_litter_N_in_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen input','kg C/m2')
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_turnover', &
                     sc_litter_C_turnover_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen turnover', 'year-1')
            enddo
-           ! N_inputs
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_N_in','zfull',&
-                    sc_protected_N_in_ptr, i,'protected '//trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
-           call add_tile_data(restart,trim(c_shortname(i))//'_N_in','zfull',&
-                    sc_N_in_ptr, i, trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
-           ! C turnover rates
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull', &
-                    sc_protected_C_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
-           call add_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull', &
-                    sc_C_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
-           ! N turnover rates
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_N_turnover_accumulated','zfull', &
-                    sc_protected_N_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
-           call add_tile_data(restart,trim(c_shortname(i))//'_N_turnover_accumulated','zfull', &
-                    sc_N_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -1798,7 +1749,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 !     enddo
 !      do l = 1, num_l
 !         write(*,'(i2.2,x)',advance='NO') l
-!         call debug_pool(soil%soil_organic_matter(l), '')
+!         call debug_pool(soil%org_matter(l), '')
 !      enddo
      write(*,*) '########### end of soil_step_1 input ###########'
   endif
@@ -1939,7 +1890,7 @@ end subroutine soil_step_1
        dW_l, & ! tendency of soil water mass [mm]
        DPsi
   real, dimension(num_l+1) :: flow, & ! downwards flow at layer interface above [mm/timestep]
-       infilt, flow_accum
+       infilt
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
@@ -1973,40 +1924,28 @@ end subroutine soil_step_1
        active_layer_thickness, d_psi, d_psi_s, psi_star, &
        depth_to_cf_1, depth_to_cf_3, &
        depth_to_wt_1, depth_to_wt_2, depth_to_wt_2a, depth_to_wt_2b, depth_to_wt_3, depth_to_wt_4, &
-       storage_2, deficit_2, deficit_3, deficit_4, deficit, dum1, dum2, dum3
+       storage_2, deficit_2, deficit_3, deficit_4, deficit
   logical :: stiff
   logical :: hlsp_stiff ! were all the horizontal conductivities zero at the call to hlsp_hydrology_1?
   real :: zimh, ziph, dTr_g(num_l), dTr_s(num_l)
-  integer :: n_iter, l, l_max_active_layer, i
+  integer :: n_iter, l, l_max_active_layer
   real :: &
        uptake(num_l),   & ! uptake by roots per layer, kg/(m2 s)
        uptake1(num_l),  & ! uptake by roots per layer per individual, kg/(indiv s)
        soil_uptake_frac(num_l), & ! fraction of uptake for each layer, for LM2 mode only
        tot_nindivs,     & ! total number of individuals, for soil_uptake_frac normalization
        transp1,         & ! transpiration per individual, kg/(indiv s)
-       uptake_tot,      & ! total uptake, kg/(m2 s)
        uptake_pos,      & ! sum of the positive uptake, kg/(m2 s)
        uptake_T_new, & ! updated average temperature of uptaken water, deg K
        uptake_T_corr,& ! correction for uptake temperature, deg K
        Tu,           & ! temperature of water taken up from (or added to) a layer, deg K
        psi_x0          ! water potential inside roots (in xylem) at zero depth, m
   type(vegn_cohort_type), pointer :: cc
-  real :: Theta ! for debug printout only
   integer :: ic ! cohort iterator
-  integer :: severity ! for negative wl checking
 
   ! For testing tridiagonal solution
   real, dimension(num_l)   :: t_soil_tridiag ! soil temperature based on generic tridiagonal solution [K]
   real, dimension(num_l)   :: t_diff ! difference from original advection subroutine [K]
-
-  real :: DOC_leached(N_C_TYPES,num_l), div_DOC_loss(N_C_TYPES,num_l),  &     ! C leaching
-         leaflitter_DOC_loss(N_C_TYPES),woodlitter_DOC_loss(N_C_TYPES)        ! Surface litter C leaching loss
-  real :: DON_leached(N_C_TYPES,num_l), div_DON_loss(N_C_TYPES,num_l),  &     ! N leaching
-         leaflitter_DON_loss(N_C_TYPES), woodlitter_DON_loss(N_C_TYPES)       ! Surface litter N leaching loss
-  real :: NO3_leached(num_l), div_NO3_loss(num_l), &     ! NO3 leaching
-         leaflitter_NO3_loss, woodlitter_NO3_loss        ! Surface litter NO3 leaching loss
-  real :: NH4_leached(num_l), div_NH4_loss(num_l), &     ! NH4 leaching
-         leaflitter_NH4_loss, woodlitter_NH4_loss        ! Surface litter NH4 leaching loss
 
   real :: surface_water ! diagnostic surface water storage [m]
   real :: inundated_frac ! diagnostic inundated area fraction [-]
@@ -2027,12 +1966,6 @@ end subroutine soil_step_1
   integer :: ipt, jpt, kpt, fpt ! for debug
   real :: bwood  ! woody biomass, [kgC/m2], used only as macroporosity flag
 
-  real :: surf_DOC_loss(N_C_TYPES)! [kg C/m^2] DOC loss from top soil layer to surface runoff due
-                                  ! to efflux
-  real :: surf_DON_loss(N_C_TYPES)! [kg N/m^2] DON loss from top soil layer to surface runoff due
-                                  ! to efflux
-  real :: surf_NO3_loss, surf_NH4_loss ! [kg N/m^2] NH4 and NO3 loss from top soil layer to surface runoff due to efflux
-  real :: total_C_leaching(num_l),total_DON_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
   real :: total_DOC_div           ! [kg C/m^2/s] net total DOC divergence loss rate
   real :: total_DON_div           ! [kg N/m^2/s] net total DON divergence loss rate
   real :: total_NO3_div,total_NH4_div ! [kg N/m^2/s] net total inorganic N divergence loss rates
@@ -2163,14 +2096,14 @@ end subroutine soil_step_1
      ! units of delta_time: s
      ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
      where(soil%wl(1:num_l)>1.0e-4)
-        passive_ammonium_uptake(1:num_l) = min(soil%soil_organic_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soil%soil_organic_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
-        passive_nitrate_uptake(1:num_l) = min(soil%soil_organic_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soil%soil_organic_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_ammonium_uptake(1:num_l) = min(soil%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soil%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_nitrate_uptake(1:num_l) = min(soil%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soil%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
      elsewhere
         passive_ammonium_uptake(1:num_l)=0.0
         passive_nitrate_uptake(1:num_l)=0.0
      end where
-     soil%soil_organic_matter(1:num_l)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
-     soil%soil_organic_matter(1:num_l)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
+     soil%org_matter(1:num_l)%ammonium=soil%org_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
+     soil%org_matter(1:num_l)%nitrate=soil%org_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
      passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
      if (cc%nindivs>0) &
            cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
@@ -2909,7 +2842,7 @@ end subroutine soil_step_1
       enddo
       do l = 1, num_l
          write(*,'(i2.2,x)',advance='NO') l
-         call debug_pool(soil%soil_organic_matter(l), '')
+         call debug_pool(soil%org_matter(l), '')
       enddo
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
@@ -2917,101 +2850,28 @@ end subroutine soil_step_1
    endif
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
-!Note: fine wood litter currently not included, just because we haven't implemented anything with it anywhere
 !ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
-   if (gw_option == GW_TILED) then
-      call tracer_leaching_with_litter(soil=soil%soil_organic_matter(:),&
-                                        wl=wl_before,&
-                                        leaflitter=soil%litter(LEAF),&
-                                        woodlitter=soil%litter(CWOOD),&
-                                        flow=flow, &
-                                        litterflow=max(0.0,flow(1)),&
-                                        div=div,&
-                                        dz=dz(1:num_l),&
-                                        dt=delta_time,&
-                                        del_soil_DOC=DOC_leached,del_soil_DON=DON_leached,&
-                                        del_leaflitter_DOC=leaflitter_DOC_loss,del_leaflitter_DON=leaflitter_DON_loss,&
-                                        del_woodlitter_DOC=woodlitter_DOC_loss,del_woodlitter_DON=woodlitter_DON_loss,&
-                                        div_DOC_loss=div_DOC_loss,div_DON_loss=div_DON_loss,&
-                                        del_soil_NH4=NH4_leached,del_soil_NO3=NO3_leached,&
-                                        del_leaflitter_NO3=leaflitter_NO3_loss,del_woodlitter_NO3=woodlitter_NO3_loss,&
-                                        del_leaflitter_NH4=leaflitter_NH4_loss,del_woodlitter_NH4=woodlitter_NH4_loss,&
-                                        div_NO3_loss=div_NO3_loss,div_NH4_loss=div_NH4_loss,&
-                                        tiled=.TRUE.,&
-                                        div_hlsp_DOC=soil%div_hlsp_DOC,div_hlsp_DON=soil%div_hlsp_DON,&
-                                        div_hlsp_NO3=soil%div_hlsp_NO3,div_hlsp_NH4=soil%div_hlsp_NH4,&
-                                        surf_DOC_loss=surf_DOC_loss,surf_DON_loss=surf_DON_loss,&
-                                        surf_NO3_loss=surf_NO3_loss,surf_NH4_loss=surf_NH4_loss)
-   else
-    call tracer_leaching_with_litter(soil=soil%soil_organic_matter(:),&
-                                      wl=wl_before,&
-                                      leaflitter=soil%litter(LEAF),&
-                                      woodlitter=soil%litter(CWOOD),&
-                                      flow=flow, &
-                                      litterflow=max(0.0,flow(1)),&
-                                      div=div,&
-                                      dz=dz(1:num_l),&
-                                      dt=delta_time,&
-                                      del_soil_DOC=DOC_leached,del_soil_DON=DON_leached,&
-                                      del_leaflitter_DOC=leaflitter_DOC_loss,del_leaflitter_DON=leaflitter_DON_loss,&
-                                      del_woodlitter_DOC=woodlitter_DOC_loss,del_woodlitter_DON=woodlitter_DON_loss,&
-                                      div_DOC_loss=div_DOC_loss,div_DON_loss=div_DON_loss,&
-                                      del_soil_NH4=NH4_leached,del_soil_NO3=NO3_leached,&
-                                      del_leaflitter_NO3=leaflitter_NO3_loss,del_woodlitter_NO3=woodlitter_NO3_loss,&
-                                      del_leaflitter_NH4=leaflitter_NH4_loss,del_woodlitter_NH4=woodlitter_NH4_loss,&
-                                      div_NO3_loss=div_NO3_loss,div_NH4_loss=div_NH4_loss,&
-                                      tiled=.FALSE. )
-      surf_DOC_loss(:) = 0.
-      surf_DON_loss(:) = 0.
-      surf_NO3_loss = 0.
-      surf_NH4_loss = 0.
-   end if
-
-   soil%fast_DOC_leached=soil%fast_DOC_leached+sum(div_DOC_loss(1,:)) + surf_DOC_loss(1)
-   soil%slow_DOC_leached=soil%slow_DOC_leached+sum(div_DOC_loss(2,:)) + surf_DOC_loss(2)
-   soil%deadmic_DOC_leached=soil%deadmic_DOC_leached+sum(div_DOC_loss(3,:)) + surf_DOC_loss(3)
-   ! Diagnostic. Later pass this back to land_model for transfer to rivers.
-   total_DOC_div = sum(surf_DOC_loss(:))
-   total_DON_div = sum(surf_DON_loss(:))
-   total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
-   total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
-   do l=1,num_l
-      total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
-      total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
-   end do
+   call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
+            wl_before, flow, div, &
+            soil%div_hlsp_DOC, soil%div_hlsp_DON, &
+            soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
+            ! output
+            total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
 
    !FIXME BNS: What if there is net flow of nitrogen into tile from other hillslope tiles?
-   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + total_DON_div+total_NO3_div+total_NH4_div
+   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile &
+            + total_DON_div + total_NO3_div + total_NH4_div
 
-   total_DOC_div = total_DOC_div/delta_time
-   total_DON_div = total_DON_div/delta_time
-   total_NO3_div = total_NO3_div/delta_time
-   total_NH4_div = total_NH4_div/delta_time
    if (i_river_DOC/=NO_TRACER) then
-       soil_tr_runf(i_river_DOC) = total_DOC_div
+       soil_tr_runf(i_river_DOC) = total_DOC_div/delta_time
        DOC_to_atmos = 0.0
    else
-       ! if we don't have DOC river tracer, DOC loss goes directly to the atmosphere
-       DOC_to_atmos = total_DOC_div
+       ! if we do not have DOC river tracer, DOC loss goes directly to the atmosphere
+       DOC_to_atmos = total_DOC_div/delta_time
    endif
-   if (i_river_DON/=NO_TRACER) &
-       soil_tr_runf(i_river_DON) = total_DON_div
-   if (i_river_NO3/=NO_TRACER) &
-       soil_tr_runf(i_river_NO3) = total_NO3_div
-   if (i_river_NH4/=NO_TRACER) &
-       soil_tr_runf(i_river_NH4) = total_NH4_div
-
-   if (is_watch_point()) then
-      write(*,*)'##### soil_step_2 checkpoint 7 #####'
-      do l = 1,N_LITTER_POOLS
-         call debug_pool(soil%litter(l),trim(l_shortname(l))//'Litter')
-      enddo
-      __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
-      do l = 1, num_l
-         write(*,'(i2.2,x)',advance='NO') l
-         call debug_pool(soil%soil_organic_matter(l), '')
-      enddo
-   endif
+   if (i_river_DON/=NO_TRACER) soil_tr_runf(i_river_DON) = total_DON_div/delta_time
+   if (i_river_NO3/=NO_TRACER) soil_tr_runf(i_river_NO3) = total_NO3_div/delta_time
+   if (i_river_NH4/=NO_TRACER) soil_tr_runf(i_river_NH4) = total_NH4_div/delta_time
 
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
@@ -3081,15 +2941,6 @@ end subroutine soil_step_1
   call send_tile_data(id_hsc,  hlrunf_sc, diag)
   if (id_evap > 0) call send_tile_data(id_evap,  soil_levap+soil_fevap, diag)
 
-  do i = 1, N_C_TYPES
-    call send_tile_data(id_litter_C_leaching(LEAF,i),leaflitter_DOC_loss(i)/delta_time,diag)
-    call send_tile_data(id_litter_C_leaching(CWOOD,i),woodlitter_DOC_loss(i)/delta_time,diag)
-    call send_tile_data(id_C_leaching(i), DOC_leached(i,:)/delta_time,diag)
-    call send_tile_data(id_litter_DON_leaching(LEAF,i),leaflitter_DON_loss(i)/delta_time,diag)
-    call send_tile_data(id_litter_DON_leaching(CWOOD,i),woodlitter_DON_loss(i)/delta_time,diag)
-    call send_tile_data(id_DON_leaching(i), DON_leached(i,:)/delta_time,diag)
-  enddo
-
   call send_tile_data(id_heat_cap, soil%heat_capacity_dry, diag)
   call send_tile_data(id_active_layer, active_layer_thickness, diag)
   if (gw_option == GW_TILED) then
@@ -3107,29 +2958,6 @@ end subroutine soil_step_1
      call send_tile_data(id_reflux, reflux, diag)
   end if
   call send_tile_data(id_macro_infilt, flow_macro, diag)
-  do l=1,num_l
-     total_C_leaching(l) = sum(DOC_leached(:,l))/delta_time
-     total_DON_leaching(l) = sum(DON_leached(:,l))/delta_time
-  end do
-  call send_tile_data(id_total_C_leaching, total_C_leaching, diag)
-  call send_tile_data(id_total_ON_leaching, total_DON_leaching, diag)
-  call send_tile_data(id_NO3_leaching, NO3_leached/delta_time, diag)
-  call send_tile_data(id_NH4_leaching, NH4_leached/delta_time, diag)
-  call send_tile_data(id_litter_total_C_leaching(LEAF),sum(leaflitter_DOC_loss)/delta_time,diag)
-  call send_tile_data(id_litter_total_ON_leaching(LEAF),sum(leaflitter_DON_loss)/delta_time,diag)
-  call send_tile_data(id_litter_NO3_leaching(LEAF),leaflitter_NO3_loss/delta_time,diag)
-  call send_tile_data(id_litter_NH4_leaching(LEAF),leaflitter_NH4_loss/delta_time,diag)
-  call send_tile_data(id_litter_total_C_leaching(CWOOD),sum(woodlitter_DOC_loss)/delta_time,diag)
-  call send_tile_data(id_litter_total_ON_leaching(CWOOD),sum(woodlitter_DON_loss)/delta_time,diag)
-  call send_tile_data(id_litter_NO3_leaching(CWOOD),woodlitter_NO3_loss/delta_time,diag)
-  call send_tile_data(id_litter_NH4_leaching(CWOOD),woodlitter_NH4_loss/delta_time,diag)
-  if (gw_option == GW_TILED) then
-     call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
-  end if
-  call send_tile_data(id_total_DOC_div_loss, total_DOC_div, diag)
-  call send_tile_data(id_total_DON_div_loss, total_DON_div, diag)
-  call send_tile_data(id_total_NO3_div_loss, total_NO3_div, diag)
-  call send_tile_data(id_total_NH4_div_loss, total_NH4_div, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
 end subroutine soil_step_2
@@ -3169,7 +2997,7 @@ subroutine soil_step_3(soil, diag)
 !     total_carbon=0.0
 
      do l = 1,num_l
-        call poolTotals1 ( soil%soil_organic_matter(l), ncohorts=ncohorts(l), &
+        call poolTotals1 ( soil%org_matter(l), ncohorts=ncohorts(l), &
             litterC=soil_C(:,l), livemicC=livemic_C(l), protectedC=protected_C(:,l), dissolvedC=dissolved_C(:,l), totalC=layer_C(l), &
             litterN=soil_N(:,l), livemicN=livemic_N(l), protectedN=protected_N(:,l), dissolvedN=dissolved_N(:,l), totalN=layer_N(l)  )
      enddo
@@ -3181,8 +3009,8 @@ subroutine soil_step_3(soil, diag)
      total_livemic_N = sum(livemic_N)
      total_prot_N    = sum(protected_N(:,:),2)
      total_diss_N    = sum(dissolved_N(:,:),2)
-     total_NO3       = sum(soil%soil_organic_matter(1:num_l)%nitrate)
-     total_NH4       = sum(soil%soil_organic_matter(1:num_l)%ammonium)
+     total_NO3       = sum(soil%org_matter(1:num_l)%nitrate)
+     total_NH4       = sum(soil%org_matter(1:num_l)%ammonium)
 
      ! --- CMOR vars
      if (id_csoilfast   > 0) call send_tile_data(id_csoilfast,   total_C(C_FAST)+total_C(C_MIC)+total_livemic_C, diag)
@@ -3213,16 +3041,11 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_livemic_N, livemic_N/dz(1:num_l), diag)
      call send_tile_data(id_total_C_layered, layer_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_total_N_layered, layer_N(:)/dz(1:num_l), diag)
+     if (id_soil_DOC>0) call send_tile_data(id_soil_DOC, sum(dissolved_C,1)/dz(1:num_l), diag)
+     if (id_soil_DON>0) call send_tile_data(id_soil_DON, sum(dissolved_N,1)/dz(1:num_l), diag)
 
-     call send_tile_data(id_fast_DOC_div_loss,    soil%fast_DOC_leached,    diag)
-     call send_tile_data(id_slow_DOC_div_loss,    soil%slow_DOC_leached,    diag)
-     call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached, diag)
-     call send_tile_data(id_fast_DON_div_loss,    soil%fast_DON_leached,    diag)
-     call send_tile_data(id_slow_DON_div_loss,    soil%slow_DON_leached,    diag)
-     call send_tile_data(id_deadmic_DON_div_loss, soil%deadmic_DON_leached, diag)
-
-     call send_tile_data(id_soil_NO3, soil%soil_organic_matter(1:num_l)%nitrate/dz(1:num_l),diag)
-     call send_tile_data(id_soil_NH4, soil%soil_organic_matter(1:num_l)%ammonium/dz(1:num_l),diag)
+     call send_tile_data(id_soil_NO3, soil%org_matter(1:num_l)%nitrate/dz(1:num_l),diag)
+     call send_tile_data(id_soil_NH4, soil%org_matter(1:num_l)%ammonium/dz(1:num_l),diag)
      call send_tile_data(id_total_NO3, total_NO3, diag)
      call send_tile_data(id_total_NH4, total_NH4, diag)
 
@@ -3321,38 +3144,29 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   type(diag_buff_type), intent(inout) :: diag
 
   real :: leaflitter_deadmic_C_produced, leaflitter_deadmic_N_produced
-  real :: fineWoodlitter_deadmic_C_produced, fineWoodlitter_deadmic_N_produced
-  real :: coarseWoodlitter_deadmic_C_produced, coarseWoodlitter_deadmic_N_produced
   real, dimension(N_C_TYPES) :: &
      leaflitter_protected_C_produced, leaflitter_protected_C_turnover_rate, &
      leaflitter_protected_N_produced, leaflitter_protected_N_turnover_rate, &
-     fineWoodlitter_protected_C_produced, fineWoodlitter_protected_C_turnover_rate, &
-     fineWoodlitter_protected_N_produced, fineWoodlitter_protected_N_turnover_rate, &
-     coarseWoodlitter_protected_C_produced, coarseWoodlitter_protected_C_turnover_rate, &
-     coarseWoodlitter_protected_N_produced, coarseWoodlitter_protected_N_turnover_rate
-  real :: &
-     protected_C_produced(N_C_TYPES,num_l), protected_C_turnover_rate(N_C_TYPES,num_l), &
-     protected_N_produced(N_C_TYPES,num_l), protected_N_turnover_rate(N_C_TYPES,num_l)
+     litter_C_loss_rate, litter_N_loss_rate
+  real, dimension(N_C_TYPES,num_l) :: &
+     protected_C_produced, protected_C_turnover_rate, &
+     protected_N_produced, protected_N_turnover_rate
   real,dimension(N_LITTER_POOLS) :: litter_nitrif, litter_denitrif, litter_N_mineralization, litter_N_immobilization
-  real :: deadmic_C_produced(num_l)
-  real :: deadmic_N_produced(num_l)
-  real :: soil_nitrif(num_l), soil_denitrif(num_l), soil_N_mineralization(num_l), soil_N_immobilization(num_l)
-  real :: litter_C_loss_rate(N_C_TYPES)
-  real :: litter_N_loss_rate(N_C_TYPES)
-  real :: C_loss_rate(size(soil%soil_organic_matter),N_C_TYPES)
-  real :: N_loss_rate(size(soil%soil_organic_matter),N_C_TYPES)
-  real, dimension(size(soil%soil_organic_matter)) :: decomp_T,decomp_theta,ice_porosity
-  real :: A          (size(soil%soil_organic_matter)) ! decomp rate reduction due to moisture and temperature
+  real, dimension(num_l) :: &
+     deadmic_C_produced, deadmic_N_produced, &
+     soil_nitrif, soil_denitrif, soil_N_mineralization, soil_N_immobilization, &
+     decomp_T, decomp_theta, ice_porosity, &
+     A  ! decomp rate reduction due to moisture and temperature
+  real, dimension(num_l,N_C_TYPES) :: C_loss_rate, N_loss_rate
 
   integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
   integer :: i,k
   real :: CO2prod
-  integer :: point_i,point_j,point_k,point_face
 
-  A(:) = A_function(soil%T(:), soil_theta(soil))
   decomp_T = soil%T(:)
   decomp_theta = soil_theta(soil)
   ice_porosity = soil_ice_porosity(soil)
+  A(:) = A_function(decomp_T, decomp_theta)
 
   vegn%rh=0.0
 
@@ -3387,7 +3201,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! Next we have to go through layers and decompose the soil carbon pools
   do k=1,num_l
-      call update_pool(pool=soil%soil_organic_matter(k),T=decomp_T(k),theta=decomp_theta(k),air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
+      call update_pool(pool=soil%org_matter(k),T=decomp_T(k),theta=decomp_theta(k),air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
                 liquid_water=soil%wl(k),frozen_water=soil%ws(k),dt=dt_fast_yr,layerThickness=dz(k),&
                 C_loss_rate=C_loss_rate(k,:), &
                 CO2prod=CO2prod, &
@@ -3407,13 +3221,13 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
   enddo
   do i = 1, N_C_TYPES
-     call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
-     call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
+     if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
+     if (id_rsoil_N(i)>0) call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
   enddo
   ! for budget check
-  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(C_FAST,:))*dt_fast_yr
-  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(C_SLOW,:))*dt_fast_yr
-  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(C_MIC,:)) *dt_fast_yr
+  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(:, C_FAST))*dt_fast_yr
+  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(:, C_SLOW))*dt_fast_yr
+  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(:, C_MIC)) *dt_fast_yr
 
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
@@ -3606,7 +3420,7 @@ end subroutine soil_push_down_excess
   ! ---- local vars ----------------------------------------------------------
   integer l, ipt, jpt, kpt, fpt, l_internal
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  real aaa, bbb, ccc, ddd, xxx, dW_l_internal, w_to_move_up
   logical flag
 
   flag = .false.
@@ -4085,6 +3899,451 @@ end subroutine advection_tri
 
 
 ! ============================================================================
+!!!xz this following subroutine is adopted from CH's code using concentration over water; please note that the units of some input variables are different. I kept tracer_advection_ORI following this subroutine
+subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,wl)  ! wl was added here compared to the old version
+    real,intent(inout),dimension(:):: tracer_mass  ! Per layer (not per unit water)
+    real,intent(in),dimension(:)   :: flow  ! Total flow, not flow rate [mm]
+    real,intent(in),dimension(:)   :: div   ! Horizontal divergence (layer total, not rate) [mm]
+    real,intent(in),dimension(:)   :: dz    ! Layer thickness
+    real,intent(in),dimension(:)   :: wl    ! water content [kg/m^2] by layer before Richards (1:num_l)
+    real,intent(out),dimension(:)  :: del_tracer,divergence_loss ! Change in tracer mass, and divergence part
+
+    real,dimension(size(tracer_mass)) :: aaa,bbb,ccc,ddd,wl_litter    ! Matrix coefficients for aaa*dx[i-1] + bbb*dx[i] + ccc*dx[i+1] = ddd
+    real,dimension(size(tracer_mass)) :: u_minus,u_plus   ! For weighting of flow upstream/downstream
+    real,dimension(size(tracer_mass)) :: tracer_concentration ! [kg C/m^3 soil]
+    integer::ll,nlayers
+    ! real,dimension(size(tracer_mass)) ::flow_eff ! flow adjusted to be units of [m], weighted by 1/wl  ZACK'S CODE
+    real, parameter :: minwl = 0.1 ! [mm] minimum allowed wl
+    real, parameter :: dens_h2o=1000.   ! kg/m3
+!    real*8,parameter::porosity=0.3  !CH valore inventato  !xz volumn of water over volumn of soil; need to consider to change!!
+    !real,intent(in)::theta
+    !real*8::dt=1.0/(48.0*365.0)
+
+    nlayers=size(tracer_mass)
+    wl_litter(1)=dz(1)     ! m
+    do ll=2,nlayers
+       wl_litter(ll)=max(wl(ll-1), minwl)/dens_h2o  ! m
+    enddo
+
+    tracer_concentration=tracer_mass/wl_litter   ! kg/m3  ! concentration computed over the volume of water
+
+    u_minus = 1.
+    where (flow.lt.0.) u_minus = 0.
+    do ll = 1, nlayers-1
+        u_plus(ll) = 1. - u_minus(ll+1)
+    enddo
+
+    ! Top layer, uses upper bound concentration
+
+    ll=1
+    aaa(ll)= 0.0 ! flow(ll)*u_minus(ll)
+    bbb(ll)= flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
+  !   m           m                          m                           m
+
+    ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)   BEN CODE ORIGINAL
+    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+    ! [kg/m^2]         =       [m]        *    [kg/m^3]
+
+    ccc(ll)= -flow(ll+1)*u_plus(ll)
+    ! m
+
+    ddd(ll)= - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
+ !    kg/m2          kg/m3                       m                    kg/m3                 m
+
+    do ll=2,nlayers-1
+        !aaa(ll)=flow(ll)*u_minus(ll)     !BEN ORIGINAL
+        !bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - dz(ll)
+        !divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+        !ccc(ll)=-flow(ll+1)*u_plus(ll)
+        !ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll)) - tracer_concentration(ll+1)*ccc(ll)
+
+!Adapted from ZACK's CODE
+     aaa(ll)=flow(ll)*u_minus(ll)
+        bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
+        divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)     ! [kg/m^3]
+!         kg/m2            =    m           *    kg/m3
+        ccc(ll)=-flow(ll+1)*u_plus(ll)   !m
+        ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
+   !    kg/m2
+    enddo
+
+
+    !bottom layer, flow out is zero
+   ! ll=nlayers
+   ! aaa(ll)=flow(ll)*u_minus(ll)
+   ! bbb(ll)= flow(ll)*(1-u_minus(ll)) - dz(ll)
+   ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+   ! ccc(ll)= 0.0
+   ! ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll))
+
+!Adapted from ZACK's CODE
+    ll=nlayers
+    aaa(ll)=flow(ll)*u_minus(ll)
+    bbb(ll)= flow(ll)*(1-u_minus(ll)) - wl_litter(ll)
+    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+    ccc(ll)= 0.0
+    ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll))
+
+
+    !Solve the linear algebra problem
+    if(nlayers.gt.1) then
+        call tridiag(aaa,bbb,ccc,ddd,del_tracer)  !kg/m3
+    else
+        del_tracer=0.0
+    endif
+
+    del_tracer=del_tracer*wl_litter   !kg/m2   !variazione del tracer
+    tracer_mass=tracer_mass+del_tracer    !kg/m2
+    divergence_loss=divergence_loss
+
+    where(divergence_loss>tracer_mass) divergence_loss=tracer_mass
+end subroutine tracer_advection
+
+
+! ============================================================================
+subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
+         wl, flow, div, &
+         div_hlsp_DOC,div_hlsp_DON,&
+         div_hlsp_NO3,div_hlsp_NH4,&
+         ! output
+         total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
+
+  type(diag_buff_type), intent(inout) :: diag
+  type(soil_pool),intent(inout) :: soilc(:), leaflitter, woodlitter
+  !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time unit.!!! I assume here the unit is mm/yr
+  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+
+!!!!!!!xz we might need to update this part sine CH and Ben's code do not have N lost from run off ; need to consider to add surf_DON_loss; and div_hlsp_DON
+  real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+  real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
+  real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+
+  real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
+
+  ! ---- local vars
+  real :: surf_DOC_loss(N_C_TYPES) ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
+  real :: surf_DON_loss(N_C_TYPES) ! [kg N/m^2] loss from top layer to surface runoff
+  real :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
+  real :: &
+     div_DOC_loss(N_C_TYPES,num_l), div_DON_loss(N_C_TYPES,num_l), div_NH4_loss(num_l), div_NO3_loss(num_l), &
+     del_soil_DOC(N_C_TYPES,num_l), del_soil_DON(N_C_TYPES,num_l), del_soil_NH4(num_l), del_soil_NO3(num_l), &
+     del_leaflitter_DOC(N_C_TYPES), del_leaflitter_DON(N_C_TYPES), del_leaflitter_NH4, del_leaflitter_NO3, &
+     del_woodlitter_DOC(N_C_TYPES), del_woodlitter_DON(N_C_TYPES), del_woodlitter_NH4, del_woodlitter_NO3
+
+
+  !xz note: wl soil layer water volumn, mm^3/mm^2, defined by CH ; div, divergent flux or 
+  ! horizontal flow; del is the change along the time dimension
+  real, parameter :: dens_h2o = 1000.0 !xz
+  real, parameter :: minwl    = 0.1 ! [mm]
+
+  real :: DOC(N_C_TYPES,num_l+1), DON(N_C_TYPES,num_l+1), NH4_dissolved(num_l+1), NO3_dissolved(num_l+1)!xz
+  real, dimension(N_C_TYPES,num_l+1) :: div_loss, div_loss_N!xz
+  real, dimension(num_l+1)           :: div_loss_NO3, div_loss_NH4
+
+  real :: d_DOC(N_C_TYPES,num_l+1),d_DON(N_C_TYPES,num_l+1),d_NH4(num_l+1),d_NO3(num_l+1)!xz
+
+  real,dimension(num_l+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
+  integer :: i,l
+
+  real :: litterThickness,leaflitterTotalC,woodlitterTotalC,leaf_DOC_frac,leaf_DON_frac,&
+            leaf_NH4_frac,leaf_NO3_frac
+
+!!!!!!!xz Not in CH's code. need to consider add N here as well.
+!!!!!!!xz [end]
+
+  real :: mass0, mass1 ! for conservation checks
+  real :: total_C_leaching(num_l),total_DON_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
+
+  !For now, use a mininum litter thickness of 5 mm
+  call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
+  call poolTotals(woodlitter, totalCarbon=woodlitterTotalC)
+  litterThickness = max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
+
+!!!!!!!xz note: please make sure the unit of flow is ????
+  flow_with_litter(1)=0.0
+  flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
+  flow_with_litter = flow_with_litter/1000 !xz change the div unit from mm to m
+
+  !flow_with_litter(1)=0.0/dens_h2o*delta_time  !m !CH's code if the unit of flow is kg/m2/yr
+  !flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)/dens_h2o*delta_time   !m
+
+  div_with_litter(1)=0.0
+  div_with_litter(2:size(flow_with_litter))=div(:)*delta_time ! div is in mm/s
+  div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
+
+  !div_with_litter(1)=0.0/dens_h2o*delta_time!xz!CH's code if the unit of flow is kg/m2/yr
+  !div_with_litter(2:size(flow_with_litter))=div(:)/dens_h2o*delta_time  !m? !xz
+
+  dz_with_litter(1)=litterThickness
+  dz_with_litter(2:size(dz_with_litter)) = dz(1:num_l) !!xz assume the unit of dz is m
+
+  surf_NH4_loss = 0.0      ;  surf_NO3_loss      = 0.0 
+  del_soil_NH4  = 0.0      ;  del_soil_NO3       = 0.0
+  del_leaflitter_NH4 = 0.0 ;  del_leaflitter_NO3 = 0.0
+  del_woodlitter_NH4 = 0.0 ;  del_woodlitter_NO3 = 0.0
+  div_NH4_loss=0.0         ;  div_NO3_loss       = 0.0
+
+  if (soil_carbon_option == SOILC_CORPSE_N) then
+     !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
+     ! Probably should include wood litter in this too
+     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
+     if (leaflitterTotalC+woodlitterTotalC>0) then
+        !  leaf_NH4_frac = leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
+        leaf_NH4_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
+     else
+        leaf_NH4_frac = 0.5 ! slm: does it make sense?
+     endif
+
+     NH4_dissolved(1)=(leaflitter%ammonium + woodlitter%ammonium)*ammonium_solubility  !kg/m2
+     leaflitter%ammonium=leaflitter%ammonium-leaflitter%ammonium*ammonium_solubility
+     woodlitter%ammonium=woodlitter%ammonium-woodlitter%ammonium*ammonium_solubility
+     NH4_dissolved(2:num_l+1)=soilc(:)%ammonium*ammonium_solubility  !kg/m2
+     soilc(:)%ammonium=soilc(:)%ammonium*(1-ammonium_solubility)
+
+     if (leaflitterTotalC+woodlitterTotalC > 0) then
+        !  leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+        leaf_NO3_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
+     else
+        leaf_NO3_frac = 0.0
+     endif
+     NO3_dissolved(1)=(leaflitter%nitrate + woodlitter%nitrate)*nitrate_solubility   !kg/m2
+     leaflitter%nitrate=leaflitter%nitrate-leaflitter%nitrate*nitrate_solubility
+     woodlitter%nitrate=woodlitter%nitrate-woodlitter%nitrate*nitrate_solubility
+     NO3_dissolved(2:num_l+1)=soilc(:)%nitrate*nitrate_solubility   !kg/m2
+     soilc(:)%nitrate=soilc(:)%nitrate*(1-nitrate_solubility)
+
+     call check_var_range(NH4_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NH4_dissolved before advect.',FATAL)
+     call check_var_range(NO3_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NO3_dissolved before advect.',FATAL)
+
+     mass0 = sum(NH4_dissolved)
+     call tracer_advection(NH4_dissolved(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_NH4(:),div_loss_NH4(:),wl(:))
+     mass1 = sum(NH4_dissolved)
+     call check_conservation('tracer_leaching_with_litter','NH4_dissolved', mass0, mass1, nitrogen_cons_tol )
+     call check_var_range(NH4_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NH4_dissolved after advect.',FATAL)
+
+     mass0 = sum(NO3_dissolved)
+     call tracer_advection(NO3_dissolved(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_NO3(:),div_loss_NO3(:),wl(:))
+     mass1 = sum(NO3_dissolved)
+     call check_conservation('tracer_leaching_with_litter','NO3_dissolved', mass0, mass1, nitrogen_cons_tol )
+     call check_var_range(NO3_dissolved, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'NO3_dissolved after advect.',FATAL)
+
+     !la subroutine tracer_advection mi rida' il valore de la quantita di tracer_dissolved gia' aggiornata con la percolazione che entra ed esce dallo strato di suolo
+     !la variazione di massa e' pari a d_NH4 o d_NO3
+
+     if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
+        div_loss_NO3(2:num_l+1) = div_hlsp_NO3(:)*delta_time
+        div_loss_NH4(2:num_l+1) = div_hlsp_NH4(:)*delta_time
+        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff -- BNS: include litter layer in this??
+           surf_NO3_loss = -NO3_dissolved(2) * flow(1) / wl(1)
+           surf_NO3_loss = min(surf_NO3_loss, NO3_dissolved(2))
+           surf_NH4_loss = -NH4_dissolved(2) * flow(1) / wl(1)
+           surf_NH4_loss = min(surf_NH4_loss, NH4_dissolved(2))
+        end if
+        div_loss_NO3(2) = min(div_loss_NO3(2), NO3_dissolved(2) - surf_NO3_loss)
+        div_loss_NH4(2) = min(div_loss_NH4(2), NH4_dissolved(2) - surf_NH4_loss)
+        do l=3,num_l+1
+           div_loss_NO3(l) = min(div_loss_NO3(l), NO3_dissolved(l))
+           div_loss_NH4(l) = min(div_loss_NH4(l), NH4_dissolved(l))
+        end do
+        ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+        ! that will be effectively rectified by subtracting from the flux to stream. In rare
+        ! situations, that could lead to a negative stream DOC flux.
+
+        NH4_dissolved(2)=NH4_dissolved(2)-surf_NH4_loss
+        NO3_dissolved(2)=NO3_dissolved(2)-surf_NO3_loss
+     end if
+     NH4_dissolved(:)=NH4_dissolved(:)-div_loss_NH4(:)  !aggiorno la quantita' di ammonio in soluzione nel suolo togliendo la parte che e' uscita con il flusso laterale
+     NO3_dissolved(:)=NO3_dissolved(:)-div_loss_NO3(:)
+
+
+     leaflitter%ammonium=leaflitter%ammonium + NH4_dissolved(1)*leaf_NH4_frac
+     woodlitter%ammonium=woodlitter%ammonium + NH4_dissolved(1)*(1.0-leaf_NH4_frac)
+
+     soilc(:)%ammonium=soilc(:)%ammonium + NH4_dissolved(2:num_l+1)
+
+     leaflitter%nitrate=leaflitter%nitrate + NO3_dissolved(1)*leaf_NO3_frac
+     woodlitter%nitrate=woodlitter%nitrate + NO3_dissolved(1)*(1.0-leaf_NO3_frac)
+     soilc(:)%nitrate=soilc(:)%nitrate + NO3_dissolved(2:num_l+1)
+
+     del_soil_NH4(:)=d_NH4(2:num_l+1)  !variazione con la percolazione del contenuto di NH4 nel suolo
+     del_soil_NO3(:)=d_NO3(2:num_l+1)
+
+     del_leaflitter_NH4=d_NH4(1)*leaf_NH4_frac
+     del_leaflitter_NO3=d_NO3(1)*leaf_NO3_frac
+     del_woodlitter_NH4=d_NH4(1)*(1.0-leaf_NH4_frac)
+     del_woodlitter_NO3=d_NO3(1)*(1.0-leaf_NO3_frac)
+
+     div_NH4_loss(:)=div_loss_NH4(2:num_l+1)
+     div_NO3_loss(:)=div_loss_NO3(2:num_l+1)
+     !!!!!!!!!!!!!!!!!!xz [End] CH's code for Nitrogen
+  endif
+
+  call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Does not take porosity into account
+  call dissolve_carbon(woodlitter,wl(1)/(dens_h2o*dz(1)))
+  do i=1, num_l
+    call dissolve_carbon(soilc(i),wl(i)/(dens_h2o*dz(i)))
+  enddo
+
+  surf_DOC_loss(:) = 0.0
+  surf_DON_loss(:) = 0.0
+  do i=1,N_C_TYPES
+     DOC(i,1)=leaflitter%dissolved_carbon(i)+woodlitter%dissolved_carbon(i)
+     if(DOC(i,1)>0) then
+         leaf_DOC_frac=leaflitter%dissolved_carbon(i)/DOC(i,1)
+     else
+         leaf_DOC_frac=0.0
+     endif
+     DOC(i,2:num_l+1)=soilc(:)%dissolved_carbon(i)
+
+     call check_var_range(DOC(i,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(i))//',:) before advec.',FATAL)
+     mass0 = sum(DOC(i,:))
+     call tracer_advection(DOC(i,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DOC(i,:),div_loss(i,:),wl(:))!xz
+     mass1 = sum(DOC(i,:))
+     call check_var_range(DOC(i,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(i))//',:) after advec.',FATAL)
+     call check_conservation('tracer_leaching_with_litter','DOC('//trim(c_shortname(i))//',:)', mass0,mass1, carbon_cons_tol )
+
+     if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
+        div_loss(i,2:num_l+1) = div_hlsp_DOC(i,:)*delta_time
+        if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
+           surf_DOC_loss(i) = -DOC(i, 2) * flow(1) / wl(1)
+           surf_DOC_loss(i) = min(surf_DOC_loss(i), DOC(i,2))
+        end if
+        div_loss(i,2) = min(div_loss(i,2), DOC(i,2) - surf_DOC_loss(i))
+        do l=3,num_l+1
+           div_loss(i,l) = min(div_loss(i,l), DOC(i,l))
+        end do
+        ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+        ! that will be effectively rectified by subtracting from the flux to stream. In rare
+        ! situations, that could lead to a negative stream DOC flux.
+     end if
+     DOC(i,:)=DOC(i,:)-div_loss(i,:)
+     DOC(i,2)=DOC(i,2)-surf_DOC_loss(i)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+     ! Xin says this line was a mistake
+
+     leaflitter%dissolved_carbon(i)=DOC(i,1)*leaf_DOC_frac
+     woodlitter%dissolved_carbon(i)=DOC(i,1)*(1.0-leaf_DOC_frac)
+     soilc(:)%dissolved_carbon(i)=DOC(i,2:num_l+1)
+
+     del_soil_DOC(i,:)=d_DOC(i,2:num_l+1)
+     del_leaflitter_DOC(i)=d_DOC(i,1)*leaf_DOC_frac
+     del_woodlitter_DOC(i)=d_DOC(i,1)*(1.0-leaf_DOC_frac)
+
+     div_DOC_loss(i,:)=div_loss(i,2:num_l+1)
+
+     !!!!!xz Nitrogen
+     if (soil_carbon_option == SOILC_CORPSE_N) then
+        DON(i,1)=leaflitter%dissolved_nitrogen(i)+woodlitter%dissolved_nitrogen(i)!xz
+        if(DON(i,1)>0) then
+            leaf_DON_frac=leaflitter%dissolved_nitrogen(i)/DON(i,1)
+        else
+            leaf_DON_frac=0.0
+        endif !xz
+        DON(i,2:num_l+1)=soilc(:)%dissolved_nitrogen(i)!xz
+        call check_var_range(DON(i,:), -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'DON('//trim(c_shortname(i))//',:) before advec.',FATAL)
+
+        mass0 = sum(DON(i,:))
+        call tracer_advection(DON(i,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DON(i,:),div_loss_N(i,:),wl(:))
+        mass1 = sum(DON(i,:))
+        call check_conservation('tracer_leaching_with_litter','DON('//trim(c_shortname(i))//',:)', mass0,mass1, nitrogen_cons_tol )
+
+        if (gw_option == GW_TILED) then ! reset div_loss(i,2:num_l+1) according to values calculated in hlsp_hydrology
+           div_loss_N(i,2:num_l+1) = div_hlsp_DON(i,:)*delta_time
+           if (flow(1) < 0. .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
+              surf_DON_loss(i) = -DON(i, 2) * flow(1) / wl(1)
+              surf_DON_loss(i) = min(surf_DON_loss(i), DON(i,2))
+           end if
+           div_loss_N(i,2) = min(div_loss_N(i,2), DON(i,2) - surf_DON_loss(i))
+           do l=3,num_l+1
+              div_loss_N(i,l) = min(div_loss_N(i,l), DON(i,l))
+           end do
+           ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+           ! that will be effectively rectified by subtracting from the flux to stream. In rare
+           ! situations, that could lead to a negative stream DOC flux.
+        end if
+        DON(i,2)=DON(i,2)-surf_DON_loss(i)!!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+        ! Xin says this line was a mistake
+
+        DON(i,:)=DON(i,:)-div_loss_N(i,:)
+
+        leaflitter%dissolved_nitrogen(i)=DON(i,1)*leaf_DON_frac
+        woodlitter%dissolved_nitrogen(i)=DON(i,1)*(1.0-leaf_DON_frac)
+        soilc(:)%dissolved_nitrogen(i)=DON(i,2:num_l+1)
+
+        del_soil_DON(i,:)=d_DON(i,2:num_l+1)
+        del_leaflitter_DON(i)=d_DON(i,1)*leaf_DON_frac
+        del_woodlitter_DON(i)=d_DON(i,1)*(1.0-leaf_DON_frac)
+
+        div_DON_loss(i,:)=div_loss_N(i,2:num_l+1)
+     else
+        del_soil_DON(i,:)=0.0
+        del_leaflitter_DON(i)=0.0
+        del_woodlitter_DON(i)=0.0
+
+        div_DON_loss(i,:)=0.0
+     endif
+     !!!!xz Nitrogen [end]
+  enddo
+
+  call check_var_range(woodlitter%dissolved_nitrogen, -1e-11, HUGE(1.0), 'tracer_leaching_with_litter', 'woodlitter%dissolved_nitrogen',FATAL)
+  call deposit_dissolved_C(leaflitter)
+  call deposit_dissolved_C(woodlitter)
+  do i=1, num_l
+    call deposit_dissolved_C(soilc(i))
+  enddo
+
+  ! sum up the totals
+  total_DOC_div = sum(surf_DOC_loss(:))
+  total_DON_div = sum(surf_DON_loss(:))
+  total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
+  total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
+  do l=1,num_l
+     total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
+     total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
+  end do
+
+  ! ---- diagnostic section
+  do i = 1, N_C_TYPES
+     call send_tile_data(id_litter_C_leaching(LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_litter_C_leaching(CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_C_leaching(i), del_soil_DOC(i,:)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_DON_leaching(i), del_soil_DON(i,:)/delta_time,diag)
+  enddo
+  if (id_total_C_leaching>0) then
+      do l=1,num_l
+          total_C_leaching(l) = sum(del_soil_DOC(:,l))/delta_time
+      end do
+      call send_tile_data(id_total_C_leaching, total_C_leaching, diag)
+  endif
+  if (id_total_ON_leaching>0) then
+      do l=1,num_l
+          total_DON_leaching(l) = sum(del_soil_DON(:,l))/delta_time
+      end do
+      call send_tile_data(id_total_ON_leaching, total_DON_leaching, diag)
+  endif
+  call send_tile_data(id_NO3_leaching, del_soil_NO3/delta_time, diag)
+  call send_tile_data(id_NH4_leaching, del_soil_NH4/delta_time, diag)
+  call send_tile_data(id_litter_total_C_leaching(LEAF),sum(del_leaflitter_DOC)/delta_time,diag)
+  call send_tile_data(id_litter_total_ON_leaching(LEAF),sum(del_leaflitter_DON)/delta_time,diag)
+  call send_tile_data(id_litter_NO3_leaching(LEAF),del_leaflitter_NO3/delta_time,diag)
+  call send_tile_data(id_litter_NH4_leaching(LEAF),del_leaflitter_NH4/delta_time,diag)
+  call send_tile_data(id_litter_total_C_leaching(CWOOD),sum(del_woodlitter_DOC)/delta_time,diag)
+  call send_tile_data(id_litter_total_ON_leaching(CWOOD),sum(del_woodlitter_DON)/delta_time,diag)
+  call send_tile_data(id_litter_NO3_leaching(CWOOD),del_woodlitter_NO3/delta_time,diag)
+  call send_tile_data(id_litter_NH4_leaching(CWOOD),del_woodlitter_NH4/delta_time,diag)
+  if (gw_option == GW_TILED) then
+     call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
+  end if
+
+  call send_tile_data(id_total_DOC_div_loss, total_DOC_div/delta_time, diag)
+  call send_tile_data(id_total_DON_div_loss, total_DON_div/delta_time, diag)
+  call send_tile_data(id_total_NO3_div_loss, total_NO3_div/delta_time, diag)
+  call send_tile_data(id_total_NH4_div_loss, total_NH4_div/delta_time, diag)
+
+end subroutine tracer_leaching_with_litter
+
+! ============================================================================
 ! given soil tile, returns carbon content of various components of litter
 subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
   type(soil_tile_type), intent(in)  :: soil
@@ -4107,60 +4366,50 @@ end subroutine get_soil_litter_C
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
-! Mineral nitrogen is taken up from the rhizosphere only
-subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
-  real,intent(out),dimension(:)::N_uptake_cohorts  ! Units of per individual
-  type(vegn_tile_type),intent(in)::vegn
-  type(soil_tile_type),intent(inout)::soil
-  real,intent(in)::dt
-  logical, intent(in) :: update_pools
+subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
+  type(soil_tile_type), intent(inout) :: soil
+  type(vegn_tile_type), intent(in)    :: vegn
+  real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
+  real,    intent(in)  :: dt ! in years
+  logical, intent(in)  :: update_pools
 
-  real :: nitrate_uptake, ammonium_uptake, ammonium_concentration, nitrate_concentration
-  real :: rhiz_frac(num_l)
-  real,dimension(num_l) :: profile, vegn_uptake_term, total_ammonium_uptake,total_nitrate_uptake
-  real::cohort_root_biomass(num_l,vegn%n_cohorts),total_root_biomass(num_l)
+  real :: amm, nit ! ammonium and nitrate concentrations, kg N/m3
+  real :: nit_uptake, amm_uptake
+  real, dimension(num_l) :: tot_amm_uptake, tot_nit_uptake
   integer :: k,i
+  real :: root_surface ! root surface area, per layer
 
-  call rhizosphere_frac(vegn, rhiz_frac)
+  N_uptake       = 0.0
+  tot_amm_uptake = 0.0
+  tot_nit_uptake = 0.0
 
-  do i=1,vegn%n_cohorts
-    call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
-    cohort_root_biomass(:,i) =  vegn%cohorts(i)%br*vegn%cohorts(i)%nindivs*profile
+  do i = 1,vegn%n_cohorts
+     associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
+     do k = 1,num_l
+        ! calculate ammonium and nitrate concentrations in this layer
+        amm = soil%org_matter(k)%ammonium / dz(k)
+        nit = soil%org_matter(k)%nitrate  / dz(k)
+        ! calculate individuals root area in this layer
+        root_surface = 2 * PI * cc%r_r * cc%root_length(k) * dz(k)
+        amm_uptake = amm/(amm+sp%k_ammonium_root_uptake) * sp%root_NH4_uptake_rate * root_surface * dt
+        nit_uptake = nit/(nit+sp%k_nitrate_root_uptake)  * sp%root_NO3_uptake_rate * root_surface * dt
+        N_uptake(i) = N_uptake(i) + amm_uptake + nit_uptake
+        tot_amm_uptake(k) = tot_amm_uptake(k) + amm_uptake * cc%nindivs
+        tot_nit_uptake(k) = tot_nit_uptake(k) + nit_uptake * cc%nindivs
+     enddo
+     end associate
   enddo
-
-  total_root_biomass = sum(cohort_root_biomass,dim=2)
-
-  N_uptake_cohorts=0.0
-  total_ammonium_uptake=0.0
-  total_nitrate_uptake=0.0
-
-  ! If there is no root biomass, skip the rest since there's no uptake in that case
-  if(sum(total_root_biomass)==0.0) return
-
-  do k=1,num_l
-    ammonium_concentration=soil%soil_organic_matter(k)%ammonium*rhiz_frac(k)/dz(k)
-    nitrate_concentration=soil%soil_organic_matter(k)%nitrate*rhiz_frac(k)/dz(k)
-    do i=1,vegn%n_cohorts
-      ammonium_uptake = ammonium_concentration/(ammonium_concentration+spdata(vegn%cohorts(i)%species)%k_ammonium_root_uptake)*&
-                          spdata(vegn%cohorts(i)%species)%root_NH4_uptake_rate*dt*dz(k)*cohort_root_biomass(k,i)/total_root_biomass(k)
-      nitrate_uptake = nitrate_concentration/(nitrate_concentration+spdata(vegn%cohorts(i)%species)%k_nitrate_root_uptake)*&
-                          spdata(vegn%cohorts(i)%species)%root_NO3_uptake_rate*dt*dz(k)*cohort_root_biomass(k,i)/total_root_biomass(k)
-      N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)/vegn%cohorts(i)%nindivs
-      total_ammonium_uptake(k)=total_ammonium_uptake(k)+ammonium_uptake
-      total_nitrate_uptake(k)=total_nitrate_uptake(k)+nitrate_uptake
-    enddo
-  enddo
-  if(any(total_ammonium_uptake(:)>soil%soil_organic_matter(:)%ammonium)) then
-     __DEBUG4__(rhiz_frac,ammonium_concentration,total_ammonium_uptake,soil%soil_organic_matter(:)%ammonium)
+  if(any(tot_amm_uptake(:)>soil%org_matter(:)%ammonium)) then
+     __DEBUG3__(amm,tot_amm_uptake,soil%org_matter(:)%ammonium)
   endif
-  if(any(total_nitrate_uptake(:)>soil%soil_organic_matter(:)%nitrate)) then
-     __DEBUG3__(nitrate_concentration,total_nitrate_uptake,soil%soil_organic_matter(:)%nitrate)
+  if(any(tot_nit_uptake(:)>soil%org_matter(:)%nitrate)) then
+     __DEBUG3__(nit,tot_nit_uptake,soil%org_matter(:)%nitrate)
   endif
   if (update_pools) then
-     soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-total_ammonium_uptake(:)
-     soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-total_nitrate_uptake(:)
+     soil%org_matter(:)%ammonium = soil%org_matter(:)%ammonium - tot_amm_uptake(:)
+     soil%org_matter(:)%nitrate  = soil%org_matter(:)%nitrate  - tot_nit_uptake(:)
   endif
-end subroutine root_N_uptake
+end subroutine active_root_N_uptake
 
 
 ! ============================================================================
@@ -4173,31 +4422,33 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   logical, intent(in) :: update_pools
   real, intent(out) :: myc_efficiency ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 
-  real,dimension(num_l) :: profile, vegn_uptake_term
+  real,dimension(num_l) :: profile
   real::nitrate_uptake,ammonium_uptake
   real::cohort_myc_scav_biomass(num_l,vegn%n_cohorts),total_myc_scav_biomass(num_l)
-  real,dimension(num_l):: myc_biomass_tiny, N_uptake_tiny ! For calculating return on investment when myc biomass is zero
   real::litterThickness,totalC
   integer::k,i
+  integer :: N ! number of cohorts
   logical :: myc_biomass_is_zero
 
+  N = vegn%n_cohorts
+
   associate(cc=>vegn%cohorts)
-  myc_biomass_is_zero = (sum(cc(:)%myc_scavenger_biomass_C*cc(:)%nindivs)<=0)
+  myc_biomass_is_zero = (sum(cc(1:N)%scav_C*cc(1:N)%nindivs)<=0)
   if(.not.myc_biomass_is_zero) then
-    do i=1,vegn%n_cohorts
+    do i=1,N
       call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
-      cohort_myc_scav_biomass(:,i) =  cc(i)%myc_scavenger_biomass_C*cc(i)%nindivs*profile
+      cohort_myc_scav_biomass(:,i) =  cc(i)%scav_C*cc(i)%nindivs*profile
     enddo
   else ! myc_biomass_is_zero
     ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
     ! This allows plants to grow some biomass from zero
-    if(sum(cc(:)%bliving*cc(:)%nindivs)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
+    if(sum(cc(1:N)%bliving*cc(1:N)%nindivs)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
       N_uptake_cohorts(:)=0.0
       myc_efficiency=0.0
       return
     endif
 
-    do i=1,vegn%n_cohorts
+    do i=1,N
       call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
       cohort_myc_scav_biomass(:,i) =  cc(i)%bliving*cc(i)%nindivs*0.0001*profile
     enddo
@@ -4210,33 +4461,33 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
 
   do k=1,num_l
     ! Total uptake rate is calculated based on total mycorrhizal biomass
-    call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(k),total_myc_scav_biomass(k),dz(k),nitrate_uptake,ammonium_uptake)
-    ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(k)%ammonium/dt)
-    nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(k)%nitrate/dt)
+    call mycorrhizal_mineral_N_uptake_rate(soil%org_matter(k),total_myc_scav_biomass(k),dz(k),nitrate_uptake,ammonium_uptake)
+    ammonium_uptake = min(ammonium_uptake,soil%org_matter(k)%ammonium/dt)
+    nitrate_uptake = min(nitrate_uptake,soil%org_matter(k)%nitrate/dt)
 
     ! Uptake by each cohort is scaled by the fraction of total mycorrhizal biomass in that layer
     ! that is owned by the cohort
-    do i=1,vegn%n_cohorts
+    do i=1,N
       if(cc(i)%nindivs>0) then
           N_uptake_cohorts(i) = N_uptake_cohorts(i)+&
               (ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(k,i)/(total_myc_scav_biomass(k)*cc(i)%nindivs)
       endif
     enddo
 
-    ! These debug macros are too long for PGI! Have to break them up if we're going to leave them commented out anyway...
-    !_!_DEBUG3_!_(k,ammonium_uptake/soil%soil_organic_matter(k)%ammonium,nitrate_uptake/soil%soil_organic_matter(k)%nitrate)
-    !_!_DEBUG4_!_(k,total_myc_scav_biomass(k)/dz(k),soil%soil_organic_matter(k)%ammonium/dz(k),soil%soil_organic_matter(k)%nitrate/dz(k))
+    ! These debug macros are too long for PGI! Have to break them up if we are going to leave them commented out anyway...
+    !_!_DEBUG3_!_(k,ammonium_uptake/soil%org_matter(k)%ammonium,nitrate_uptake/soil%org_matter(k)%nitrate)
+    !_!_DEBUG4_!_(k,total_myc_scav_biomass(k)/dz(k),soil%org_matter(k)%ammonium/dz(k),soil%org_matter(k)%nitrate/dz(k))
 
-    if(ammonium_uptake*dt>soil%soil_organic_matter(k)%ammonium) then
-      __DEBUG2__(ammonium_uptake*dt,soil%soil_organic_matter(k)%ammonium)
+    if(ammonium_uptake*dt>soil%org_matter(k)%ammonium) then
+      __DEBUG2__(ammonium_uptake*dt,soil%org_matter(k)%ammonium)
     endif
-    if(nitrate_uptake*dt>soil%soil_organic_matter(k)%nitrate) then
-      __DEBUG2__(nitrate_uptake*dt,soil%soil_organic_matter(k)%nitrate)
+    if(nitrate_uptake*dt>soil%org_matter(k)%nitrate) then
+      __DEBUG2__(nitrate_uptake*dt,soil%org_matter(k)%nitrate)
     endif
 
     if (update_pools .and. .not. myc_biomass_is_zero) then  ! If myc biomass is 0, then no actual N is taken up. It is just being used for efficiency calculation
-       soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake*dt
-       soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake*dt
+       soil%org_matter(k)%ammonium=soil%org_matter(k)%ammonium-ammonium_uptake*dt
+       soil%org_matter(k)%nitrate=soil%org_matter(k)%nitrate-nitrate_uptake*dt
     endif
   enddo
 
@@ -4250,7 +4501,7 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      ammonium_uptake = min(ammonium_uptake,soil%litter(k)%ammonium/dt)
      nitrate_uptake  = min(nitrate_uptake,soil%litter(k)%nitrate/dt)
 
-     do i=1,vegn%n_cohorts
+     do i=1,N
        if(cc(i)%nindivs>0) &
            N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(1,i)/(total_myc_scav_biomass(1)*cc(i)%nindivs)
      enddo
@@ -4261,7 +4512,7 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      endif
   enddo
 
-  myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_scav_biomass)
+  myc_efficiency = sum(N_uptake_cohorts*cc(1:N)%nindivs)/sum(total_myc_scav_biomass)
   ! If myc biomass was zero, then the calculation used a "virtual" biomass and there is no real uptake
   if (myc_biomass_is_zero) then
      N_uptake_cohorts(:) = 0.0
@@ -4281,25 +4532,28 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   logical, intent(in)  :: update_pools
   real, intent(out)     :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 
-  real, dimension(num_l) :: profile, vegn_uptake_term
+  real, dimension(num_l) :: profile
   real :: N_uptake,C_uptake,CO2prod
   real, dimension(num_l) :: T, theta, air_filled_porosity
   real::cohort_myc_mine_biomass(num_l,vegn%n_cohorts),total_myc_mine_biomass(num_l)
   real::litterThickness,totalC,cohort_frac
   integer :: k,i
   logical :: myc_biomass_is_zero
+  integer :: N ! number of cohorts
+
+  N = vegn%n_cohorts
 
   associate(cc=>vegn%cohorts)
-  if(sum(cc(:)%myc_miner_biomass_C*cc(:)%nindivs)>0) then
+  if(sum(cc(1:N)%mine_C*cc(1:N)%nindivs)>0) then
     myc_biomass_is_zero = .FALSE.
-    do i=1,vegn%n_cohorts
+    do i=1,N
       call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
-      cohort_myc_mine_biomass(:,i) =  cc(i)%myc_miner_biomass_C*cc(i)%nindivs*profile
+      cohort_myc_mine_biomass(:,i) =  cc(i)%mine_C*cc(i)%nindivs*profile
     enddo
   else
     ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
     ! This allows plants to grow some biomass from zero
-    if(sum(cc(:)%bliving*cc(:)%nindivs)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
+    if(sum(cc(1:N)%bliving*cc(1:N)%nindivs)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
       N_uptake_cohorts(:)=0.0
       C_uptake_cohorts(:)=0.0
       total_CO2prod=0.0
@@ -4308,13 +4562,13 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
     endif
 
     myc_biomass_is_zero = .TRUE.
-    do i=1,vegn%n_cohorts
+    do i=1,N
       call cohort_root_litter_profile (cc(i), dz(1:num_l), profile)
       cohort_myc_mine_biomass(:,i) =  cc(i)%bliving*cc(i)%nindivs*0.0001*profile
     enddo
   endif
 
-  T = soil%T(:)
+  T = soil%T(1:num_l)
   theta = max(min(soil_theta(soil),1.0),0.0)
   air_filled_porosity=max(min(1.0-theta-soil_ice_porosity(soil),1.0),0.0)
 
@@ -4325,12 +4579,12 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   total_CO2prod=0.0
 
   do k=1,num_l
-     call mycorrhizal_decomposition(soil%soil_organic_matter(k),total_myc_mine_biomass(k),&
+     call mycorrhizal_decomposition(soil%org_matter(k),total_myc_mine_biomass(k),&
           T(k),theta(k),air_filled_porosity(k),N_uptake,C_uptake,CO2prod,dt,&
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod=total_CO2prod+CO2prod
 
-     do i=1,vegn%n_cohorts
+     do i=1,N
        cohort_frac = 0.0
        if(cc(i)%nindivs>0) &
           cohort_frac = cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
@@ -4347,7 +4601,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod  = total_CO2prod + CO2prod
 
-     do i=1,vegn%n_cohorts
+     do i=1,N
        cohort_frac = 0.0
        if(cc(i)%nindivs>0) &
            cohort_frac = cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
@@ -4356,7 +4610,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
      enddo
   enddo
 
-  myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_mine_biomass)
+  myc_efficiency = sum(N_uptake_cohorts*cc(1:N)%nindivs)/sum(total_myc_mine_biomass)
 
   ! If myc biomass was zero, then the calculation used a tiny "virtual" biomass and there is no real uptake or CO2 production
   if (myc_biomass_is_zero) then
@@ -4380,7 +4634,7 @@ subroutine redistribute_peat_carbon(soil)
     !For conservation check.
     total_C_before=0.0
     do nn=1,num_l
-    call poolTotals(soil%soil_organic_matter(num_l),layer_total_C)
+    call poolTotals(soil%org_matter(num_l),layer_total_C)
     total_C_before=total_C_before+layer_total_C
     enddo
 
@@ -4392,35 +4646,35 @@ subroutine redistribute_peat_carbon(soil)
     layer_extra_C = layer_total_C-layer_max_C
     if(layer_extra_C>0) then
         fraction_to_remove=1.0-layer_max_C/layer_total_C
-        call transfer_pool_fraction(soil%litter(LEAF),soil%soil_organic_matter(1),fraction_to_remove)
-        call transfer_pool_fraction(soil%litter(CWOOD),soil%soil_organic_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter(LEAF),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter(CWOOD),soil%org_matter(1),fraction_to_remove)
     endif
 
     !Move carbon down if it exceeds layer_max_C
     do nn=1,num_l-1
-        call poolTotals(soil%soil_organic_matter(nn),totalCarbon=layer_total_C)
+        call poolTotals(soil%org_matter(nn),totalCarbon=layer_total_C)
         layer_max_C=dz(nn)*max_soil_C_density
         layer_extra_C=layer_total_C-layer_max_C
         if (layer_extra_C>0) then
             fraction_to_remove=1.0-layer_max_C/layer_total_C
-            call transfer_pool_fraction(soil%soil_organic_matter(nn),soil%soil_organic_matter(nn+1),fraction_to_remove)
+            call transfer_pool_fraction(soil%org_matter(nn),soil%org_matter(nn+1),fraction_to_remove)
             soil%is_peat(nn)=1
         endif
 
         if (layer_extra_C < 0 .and. (soil%is_peat(nn).ne.0) .and. (soil%is_peat(nn+1).ne.0)) then
-             call poolTotals(soil%soil_organic_matter(nn+1),totalCarbon=layer_total_C_2)
+             call poolTotals(soil%org_matter(nn+1),totalCarbon=layer_total_C_2)
              fraction_to_remove = -layer_extra_C/layer_total_C_2
              if (fraction_to_remove > 0.5) then
                 soil%is_peat(nn+1)=0
              else
-                call transfer_pool_fraction(soil%soil_organic_matter(nn+1),soil%soil_organic_matter(nn),fraction_to_remove)
+                call transfer_pool_fraction(soil%org_matter(nn+1),soil%org_matter(nn),fraction_to_remove)
              endif
         endif
     enddo
 
     total_C_after=0.0
     do nn=1,num_l
-    call poolTotals(soil%soil_organic_matter(num_l),layer_total_C)
+    call poolTotals(soil%org_matter(num_l),layer_total_C)
     total_C_after=total_C_after+layer_total_C
     enddo
 
@@ -4549,973 +4803,5 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
       end do
    end if
 end subroutine init_soil_twc
-
-
-! ============================================================================
-! cohort accessor functions: given a pointer to cohort, return a pointer to a
-! specific member of the cohort structure
-
-!/* #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\ */
-!/* type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();\ */
-!/* if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\ */
-!/* end subroutine */
-!/* #define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,i,p);\ */
-!/* type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();\ */
-!/* if(associated(t))then;if(associated(t%soil))p=>t%soil%x(i);endif;\ */
-!/* end subroutine */
-!/* #define DEFINE_SOIL_COMPONENT_ACCESSOR_0D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\ */
-!/* type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();\ */
-!/* if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\ */
-!/* end subroutine */
-!/* #define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,i,p);\ */
-!/* type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();\ */
-!/* if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x(i);endif;\ */
-!/* end subroutine */
-
-!DEFINE_SOIL_ACCESSOR_1D(real,T)
-subroutine soil_T_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%T(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,wl)
-subroutine soil_wl_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%wl(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,ws)
-subroutine soil_ws_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p;p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%ws(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,groundwater)
-subroutine soil_groundwater_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%groundwater(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,groundwater_T)
-subroutine soil_groundwater_T_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%groundwater_T(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,w_fc)
-subroutine soil_w_fc_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%w_fc(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,alpha)
-subroutine soil_alpha_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%alpha(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_0D(real,uptake_T)
-subroutine soil_uptake_T_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%uptake_T
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_0D(integer,tag)
-subroutine soil_tag_ptr(t,p)
-    type(land_tile_type),pointer::t
-    integer,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%tag
-        endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,fast_soil_C)
-subroutine soil_fast_soil_C_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%fast_soil_C(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,slow_soil_C)
-subroutine soil_slow_soil_C_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%slow_soil_C(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,asoil_in)
-subroutine soil_asoil_in_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%asoil_in(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,fsc_in)
-subroutine soil_fsc_in_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%fsc_in(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(real,ssc_in)
-subroutine soil_ssc_in_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%ssc_in(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_1D(integer,is_peat)
-subroutine soil_is_peat_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    integer,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%is_peat(i)
-    endif
-end subroutine
-
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,tau_groundwater)
-subroutine soil_tau_groundwater_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%tau_groundwater
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_length)
-subroutine soil_hillslope_length_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%hillslope_length
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_relief)
-subroutine soil_hillslope_relief_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%hillslope_relief
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_a)
-subroutine soil_hillslope_a_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%hillslope_a
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_n)
-subroutine soil_hillslope_n_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%hillslope_n
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_zeta_bar)
-subroutine soil_hillslope_zeta_bar_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%hillslope_zeta_bar
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,soil_e_depth)
-subroutine soil_soil_e_depth_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%soil_e_depth
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,zeta)
-subroutine soil_zeta_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%zeta
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,tau)
-subroutine soil_tau_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%tau
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,k_sat_gw)
-subroutine soil_k_sat_gw_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%k_sat_gw
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,vwc_wilt)
-subroutine soil_vwc_wilt_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%vwc_wilt
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,vwc_fc)
-subroutine soil_vwc_fc_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%vwc_fc
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,vwc_sat)
-subroutine soil_vwc_sat_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%vwc_sat
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,k_sat_ref)
-subroutine soil_k_sat_ref_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%k_sat_ref
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,Qmax)
-subroutine soil_Qmax_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%Qmax
-    endif
-end subroutine
-
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_dry_dir)
-subroutine soil_refl_dry_dir_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%refl_dry_dir(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_dry_dif)
-subroutine soil_refl_dry_dif_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%refl_dry_dif(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_sat_dir)
-subroutine soil_refl_sat_dir_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%refl_sat_dir(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_sat_dif)
-subroutine soil_refl_sat_dif_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%refl_sat_dif(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_dry)
-subroutine soil_f_iso_dry_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%f_iso_dry(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_dry)
-subroutine soil_f_vol_dry_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%f_vol_dry(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_dry)
-subroutine soil_f_geo_dry_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%f_geo_dry(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_sat)
-subroutine soil_f_iso_sat_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%f_iso_sat(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_sat)
-subroutine soil_f_vol_sat_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%f_vol_sat(i)
-    endif
-end subroutine
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
-subroutine soil_f_geo_sat_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL();
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%f_geo_sat(i)
-    endif
-end subroutine
-
-
-!DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
-subroutine soil_fast_DOC_leached_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%fast_DOC_leached
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
-subroutine soil_slow_DOC_leached_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%slow_DOC_leached
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
-subroutine soil_deadmic_DOC_leached_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%deadmic_DOC_leached
-    endif
-end subroutine
-
-
-!DEFINE_SOIL_ACCESSOR_0D(real,gross_nitrogen_flux_into_tile)
-subroutine soil_gross_nitrogen_flux_into_tile_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%gross_nitrogen_flux_into_tile
-    endif
-end subroutine
-
-!DEFINE_SOIL_ACCESSOR_0D(real,gross_nitrogen_flux_out_of_tile)
-subroutine soil_gross_nitrogen_flux_out_of_tile_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%gross_nitrogen_flux_out_of_tile
-    endif
-end subroutine
-
-! stuff below is for CORPSE
-subroutine sc_soil_C_ptr(t,i,j,k,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterC(k)
-  endif
-end subroutine
-
-subroutine sc_negative_litter_C_ptr(t,i,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL()
-  if(associated(t))then
-     if(associated(t%soil))p=>t%soil%neg_litt_C(i)
-  endif
-end subroutine
-
-subroutine sc_negative_litter_N_ptr(t,i,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL()
-  if(associated(t))then
-     if(associated(t%soil))p=>t%soil%neg_litt_N(i)
-  endif
-end subroutine
-
-subroutine sc_soil_N_ptr(t,i,j,k,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterN(k)
-  endif
-end subroutine
-
-subroutine sc_protected_C_ptr(t,i,j,k,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%protectedC(k)
-  endif
-end subroutine
-
-subroutine sc_protected_N_ptr(t,i,j,k,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%protectedN(k)
-  endif
-end subroutine
-
-subroutine sc_DOC_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_carbon(j)
-  endif
-end subroutine
-
-subroutine sc_DON_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_nitrogen(j)
-  endif
-end subroutine
-
-subroutine sc_C_in_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%C_in(j)
-  endif
-end subroutine
-
-subroutine sc_N_in_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%N_in(j)
-  endif
-end subroutine
-
-subroutine sc_protected_C_in_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_in(j)
-  endif
-end subroutine
-
-subroutine sc_protected_N_in_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_N_in(j)
-  endif
-end subroutine
-
-subroutine sc_C_turnover_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%C_turnover(j)
-  endif
-end subroutine
-
-subroutine sc_protected_C_turnover_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_turnover(j)
-  endif
-end subroutine
-
-subroutine sc_N_turnover_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%N_turnover(j)
-  endif
-end subroutine
-
-subroutine sc_protected_N_turnover_ptr(t,i,j,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_N_turnover(j)
-  endif
-end subroutine
-
-subroutine sc_nitrate_ptr(t,i,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%nitrate
-  endif
-end subroutine
-
-subroutine sc_ammonium_ptr(t,i,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%ammonium
-  endif
-end subroutine
-
-subroutine sc_nitrif_ptr(t,i,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%nitrif
-  endif
-end subroutine
-
-subroutine sc_denitrif_ptr(t,i,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%denitrif
-  endif
-end subroutine
-
-!/* #define DEFINE_LITTER_COMPONENT_ACCESSOR0(xtype,x) subroutine sc_litter_ ## x ## _ptr(t,i,p);\ */
-!/* type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%litter(i)%x;endif;\ */
-!/* end subroutine */
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR0(real,nitrate)
-subroutine sc_litter_nitrate_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%nitrate
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR0(real,ammonium)
-subroutine sc_litter_ammonium_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%ammonium
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR0(real,nitrif)
-subroutine sc_litter_nitrif_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%nitrif
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR0(real,denitrif)
-subroutine sc_litter_denitrif_ptr(t,i,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%denitrif
-    endif
-end subroutine
-
-!/* #define DEFINE_LITTER_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_litter_ ## x ## _ptr(t,i,j,p);\ */
-!/* type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();\ */
-!/* if(associated(t))then;if(associated(t%soil))p=>t%soil%litter(j)%x(i);endif;\ */
-!/* end subroutine */
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR1(real,C_in)
-subroutine sc_litter_C_in_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%C_in(i)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR1(real,N_in)
-subroutine sc_litter_N_in_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%N_in(i)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR1(real,C_turnover)
-subroutine sc_litter_C_turnover_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%C_turnover(i)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR1(real,N_turnover)
-subroutine sc_litter_N_turnover_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%N_turnover(i)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR1(real,dissolved_carbon)
-subroutine sc_litter_dissolved_carbon_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%dissolved_carbon(i)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COMPONENT_ACCESSOR1(real,dissolved_nitrogen)
-subroutine sc_litter_dissolved_nitrogen_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%dissolved_nitrogen(i)
-    endif
-end subroutine
-
-!/* #define DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(xtype,x) subroutine sc_litter_ ## x ## _ptr(t,i,j,p);\ */
-!/* type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();if(associated(t))then;\ */
-!/* if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%x;endif;\ */
-!/* end subroutine */
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,livingMicrobeC)
-subroutine sc_litter_livingMicrobeC_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%livingMicrobeC
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,livingMicrobeN)
-subroutine sc_litter_livingMicrobeN_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%livingMicrobeN
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,CO2)
-subroutine sc_litter_CO2_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%CO2
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,Rtot)
-subroutine sc_litter_Rtot_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%Rtot
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,originalLitterC)
-subroutine sc_litter_originalLitterC_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%originalLitterC
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR0(real,originalLitterN)
-subroutine sc_litter_originalLitterN_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%originalLitterN
-    endif
-end subroutine
-
-!/* #define DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_litter_ ## x ## _ptr(t,i,j,k,p);\ */
-!/* type(land_tile_type),pointer::t;integer,intent(in)::i,j,k;xtype,pointer::p;p=>NULL();if(associated(t))then;\ */
-!/* if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%x(j);endif;\ */
-!/* end subroutine */
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,litterC)
-subroutine sc_litter_litterC_ptr(t,i,j,k,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j,k
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%litterC(j)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,protectedC)
-subroutine sc_litter_protectedC_ptr(t,i,j,k,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j,k
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%protectedC(j)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,litterN)
-subroutine sc_litter_litterN_ptr(t,i,j,k,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j,k
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%litterN(j)
-    endif
-end subroutine
-
-!DEFINE_LITTER_COHORT_COMPONENT_ACCESSOR1(real,protectedN)
-subroutine sc_litter_protectedN_ptr(t,i,j,k,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j,k
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%protectedN(j)
-    endif
-end subroutine
-
-!/* #define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine sc_ ## x ## _ptr(t,i,j,p);\ */
-!/* type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\ */
-!/* if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%x;endif;\ */
-!/* end subroutine */
-
-!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
-subroutine sc_livingMicrobeC_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%livingMicrobeC
-    endif
-end subroutine
-
-!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,CO2)
-subroutine sc_CO2_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%CO2
-    endif
-end subroutine
-
-!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,Rtot)
-subroutine sc_Rtot_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%Rtot
-    endif
-end subroutine
-
-!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeN)
-subroutine sc_livingMicrobeN_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%livingMicrobeN
-    endif
-end subroutine
-
-!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterC)
-subroutine sc_originalLitterC_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%originalLitterC
-    endif
-end subroutine
-
-!DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterN)
-subroutine sc_originalLitterN_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%originalLitterN
-    endif
-end subroutine
-
 
 end module soil_mod

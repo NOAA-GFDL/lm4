@@ -126,13 +126,10 @@ integer, parameter, public :: &
      LEAF              = 1, & ! leaf litter
      CWOOD             = 2    ! coarse wood litter
 
-character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
-     'leaf            ', &
-     'cwood           '  ]
-
-character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
-     'leaf            ', &
-     'coarse wood     '  ]
+character(16), parameter, public :: &
+     l_shortname(N_LITTER_POOLS) = [ 'leaf            ', 'cwood           '  ], & ! for restart field names
+     l_longname (N_LITTER_POOLS) = [ 'leaf            ', 'coarse wood     '  ], & ! for long names
+     l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
 
 ! ==== types =================================================================
 type :: soil_pars_type
@@ -252,83 +249,16 @@ type :: soil_tile_type
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
    ! values for CORPSE
    type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
-   type(soil_pool), allocatable :: soil_organic_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
-   integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
-   real                   :: fast_DOC_leached !Carbon that has been leached out of the column
-   real                   :: slow_DOC_leached !Carbon that has been leached out of the column
-   real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
-   real                   :: fast_DON_leached !Nitrogen that has been leached out of the column
-   real                   :: slow_DON_leached !Nitrogen that has been leached out of the column
-   real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
-   real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
+   type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
+   integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
+   real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
 
    ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
-   real                   :: gross_nitrogen_flux_into_tile
-   real                   :: gross_nitrogen_flux_out_of_tile
+   real :: gross_nitrogen_flux_into_tile, gross_nitrogen_flux_out_of_tile
 
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
-       asoil_in(:), &
-       fsc_in(:), ssc_in(:), &
-       fsn_in(:), ssn_in(:), &
-       deadmic_C_in(:), &
-       deadmic_N_in(:), &
-       fast_protected_C_in(:), &
-       fast_protected_N_in(:), &
-       slow_protected_C_in(:), &
-       slow_protected_N_in(:), &
-       deadmic_protected_C_in(:), &
-       deadmic_protected_N_in(:), &
-       fast_protected_C_turnover_accumulated(:), &
-       slow_protected_C_turnover_accumulated(:), &
-       deadmic_protected_C_turnover_accumulated(:), &
-       fast_protected_N_turnover_accumulated(:), &
-       slow_protected_N_turnover_accumulated(:), &
-       deadmic_protected_N_turnover_accumulated(:), &
-       fast_C_turnover_accumulated(:), &
-       slow_C_turnover_accumulated(:), &
-       deadmic_C_turnover_accumulated(:), &
-       fast_N_turnover_accumulated(:), &
-       slow_N_turnover_accumulated(:), &
-       deadmic_N_turnover_accumulated(:)
-   real :: leaflitter_fast_C_turnover_accumulated
-   real :: leaflitter_slow_C_turnover_accumulated
-   real :: leaflitter_deadmic_C_turnover_accumulated
-   real :: leaflitter_fast_N_turnover_accumulated
-   real :: leaflitter_slow_N_turnover_accumulated
-   real :: leaflitter_deadmic_N_turnover_accumulated
-   real :: leaflitter_fsc_in
-   real :: leaflitter_ssc_in
-   real :: leaflitter_deadmic_C_in
-   real :: leaflitter_fsn_in
-   real :: leaflitter_ssn_in
-   real :: leaflitter_deadmic_N_in
-
-   real :: finewoodlitter_fast_C_turnover_accumulated
-   real :: finewoodlitter_slow_C_turnover_accumulated
-   real :: finewoodlitter_deadmic_C_turnover_accumulated
-   real :: finewoodlitter_fsc_in
-   real :: finewoodlitter_ssc_in
-   real :: finewoodlitter_deadmic_C_in
-   real :: finewoodlitter_fast_N_turnover_accumulated
-   real :: finewoodlitter_slow_N_turnover_accumulated
-   real :: finewoodlitter_deadmic_N_turnover_accumulated
-   real :: finewoodlitter_fsn_in
-   real :: finewoodlitter_ssn_in
-   real :: finewoodlitter_deadmic_N_in
-
-   real :: coarsewoodlitter_fast_C_turnover_accumulated
-   real :: coarsewoodlitter_slow_C_turnover_accumulated
-   real :: coarsewoodlitter_deadmic_C_turnover_accumulated
-   real :: coarsewoodlitter_fsc_in
-   real :: coarsewoodlitter_ssc_in
-   real :: coarsewoodlitter_deadmic_C_in
-   real :: coarsewoodlitter_fast_N_turnover_accumulated
-   real :: coarsewoodlitter_slow_N_turnover_accumulated
-   real :: coarsewoodlitter_deadmic_N_turnover_accumulated
-   real :: coarsewoodlitter_fsn_in
-   real :: coarsewoodlitter_ssn_in
-   real :: coarsewoodlitter_deadmic_N_in
+       asoil_in(:), fsc_in(:), ssc_in(:)
 
    real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
    real :: neg_litt_N(N_C_TYPES) = 0.0 ! cumulative value of negative N litter input to soil
@@ -754,31 +684,9 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%slow_soil_C       (num_l),  &
             ptr%fsc_in            (num_l),  &
             ptr%ssc_in            (num_l),  &
-            ptr%fsn_in            (num_l),  &
-            ptr%ssn_in            (num_l),  &
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
-            ptr%fast_protected_C_in        (num_l),  &
-            ptr%slow_protected_C_in        (num_l),  &
-            ptr%fast_protected_N_in        (num_l),  &
-            ptr%slow_protected_N_in        (num_l),  &
-            ptr%deadmic_protected_C_in        (num_l),  &
-            ptr%deadmic_protected_N_in        (num_l),  &
-            ptr%deadmic_C_in        (num_l),  &
-            ptr%deadmic_N_in        (num_l),  &
-            ptr%fast_C_turnover_accumulated(num_l), &
-            ptr%slow_C_turnover_accumulated(num_l), &
-            ptr%deadmic_C_turnover_accumulated(num_l), &
-            ptr%fast_N_turnover_accumulated(num_l), &
-            ptr%slow_N_turnover_accumulated(num_l), &
-            ptr%deadmic_N_turnover_accumulated(num_l), &
-            ptr%fast_protected_C_turnover_accumulated(num_l), &
-            ptr%slow_protected_C_turnover_accumulated(num_l), &
-            ptr%deadmic_protected_C_turnover_accumulated(num_l), &
-            ptr%fast_protected_N_turnover_accumulated(num_l), &
-            ptr%slow_protected_N_turnover_accumulated(num_l), &
-            ptr%deadmic_protected_N_turnover_accumulated(num_l), &
-            ptr%soil_organic_matter(num_l),  &
+            ptr%org_matter        (num_l),  &
             ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
@@ -796,7 +704,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
-     call init_soil_pool(ptr%soil_organic_matter(i), Qmax=ptr%pars%Qmax)
+     call init_soil_pool(ptr%org_matter(i), Qmax=ptr%pars%Qmax)
   enddo
   do i = 1,N_LITTER_POOLS
      call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
@@ -872,74 +780,6 @@ subroutine soil_data_init_0d(soil)
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
   soil%ssc_in(:)              = 0.0
-  soil%fsn_in(:)              = 0.0
-  soil%ssn_in(:)              = 0.0
-  soil%deadmic_C_in(:)          = 0.0
-  soil%deadmic_N_in(:)          = 0.0
-  soil%fast_protected_C_in(:)        = 0.0
-  soil%slow_protected_C_in(:)        = 0.0
-  soil%deadmic_protected_C_in(:)        = 0.0
-  soil%fast_protected_N_in(:)        = 0.0
-  soil%slow_protected_N_in(:)        = 0.0
-  soil%deadmic_protected_N_in(:)        = 0.0
-  soil%fast_C_turnover_accumulated(:) = 0.0
-  soil%slow_C_turnover_accumulated(:)  = 0.0
-  soil%deadmic_C_turnover_accumulated(:) = 0.0
-  soil%fast_N_turnover_accumulated(:) = 0.0
-  soil%slow_N_turnover_accumulated(:)  = 0.0
-  soil%deadmic_N_turnover_accumulated(:) = 0.0
-  soil%fast_protected_C_turnover_accumulated(:) = 0.0
-  soil%slow_protected_C_turnover_accumulated(:)  = 0.0
-  soil%deadmic_protected_C_turnover_accumulated(:) = 0.0
-  soil%fast_protected_N_turnover_accumulated(:) = 0.0
-  soil%slow_protected_N_turnover_accumulated(:)  = 0.0
-  soil%deadmic_protected_N_turnover_accumulated(:) = 0.0
-
-  soil%leaflitter_fast_C_turnover_accumulated = 0.0
-  soil%leaflitter_slow_C_turnover_accumulated = 0.0
-  soil%leaflitter_deadmic_C_turnover_accumulated = 0.0
-  soil%leaflitter_fsc_in = 0.0
-  soil%leaflitter_ssc_in = 0.0
-  soil%leaflitter_deadmic_C_in = 0.0
-  soil%leaflitter_fast_N_turnover_accumulated = 0.0
-  soil%leaflitter_slow_N_turnover_accumulated = 0.0
-  soil%leaflitter_deadmic_N_turnover_accumulated = 0.0
-  soil%leaflitter_fsn_in = 0.0
-  soil%leaflitter_ssn_in = 0.0
-  soil%leaflitter_deadmic_N_in = 0.0
-
-  soil%finewoodlitter_fast_C_turnover_accumulated = 0.0
-  soil%finewoodlitter_slow_C_turnover_accumulated = 0.0
-  soil%finewoodlitter_deadmic_C_turnover_accumulated = 0.0
-  soil%finewoodlitter_fsc_in = 0.0
-  soil%finewoodlitter_ssc_in = 0.0
-  soil%finewoodlitter_deadmic_C_in = 0.0
-  soil%finewoodlitter_fast_N_turnover_accumulated = 0.0
-  soil%finewoodlitter_slow_N_turnover_accumulated = 0.0
-  soil%finewoodlitter_deadmic_N_turnover_accumulated = 0.0
-  soil%finewoodlitter_fsn_in = 0.0
-  soil%finewoodlitter_ssn_in = 0.0
-  soil%finewoodlitter_deadmic_N_in = 0.0
-
-  soil%coarsewoodlitter_fast_C_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_slow_C_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_deadmic_C_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_fsc_in = 0.0
-  soil%coarsewoodlitter_ssc_in = 0.0
-  soil%coarsewoodlitter_deadmic_C_in = 0.0
-  soil%coarsewoodlitter_fast_N_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_slow_N_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_deadmic_N_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_fsn_in = 0.0
-  soil%coarsewoodlitter_ssn_in = 0.0
-  soil%coarsewoodlitter_deadmic_N_in = 0.0
-
-  soil%fast_DOC_leached=0.0
-  soil%slow_DOC_leached=0.0
-  soil%deadmic_DOC_leached=0.0
-  soil%fast_DON_leached=0.0
-  soil%slow_DON_leached=0.0
-  soil%deadmic_DON_leached=0.0
 
   soil%gross_nitrogen_flux_into_tile = 0.0
   soil%gross_nitrogen_flux_out_of_tile = 0.0
@@ -1334,7 +1174,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
   do i=1,num_l
-    call combine_pools(s1%soil_organic_matter(i),s2%soil_organic_matter(i),w1,w2)
+    call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
@@ -1346,77 +1186,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
-  s2%fsn_in(:)      = s1%fsn_in(:)*x1 + s2%fsn_in(:)*x2
-  s2%ssn_in(:)      = s1%ssn_in(:)*x1 + s2%ssn_in(:)*x2
-  s2%fast_protected_C_in(:) = s1%fast_protected_C_in(:)*x1 + s2%fast_protected_C_in(:)*x2
-  s2%slow_protected_C_in(:) = s1%slow_protected_C_in(:)*x1 + s2%slow_protected_C_in(:)*x2
-  s2%deadmic_protected_C_in(:) = s1%deadmic_protected_C_in(:)*x1 + s2%deadmic_protected_C_in(:)*x2
-  s2%fast_protected_N_in(:) = s1%fast_protected_N_in(:)*x1 + s2%fast_protected_N_in(:)*x2
-  s2%slow_protected_N_in(:) = s1%slow_protected_N_in(:)*x1 + s2%slow_protected_N_in(:)*x2
-  s2%deadmic_protected_N_in(:) = s1%deadmic_protected_N_in(:)*x1 + s2%deadmic_protected_N_in(:)*x2
-  s2%deadmic_C_in(:) = s1%deadmic_C_in(:)*x1 + s2%deadmic_C_in(:)*x2
-  s2%deadmic_N_in(:) = s1%deadmic_N_in(:)*x1 + s2%deadmic_N_in(:)*x2
-  s2%fast_C_turnover_accumulated(:) = s1%fast_C_turnover_accumulated(:)*x1 + s2%fast_C_turnover_accumulated(:)*x2
-  s2%slow_C_turnover_accumulated(:) = s1%slow_C_turnover_accumulated(:)*x1 + s2%slow_C_turnover_accumulated(:)*x2
-  s2%deadmic_C_turnover_accumulated(:) = s1%deadmic_C_turnover_accumulated(:)*x1 + s2%deadmic_C_turnover_accumulated(:)*x2
-  s2%fast_N_turnover_accumulated(:) = s1%fast_N_turnover_accumulated(:)*x1 + s2%fast_N_turnover_accumulated(:)*x2
-  s2%slow_N_turnover_accumulated(:) = s1%slow_N_turnover_accumulated(:)*x1 + s2%slow_N_turnover_accumulated(:)*x2
-  s2%deadmic_N_turnover_accumulated(:) = s1%deadmic_N_turnover_accumulated(:)*x1 + s2%deadmic_N_turnover_accumulated(:)*x2
 
-  s2%fast_protected_C_turnover_accumulated(:) = s1%fast_protected_C_turnover_accumulated(:)*x1 + s2%fast_protected_C_turnover_accumulated(:)*x2
-  s2%slow_protected_C_turnover_accumulated(:) = s1%slow_protected_C_turnover_accumulated(:)*x1 + s2%slow_protected_C_turnover_accumulated(:)*x2
-  s2%deadmic_protected_C_turnover_accumulated(:) = s1%deadmic_protected_C_turnover_accumulated(:)*x1 + s2%deadmic_protected_C_turnover_accumulated(:)*x2
-  s2%fast_protected_N_turnover_accumulated(:) = s1%fast_protected_N_turnover_accumulated(:)*x1 + s2%fast_protected_N_turnover_accumulated(:)*x2
-  s2%slow_protected_N_turnover_accumulated(:) = s1%slow_protected_N_turnover_accumulated(:)*x1 + s2%slow_protected_N_turnover_accumulated(:)*x2
-  s2%deadmic_protected_N_turnover_accumulated(:) = s1%deadmic_protected_N_turnover_accumulated(:)*x1 + s2%deadmic_protected_N_turnover_accumulated(:)*x2
-
-
-  s2%leaflitter_fast_C_turnover_accumulated = s1%leaflitter_fast_C_turnover_accumulated*x1 + s2%leaflitter_fast_C_turnover_accumulated*x2
-  s2%leaflitter_slow_C_turnover_accumulated = s1%leaflitter_slow_C_turnover_accumulated*x1 + s2%leaflitter_slow_C_turnover_accumulated*x2
-  s2%leaflitter_deadmic_C_turnover_accumulated = s1%leaflitter_deadmic_C_turnover_accumulated*x1 + s2%leaflitter_deadmic_C_turnover_accumulated*x2
-  s2%leaflitter_fsc_in = s1%leaflitter_fsc_in*x1 + s2%leaflitter_fsc_in*x2
-  s2%leaflitter_ssc_in = s1%leaflitter_ssc_in*x1 + s2%leaflitter_ssc_in*x2
-  s2%leaflitter_deadmic_C_in = s1%leaflitter_deadmic_C_in*x1 + s2%leaflitter_deadmic_C_in*x2
-  s2%leaflitter_fast_N_turnover_accumulated = s1%leaflitter_fast_N_turnover_accumulated*x1 + s2%leaflitter_fast_N_turnover_accumulated*x2
-  s2%leaflitter_slow_N_turnover_accumulated = s1%leaflitter_slow_N_turnover_accumulated*x1 + s2%leaflitter_slow_N_turnover_accumulated*x2
-  s2%leaflitter_deadmic_N_turnover_accumulated = s1%leaflitter_deadmic_N_turnover_accumulated*x1 + s2%leaflitter_deadmic_N_turnover_accumulated*x2
-  s2%leaflitter_fsn_in = s1%leaflitter_fsn_in*x1 + s2%leaflitter_fsn_in*x2
-  s2%leaflitter_ssn_in = s1%leaflitter_ssn_in*x1 + s2%leaflitter_ssn_in*x2
-  s2%leaflitter_deadmic_N_in = s1%leaflitter_deadmic_N_in*x1 + s2%leaflitter_deadmic_N_in*x2
-
-  s2%finewoodlitter_fast_C_turnover_accumulated = s1%finewoodlitter_fast_C_turnover_accumulated*x1 + s2%finewoodlitter_fast_C_turnover_accumulated*x2
-  s2%finewoodlitter_slow_C_turnover_accumulated = s1%finewoodlitter_slow_C_turnover_accumulated*x1 + s2%finewoodlitter_slow_C_turnover_accumulated*x2
-  s2%finewoodlitter_deadmic_C_turnover_accumulated = s1%finewoodlitter_deadmic_C_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_C_turnover_accumulated*x2
-  s2%finewoodlitter_fsc_in = s1%finewoodlitter_fsc_in*x1 + s2%finewoodlitter_fsc_in*x2
-  s2%finewoodlitter_ssc_in = s1%finewoodlitter_ssc_in*x1 + s2%finewoodlitter_ssc_in*x2
-  s2%finewoodlitter_deadmic_C_in = s1%finewoodlitter_deadmic_C_in*x1 + s2%finewoodlitter_deadmic_C_in*x2
-  s2%finewoodlitter_fast_N_turnover_accumulated = s1%finewoodlitter_fast_N_turnover_accumulated*x1 + s2%finewoodlitter_fast_N_turnover_accumulated*x2
-  s2%finewoodlitter_slow_N_turnover_accumulated = s1%finewoodlitter_slow_N_turnover_accumulated*x1 + s2%finewoodlitter_slow_N_turnover_accumulated*x2
-  s2%finewoodlitter_deadmic_N_turnover_accumulated = s1%finewoodlitter_deadmic_N_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_N_turnover_accumulated*x2
-  s2%finewoodlitter_fsn_in = s1%finewoodlitter_fsn_in*x1 + s2%finewoodlitter_fsn_in*x2
-  s2%finewoodlitter_ssn_in = s1%finewoodlitter_ssn_in*x1 + s2%finewoodlitter_ssn_in*x2
-  s2%finewoodlitter_deadmic_N_in = s1%finewoodlitter_deadmic_N_in*x1 + s2%finewoodlitter_deadmic_N_in*x2
-
-
-  s2%coarsewoodlitter_fast_C_turnover_accumulated = s1%coarsewoodlitter_fast_C_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_C_turnover_accumulated*x2
-  s2%coarsewoodlitter_slow_C_turnover_accumulated = s1%coarsewoodlitter_slow_C_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_C_turnover_accumulated*x2
-  s2%coarsewoodlitter_deadmic_C_turnover_accumulated = s1%coarsewoodlitter_deadmic_C_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_C_turnover_accumulated*x2
-  s2%coarsewoodlitter_fsc_in = s1%coarsewoodlitter_fsc_in*x1 + s2%coarsewoodlitter_fsc_in*x2
-  s2%coarsewoodlitter_ssc_in = s1%coarsewoodlitter_ssc_in*x1 + s2%coarsewoodlitter_ssc_in*x2
-  s2%coarsewoodlitter_deadmic_C_in = s1%coarsewoodlitter_deadmic_C_in*x1 + s2%coarsewoodlitter_deadmic_C_in*x2
-  s2%coarsewoodlitter_fast_N_turnover_accumulated = s1%coarsewoodlitter_fast_N_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_N_turnover_accumulated*x2
-  s2%coarsewoodlitter_slow_N_turnover_accumulated = s1%coarsewoodlitter_slow_N_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_N_turnover_accumulated*x2
-  s2%coarsewoodlitter_deadmic_N_turnover_accumulated = s1%coarsewoodlitter_deadmic_N_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_N_turnover_accumulated*x2
-  s2%coarsewoodlitter_fsn_in = s1%coarsewoodlitter_fsn_in*x1 + s2%coarsewoodlitter_fsn_in*x2
-  s2%coarsewoodlitter_ssn_in = s1%coarsewoodlitter_ssn_in*x1 + s2%coarsewoodlitter_ssn_in*x2
-  s2%coarsewoodlitter_deadmic_N_in = s1%coarsewoodlitter_deadmic_N_in*x1 + s2%coarsewoodlitter_deadmic_N_in*x2
-
-  s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
-  s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
-  s2%deadmic_DOC_leached=s1%deadmic_DOC_leached*x1 + s2%deadmic_DOC_leached*x2
-  s2%fast_DON_leached=s1%fast_DON_leached*x1 + s2%fast_DON_leached*x2
-  s2%slow_DON_leached=s1%slow_DON_leached*x1 + s2%slow_DON_leached*x2
-  s2%deadmic_DON_leached=s1%deadmic_DON_leached*x1 + s2%deadmic_DON_leached*x2
   s2%NO3_leached=s1%NO3_leached*x1 + s2%NO3_leached*x2
   s2%NH4_leached=s1%NH4_leached*x1 + s2%NH4_leached*x2
 
@@ -2186,7 +1956,7 @@ real function soil_tile_carbon (soil)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
      soil_tile_carbon = sum(soil%neg_litt_C)
      do i=1,num_l
-        call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
+        call poolTotals(soil%org_matter(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
      do i = 1,N_LITTER_POOLS
@@ -2211,7 +1981,7 @@ real function soil_tile_nitrogen (soil)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
      soil_tile_nitrogen = sum(soil%neg_litt_N)
      do i=1,num_l
-        call poolTotals(soil%soil_organic_matter(i),totalNitrogen=temp)
+        call poolTotals(soil%org_matter(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
      do i = 1,N_LITTER_POOLS

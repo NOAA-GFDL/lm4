@@ -136,9 +136,9 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
   call cohort_root_exudate_profile(cc,dz,profile)
   do l = 1, num_l
      root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*[0.0, deadmic_slow_frac, (1-deadmic_slow_frac)]* &
-          (cc%myc_scavenger_biomass_C+cc%myc_miner_biomass_C+cc%N_fixer_biomass_C+cc%scav_myc_C_reservoir+cc%mine_myc_C_reservoir+cc%N_fixer_C_reservoir)
+          (cc%scav_C+cc%mine_C+cc%nfix_C+cc%scav_C_reservoir+cc%mine_C_reservoir+cc%nfix_C_reservoir)
      root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*[0.0, deadmic_slow_frac, (1-deadmic_slow_frac)]* &
-          (cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
+          (cc%scav_N+cc%mine_N+cc%nfix_N+cc%scav_N_reservoir+cc%mine_N_reservoir+cc%nfix_N_reservoir)
   enddo
 
   ! reduce the number of individuals in cohort

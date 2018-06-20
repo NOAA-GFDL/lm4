@@ -23,6 +23,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
+use vegn_accessors_mod ! use everything
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
      N_LITTER_POOLS, LEAF, l_shortname, l_longname
@@ -233,7 +234,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool_C(N_HARV_POOLS), id_harv_pool_N(N_HARV_POOLS), &
    id_harv_rate_C(N_HARV_POOLS), id_tot_harv_pool_C, id_tot_harv_rate_C, id_tot_harv_pool_N, &
    id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
-   id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
+   id_ssc_out, id_deadmic_out, id_veg_in, id_veg_out, &
    id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
    id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
    id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
@@ -340,7 +341,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   integer, intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
 
   ! ---- local vars
-  integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: n_accum
@@ -431,12 +431,12 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      endif
 
      if (field_exists(restart2,'scav_myc_C_reservoir')) then
-        call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
-        call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
-        call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
-        call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr)
-        call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
-        call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_N_reservoir_ptr)
+        call get_cohort_data(restart2, 'N_fixer_C_reservoir',  cohort_nfix_C_reservoir_ptr)
+        call get_cohort_data(restart2, 'N_fixer_N_reservoir',  cohort_nfix_N_reservoir_ptr)
      endif
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
@@ -446,12 +446,12 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
 
      if (field_exists(restart2,'myc_scavenger_biomass_C')) then
-        call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
-        call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
-        call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
-        call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
-        call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
-        call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
+        call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_scav_C_ptr )
+        call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_scav_N_ptr )
+        call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_mine_C_ptr )
+        call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_mine_N_ptr )
+        call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_nfix_C_ptr )
+        call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_nfix_N_ptr )
      endif
      if (field_exists(restart2,'cohort_leaf_N')) then
         call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr )
@@ -464,17 +464,17 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
      endif
      if(field_exists(restart2,'myc_scav_marginal_gain_smoothed')) then
-        call get_cohort_data(restart2, 'myc_scav_marginal_gain_smoothed',cohort_myc_scav_marginal_gain_smoothed_ptr)
-        call get_cohort_data(restart2, 'myc_mine_marginal_gain_smoothed',cohort_myc_mine_marginal_gain_smoothed_ptr)
-        call get_cohort_data(restart2, 'N_fix_marginal_gain_smoothed',cohort_N_fix_marginal_gain_smoothed_ptr)
-        call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_rhiz_exud_marginal_gain_smoothed_ptr)
+        call get_cohort_data(restart2, 'myc_scav_marginal_gain_smoothed',cohort_scav_mgain_smoothed_ptr)
+        call get_cohort_data(restart2, 'myc_mine_marginal_gain_smoothed',cohort_mine_mgain_smoothed_ptr)
+        call get_cohort_data(restart2, 'N_fix_marginal_gain_smoothed',cohort_nfix_mgain_smoothed_ptr)
+        call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_exud_mgain_smoothed_ptr)
 
         call get_cohort_data(restart2, 'max_monthly_scav_alloc',cohort_max_monthly_scav_alloc_ptr)
         call get_cohort_data(restart2, 'max_monthly_mine_alloc',cohort_max_monthly_mine_alloc_ptr)
         call get_cohort_data(restart2, 'max_monthly_Nfix_alloc',cohort_max_monthly_Nfix_alloc_ptr)
-        call get_cohort_data(restart2, 'max_scav_allocation',cohort_max_scav_allocation_ptr)
-        call get_cohort_data(restart2, 'max_mine_allocation',cohort_max_mine_allocation_ptr)
-        call get_cohort_data(restart2, 'max_Nfix_allocation',cohort_max_Nfix_allocation_ptr)
+        call get_cohort_data(restart2, 'max_scav_allocation',cohort_max_scav_alloc_ptr)
+        call get_cohort_data(restart2, 'max_mine_allocation',cohort_max_mine_alloc_ptr)
+        call get_cohort_data(restart2, 'max_Nfix_allocation',cohort_max_Nfix_alloc_ptr)
         call get_cohort_data(restart2, 'scav_alloc_accum',cohort_scav_alloc_accum_ptr)
         call get_cohort_data(restart2, 'mine_alloc_accum',cohort_mine_alloc_accum_ptr)
         call get_cohort_data(restart2, 'Nfix_alloc_accum',cohort_Nfix_alloc_accum_ptr)
@@ -650,9 +650,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%bsw     = init_cohort_bsw(n)
         cc%bwood   = init_cohort_bwood(n)
         cc%bseed   = init_cohort_bseed(n)
-        cc%scav_myc_C_reservoir = 0.0 ; cc%scav_myc_N_reservoir = 0.0
-        cc%mine_myc_C_reservoir = 0.0 ; cc%mine_myc_N_reservoir = 0.0
-        cc%N_fixer_C_reservoir  = 0.0 ; cc%N_fixer_N_reservoir  = 0.0
+        cc%scav_C_reservoir = 0.0 ; cc%scav_N_reservoir = 0.0
+        cc%mine_C_reservoir = 0.0 ; cc%mine_N_reservoir = 0.0
+        cc%nfix_C_reservoir = 0.0 ; cc%nfix_C_reservoir = 0.0
 
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
@@ -661,16 +661,16 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%status  = LEAF_ON
         cc%leaf_age = 0.0
 
-        cc%myc_scav_marginal_gain_smoothed = 0.0
-        cc%myc_mine_marginal_gain_smoothed = 0.0
-        cc%N_fix_marginal_gain_smoothed = 0.0
-        cc%rhiz_exud_marginal_gain_smoothed = 0.0
+        cc%scav_mgain_smoothed = 0.0
+        cc%mine_mgain_smoothed = 0.0
+        cc%nfix_mgain_smoothed = 0.0
+        cc%exud_mgain_smoothed = 0.0
         cc%max_monthly_scav_alloc = 0.0
         cc%max_monthly_mine_alloc = 0.0
         cc%max_monthly_Nfix_alloc = 0.0
-        cc%max_scav_allocation = 0.0
-        cc%max_mine_allocation = 0.0
-        cc%max_Nfix_allocation = 0.0
+        cc%max_scav_alloc = 0.0
+        cc%max_mine_alloc = 0.0
+        cc%max_Nfix_alloc = 0.0
         cc%scav_alloc_accum = 0.0
         cc%mine_alloc_accum = 0.0
         cc%Nfix_alloc_accum = 0.0
@@ -708,12 +708,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         ! in ppa mode, init_cohort_allometry_ppa sets myc and fixer biomasses to zero, but
         ! we override them with values from namelist here
         associate(sp=>spdata(cc%species))
-        cc%myc_scavenger_biomass_C = init_cohort_myc_scav(n)
-        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-        cc%myc_miner_biomass_C     = init_cohort_myc_mine(n)
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-        cc%N_fixer_biomass_C       = init_cohort_n_fixer(n)
-        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+        cc%scav_C = init_cohort_myc_scav(n) ; cc%scav_N = cc%scav_C/sp%c2n_mycorrhizae
+        cc%mine_C = init_cohort_myc_mine(n) ; cc%mine_N = cc%mine_C/sp%c2n_mycorrhizae
+        cc%nfix_C = init_cohort_n_fixer(n)  ; cc%nfix_N = cc%nfix_C/c2n_N_fixer
 
         cc%K_r = spdata(cc%species)%root_perm
         end associate ! sp
@@ -837,16 +834,13 @@ subroutine add_extra_cohorts()
         cc%status  = LEAF_ON
 
         call init_cohort_allometry_ppa(cc, extra_cohort_height(n), extra_cohort_nsc_frac(n), extra_cohort_nsn_frac(n))
-        call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
+        call init_cohort_hydraulics(cc, tile%soil%pars%psi_sat_ref) ! adam wolf
         cc%DBH_ys = cc%dbh
         cc%BM_ys  = cc%bsw + cc%bwood
 
-        cc%myc_scavenger_biomass_C = extra_cohort_myc_scav(n)
-        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-        cc%myc_miner_biomass_C     = extra_cohort_myc_mine(n)
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-        cc%N_fixer_biomass_C       = extra_cohort_n_fixer(n)
-        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+        cc%scav_C = extra_cohort_myc_scav(n) ; cc%scav_N = cc%scav_C/sp%c2n_mycorrhizae
+        cc%mine_C = extra_cohort_myc_mine(n) ; cc%mine_N = cc%mine_C/sp%c2n_mycorrhizae
+        cc%nfix_C = extra_cohort_n_fixer(n)  ; cc%nfix_N = cc%nfix_C/c2n_N_fixer
 
         if (n0>0) then
            cc%Tv = tile%vegn%cohorts(1)%Tv
@@ -1003,17 +997,17 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
 
 
-  id_mrz_scav_C = register_cohort_diag_field ( module_name, 'mrz_scav_biomass_C',  &
+  id_mrz_scav_C = register_cohort_diag_field ( module_name, 'scav_C',  &
        (/id_ug/), time, 'scavenger mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_mine_C = register_cohort_diag_field ( module_name, 'mrz_mine_biomass_C',  &
+  id_mrz_mine_C = register_cohort_diag_field ( module_name, 'mine_C',  &
        (/id_ug/), time, 'miner mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_Nfix_C = register_cohort_diag_field ( module_name, 'Nfix_biomass_C',  &
+  id_Nfix_C     = register_cohort_diag_field ( module_name, 'Nfix_C',  &
        (/id_ug/), time, 'symbiotic N fixer biomass C', 'kg C/m2', missing_value=-1.0 )
-  id_mrz_scav_N = register_cohort_diag_field ( module_name, 'mrz_scav_biomass_N',  &
+  id_mrz_scav_N = register_cohort_diag_field ( module_name, 'scav_N',  &
        (/id_ug/), time, 'scavenger mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
-  id_mrz_mine_N = register_cohort_diag_field ( module_name, 'mrz_mine_biomass_N',  &
+  id_mrz_mine_N = register_cohort_diag_field ( module_name, 'mine_N',  &
        (/id_ug/), time, 'miner mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
-  id_Nfix_N = register_cohort_diag_field ( module_name, 'Nfix_biomass_N',  &
+  id_Nfix_N     = register_cohort_diag_field ( module_name, 'Nfix_N',  &
        (/id_ug/), time, 'symbiotic N fixer biomass N', 'kg N/m2', missing_value=-1.0 )
 
   id_bsw_max = register_cohort_diag_field ( module_name, 'bsw_max',  &
@@ -1120,34 +1114,36 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
            'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
 
-  id_litter_buff_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_C_<ctype>', (/id_ug/), &
+  ! intermediate carbon pools for CORPSE soil carbon configurations
+  id_litter_buff_C(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_buff_C_<ctype>', (/id_ug/), &
        time, 'intermediate pool of <ltype> <ctype> litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_litter_buff_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_N_<ctype>', (/id_ug/), &
+  id_litter_buff_N(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_buff_N_<ctype>', (/id_ug/), &
        time, 'intermediate pool of <ltype> <ctype> litter nitrogen', 'kg N/m2', missing_value=-999.0)
-  id_litter_rate_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_C_<ctype>', (/id_ug/), &
+  id_litter_rate_C(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_rate_C_<ctype>', (/id_ug/), &
        time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil carbon', 'kg C/(m2 yr)', missing_value=-999.0)
-  id_litter_rate_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_N_<ctype>', (/id_ug/), &
+  id_litter_rate_N(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_rate_N_<ctype>', (/id_ug/), &
        time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil nitrogen', 'kg N/(m2 yr)', missing_value=-999.0)
 
-  id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_ug/), &
+  ! intermediate carbon pools for CENTURY-like soil carbon configurations
+  id_fsc_pool_ag = register_tiled_diag_field ('soil', 'fsc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_ag = register_tiled_diag_field (module_name, 'fsc_rate_ag', (/id_ug/), &
+  id_fsc_rate_ag = register_tiled_diag_field ('soil', 'fsc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_ssc_pool_ag = register_tiled_diag_field (module_name, 'ssc_pool_ag', (/id_ug/), &
+  id_ssc_pool_ag = register_tiled_diag_field ('soil', 'ssc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_ug/), &
+  id_ssc_rate_ag = register_tiled_diag_field ('soil', 'ssc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
 
-  id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_ug/), &
+  id_fsc_pool_bg = register_tiled_diag_field ('soil', 'fsc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_ug/), &
+  id_fsc_rate_bg = register_tiled_diag_field ('soil', 'fsc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_ssc_pool_bg = register_tiled_diag_field (module_name, 'ssc_pool_bg', (/id_ug/), &
+  id_ssc_pool_bg = register_tiled_diag_field ('soil', 'ssc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_bg = register_tiled_diag_field (module_name, 'ssc_rate_bg', (/id_ug/), &
+  id_ssc_rate_bg = register_tiled_diag_field ('soil', 'ssc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
 
@@ -1310,7 +1306,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_mass_content_of_nitrogen', fill_missing=.TRUE.)
   id_nProduct = register_tiled_diag_field( cmor_name, 'nProduct', (/id_ug/), &
-       time, 'Nitrogen Mass in Products of Land Use Change x', 'kg m-2', missing_value=-999.0, &
+       time, 'Nitrogen Mass in Products of Land Use Change', 'kg m-2', missing_value=-999.0, &
        standard_name='nitrogen_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
 end subroutine
@@ -1343,7 +1339,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
   character:: spnames(fm_field_name_len, nspecies) ! names of the species
-  integer :: sp_dim,text_dim,spnames_id
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
@@ -1434,18 +1429,18 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_age',cohort_age_ptr, 'age of cohort', 'years')
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/year')
 
-  call add_cohort_data(restart2,'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr, 'C in scavenger myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr, 'N in scavenger myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr, 'C in miner myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
-  call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
-  call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
-  call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
-  call add_cohort_data(restart2,'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
-  call add_cohort_data(restart2,'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
-  call add_cohort_data(restart2,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'scav_myc_C_reservoir', cohort_scav_C_reservoir_ptr, 'C in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'scav_myc_N_reservoir', cohort_scav_N_reservoir_ptr, 'N in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_C_reservoir', cohort_mine_C_reservoir_ptr, 'C in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_C_reservoir',  cohort_nfix_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_N_reservoir',  cohort_nfix_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_scav_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_scav_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_nfix_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_N', cohort_nfix_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_C', cohort_mine_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_N', cohort_mine_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_stored_N', cohort_stored_N_ptr, 'stored N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg N/m2')
@@ -1454,19 +1449,19 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
-  call add_cohort_data(restart2,'myc_scav_marginal_gain_smoothed', cohort_myc_scav_marginal_gain_smoothed_ptr, 'smoothed marginal gain of scavenging','gN/gC')
-  call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_myc_mine_marginal_gain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
-  call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_N_fix_marginal_gain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
-  call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_rhiz_exud_marginal_gain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
+  call add_cohort_data(restart2,'myc_scav_marginal_gain_smoothed', cohort_scav_mgain_smoothed_ptr, 'smoothed marginal gain of scavenging','gN/gC')
+  call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_mine_mgain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
+  call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_nfix_mgain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
+  call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_exud_mgain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
   call add_cohort_data(restart2,'max_monthly_scav_alloc', cohort_max_monthly_scav_alloc_ptr, 'smoothed allocation to scavenging','kgC/m2/year')
   call add_cohort_data(restart2,'max_monthly_mine_alloc', cohort_max_monthly_mine_alloc_ptr, 'smoothed allocation to mining','kgC/m2/year')
   call add_cohort_data(restart2,'max_monthly_Nfix_alloc', cohort_max_monthly_Nfix_alloc_ptr, 'monthly maximum allocation to N fixation','kgC/m2/year')
   call add_cohort_data(restart2,'scav_alloc_accum', cohort_scav_alloc_accum_ptr, 'scavenging allocation accumulator','kgC/m2')
   call add_cohort_data(restart2,'mine_alloc_accum', cohort_mine_alloc_accum_ptr, 'mining allocation accumulator','kgC/m2')
   call add_cohort_data(restart2,'Nfix_alloc_accum', cohort_Nfix_alloc_accum_ptr, 'N fixation allocation accumulator','kgC/m2')
-  call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_allocation_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
-  call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_allocation_ptr, 'max allowed allocation to mining','kgC/m2/year')
-  call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_allocation_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
+  call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_alloc_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
+  call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_alloc_ptr, 'max allowed allocation to mining','kgC/m2/year')
+  call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_alloc_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
   call add_cohort_data(restart2,'N_stress_smoothed', cohort_nitrogen_stress_smoothed_ptr, 'Smoothed N stress','Dimensionless')
 
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
@@ -2209,12 +2204,14 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   endif
 
   ! Do N deposition first. For now, it all goes to leaf litter
+  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes 
+  ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
   call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
   call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
   call check_var_range(ndep_org, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_org', FATAL)
-  call soil_NH4_deposition(ndep_amm*dt_fast_yr,soil%litter(LEAF))
-  call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%litter(LEAF))
-  call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%litter(LEAF))
+  call soil_NH4_deposition   (ndep_amm*dt_fast_yr, soil%org_matter(1))
+  call soil_NO3_deposition   (ndep_nit*dt_fast_yr, soil%org_matter(1))
+  call soil_org_N_deposition (ndep_org*dt_fast_yr, soil%org_matter(1))
 
   soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + (ndep_amm+ndep_nit+ndep_org)*dt_fast_yr
 
@@ -2339,7 +2336,6 @@ subroutine update_derived_vegn_data(vegn)
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
-  real :: stemarea ! individual stem area, for SAI calculations, m2/individual
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
 
   ! determine layer boundaries in the array of cohorts
@@ -2406,8 +2402,6 @@ subroutine update_derived_vegn_data(vegn)
        cc%lai           = spdata(sp)%dat_lai
        cc%root_density  = spdata(sp)%dat_root_density
     endif
-!     stemarea      = 0.035*cc%height ! Federer and Lash, 1978
-!     cc%sai           = stemarea/cc%crownarea*layer_area(cc%layer)
     cc%sai           = spdata(sp)%sai_height_ratio * cc%height ! Federer and Lash, 1978
     cc%leaf_size     = spdata(sp)%leaf_size
     cc%root_zeta     = spdata(sp)%dat_root_zeta
@@ -2496,11 +2490,9 @@ subroutine update_vegn_slow( )
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
-  real :: tc_daily ! daly temperature for dormancy detection, degK
 
   ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0, nmass0
-  real :: dbh_max_N ! max dbh for understory; diag only
+  real :: lmass0, fmass0, cmass0, nmass0
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
@@ -2605,9 +2597,9 @@ subroutine update_vegn_slow( )
         do i = 1,tile%vegn%n_cohorts
            associate(c=>tile%vegn%cohorts(i))
            w = 1.0/(1+spdata(c%species)%tau_smooth_alloc)
-           c%max_Nfix_allocation = w*c%max_monthly_Nfix_alloc + (1-w)*c%max_Nfix_allocation
-           c%max_mine_allocation = w*c%max_monthly_mine_alloc + (1-w)*c%max_mine_allocation
-           c%max_scav_allocation = w*c%max_monthly_scav_alloc + (1-w)*c%max_scav_allocation
+           c%max_Nfix_alloc = w*c%max_monthly_Nfix_alloc + (1-w)*c%max_Nfix_alloc
+           c%max_mine_alloc = w*c%max_monthly_mine_alloc + (1-w)*c%max_mine_alloc
+           c%max_scav_alloc = w*c%max_monthly_scav_alloc + (1-w)*c%max_scav_alloc
 
            c%max_monthly_Nfix_alloc = 0.0
            c%max_monthly_mine_alloc = 0.0
@@ -2774,12 +2766,12 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_seed_N,      tile%diag, cc(1:N), cc(1:N)%seed_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_Ntot,        tile%diag, cc(1:N), cc(1:N)%total_N,   weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_mrz_scav_C, tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_mrz_mine_C, tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_Nfix_C,     tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_mrz_scav_N, tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_mrz_mine_N, tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_Nfix_N,     tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_scav_C, tile%diag, cc(1:N), cc(1:N)%scav_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_mine_C, tile%diag, cc(1:N), cc(1:N)%mine_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Nfix_C,     tile%diag, cc(1:N), cc(1:N)%nfix_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_scav_N, tile%diag, cc(1:N), cc(1:N)%scav_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mrz_mine_N, tile%diag, cc(1:N), cc(1:N)%mine_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_Nfix_N,     tile%diag, cc(1:N), cc(1:N)%nfix_N, weight=cc(1:N)%nindivs, op=OP_SUM)
 
      ! ens 021517
      call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
@@ -2975,7 +2967,7 @@ subroutine update_vegn_slow( )
            call cull_cohorts(tile%soil%litter(ii))
         enddo
         do ii=1,num_l
-           call cull_cohorts(tile%soil%soil_organic_matter(ii))
+           call cull_cohorts(tile%soil%org_matter(ii))
         enddo
      enddo
   endif
@@ -3055,13 +3047,11 @@ subroutine read_remap_species(restart)
 
   ! ---- local vars
   integer :: nsp ! number of input species
-  integer :: spnames_id ! id of the species names table in the netcdf
-  integer :: spnames_len(2)! sizes of the input species text array
   integer :: i, sp
   character(fm_field_name_len), allocatable :: spnames(:)
   character, allocatable :: text(:,:)
   integer, allocatable :: sptable(:) ! table for remapping
-  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
 
   if (.not.field_exists(restart, 'species_names')) then
@@ -3176,204 +3166,5 @@ subroutine array2str(a,s)
      s(i:i) = a(i)
   enddo
 end subroutine array2str
-
-
-! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
-logical function vegn_tile_exists(tile)
-   type(land_tile_type), pointer :: tile
-   vegn_tile_exists = associated(tile%vegn)
-end function vegn_tile_exists
-
-function any_vegn(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = .TRUE.
-end function
-
-function is_tree(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = (spdata(cc%species)%lifeform == FORM_WOODY)
-end function
-
-function is_grass(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = (spdata(cc%species)%lifeform == FORM_GRASS)
-end function
-
-function is_c3(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = (spdata(cc%species)%pt == PT_C3)
-end function
-
-function is_c4(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = (spdata(cc%species)%pt == PT_C4)
-end function
-
-function is_c3grass(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = (spdata(cc%species)%lifeform == FORM_GRASS.and.spdata(cc%species)%pt == PT_C3)
-end function
-
-function is_c4grass(cc) result(answer); logical answer
-   type(vegn_cohort_type), intent(in) :: cc
-   answer = (spdata(cc%species)%lifeform == FORM_GRASS.and.spdata(cc%species)%pt == PT_C4)
-end function
-
-! ============================================================================
-! cohort accessor functions: given a pointer to cohort, return a pointer to a
-! specific member of the cohort structure
-#define DEFINE_VEGN_ACCESSOR_0D(xtype,x) subroutine vegn_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;end subroutine
-
-#define DEFINE_VEGN_ACCESSOR_1D(xtype,x) subroutine vegn_ ## x ## _ptr(t,i,p);\
-type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x(i);endif;end subroutine
-
-#define DEFINE_VEGN_ACCESSOR_2D(xtype,x) subroutine vegn_ ## x ## _ptr(t,i,j,p);\
-type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x(i,j);endif;end subroutine
-
-#define DEFINE_COHORT_ACCESSOR(xtype,x) subroutine cohort_ ## x ## _ptr(c,p);\
-type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x;end subroutine
-
-#define DEFINE_COHORT_COMPONENT_ACCESSOR(xtype,component,x) subroutine cohort_ ## x ## _ptr(c,p);\
-type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%component%x;end subroutine
-
-DEFINE_VEGN_ACCESSOR_0D(integer,landuse)
-DEFINE_VEGN_ACCESSOR_0D(real,age)
-DEFINE_VEGN_ACCESSOR_0D(real,fsc_pool_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,fsc_pool_bg)
-DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_bg)
-DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_bg)
-DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_bg)
-
-DEFINE_VEGN_ACCESSOR_0D(real,fsn_pool_bg)
-DEFINE_VEGN_ACCESSOR_0D(real,fsn_rate_bg)
-DEFINE_VEGN_ACCESSOR_0D(real,ssn_pool_bg)
-DEFINE_VEGN_ACCESSOR_0D(real,ssn_rate_bg)
-
-DEFINE_VEGN_ACCESSOR_2D(real,litter_buff_C)
-DEFINE_VEGN_ACCESSOR_2D(real,litter_buff_N)
-DEFINE_VEGN_ACCESSOR_2D(real,litter_rate_C)
-DEFINE_VEGN_ACCESSOR_2D(real,litter_rate_N)
-
-DEFINE_VEGN_ACCESSOR_0D(real,tc_av)
-DEFINE_VEGN_ACCESSOR_0D(real,theta_av_phen)
-DEFINE_VEGN_ACCESSOR_0D(real,theta_av_fire)
-DEFINE_VEGN_ACCESSOR_0D(real,psist_av)
-DEFINE_VEGN_ACCESSOR_0D(real,tsoil_av)
-DEFINE_VEGN_ACCESSOR_0D(real,precip_av)
-DEFINE_VEGN_ACCESSOR_0D(real,fuel)
-DEFINE_VEGN_ACCESSOR_0D(real,lambda)
-DEFINE_VEGN_ACCESSOR_0D(real,t_ann)
-DEFINE_VEGN_ACCESSOR_0D(real,p_ann)
-DEFINE_VEGN_ACCESSOR_0D(real,t_cold)
-DEFINE_VEGN_ACCESSOR_0D(real,ncm)
-DEFINE_VEGN_ACCESSOR_0D(real,t_ann_acm)
-DEFINE_VEGN_ACCESSOR_0D(real,p_ann_acm)
-DEFINE_VEGN_ACCESSOR_0D(real,t_cold_acm)
-DEFINE_VEGN_ACCESSOR_0D(real,ncm_acm)
-DEFINE_VEGN_ACCESSOR_0D(real,treeline_T_accum)
-DEFINE_VEGN_ACCESSOR_0D(real,treeline_N_accum)
-
-DEFINE_VEGN_ACCESSOR_0D(real,tc_pheno)
-DEFINE_VEGN_ACCESSOR_0D(real,tc_dorm)
-DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
-DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
-DEFINE_VEGN_ACCESSOR_0D(real,drop_wl)
-DEFINE_VEGN_ACCESSOR_0D(real,drop_ws)
-DEFINE_VEGN_ACCESSOR_0D(real,drop_hl)
-DEFINE_VEGN_ACCESSOR_0D(real,drop_hs)
-DEFINE_VEGN_ACCESSOR_0D(real,nsmoke_pool)
-
-DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_C)
-DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_N)
-DEFINE_VEGN_ACCESSOR_1D(real,harv_rate_C)
-DEFINE_VEGN_ACCESSOR_1D(real,drop_seed_C)
-DEFINE_VEGN_ACCESSOR_1D(real,drop_seed_N)
-
-DEFINE_COHORT_ACCESSOR(real,Tv)
-DEFINE_COHORT_ACCESSOR(real,Wl)
-DEFINE_COHORT_ACCESSOR(real,Ws)
-
-DEFINE_COHORT_ACCESSOR(integer,species)
-DEFINE_COHORT_ACCESSOR(real,bl)
-DEFINE_COHORT_ACCESSOR(real,br)
-DEFINE_COHORT_ACCESSOR(real,blv)
-DEFINE_COHORT_ACCESSOR(real,bsw)
-DEFINE_COHORT_ACCESSOR(real,bwood)
-DEFINE_COHORT_ACCESSOR(real,nsc)
-DEFINE_COHORT_ACCESSOR(real,bseed)
-DEFINE_COHORT_ACCESSOR(real,bsw_max)
-DEFINE_COHORT_ACCESSOR(real,bl_max)
-DEFINE_COHORT_ACCESSOR(real,br_max)
-DEFINE_COHORT_ACCESSOR(real,dbh)
-DEFINE_COHORT_ACCESSOR(real,crownarea)
-DEFINE_COHORT_ACCESSOR(real,bliving)
-DEFINE_COHORT_ACCESSOR(real,nindivs)
-DEFINE_COHORT_ACCESSOR(integer,layer)
-DEFINE_COHORT_ACCESSOR(integer,firstlayer)
-DEFINE_COHORT_ACCESSOR(integer,status)
-DEFINE_COHORT_ACCESSOR(real,leaf_age)
-DEFINE_COHORT_ACCESSOR(real,age)
-DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
-DEFINE_COHORT_ACCESSOR(real,growth_previous_day)
-DEFINE_COHORT_ACCESSOR(real,growth_previous_day_tmp)
-DEFINE_COHORT_ACCESSOR(real,BM_ys)
-DEFINE_COHORT_ACCESSOR(real,DBH_ys)
-DEFINE_COHORT_ACCESSOR(real,topyear)
-DEFINE_COHORT_ACCESSOR(real,gdd)
-DEFINE_COHORT_ACCESSOR(real,height)
-DEFINE_COHORT_ACCESSOR(real,theta_av_phen)
-DEFINE_COHORT_ACCESSOR(real,psist_av_phen)
-
-DEFINE_COHORT_ACCESSOR(real,scav_myc_C_reservoir)
-DEFINE_COHORT_ACCESSOR(real,scav_myc_N_reservoir)
-DEFINE_COHORT_ACCESSOR(real,mine_myc_C_reservoir)
-DEFINE_COHORT_ACCESSOR(real,mine_myc_N_reservoir)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_C_reservoir)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_N_reservoir)
-DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
-DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
-DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_C)
-DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_N)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_C)
-DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_N)
-DEFINE_COHORT_ACCESSOR(real,stored_N)
-DEFINE_COHORT_ACCESSOR(real,wood_N)
-DEFINE_COHORT_ACCESSOR(real,sapwood_N)
-DEFINE_COHORT_ACCESSOR(real,leaf_N)
-DEFINE_COHORT_ACCESSOR(real,seed_N)
-DEFINE_COHORT_ACCESSOR(real,root_N)
-DEFINE_COHORT_ACCESSOR(real,total_N)
-DEFINE_COHORT_ACCESSOR(real,nitrogen_stress)
-DEFINE_COHORT_ACCESSOR(real,myc_scav_marginal_gain_smoothed)
-DEFINE_COHORT_ACCESSOR(real,myc_mine_marginal_gain_smoothed)
-DEFINE_COHORT_ACCESSOR(real,N_fix_marginal_gain_smoothed)
-DEFINE_COHORT_ACCESSOR(real,rhiz_exud_marginal_gain_smoothed)
-
-DEFINE_COHORT_ACCESSOR(real,max_monthly_scav_alloc)
-DEFINE_COHORT_ACCESSOR(real,max_monthly_mine_alloc)
-DEFINE_COHORT_ACCESSOR(real,max_monthly_Nfix_alloc)
-DEFINE_COHORT_ACCESSOR(real,Nfix_alloc_accum)
-DEFINE_COHORT_ACCESSOR(real,mine_alloc_accum)
-DEFINE_COHORT_ACCESSOR(real,scav_alloc_accum)
-DEFINE_COHORT_ACCESSOR(real,max_Nfix_allocation)
-DEFINE_COHORT_ACCESSOR(real,max_mine_allocation)
-DEFINE_COHORT_ACCESSOR(real,max_scav_allocation)
-DEFINE_COHORT_ACCESSOR(real,nitrogen_stress_smoothed)
-
-! wolf
-DEFINE_COHORT_ACCESSOR(real,psi_r)
-DEFINE_COHORT_ACCESSOR(real,psi_x)
-DEFINE_COHORT_ACCESSOR(real,psi_l)
-DEFINE_COHORT_ACCESSOR(real,Kxa)
-DEFINE_COHORT_ACCESSOR(real,Kla)
-
-! ens for branch sapwood
-DEFINE_COHORT_ACCESSOR(real,brsw)
 
 end module vegetation_mod
