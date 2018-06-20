@@ -3158,13 +3158,11 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
-     call update_pool(pool=soil%litter(k),T=decomp_T(1),theta=decomp_theta(1),&
-            air_filled_porosity=1.0-(decomp_theta(1)+ice_porosity(1)),&
-            dt=dt_fast_yr,layerThickness=dz(1),&
-            C_loss_rate=litter_C_loss_rate, CO2prod=CO2prod, &
-            N_loss_rate=litter_N_loss_rate, &
-            nitrification=litter_nitrif(k), denitrification=litter_denitrif(k),&
-            N_mineralization=litter_N_mineralization(k), N_immobilization=Litter_N_immobilization(k))
+     call update_pool(soil%litter(k), decomp_T(1), decomp_theta(1), &
+            1.0-(decomp_theta(1)+ice_porosity(1)), dt_fast_yr, dz(1), &
+            litter_C_loss_rate, litter_N_loss_rate, CO2prod, &
+            litter_nitrif(k), litter_denitrif(k),&
+            litter_N_mineralization(k), Litter_N_immobilization(k))
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
      ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers
      ! for litter diagnostic output.
@@ -3181,15 +3179,12 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! Next we have to go through layers and decompose the soil carbon pools
   do k=1,num_l
-      call update_pool(pool=soil%org_matter(k),T=decomp_T(k),theta=decomp_theta(k),&
-                air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
-                dt=dt_fast_yr,layerThickness=dz(k),&
-                C_loss_rate=C_loss_rate(k,:), &
-                CO2prod=CO2prod, &
-                N_loss_rate=N_loss_rate(k,:), &
-                nitrification=soil_nitrif(k),denitrification=soil_denitrif(k),&
-                N_mineralization=soil_N_mineralization(k),N_immobilization=soil_N_immobilization(k))
-    vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
+     call update_pool(soil%org_matter(k), decomp_T(k), decomp_theta(k), &
+               1.0-(decomp_theta(k)+ice_porosity(k)), dt_fast_yr, dz(k), &
+               C_loss_rate(k,:), N_loss_rate(k,:), CO2prod, &
+               soil_nitrif(k), soil_denitrif(k), &
+               soil_N_mineralization(k), soil_N_immobilization(k))
+     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
   enddo
   do i = 1, N_C_TYPES
      if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)

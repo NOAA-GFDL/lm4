@@ -471,13 +471,13 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   real, intent(out) :: C_loss_rate(N_C_TYPES), N_loss_rate(N_C_TYPES) ! loss rates for C and N per time step
   real, intent(out) :: CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
 
-  real :: protected_turnover_rate(N_C_TYPES), protected_N_turnover_rate(N_C_TYPES)
+  real :: prot_C_turnover(N_C_TYPES), prot_N_turnover(N_C_TYPES)
 
   integer :: n
 
   real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),&
-          tempCO2,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
-          Prate_limited_C(N_C_TYPES),Prate_limited_N(N_C_TYPES),&
+          tempCO2,temp_protected_C_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
+          Prate_limited_C(N_C_TYPES), &
           tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
 
   real :: cohortVolume! xz
@@ -485,8 +485,8 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
 
   type(litterCohort) :: total
 
-  C_loss_rate(:)=0.0 ; protected_turnover_rate(:)=0.0
-  N_loss_rate(:)=0.0 ; protected_N_turnover_rate(:)=0.0
+  C_loss_rate(:)=0.0 ; prot_C_turnover(:)=0.0
+  N_loss_rate(:)=0.0 ; prot_N_turnover(:)=0.0
   CO2prod=0.0
   nitrif=0.0! xz
   denitrification=0.0
@@ -503,28 +503,25 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   ! However, the rate is not adjusted for each cohort, so it may go slightly above the pool Pmax
   ! ---   Based on conversation with Melanie Mayes, I am changing this so Qmax affects the protected
   ! ---   carbon formation rate rather than the maximum.
-
   Prate_limited_C = pool%protection_rate*protection_species*pool%Qmax
-  Prate_limited_N = pool%protection_rate_N*protection_species_N*pool%Qmax
 
   ! How about this: non-mineralized C keeps volume based on estimated density
   ! Volume of mineralized C is just capped at remaining layer volume, with the assumption that the mineralized portion
   ! of volume for all cohorts just gets intermingled and does not need to sum to layer volume
   do n=1,pool%n_cohorts
      cohortVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
-     call update_cohort(cohort=pool%litterCohorts(n),nitrate=pool%nitrate,ammonium=pool%ammonium,cohortVolume=cohortVolume,T=T,theta=max(theta,0.0),&
-                     air_filled_porosity=max(air_filled_porosity,0.0),&
-                     protection_rate=Prate_limited_C,protection_rate_N=Prate_limited_N,&
-                     dt=dt,&
-                     totalResp=tempresp,totalN_decomposed=temp_N_decomposed,&
-                     protected_turnover_rate=temp_protected_turnover_rate,protected_N_turnover_rate=temp_protected_N_turnover_rate,&
-                     CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif)
+     call update_cohort(pool%litterCohorts(n), pool%nitrate, pool%ammonium, cohortVolume, &
+            T, max(theta,0.0), max(air_filled_porosity,0.0), Prate_limited_C, dt, &
+            ! output
+            tempresp, temp_N_decomposed, tempCO2, &
+            temp_protected_C_turnover_rate, temp_protected_N_turnover_rate, &
+            tempIMM_N, temp_MINERAL, denitrif)
 
-     C_loss_rate=C_loss_rate+tempresp
-     N_loss_rate=N_loss_rate+temp_N_decomposed
+     C_loss_rate = C_loss_rate+tempresp
+     N_loss_rate = N_loss_rate+temp_N_decomposed
 
-     protected_turnover_rate=protected_turnover_rate+temp_protected_turnover_rate
-     protected_N_turnover_rate=protected_N_turnover_rate+temp_protected_N_turnover_rate
+     prot_C_turnover=prot_C_turnover+temp_protected_C_turnover_rate
+     prot_N_turnover=prot_N_turnover+temp_protected_N_turnover_rate
 
      CO2prod=CO2prod+tempCO2
 
@@ -578,18 +575,18 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   where (total%litterN(:)>0) &
       pool%N_turnover(:) = pool%N_turnover(:)+N_loss_rate(:)/total%litterN(:)
   where (total%protectedC(:)>0) &
-      pool%protected_C_turnover(:) = pool%protected_C_turnover(:)+protected_turnover_rate(:)/total%protectedC(:)
+      pool%protected_C_turnover(:) = pool%protected_C_turnover(:)+prot_C_turnover(:)/total%protectedC(:)
   where (total%protectedN(:)>0) &
-      pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+protected_N_turnover_rate(:)/total%litterN(:)
+      pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+prot_N_turnover(:)/total%litterN(:)
 end subroutine update_pool
 
 
 ! Do litter respiration and microbial turnover for one litter cohort
 subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_filled_porosity, &
-        protection_rate, protection_rate_N, dt, &
+        protection_rate, dt, &
         ! output
-        totalResp, &
-        protected_turnover_rate, protected_N_turnover_rate, CO2prod, totalN_decomposed, &
+        totalResp, totalN_decomposed, CO2prod, &
+        prot_C_turnover, prot_N_turnover, &
         IMM_Nprod, MINERAL_prod, denitrif) ! xz
   type(litterCohort), intent(inout) :: cohort
   real,intent(inout) :: nitrate, ammonium
@@ -598,12 +595,12 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
      T,                   & ! temperature, K
      theta,               & ! soil moisture
      air_filled_porosity, & ! m3/m3
-     protection_rate(N_C_TYPES), protection_rate_N(N_C_TYPES), &
+     protection_rate(N_C_TYPES), &
      dt                     ! time step, years
   real,intent(out) :: &
      totalResp(N_C_TYPES), &
      totalN_decomposed(N_C_TYPES), &
-     protected_turnover_rate(N_C_TYPES), protected_N_turnover_rate(N_C_TYPES), &
+     prot_C_turnover(N_C_TYPES), prot_N_turnover(N_C_TYPES), &  ! kg/m2/year
      CO2prod, &
      IMM_Nprod,MINERAL_prod,denitrif
 
@@ -612,7 +609,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     real :: deadmic_C_produced, deadmic_N_produced, livemic_C_produced, livemic_N_produced
     real::microbeTurnover,temp_C_microbes,CN_imbalance_term,temp_N_microbes
     real::potential_tempResp(N_C_TYPES),tempResp(N_C_TYPES)
-    real,dimension(N_C_TYPES)::protectedCTurnover,newProtectedC,protectedNturnover,newProtectedN
+    real,dimension(N_C_TYPES)::newProtectedC,newProtectedN
 
     real::pot_tempN_decomposed(N_C_TYPES), potential_N_decomp(N_C_TYPES),tempN_decomposed(N_C_TYPES)
     real::denitrif_NO3_demand ! kgN/m2/year
@@ -841,12 +838,12 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         endif
 
         deadmic_C_produced=dt*microbeTurnover*et
-        cohort%litterC(3)=cohort%litterC(3)+deadmic_C_produced*(1.0-deadmic_slow_frac)! kg/m2
-        cohort%litterC(2)=cohort%litterC(2)+deadmic_C_produced*(deadmic_slow_frac)
+        cohort%litterC(C_MIC)  = cohort%litterC(C_MIC)  + deadmic_C_produced*(1.0-deadmic_slow_frac)! kg/m2
+        cohort%litterC(C_SLOW) = cohort%litterC(C_SLOW) + deadmic_C_produced*(deadmic_slow_frac)
 
         deadmic_N_produced=dt*microbeTurnover*et/CN_microb! xz
-        cohort%litterN(3)=cohort%litterN(3)+deadmic_N_produced*(1.0-deadmic_slow_frac)! xz  ! kg/m2
-        cohort%litterN(2)=cohort%litterN(2)+deadmic_N_produced*(deadmic_slow_frac)
+        cohort%litterN(C_MIC)  = cohort%litterN(C_MIC)  + deadmic_N_produced*(1.0-deadmic_slow_frac)! xz  ! kg/m2
+        cohort%litterN(C_SLOW) = cohort%litterN(C_SLOW) + deadmic_N_produced*(deadmic_slow_frac)
 
 
         IF(CN_imbalance_term.ge.0.0)THEN
@@ -943,44 +940,40 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     call check_cohort(cohort,'update_cohort #1')
 
     ! Update protected carbon
-    protectedCturnover = cohort%protectedC/tProtected
-
-    IF(sum(cohort%litterC).gt.0.0 .and. cohortVolume.gt.0.0) THEN
+    if (sum(cohort%litterC).gt.0.0 .and. cohortVolume.gt.0.0) then
         ! Change: divide by volume instead of litter C. Keeps it linear with size, but allows dependence on unprotected C
         if (microbe_driven_protection) then
-            newProtectedC(:) = protection_rate*cohort%livingMicrobeC/cohortVolume*cohort%litterC(:)*dt
+            newProtectedC(:) = protection_rate(:)*cohort%livingMicrobeC/cohortVolume*cohort%litterC(:)*dt
         else
-            newProtectedC(:) = protection_rate*cohort%litterC(:)*dt
+            newProtectedC(:) = protection_rate(:)*cohort%litterC(:)*dt
         endif
-    ELSE
-        newProtectedC = 0.0
-    ENDIF
+    else
+        newProtectedC(:) = 0.0
+    endif
     where(newProtectedC.gt.cohort%litterC) newProtectedC=cohort%litterC
-    cohort%protectedC = cohort%protectedC + newProtectedC - dt*protectedCturnover
-    cohort%litterC = cohort%litterC - newProtectedC + dt*protectedCturnover
+    prot_C_turnover   = cohort%protectedC/tProtected
+    cohort%protectedC = cohort%protectedC + newProtectedC - dt*prot_C_turnover
+    cohort%litterC    = cohort%litterC    - newProtectedC + dt*prot_C_turnover
 
-    protected_turnover_rate=protectedCturnover
-
-    IF(soil_carbon_option == SOILC_CORPSE_N) THEN
-        protectedNturnover = cohort%protectedN/tProtected_N  ! xz
-        IF(sum(cohort%litterN).gt.0.0 .and. cohortVolume.gt.0.0) THEN
+    ! Update protected nitrogen
+    if (soil_carbon_option == SOILC_CORPSE_N) then
+        if (sum(cohort%litterN).gt.0.0 .and. cohortVolume.gt.0.0) then
             ! Change: divide by volume instead of litter C. Keeps it linear with size, but allows dependence on unprotected C
             if (microbe_driven_protection) then
-                newProtectedN(:) = protection_rate*cohort%livingMicrobeC/cohortVolume*cohort%litterN(:)*dt
+                newProtectedN(:) = protection_rate(:)*cohort%livingMicrobeC/cohortVolume*cohort%litterN(:)*dt
             else
-                newProtectedN(:) = protection_rate*cohort%litterN(:)*dt
+                newProtectedN(:) = protection_rate(:)*cohort%litterN(:)*dt
             endif
-        ELSE
-            newProtectedN = 0.0
-        ENDIF
+        else
+            newProtectedN(:) = 0.0
+        endif
         where(newProtectedN.gt.cohort%litterN) newProtectedN=cohort%litterN
-        cohort%protectedN = cohort%protectedN + newProtectedN - dt*protectedNturnover
-        cohort%litterN = cohort%litterN - newProtectedN + dt*protectedNturnover
-
-        protected_N_turnover_rate=protectedNturnover  ! kg/m2/year
-    ELSE
-        protected_N_turnover_rate=0.0
-    ENDIF
+        prot_N_turnover   = cohort%protectedN/tProtected_N  ! xz
+        cohort%protectedN = cohort%protectedN + newProtectedN - dt*prot_N_turnover
+        cohort%litterN    = cohort%litterN    - newProtectedN + dt*prot_N_turnover
+    else
+        prot_N_turnover=0.0
+    endif
 
     call check_cohort(cohort,'end of update_cohort')
 end subroutine update_cohort
