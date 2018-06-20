@@ -577,7 +577,7 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   where (total%protectedC(:)>0) &
       pool%protected_C_turnover(:) = pool%protected_C_turnover(:)+prot_C_turnover(:)/total%protectedC(:)
   where (total%protectedN(:)>0) &
-      pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+prot_N_turnover(:)/total%litterN(:)
+      pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+prot_N_turnover(:)/total%protectedN(:)
 end subroutine update_pool
 
 
