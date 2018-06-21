@@ -509,7 +509,7 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   ! Volume of mineralized C is just capped at remaining layer volume, with the assumption that the mineralized portion
   ! of volume for all cohorts just gets intermingled and does not need to sum to layer volume
   do n=1,pool%n_cohorts
-     cohortVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
+     cohortVolume=max(cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity,layerThickness)
      call update_cohort(pool%litterCohorts(n), pool%nitrate, pool%ammonium, cohortVolume, &
             T, max(theta,0.0), max(air_filled_porosity,0.0), Prate_limited_C, dt, &
             ! output
