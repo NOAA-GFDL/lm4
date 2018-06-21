@@ -127,7 +127,7 @@ type litterCohort
 
     real :: litterN    (N_C_TYPES) = 0.0 ! x2z Nitrogen substrate
     real :: protectedN (N_C_TYPES) = 0.0 ! x2z
-    real :: IMM_N_max       = 0.0  ! x2z Maximum inorganic N immobilization (what's available in that time step)
+    real :: IMM_N_max       = 0.0  ! x2z Maximum inorganic N immobilization (what is available in that time step)
     real :: IMM_N_gross     = 0.0  ! x2z Actual gross inorganic N immobilization
     real :: MINER_gross     = 0.0  ! x2z Actual gross inorganic N mineralization
     real :: MINER_prod      = 0.0  ! x2z Actual gross inorganic N mineralization
@@ -197,16 +197,12 @@ real,dimension(N_C_TYPES) :: mup_myc=(/0.9,0.9,0.9/)
 real :: minMicrobeC=1e-5               ! Minimum microbial biomass (prevents complete collapse if > 0.0)
 real :: gamma_nitr=0.6                 ! Proportion of ammonium that is NOT lost as gas during the nitrification process
 
-real :: D=3.0                          ! Diffusion coefficient (for carbon and enzyme movement)
 real :: enzfrac=1.0                    ! Relative amount of enzymes produced by microbes
 real :: tProtected=10.0                ! Turnover rate of protected carbon (yr-1)
 real :: tProtected_N=10.0              ! Turnover rate of protected nitrogen (yr-1)
 real :: protection_rate=1.0            ! Rate that carbon becomes protected (yr-1 kg-microbial-biomass-1)
-real :: protection_rate_N=1.0
 
 real,dimension(N_C_TYPES) :: protection_species=(/0.5,0.5,1.0/)  ! Relative protection rate of each flavor
-
-real,dimension(N_C_TYPES) :: protection_species_N=(/0.5,0.5,1.0/)
 
 real :: C_leaching_solubility=0.5      ! Amount of carbon dissolves in soil water at saturated moisture (fraction)
 real :: N_leaching_solubility=0.5      ! Amount of nitrogen dissolves in soil water at saturated moisture (fraction)
@@ -220,7 +216,6 @@ real :: protected_relative_solubility=1.0 ! Relative to 1.0
 real :: N_protected_relative_solubility=1.0 ! Relative to 1.0
 
 real :: DOC_deposition_rate=1.0        ! Amount of dissolved C deposited after leaching (fraction)
-real :: DON_deposition_rate=1.0        ! Amount of dissolved N deposited after leaching (fraction)
 
 real :: gas_diffusion_exp=2.5          ! Exponent for gas diffusion power law dependence on theta
                                                             ! See Meslin et al 2010, SSAJ
@@ -233,24 +228,20 @@ real :: min_dry_resp_factor      =0.0  ! Minimum for low soil moisture Resp limi
 real :: denitrif_theta_min=0.5         ! Minimum theta for denitrification to occur
 integer :: soilMaxCohorts=7            ! Maximum number of cohorts in soil carbon pools
 
-real :: tol=1e-4                       ! Tolerance for cohort carbon check
 logical :: microbe_driven_protection=.TRUE. ! Whether to use microbial biomass in protection rate
 integer :: N_limit_scheme = NLIM_OVERFLOW  ! N limitation scheme to use: See definitions above
 
 namelist /soil_carbon_nml/ &
     soil_carbon_model_to_use, use_rhizosphere_cohort,&
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
-    tol,enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
+    enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
     litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,min_dry_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
     Ea_NH4,Ea_NO3,Ea_nitrif,Ea_denitr,denitrif_theta_min,&
     V_NH4_ref,V_NO3_ref,Knitr_ref,Kdenitr_ref,&
     CN_microb,mup,gamma_nitr,tProtected_N,&
-    protection_rate_N,&
-    protection_species_N,&
     N_leaching_solubility,&
     N_flavor_relative_solubility,&
     N_protected_relative_solubility,&
-    DON_deposition_rate,&
     N_limit_scheme,&
     Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,mup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
     vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor,nitrate_solubility,ammonium_solubility
@@ -376,7 +367,7 @@ subroutine soil_NO3_deposition(NO3_dep,pool)
     pool%nitrate=pool%nitrate+NO3_dep
 end subroutine
 
-! Deposit organic nitrogen into soil pool. Assumes it's all "fast", for now
+! Deposit organic nitrogen into soil pool. Assumes it is all "fast", for now
 subroutine soil_org_N_deposition(org_N_dep,pool)
     type(soil_pool),intent(inout) :: pool
     real,intent(in)::org_N_dep
@@ -478,7 +469,7 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),&
           tempCO2,temp_protected_C_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
           Prate_limited_C(N_C_TYPES), &
-          tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
+          tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL
 
   real :: cohortVolume! xz
   real :: nitrif, Denitrif! xz
@@ -517,11 +508,11 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
             temp_protected_C_turnover_rate, temp_protected_N_turnover_rate, &
             tempIMM_N, temp_MINERAL, denitrif)
 
-     C_loss_rate = C_loss_rate+tempresp
-     N_loss_rate = N_loss_rate+temp_N_decomposed
+     C_loss_rate(:) = C_loss_rate(:) + tempresp
+     N_loss_rate(:) = N_loss_rate(:) + temp_N_decomposed
 
-     prot_C_turnover=prot_C_turnover+temp_protected_C_turnover_rate
-     prot_N_turnover=prot_N_turnover+temp_protected_N_turnover_rate
+     prot_C_turnover(:) = prot_C_turnover(:) + temp_protected_C_turnover_rate(:)
+     prot_N_turnover(:) = prot_N_turnover(:) + temp_protected_N_turnover_rate(:)
 
      CO2prod=CO2prod+tempCO2
 
@@ -530,11 +521,11 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
      denitrification = denitrification + denitrif*dt ! kgN/m2
   enddo
 
-  ! Xin had N uptake here.  I'm moving it to somewhere in vegetation
+  ! Xin had N uptake here.  I am moving it to somewhere in vegetation
   if (soil_carbon_option == SOILC_CORPSE_N) then
      !!Nitrification and denitrification after updating all cohorts
      !!!!!!!!!!!!!!xz Check to add N2O emission, change the gamma_nitr to account nitrogen lost during the nitrification and denitrification processes
-     nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber's paper(or LM3 code)   kg/m2
+     nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber paper(or LM3 code)   kg/m2
      !      kg/m2       kg/m2         yr-1                                                                                      kg/m2         yr
      pool%nitrif=pool%nitrif + nitrif!xz  --BNS: changed to cumulative
 
@@ -617,7 +608,6 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     real::carbon_supply_denitrif,nitrogen_supply_denitrif
 
     real :: N_inhibitory_factor
-    integer::i
 
     integer :: N_lim_state  ! Keep track of N limitation in this time step for debugging
     integer, parameter :: EXCESS_N = 1, N_LIMITED = 2, IMMOBILIZATION = 3, N_LIM_TURNED_OFF = -999
@@ -711,7 +701,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
             N_LIM_STATE=N_LIMITED
             CN_imbalance_term = -cohort%IMM_N_max
 
-            ! Just skip denitrifaction in this case for now, since it probably doesn't amount to much if mineral N is limiting microbial growth
+            ! Just skip denitrifaction in this case for now, since it probably does not amount to much if mineral N is limiting microbial growth
             ! Probably better to do this with implicit solution at some point :-(
             ! denitrif_Resp = 0.0
             ! denitrif_NO3_demand = 0.0
@@ -816,7 +806,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         endif
 
         ! Enforce correct microbial C:N. Model has been having problems with slow increase in microbial C relative to N.
-        ! This feels a bit kloodgy but hopefully shouldn't cause problems
+        ! This feels a bit kloodgy but hopefully should not cause problems
         if(cohort%livingMicrobeC > (CN_microb+1e-3)*cohort%livingMicrobeN) then
             ! Too much microbial C. Respire extra C
             overflow_resp = overflow_resp + (cohort%livingMicrobeC - cohort%livingMicrobeN*CN_microb)
@@ -1171,7 +1161,7 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::T,theta                    ! temperature (k), theta (fraction of 1.0)
     real,intent(in)::air_filled_porosity        ! Fraction of 1.0.  Different from theta since it includes ice
     real,intent(in),dimension(N_C_TYPES)::Ctotal ! Substrate C
-    real,dimension(N_C_TYPES)::Resp_myc,tempresp
+    real,dimension(N_C_TYPES)::Resp_myc
     real::enz,Cavail(N_C_TYPES)
     real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
 
@@ -1672,7 +1662,7 @@ subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
         !call remove_carbon_fraction_from_pool(pool,rhizosphere_frac,litter_removed,protected_removed,liveMicrobe_removed)
         !call initializeCohort(rhizosphere,litter_removed+newCarbon,liveMicrobe_removed)
         !call add_cohort(pool,rhizosphere)
-        ! -- Note, I don't think this implementation was used, and it is problematic because it gets called so often
+        ! -- Note, I do not think this implementation was used, and it is problematic because it gets called so often
 
         ! Matching prior implementation, this carbon is just spread through soil
         call add_C_N_to_cohorts(pool,litterC=newCarbon,litterN=newNitrogenVal)
@@ -1770,7 +1760,7 @@ subroutine remove_cohort(pool,num)
        pool%litterCohorts(i) = pool%litterCohorts(i+1)
     enddo
     pool%n_cohorts = pool%n_cohorts - 1
-    ! note that the cohort array does not shrink, because it is likely it'll
+    ! note that the cohort array does not shrink, because it is likely it will
     ! need to be expanded in the future
 end subroutine remove_cohort
 
@@ -2019,7 +2009,7 @@ end subroutine poolTotals1
 subroutine cull_cohorts(pool)
     type(soil_pool),intent(inout)::pool
     integer::n,ncombined,m,c1,c2
-    real::Cbefore,Cafter,minDistance,r
+    real :: minDistance,r
     type(litterCohort)::tempCohort
 
     ncombined=0
@@ -2041,11 +2031,6 @@ subroutine cull_cohorts(pool)
         call remove_cohort(pool,c2)
         ncombined=ncombined+1
     ENDDO
-
-    ! Cafter=cohortCsum(totalCarbonCohort(pool))
-    ! IF(ncombined.gt.0) WRITE (*,*) 'Combined',ncombined,'cohorts'
-    ! totalCombineError=totalCombineError+(Cafter-Cbefore)
-
 end subroutine cull_cohorts
 
 
