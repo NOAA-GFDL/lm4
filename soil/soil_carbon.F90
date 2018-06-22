@@ -592,11 +592,11 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     real::frac_nitrate,frac_ammonium
 
     real :: deadmic_C_produced, deadmic_N_produced, livemic_C_produced, livemic_N_produced
-    real::microbeTurnover,temp_C_microbes,CN_imbalance_term,temp_N_microbes
+    real :: microbeTurnover,CN_imbalance
     real::potential_tempResp(N_C_TYPES),tempResp(N_C_TYPES)
     real,dimension(N_C_TYPES)::newProtectedC,newProtectedN
 
-    real::pot_tempN_decomposed(N_C_TYPES), potential_N_decomp(N_C_TYPES),tempN_decomposed(N_C_TYPES)
+    real::pot_tempN_decomposed(N_C_TYPES),tempN_decomposed(N_C_TYPES)
     real::denitrif_NO3_demand ! kgN/m2/year
     real,dimension(N_C_TYPES):: denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
     real::carbon_supply_denitrif,nitrogen_supply_denitrif
@@ -614,26 +614,20 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     real :: IMM_N_max   ! x2z Maximum inorganic N immobilization (what is available in that time step)
 
 
-    maintenance_resp=0.0
     overflow_resp=0.0
     carbon_supply=0.0
     nitrogen_supply=0.0
 
 
-    CN_imbalance_term=0.0
+    CN_imbalance=0.0
     totalResp=0.0
     potential_tempResp=0.0
     tempResp=0.0
     CO2prod=0.0
-    deadmic_C_produced=0.0
-    deadmic_N_produced=0.0
-    livemic_C_produced=0.0
-    livemic_N_produced=0.0
 
     totalN_decomposed=0.0
     pot_tempN_decomposed=0.0
     tempN_decomposed=0.0
-    potential_N_decomp(N_C_TYPES)=0.0
 
     MINERAL_prod=0.0
     IMM_Nprod=0.0
@@ -675,7 +669,6 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         IMM_N_max=min((ammonium+nitrate)/dt-denitrif_NO3_demand,max_immobilization_rate(ammonium,nitrate,T,theta,air_filled_porosity))   ! kg/m2/yr
         nitrogen_supply=sum(pot_tempN_decomposed*mup)
         nitrogen_supply_denitrif=sum(pot_tempN_decomposed_denitrif*mup)
-        temp_N_microbes=cohort%livingMicrobeN
     endif
 
     microbeTurnover=max(0.0,(cohort%livingMicrobeC-minMicrobeC*sum(cohort%litterC))/Tmic)   ! kg/m2/yr
@@ -686,8 +679,6 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     maintenance_resp=microbeTurnover*(1.0-et)
 
     ! Update microbial biomass
-    temp_C_microbes=cohort%livingMicrobeC
-
     IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 
         carbon_supply = carbon_supply+carbon_supply_denitrif
@@ -696,7 +687,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         if(carbon_supply - maintenance_resp > (nitrogen_supply+IMM_N_max)*CN_microb) THEN
             ! Growth is nitrogen limited, with not enough mineral N to support it with max immobilization
             N_LIM_STATE=N_LIMITED
-            CN_imbalance_term = -IMM_N_max
+            CN_imbalance = -IMM_N_max
 
             ! Just skip denitrifaction in this case for now, since it probably does not amount to much if mineral N is limiting microbial growth
             ! Probably better to do this with implicit solution at some point :-(
@@ -707,8 +698,8 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
             if(N_limit_scheme==NLIM_OVERFLOW) THEN
                 !!OPTION1: no impact on decomposition rate
 
-                livemic_C_produced=dt*((nitrogen_supply-CN_imbalance_term)*CN_microb + maintenance_resp)
-                livemic_N_produced=dt*(nitrogen_supply-CN_imbalance_term)
+                livemic_C_produced=dt*((nitrogen_supply-CN_imbalance)*CN_microb + maintenance_resp)
+                livemic_N_produced=dt*(nitrogen_supply-CN_imbalance)
 
                 cohort%livingMicrobeN = cohort%livingMicrobeN + livemic_N_produced - dt*(microbeTurnover*et/CN_microb)
                 cohort%livingMicrobeC = cohort%livingMicrobeC + livemic_C_produced - dt*(microbeTurnover)
@@ -724,7 +715,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
                 !!OPTION2: only change decomposition rate
 
                 !!!!!!Inhibition factor
-                N_inhibitory_factor=(CN_imbalance_term-(1-et)*microbeTurnover/CN_microb)/(nitrogen_supply-carbon_supply/CN_microb)
+                N_inhibitory_factor=(CN_imbalance-(1-et)*microbeTurnover/CN_microb)/(nitrogen_supply-carbon_supply/CN_microb)
 
                 !sum(mup(i)*cohort%litterN(i)/cohort%litterC(i)-eup(i)/CN_microb)
                 tempResp=potential_tempResp *N_inhibitory_factor  !Actual amount of carbon decomposed
@@ -735,15 +726,15 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
                 carbon_supply=sum(tempResp*eup)
                 nitrogen_supply=sum(tempN_decomposed*mup)
 
-                livemic_C_produced=dt*((nitrogen_supply-CN_imbalance_term)*CN_microb + maintenance_resp)
-                livemic_N_produced=dt*(nitrogen_supply-CN_imbalance_term)
+                livemic_C_produced=dt*((nitrogen_supply-CN_imbalance)*CN_microb + maintenance_resp)
+                livemic_N_produced=dt*(nitrogen_supply-CN_imbalance)
 
                 cohort%livingMicrobeN = cohort%livingMicrobeN + livemic_N_produced - dt*(microbeTurnover*et/CN_microb)
                 cohort%livingMicrobeC = cohort%livingMicrobeC + livemic_C_produced - dt*(microbeTurnover)
                 overflow_resp=carbon_supply - livemic_C_produced/dt
 
-                livemic_C_produced=dt*(nitrogen_supply-CN_imbalance_term)
-                livemic_N_produced=dt*(nitrogen_supply-CN_imbalance_term)/CN_microb
+                livemic_C_produced=dt*(nitrogen_supply-CN_imbalance)
+                livemic_N_produced=dt*(nitrogen_supply-CN_imbalance)/CN_microb
             else
                 call error_mesg('update_cohort','Invalid N-limit_scheme',FATAL)
             endif
@@ -755,7 +746,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
             ! carbon_supply = carbon_supply+carbon_supply_denitrif
             ! nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
 
-            CN_imbalance_term = -((carbon_supply-maintenance_resp)/CN_microb - nitrogen_supply)
+            CN_imbalance = -((carbon_supply-maintenance_resp)/CN_microb - nitrogen_supply)
             cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
             cohort%livingMicrobeN = cohort%livingMicrobeN + dt*((carbon_supply-maintenance_resp)/CN_microb - microbeTurnover*et/CN_microb)
 
@@ -775,7 +766,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
 
             cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
             cohort%livingMicrobeN = cohort%livingMicrobeN + dt*((carbon_supply-maintenance_resp)/CN_microb - microbeTurnover*et/CN_microb)
-            CN_imbalance_term = nitrogen_supply - (carbon_supply-maintenance_resp)/CN_microb
+            CN_imbalance = nitrogen_supply - (carbon_supply-maintenance_resp)/CN_microb
 
             tempResp=potential_tempResp+denitrif_Resp  !Actual amount of carbon decomposed
             tempN_decomposed=pot_tempN_decomposed+pot_tempN_decomposed_denitrif  !Actual amount of nitrogen decomposed
@@ -796,7 +787,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
             tempResp=potential_tempResp+denitrif_Resp ! Note, waste from denitrif still goes to CO2
             tempN_decomposed=pot_tempN_decomposed+pot_tempN_decomposed_denitrif
             overflow_resp=0.0
-            CN_imbalance_term = nitrogen_supply-(carbon_supply-maintenance_resp)/CN_microb
+            CN_imbalance = nitrogen_supply-(carbon_supply-maintenance_resp)/CN_microb
 
             livemic_C_produced=dt*carbon_supply
             livemic_N_produced=dt*(carbon_supply-maintenance_resp)/CN_microb
@@ -811,7 +802,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         endif
         if(cohort%livingMicrobeC < (CN_microb-1e-3)*cohort%livingMicrobeN) then
             ! Too much microbial N. Mineralize extra N
-            CN_imbalance_term = CN_imbalance_term + (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
+            CN_imbalance = CN_imbalance + (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
             cohort%livingMicrobeN = cohort%livingMicrobeN - (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
         endif
 
@@ -833,11 +824,11 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         cohort%litterN(C_SLOW) = cohort%litterN(C_SLOW) + deadmic_N_produced*(deadmic_slow_frac)
 
 
-        IF(CN_imbalance_term.ge.0.0)THEN
+        IF(CN_imbalance.ge.0.0)THEN
             IMM_N_gross=0.0
-            MINER_gross=sum((1-mup)*tempN_decomposed)+CN_imbalance_term
+            MINER_gross=sum((1-mup)*tempN_decomposed)+CN_imbalance
         ELSE
-            IMM_N_gross=-CN_imbalance_term
+            IMM_N_gross=-CN_imbalance
             MINER_gross=sum((1-mup)*tempN_decomposed)
         ENDIF
         call check_var_range(IMM_N_gross,0.0,HUGE(1.0),'update_cohort','IMM_N_gross',FATAL)
@@ -866,11 +857,11 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
         ammonium = ammonium - IMM_N_gross*frac_ammonium*dt
 
         ! IF((V_NH4(T)*ammonium+V_NO3(T)*nitrate).gt.dfloat(0))THEN
-        !     nitrate=nitrate+min(CN_imbalance_term,dfloat(0))*(V_NO3(T)*(nitrate)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))*dt
-        !     ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))*dt*(V_NH4(T)*(ammonium)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))+sum((1-mup)*tempN_decomposed)*dt
+        !     nitrate=nitrate+min(CN_imbalance,dfloat(0))*(V_NO3(T)*(nitrate)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))*dt
+        !     ammonium=ammonium+max(CN_imbalance,dfloat(0))*dt+min(CN_imbalance,dfloat(0))*dt*(V_NH4(T)*(ammonium)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))+sum((1-mup)*tempN_decomposed)*dt
         ! ELSE
-        !     nitrate=nitrate+(min(CN_imbalance_term,dfloat(0))/2)*dt
-        !     ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))/2*dt+(sum((1-mup)*tempN_decomposed))*dt
+        !     nitrate=nitrate+(min(CN_imbalance,dfloat(0))/2)*dt
+        !     ammonium=ammonium+max(CN_imbalance,dfloat(0))*dt+min(CN_imbalance,dfloat(0))/2*dt+(sum((1-mup)*tempN_decomposed))*dt
         ! ENDIF
     ELSE ! if not SOILC_CORPSE_N
         N_LIM_STATE = N_LIM_TURNED_OFF
@@ -883,7 +874,6 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
             cohort%litterC=cohort%litterC-dt*tempResp
         end where
         ! Update microbial biomass
-        temp_C_microbes=cohort%livingMicrobeC
         microbeTurnover=max(0.0,(cohort%livingMicrobeC-minMicrobeC*sum(cohort%litterC))/Tmic)
         cohort%livingMicrobeC=cohort%livingMicrobeC + dt*(sum(eup*tempResp) - microbeTurnover)
         livemic_C_produced=dt*(sum(eup*tempResp))
@@ -1037,42 +1027,41 @@ pure subroutine initializeCohort(cohort,&
 end subroutine initializeCohort
 
 
-pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
-    real,intent(in)::Chet                ! heterotrophic (microbial) C
-    real,intent(in)::T,theta             ! temperature (k), theta (fraction of 1.0)
-    real,intent(in)::air_filled_porosity ! Fraction of 1.0.  Different from theta since it includes ice
-    real,intent(in)::Ctotal(N_C_TYPES)   ! Substrate C
-    real,dimension(N_C_TYPES)::Resp
-    real::enz,Cavail(N_C_TYPES)
-    real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
+pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity) ; real :: Resp(N_C_TYPES)
+  real,intent(in) :: Ctotal(N_C_TYPES)   ! Substrate C
+  real,intent(in) :: Chet                ! heterotrophic (microbial) C
+  real,intent(in) :: T                   ! temperature (K)
+  real,intent(in) :: theta               ! soil moisture (fraction of 1.0)
+  real,intent(in) :: air_filled_porosity ! m3/m3  Different from theta since it includes ice
 
-    ! From solving theta dependence for maximum:
-    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
-    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+  real :: enz, Cavail(N_C_TYPES)
+  real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
 
-    ! Functional dependence on soil moisture, normalized so max is 1
-    theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
-    ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-    if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
-    ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-    if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
+  ! From solving theta dependence for maximum:
+  theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+  aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
 
+  ! Functional dependence on soil moisture, normalized so max is 1
+  theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+  ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+  if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
+  ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+  if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
 
-    enz=Chet*enzfrac
+  enz=Chet*enzfrac
 
-    ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
-    Cavail=Ctotal
-    IF(sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) THEN
-        Resp=0.0
-        return
-    ENDIF
+  ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
+  Cavail=Ctotal
+  if (sum(Cavail(:)).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
+      Resp = 0.0
+      return
+  endif
 
-    where (Cavail>0)
-      Resp=Vmax(T)*(Cavail)*enz/(Cavail*kC+enz)*theta_func
+  where (Cavail(:)>0)
+     Resp = Vmax(T)*Cavail(:)*enz/(Cavail(:)*kC+enz)*theta_func
   elsewhere
-     Resp=0.0
-   endwhere
-
+     Resp = 0.0
+  end where
 end function Resp
 
 

@@ -59,11 +59,10 @@ character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
-real :: lai_min_turb     = 0.0 ! fudge to desensitize Tv to SW/cosz inconsistency
 real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
-  canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, lai_min_turb, bare_rah_sca
+  canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
@@ -107,7 +106,7 @@ end subroutine read_cana_namelist
 subroutine cana_init ()
 
   ! ---- local vars ----------------------------------------------------------
-  type(land_tile_enum_type)     :: te,ce ! last and current tile
+  type(land_tile_enum_type)     :: ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
   type(land_restart_type) :: restart
@@ -260,7 +259,6 @@ subroutine cana_turbulence (u_star,&
   real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: rah_sca  ! ground-SCA resistance
-  real :: rav_lit  ! additional resistance of litter to vapor transport
   real :: h0       ! height of the canopy bottom, m
   real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
 
