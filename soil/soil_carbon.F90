@@ -244,6 +244,8 @@ namelist /soil_carbon_nml/ &
 integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
         ! one of SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 
+! normalization factors for soil moisture aerobic respiration depencence
+real :: aerobic_max, theta_resp_max
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -321,6 +323,10 @@ subroutine read_soil_carbon_namelist
         '"'//trim(soil_carbon_model_to_use)//'" is an invalid option for soil_carbon_model_to_use', FATAL)
   end select
 
+! initialize normalization factor for aerobic respiration soil moisture function
+! from solving theta dependence for maximum:
+  theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+  aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
 end subroutine read_soil_carbon_namelist
 #endif
 
@@ -341,6 +347,10 @@ endif
 READ(unit=namelistunit,NML=soil_carbon_nml)
 CLOSE(unit=namelistunit)
 
+! initialize normalization factor for aerobic respiration soil moisture function
+! from solving theta dependence for maximum:
+  theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+  aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
 end subroutine
 #endif
 
@@ -636,10 +646,10 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
 
     ! Calculate potential respiration rate (if not N limited)
     ! Litter
-    potential_tempResp=Resp(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity)
+    potential_tempResp = resp_aerobic(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity)
 
     ! Respiration of carbon supported by denitrification rather than oxygen; kgC/m2/yr
-    denitrif_Resp=Resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
+    denitrif_Resp = Resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
     ! Factor based on stoichiometry of denitrification; kgN/m2/yr
     denitrif_NO3_demand=sum(denitrif_Resp)*denitrif_NO3_factor
 
@@ -1027,7 +1037,7 @@ pure subroutine initializeCohort(cohort,&
 end subroutine initializeCohort
 
 
-pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity) ; real :: Resp(N_C_TYPES)
+pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_aerobic(N_C_TYPES)
   real,intent(in) :: Ctotal(N_C_TYPES)   ! Substrate C
   real,intent(in) :: Chet                ! heterotrophic (microbial) C
   real,intent(in) :: T                   ! temperature (K)
@@ -1035,34 +1045,32 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity) ; real :: Resp(N_C_T
   real,intent(in) :: air_filled_porosity ! m3/m3  Different from theta since it includes ice
 
   real :: enz, Cavail(N_C_TYPES)
-  real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
-
-  ! From solving theta dependence for maximum:
-  theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
-  aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
-
-  ! Functional dependence on soil moisture, normalized so max is 1
-  theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
-  ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-  if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
-  ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-  if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
+  real :: theta_func
 
   enz=Chet*enzfrac
 
   ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
   Cavail=Ctotal
   if (sum(Cavail(:)).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
-      Resp = 0.0
+      resp_aerobic = 0.0
       return
   endif
 
+  ! Functional dependence on soil moisture, normalized so max is 1
+  theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+  ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+  if(theta>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
+  ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+  if(theta<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
+! slm: there is a discontinuity here: for theta=0 theta function suddenly drops 
+! from min_dry_resp_factor to 0
+
   where (Cavail(:)>0)
-     Resp = Vmax(T)*Cavail(:)*enz/(Cavail(:)*kC+enz)*theta_func
+     resp_aerobic = Vmax(T)*Cavail(:)*enz/(Cavail(:)*kC+enz)*theta_func
   elsewhere
-     Resp = 0.0
+     resp_aerobic = 0.0
   end where
-end function Resp
+end function resp_aerobic
 
 
 
@@ -1113,43 +1121,38 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
 end function Resp_denitrif
 
 
-pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
-    real,intent(in)::Chet                       ! heterotrophic (microbial) C
-    real,intent(in)::T,theta                    ! temperature (k), theta (fraction of 1.0)
-    real,intent(in)::air_filled_porosity        ! Fraction of 1.0.  Different from theta since it includes ice
-    real,intent(in),dimension(N_C_TYPES)::Ctotal ! Substrate C
-    real,dimension(N_C_TYPES)::Resp_myc
-    real::enz,Cavail(N_C_TYPES)
-    real :: aerobic_max, theta_resp_max, theta_func  ! Maximum soil-moisture factor under ideal conditions
+pure function resp_myc(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_myc(N_C_TYPES)
+    real, intent(in) :: Ctotal(N_C_TYPES)          ! Substrate C
+    real, intent(in) :: Chet                       ! heterotrophic (microbial) C
+    real, intent(in) :: T,theta                    ! temperature (k), theta (fraction of 1.0)
+    real, intent(in) :: air_filled_porosity        ! Fraction of 1.0.  Different from theta since it includes ice
+    
+    real :: enz,Cavail(N_C_TYPES)
+    real :: theta_func  ! soil-moisture factor
 
-    ! From solving theta dependence for maximum:
-    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
-    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+    enz=Chet*enzfrac
+    ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
+    Cavail=Ctotal
+    if (sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
+        ! slm: there is a discontinuity here: in effect for theta=0 theta function 
+        ! suddenly drops from min_dry_resp_factor to 0
+        resp_myc=0.0
+        return
+    endif
 
     ! Functional dependence on soil moisture, normalized so max is 1
     theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
     ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-    if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
+    if(theta>theta_resp_max) theta_func = max(theta_func, min_anaerobic_resp_factor)
     ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-    if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
-
-
-    enz=Chet*enzfrac
-
-    ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
-    Cavail=Ctotal
-    IF(sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) THEN
-        Resp_myc=0.0
-        return
-    ENDIF
+    if(theta<theta_resp_max) theta_func = max(theta_func, min_dry_resp_factor)
 
     where(Cavail>0)
-      Resp_myc=Vmax_myc(T)*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*theta_func
+      resp_myc=Vmax_myc(T)*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*theta_func
     elsewhere
-      Resp_myc=0.0
-    endwhere
-
-end function Resp_myc
+      resp_myc=0.0
+    end where
+end function resp_myc
 
 ! Maximum total (NO3+NH4) immmobilization rate per unit microbial biomass
 pure function max_immobilization_rate(NH4,NO3,T,theta,air_filled_porosity)
