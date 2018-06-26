@@ -3651,7 +3651,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   ! register regular (dynamic) diagnostic fields
 
   id_ntiles = register_tiled_diag_field(module_name,'ntiles', axes,  &
-       time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum')
+       time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum', &
+       cell_methods='area: mean')
+  ! override cell methods to use poper method of interpolation from cubic 
+  ! sphere to lat-lon in post-processing
 
 
   id_VWS = register_tiled_diag_field ( module_name, 'VWS', axes, time, &
