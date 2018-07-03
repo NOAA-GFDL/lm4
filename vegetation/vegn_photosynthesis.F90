@@ -462,7 +462,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real :: Ag_rb;
   real :: anbar;
   real :: gsbar;
-  real :: w_scale;
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
 
   !#### Modified by PPG 2017-12-07
@@ -912,7 +911,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
         ! shift initial condition for psi_r a bit below minimum soil psi, so that
         ! we do have some suction
    !     psi_r = minval(soil%psi) - 1.0   ! in m of water
-   !     psi_r = max(psi_r,psi_wilt)*m2pa ! but we don't want to go below psi_wilt
+   !     psi_r = max(psi_r,psi_wilt)*m2pa ! but we do not want to go below psi_wilt
 
         ! recalculate root water flow and its derivative, now that we believe the
         ! derivative is non-zero
@@ -935,7 +934,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      case (ALLOM_HML)
         CSAsw = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
      end select
-     ! isa 20170705 - grasses don't form heartwood
+     ! isa 20170705 - grasses do not form heartwood
      if (sp%lifeform == FORM_GRASS) then
         CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
      endif

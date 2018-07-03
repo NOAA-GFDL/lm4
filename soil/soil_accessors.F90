@@ -697,16 +697,6 @@ subroutine sc_litter_CO2_ptr(t,i,j,p)
     endif
 end subroutine
 
-subroutine sc_litter_Rtot_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    integer,intent(in)::i,j
-    real,pointer::p
-    p=>NULL()
-    if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%Rtot
-    endif
-end subroutine
-
 subroutine sc_litter_litterC_ptr(t,i,j,k,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i,j,k
@@ -764,16 +754,6 @@ subroutine sc_CO2_ptr(t,i,j,p)
     p=>NULL()
     if(associated(t))then
         if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%CO2
-    endif
-end subroutine
-
-subroutine sc_Rtot_ptr(t,i,j,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    integer,intent(in)::i,j
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%org_matter(i)%litterCohorts(j)%Rtot
     endif
 end subroutine
 

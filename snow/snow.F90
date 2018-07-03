@@ -881,7 +881,6 @@ subroutine print_snow_integrals(snow)
   type(snow_tile_type), intent(in) :: snow
 
   real    :: snow_LMASS, snow_FMASS, snow_HEAT
-  integer :: l
   call get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
   __DEBUG3__(snow_LMASS, snow_FMASS, snow_HEAT)
 end subroutine print_snow_integrals

@@ -654,7 +654,6 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
 
   ! ---- local constants
   real, parameter :: tolerance = 1e-6
-  real, parameter :: layer_vegn_cover = 1.0
 
   ! ---- local vars
   integer :: idx(vegn%n_cohorts) ! indices of cohorts in decreasing height order
