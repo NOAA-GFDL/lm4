@@ -416,7 +416,7 @@ end function string2opcode
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name, fill_missing, &
-     do_not_log) &
+     do_not_log, cell_methods) &
      result (id)
 
   integer :: id
@@ -433,18 +433,19 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing
   logical,          intent(in), optional :: do_not_log
+  character(len=*), intent(in), optional :: cell_methods
 
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op, standard_name=standard_name, &
          fill_missing=fill_missing, do_not_log=do_not_log)
   call add_cell_measures(id)
-  call add_cell_methods(id)
+  call add_cell_methods(id, cell_methods)
 end function register_tiled_diag_field
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
      long_name, units, missing_value, range, require, op, standard_name, &
-     fill_missing, do_not_log) result (id)
+     fill_missing, do_not_log, cell_methods) result (id)
 
   integer :: id
 
@@ -460,6 +461,7 @@ function register_tiled_static_field(module_name, field_name, axes, &
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing
   logical,          intent(in), optional :: do_not_log
+  character(len=*), intent(in), optional :: cell_methods
 
   ! --- local vars
   type(time_type) :: init_time
@@ -468,7 +470,7 @@ function register_tiled_static_field(module_name, field_name, axes, &
          units, missing_value, range, require, op, standard_name=standard_name, &
          fill_missing=fill_missing, do_not_log=do_not_log)
   call add_cell_measures(id)
-  call add_cell_methods(id)
+  call add_cell_methods(id, cell_methods)
 end function register_tiled_static_field
 
 

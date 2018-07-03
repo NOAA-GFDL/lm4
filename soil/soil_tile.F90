@@ -41,7 +41,6 @@ public :: soil_tile_heat, soil_tile_carbon, soil_tile_nitrogen
 public :: read_soil_data_namelist
 
 public :: soil_ice_porosity
-public :: soil_ave_ice_porosity
 
 public :: soil_data_radiation
 public :: soil_roughness
@@ -528,7 +527,7 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: i, rcode, ncid, varid, dimids(3)
+  integer :: i, ncid, varid, dimids(3)
 
   call log_version(version, module_name, &
   __FILE__)
@@ -1351,29 +1350,6 @@ end function soil_ice_porosity
 
 
 ! ============================================================================
-function soil_ave_ice_porosity(soil,depth) result (A) ; real :: A
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(in)                 :: depth ! averaging depth
-
-  real    :: w ! averaging weight
-  real    :: N ! normalizing factor for averaging
-  real    :: z ! current depth, m
-  integer :: k
-
-  A = 0 ; N = 0 ; z = 0
-  do k = 1, num_l
-     w = dz(k) * exp(-(z+dz(k)/2)/depth)
-     A = A +min(max(soil%ws(k)/(dens_h2o*dz(k)),0.0)/&
-          (soil%pars%vwc_sat),1.0) * w
-     N = N + w
-     z = z + dz(k)
-     if (z.gt.depth) exit
-  enddo
-  A = A/N
-end function soil_ave_ice_porosity
-
-
-! ============================================================================
 function soil_psi_stress(soil, zeta) result (A) ; real :: A
   type(soil_tile_type), intent(in) :: soil
   real,                 intent(in) :: zeta  ! root-mass depth scale
@@ -1568,7 +1544,7 @@ subroutine soil_data_hydraulics (soil, vlc, vsc, &
       DPsi_min, DPsi_max, psi_for_rh
   ! ---- local vars ----------------------------------------------------------
   integer l
-  real :: vlc_loc, k_sat, alt_psi_for_rh
+  real :: vlc_loc, alt_psi_for_rh
   real :: alpha_sq, f_psi
   logical flag
 
