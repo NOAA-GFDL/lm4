@@ -1,6 +1,5 @@
-#include <fms_platform.h>
-
 module soil_tile_mod
+#include <fms_platform.h>
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
