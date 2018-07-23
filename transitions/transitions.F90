@@ -416,8 +416,15 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      call error_mesg('land_transitions_init','unknown data_type "'&
                     //trim(data_type)//'", use "luh1" or "luh2"', FATAL)
   end select
-
-
+  if (mpp_pe()==mpp_root_pe()) then
+     write(*,*)'land_transitions_init: summary of land use transitions'
+     do k1 = 1,size(input_tran,1)
+     do k2 = 1,size(input_tran,2)
+        if(input_tran(k1,k2)%name/='') &
+             write(*,'(a)') varset_descr(tran_ncid,input_tran(k1,k2))
+     enddo
+     enddo
+  endif
   ! initialize the input data grid and horizontal interpolator
   ! find any field that is defined in input data
   id = -1
@@ -618,6 +625,30 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    call horiz_interp_ug(interp,buff1*norm_in,frac)
 end subroutine get_varset_data
 
+! ============================================================================
+! returns a string representing the parts of the transition
+function varset_descr(ncid,varset) result(str)
+  character(:), allocatable :: str
+  integer, intent(in) :: ncid
+  type(var_set_type), intent(in) :: varset
+
+  character(NF_MAX_NAME) :: varname
+  integer :: i
+
+  str = trim(varset%name)//' = '
+  if (varset%nvars == 0) then
+     str = str//'0'
+  else
+     do i = 1, varset%nvars
+        __NF_ASRT__(nf_inq_varname(ncid,varset%id(i),varname))
+        if (i==1) then
+           str = str//trim(varname)
+        else
+           str = str//' + '//trim(varname)
+        endif
+     enddo
+  endif
+end function varset_descr
 
 ! ============================================================================
 subroutine save_land_transitions_restart(timestamp)
