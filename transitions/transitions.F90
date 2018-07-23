@@ -1,6 +1,5 @@
-#include <fms_platform.h>
-
 module land_transitions_mod
+#include <fms_platform.h>
 
 #include "../shared/debug.inc"
 
