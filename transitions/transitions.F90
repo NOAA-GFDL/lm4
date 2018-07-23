@@ -316,6 +316,26 @@ subroutine land_transitions_init(id_ug, id_cellarea)
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
 
+  ! stop if landuse.res looks inconsistent
+  if (time0>lnd%time) then
+     call error_mesg('land_transitions_init',&
+          'current time is earlier than the time of last land use transition application',&
+          FATAL)
+  endif
+
+  ! check that we are starting from potential vegetation
+  if (time0==set_date(0001,01,01)) then
+     ce = first_elmt(land_tile_map, ls=lnd%ls )
+     do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%vegn)) cycle
+        if (tile%vegn%landuse /= LU_NTRL) then
+            call error_mesg('land_transitions_init', &
+                'starting land use transitions, but the land use tiles already exist in the initial conditions', &
+                FATAL)
+        endif
+     enddo
+  endif
+
   if (trim(input_file)=='') call error_mesg('land_transitions_init', &
        'do_landuse_change is requested, but landuse transition file is not specified', &
        FATAL)
