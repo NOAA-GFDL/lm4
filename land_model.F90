@@ -282,7 +282,7 @@ integer :: &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
-  id_water_cons,    id_carbon_cons, id_DOCrunf
+  id_water_cons,    id_carbon_cons, id_DOCrunf, id_snow_subs_T
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
@@ -2769,6 +2769,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   call send_tile_data(id_subs_refl_dir, subs_refl_dir, tile%diag)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
   call send_tile_data(id_grnd_T,  land_grnd_T(tile),   tile%diag)
+  call send_tile_data(id_snow_subs_T, snow_subs_T(tile), tile%diag)
   ! CMOR variables
   call send_tile_data(id_snd, max(snow_depth,0.0),     tile%diag)
   call send_tile_data(id_snc, snow_area*100,           tile%diag)
@@ -2842,6 +2843,17 @@ real function land_grnd_T(tile)
 
   if (snow_active(tile%snow)) land_grnd_T = tile%snow%T(1)
 end function land_grnd_T
+
+! ============================================================================
+real function snow_subs_T(tile)
+  type(land_tile_type), intent(in) :: tile
+
+  if (associated(tile%glac)) snow_subs_T = tile%glac%T(1)
+  if (associated(tile%lake)) snow_subs_T = tile%lake%T(1)
+  if (associated(tile%soil)) snow_subs_T = tile%soil%T(1)
+
+  if (snow_active(tile%snow)) snow_subs_T = tile%snow%T(2)
+end function snow_subs_T
 
 ! ============================================================================
 subroutine Lnd_stock_pe(bnd,index,value)
@@ -3395,6 +3407,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
+  id_snow_subs_T = register_tiled_diag_field ( module_name, 'T_snow_subs', axes, time, &
+       'sub-surface snow temperature', 'degK', missing_value=-1.0 )
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
