@@ -1011,6 +1011,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
   real :: w ! smoothing weight
+  real :: alpha_leaf ! leaf overturning rate, 1/yr
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   M = vegn%n_cohorts
@@ -1077,8 +1078,13 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
-     deltaBL = cc%bl     * sp%alpha_leaf * dt_fast_yr
-     deltaNL = cc%leaf_N * sp%alpha_leaf * dt_fast_yr
+     if (cc%layer==1) then
+        alpha_leaf = sp%alpha_leaf
+     else
+        alpha_leaf = sp%alpha_leaf * sp%alpha_leaf_understory_factor
+     endif
+     deltaBL = cc%bl     *    alpha_leaf * dt_fast_yr
+     deltaNL = cc%leaf_N *    alpha_leaf * dt_fast_yr
      deltaBR = cc%br     * sp%alpha_root * dt_fast_yr
      deltaNR = cc%root_N * sp%alpha_root * dt_fast_yr
 

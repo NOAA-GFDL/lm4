@@ -197,6 +197,7 @@ type spec_data_type
 
   ! decay rates of plant carbon pools, 1/yr
   real    :: alpha_leaf=1.0, alpha_root=1.0, alpha_wood=1.2e-2
+  real    :: alpha_leaf_understory_factor = 1.0 ! leaf overturning rate multiplier for understory
   real    :: branch_loss_height = 2.0 ! trees do not lose branches till they reach that height, m
   ! respiration rates of plant carbon pools
   real    :: beta_sapwood=0.0, beta_root=1.25, beta_vleaf=0.0
@@ -910,6 +911,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(leaf_age_tau)
   __GET_SPDATA_REAL__(Vmax_understory_factor)
   __GET_SPDATA_REAL__(Resp_understory_factor)
+  __GET_SPDATA_REAL__(alpha_leaf_understory_factor)
 
   __GET_SPDATA_REAL__(dfr)
   __GET_SPDATA_REAL__(srl)
@@ -1284,6 +1286,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'leaf_age_tau',  spdata(idx)%leaf_age_tau)
   call add_row(table, 'Vmax_understory_factor', spdata(idx)%Vmax_understory_factor)
   call add_row(table, 'Resp_understory_factor', spdata(idx)%Resp_understory_factor)
+  call add_row(table, 'alpha_leaf_understory_factor', spdata(idx)%alpha_leaf_understory_factor)
 
   ! PPA-related parameters
   call add_row(table, 'Allometry Type',  spdata(idx)%allomt)
