@@ -202,7 +202,11 @@ subroutine land_transitions_init(id_ug, id_cellarea)
 
   integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
   type(nfu_validtype) :: v ! valid values range
+  type(land_tile_enum_type) :: ce
   character(len=12) :: fieldname
+
+  type(land_tile_type), pointer :: tile
+
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
