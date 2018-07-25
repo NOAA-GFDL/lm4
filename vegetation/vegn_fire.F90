@@ -2529,6 +2529,7 @@ subroutine vegn_burn_ppa(tile)
      bc(ms:me) = tile%vegn%cohorts(1:N)
      deallocate(tile%vegn%cohorts)
      tile%vegn%cohorts => bc
+     tile%vegn%n_cohorts = size(bc)
   endif
 
   associate(cc=>tile%vegn%cohorts)
