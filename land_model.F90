@@ -59,7 +59,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      is_c3grass, is_c4grass
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
-use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
+use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
      cana_roughness, &
      save_cana_restart
@@ -276,7 +276,7 @@ integer :: &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
-  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh
+  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 
@@ -2382,6 +2382,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
+  if (id_cTot1 > 0) &
+      call send_tile_data(id_cTot1, land_tile_carbon(tile)-cana_tile_carbon(tile%cana), tile%diag)
   if (id_nLand > 0) &
       call send_tile_data(id_nLand, land_tile_nitrogen(tile),         tile%diag)
   if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_CO2-DOC_to_atmos, tile%diag)
@@ -4090,6 +4092,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   ! add alias for compatibility with older diag tables
   call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
      'total land carbon', 'kg C/m2', missing_value=-1.0)
+  id_cTot1 = register_tiled_diag_field ( module_name, 'cTot1', axes, time, &
+             'Total Carbon in All Terrestrial Carbon Pools, Except Canopy Air', 'kg m-2', &
+             missing_value=-1.0, fill_missing=.TRUE. )
 
   id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
              'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &
