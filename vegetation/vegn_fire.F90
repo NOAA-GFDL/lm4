@@ -2509,7 +2509,7 @@ subroutine vegn_burn_ppa(tile)
         burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
         burned_N = burned_N + sum(burned_N_1) + sum(burned_N_2) + burned_N_3
      enddo
-     call check_conservation_2(tile,'vegn_burn_ppa 1',lmass0,fmass0,cmass0+burned_C,nmass0+burned_N)
+     call check_conservation_2(tile,'vegn_burn_ppa 1',lmass0,fmass0,cmass0-burned_C,nmass0-burned_N)
   endif
 
   ! burn vegetation
@@ -2576,7 +2576,7 @@ subroutine vegn_burn_ppa(tile)
   enddo
   end associate ! cc
 
-  call check_conservation_2(tile,'vegn_burn_ppa 2',lmass0,fmass0,cmass0+burned_C,nmass0+burned_N)
+  call check_conservation_2(tile,'vegn_burn_ppa 2',lmass0,fmass0,cmass0-burned_C,nmass0-burned_N)
 
   call vegn_mergecohorts_ppa(tile%vegn, dheat)
   tile%e_res_2 = tile%e_res_2 - dheat
@@ -3525,8 +3525,8 @@ subroutine fire_transitions_0D(tiles, land_area, l)
   ts = first_elmt(tiles)
   do while (loop_over_tiles(ts, tile))
      call check_conservation_1(tile,lm,fm,cm,nm)
-     lmass1 = lmass1 + lm*tile%frac ; fmass1 = fmass0 + fm*tile%frac
-     cmass1 = cmass1 + cm*tile%frac ; nmass1 = nmass0 + nm*tile%frac
+     lmass1 = lmass1 + lm*tile%frac ; fmass1 = fmass1 + fm*tile%frac
+     cmass1 = cmass1 + cm*tile%frac ; nmass1 = nmass1 + nm*tile%frac
      f1 = f1+tile%frac
   enddo
   call check_conservation ('fire_transitions_0D', 'liquid water', lmass0, lmass1, water_cons_tol)
