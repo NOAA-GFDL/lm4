@@ -121,7 +121,7 @@ subroutine land_dust_init (id_ug, mask)
   integer :: logunit, outunit, unit, io, ierr
   character(32)  :: name ! tracer name
   character(32)  :: method
-  character(128) :: parameters
+  character(1024) :: parameters
   real    :: value ! temporary storage for parsing input
   type(table_printer_type) :: table
 
