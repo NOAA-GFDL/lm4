@@ -3265,8 +3265,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             leaflitter_deadmic_produced, leaflitter_protected_produced, leaflitter_protected_turnover_rate, leaflitter_C_dissolved, leaflitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
   ENDIF
 
@@ -3276,8 +3276,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fineWoodlitter_deadmic_produced, fineWoodlitter_protected_produced, fineWoodlitter_protected_turnover_rate, fineWoodlitter_C_dissolved, fineWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
   ENDIF
 
@@ -3287,8 +3287,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             coarseWoodlitter_deadmic_produced, coarseWoodlitter_protected_produced, coarseWoodlitter_protected_turnover_rate, coarseWoodlitter_C_dissolved, coarseWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in coarseWood litter',FATAL)
   ENDIF
 
@@ -3350,8 +3350,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     deadmic_produced(k),protected_produced(:,k),protected_turnover_rate(:,k),C_dissolved(:,k),C_deposited(:,k),badCohort)
     IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
+        WRITE (*,*)  'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*)  'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort',FATAL)
     ENDIF
 
@@ -4669,6 +4669,979 @@ end subroutine init_soil_twc
 ! ============================================================================
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a
 ! specific member of the cohort structure
+subroutine soil_w_fc_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%w_fc(i)
+    endif
+end subroutine
+
+subroutine soil_alpha_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%alpha(i)
+    endif
+end subroutine
+
+subroutine soil_uptake_T_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%uptake_T
+    endif
+end subroutine
+
+subroutine soil_tag_ptr(t,p)
+    type(land_tile_type),pointer::t
+    integer,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%tag
+        endif
+end subroutine
+
+subroutine soil_fast_soil_C_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fast_soil_C(i)
+    endif
+end subroutine
+
+subroutine soil_slow_soil_C_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%slow_soil_C(i)
+    endif
+end subroutine
+
+subroutine soil_T_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%T(i)
+    endif
+end subroutine
+
+subroutine soil_wl_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%wl(i)
+    endif
+end subroutine
+
+subroutine soil_ws_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p;p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%ws(i)
+    endif
+end subroutine
+
+subroutine soil_groundwater_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%groundwater(i)
+    endif
+end subroutine
+
+subroutine soil_groundwater_T_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%groundwater_T(i)
+    endif
+end subroutine
+
+subroutine soil_is_peat_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    integer,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%is_peat(i)
+    endif
+end subroutine
+
+subroutine soil_tau_groundwater_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%tau_groundwater
+    endif
+end subroutine
+
+subroutine soil_hillslope_length_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%hillslope_length
+    endif
+end subroutine
+
+subroutine soil_hillslope_relief_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%hillslope_relief
+    endif
+end subroutine
+
+subroutine soil_hillslope_a_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%hillslope_a
+    endif
+end subroutine
+
+subroutine soil_hillslope_n_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%hillslope_n
+    endif
+end subroutine
+
+subroutine soil_hillslope_zeta_bar_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%hillslope_zeta_bar
+    endif
+end subroutine
+
+subroutine soil_soil_e_depth_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%soil_e_depth
+    endif
+end subroutine
+
+subroutine soil_zeta_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%zeta
+    endif
+end subroutine
+
+subroutine soil_tau_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%tau
+    endif
+end subroutine
+
+subroutine soil_k_sat_gw_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%k_sat_gw
+    endif
+end subroutine
+
+subroutine soil_vwc_wilt_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%vwc_wilt
+    endif
+end subroutine
+
+subroutine soil_vwc_fc_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%vwc_fc
+    endif
+end subroutine
+
+subroutine soil_vwc_sat_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%vwc_sat
+    endif
+end subroutine
+
+subroutine soil_k_sat_ref_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%k_sat_ref
+    endif
+end subroutine
+
+subroutine soil_Qmax_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%Qmax
+    endif
+end subroutine
+
+subroutine soil_refl_dry_dir_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%refl_dry_dir(i)
+    endif
+end subroutine
+
+subroutine soil_refl_dry_dif_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%refl_dry_dif(i)
+    endif
+end subroutine
+
+subroutine soil_refl_sat_dir_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%refl_sat_dir(i)
+    endif
+    end subroutine
+
+subroutine soil_refl_sat_dif_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%refl_sat_dif(i)
+    endif
+end subroutine
+
+subroutine soil_f_iso_dry_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%f_iso_dry(i)
+    endif
+end subroutine
+
+subroutine soil_f_vol_dry_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%f_vol_dry(i)
+    endif
+end subroutine
+
+subroutine soil_f_geo_dry_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%f_geo_dry(i)
+    endif
+end subroutine
+
+subroutine soil_f_iso_sat_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%f_iso_sat(i)
+    endif
+end subroutine
+
+subroutine soil_f_vol_sat_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%f_vol_sat(i)
+    endif
+end subroutine
+
+subroutine soil_f_geo_sat_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL();
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%f_geo_sat(i)
+    endif
+end subroutine
+
+subroutine soil_fast_DOC_leached_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fast_DOC_leached
+    endif
+end subroutine
+
+subroutine soil_slow_DOC_leached_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%slow_DOC_leached
+    endif
+end subroutine
+
+subroutine soil_deadmic_DOC_leached_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%deadmic_DOC_leached
+    endif
+end subroutine
+
+subroutine soil_asoil_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%asoil_in(i)
+    endif
+end subroutine
+
+subroutine soil_fsc_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fsc_in(i)
+    endif
+end subroutine
+
+subroutine soil_ssc_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%ssc_in(i)
+    endif
+end subroutine
+
+subroutine soil_deadmic_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%deadmic_in(i)
+    endif
+end subroutine
+
+subroutine soil_fast_protected_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fast_protected_in(i)
+    endif
+end subroutine
+
+subroutine soil_slow_protected_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%slow_protected_in(i)
+    endif
+end subroutine
+
+subroutine soil_deadmic_protected_in_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%deadmic_protected_in(i)
+    endif
+end subroutine
+
+subroutine soil_leaflitter_fsc_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leaflitter_fsc_in
+    endif
+end subroutine
+
+subroutine soil_leaflitter_ssc_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leaflitter_ssc_in
+    endif
+end subroutine
+
+subroutine soil_leaflitter_deadmic_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leaflitter_deadmic_in
+    endif
+end subroutine
+
+subroutine soil_finewoodlitter_fsc_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%finewoodlitter_fsc_in
+    endif
+end subroutine
+
+subroutine soil_finewoodlitter_ssc_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%finewoodlitter_ssc_in
+    endif
+end subroutine
+
+subroutine soil_finewoodlitter_deadmic_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%finewoodlitter_deadmic_in
+    endif
+end subroutine
+
+subroutine soil_coarsewoodlitter_fsc_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarsewoodlitter_fsc_in
+    endif
+end subroutine
+
+subroutine soil_coarsewoodlitter_ssc_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarsewoodlitter_ssc_in
+    endif
+end subroutine
+
+subroutine soil_coarsewoodlitter_deadmic_in_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarsewoodlitter_deadmic_in
+    endif
+end subroutine
+
+subroutine soil_fast_turnover_accumulated_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fast_turnover_accumulated(i)
+    endif
+end subroutine
+
+subroutine soil_slow_turnover_accumulated_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%slow_turnover_accumulated(i)
+    endif
+end subroutine
+
+subroutine soil_deadmic_turnover_accumulated_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%deadmic_turnover_accumulated(i)
+    endif
+end subroutine
+
+subroutine soil_fast_protected_turnover_accumulated_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fast_protected_turnover_accumulated(i)
+    endif
+end subroutine
+
+subroutine soil_slow_protected_turnover_accumulated_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%slow_protected_turnover_accumulated(i)
+    endif
+end subroutine
+
+subroutine soil_deadmic_protected_turnover_accumulated_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%deadmic_protected_turnover_accumulated(i)
+    endif
+end subroutine
+
+subroutine soil_leaflitter_fast_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leaflitter_fast_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_leaflitter_slow_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leaflitter_slow_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_leaflitter_deadmic_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leaflitter_deadmic_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_finewoodlitter_fast_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%finewoodlitter_fast_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_finewoodlitter_slow_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%finewoodlitter_slow_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_finewoodlitter_deadmic_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+        if(associated(t))then
+    if(associated(t%soil))p=>t%soil%finewoodlitter_deadmic_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_coarsewoodlitter_fast_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+        if(associated(t))then;if(associated(t%soil))p=>t%soil%coarsewoodlitter_fast_turnover_accumulated
+    endif
+end subroutine
+
+subroutine soil_coarsewoodlitter_slow_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+        if(associated(t))then;if(associated(t%soil))p=>t%soil%coarsewoodlitter_slow_turnover_accumulated
+    endif
+ end subroutine
+
+subroutine soil_coarsewoodlitter_deadmic_turnover_accumulated_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarsewoodlitter_deadmic_turnover_accumulated
+    endif
+end subroutine
+
+! stuff below is for CORPSE
+
+subroutine soilc_livingMicrobeC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%livingMicrobeC
+    endif
+end subroutine
+
+subroutine soilc_Rtot_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%Rtot
+    endif
+end subroutine
+
+subroutine soilc_CO2_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%CO2
+    endif
+end subroutine
+
+subroutine soilc_originalLitterC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    integer,intent(in)::i,j
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%originalLitterC
+    endif
+end subroutine
+
+subroutine sc_soil_C_ptr(t,i,j,k,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j,k
+    real,pointer::p
+    p=>NULL()
+    if(associated(t)) then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%litterC(k)
+    endif
+end subroutine
+
+subroutine sc_protected_C_ptr(t,i,j,k,p)
+    type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
+    p=>NULL()
+    if(associated(t)) then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%protectedC(k)
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_livingMicrobeC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%litterCohorts(i)%livingMicrobeC
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_CO2_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%litterCohorts(i)%CO2
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_Rtot_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%litterCohorts(i)%Rtot
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_originalLitterC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%litterCohorts(i)%originalLitterC
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_livingMicrobeC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%litterCohorts(i)%livingMicrobeC
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_CO2_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%litterCohorts(i)%CO2
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_Rtot_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%litterCohorts(i)%Rtot
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_originalLitterC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%litterCohorts(i)%originalLitterC
+    endif
+end subroutine
+
+subroutine soilc_coarseWoodLitter_livingMicrobeC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%litterCohorts(i)%livingMicrobeC
+    endif
+end subroutine
+
+subroutine soilc_coarseWoodLitter_CO2_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%litterCohorts(i)%CO2
+    endif
+end subroutine
+
+subroutine soilc_coarseWoodLitter_Rtot_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%litterCohorts(i)%Rtot
+    endif
+    end subroutine
+
+subroutine soilc_coarseWoodLitter_originalLitterC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%litterCohorts(i)%originalLitterC
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_litterC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%litterCohorts(i)%litterC(j)
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_protectedC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%litterCohorts(i)%protectedC(j)
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_litterC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%litterCohorts(i)%litterC(j)
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_protectedC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%litterCohorts(i)%protectedC(j)
+    endif
+end subroutine
+
+subroutine soilc_coarseWoodLitter_litterC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%litterCohorts(i)%litterC(j)
+    endif
+end subroutine
+
+subroutine soilc_coarseWoodLitter_protectedC_ptr(t,i,j,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i,j
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%litterCohorts(i)%protectedC(j)
+    endif
+end subroutine
+
+subroutine soilc_leafLitter_DOC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%leafLitter%dissolved_carbon(i)
+    endif
+end subroutine
+
+subroutine soilc_fineWoodLitter_DOC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%fineWoodLitter%dissolved_carbon(i)
+    endif
+end subroutine
+
+subroutine soilc_coarseWoodLitter_DOC_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%coarseWoodLitter%dissolved_carbon(i)
+    endif
+end subroutine
+
+subroutine soil_fast_DOC_ptr(t,i,p)
+   type(land_tile_type), pointer :: t
+   integer, intent(in) :: i
+   real, pointer :: p
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(1)
+   endif
+end subroutine
+
+subroutine soil_slow_DOC_ptr(t,i,p)
+   type(land_tile_type), pointer :: t
+   integer, intent(in) :: i
+   real, pointer :: p
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(2)
+   endif
+end subroutine
+
+subroutine soil_deadMicrobe_DOC_ptr(t,i,p)
+    type(land_tile_type), pointer :: t
+    integer, intent(in) :: i
+    real, pointer :: p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(3)
+    endif
+end subroutine
+
+!! Below are the macros to make the pointer functions.
+! ============================================================================
+! cohort accessor functions: given a pointer to cohort, return a pointer to a
+! specific member of the cohort structure
 #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
 end subroutine
@@ -4682,182 +5655,25 @@ end subroutine
 type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x(i);endif;\
 end subroutine
 
-DEFINE_SOIL_ACCESSOR_1D(real,w_fc)
-DEFINE_SOIL_ACCESSOR_1D(real,alpha)
-DEFINE_SOIL_ACCESSOR_0D(real,uptake_T)
-DEFINE_SOIL_ACCESSOR_0D(integer,tag)
-DEFINE_SOIL_ACCESSOR_1D(real,fast_soil_C)
-DEFINE_SOIL_ACCESSOR_1D(real,slow_soil_C)
-DEFINE_SOIL_ACCESSOR_1D(real,T)
-DEFINE_SOIL_ACCESSOR_1D(real,wl)
-DEFINE_SOIL_ACCESSOR_1D(real,ws)
-DEFINE_SOIL_ACCESSOR_1D(real,groundwater)
-DEFINE_SOIL_ACCESSOR_1D(real,groundwater_T)
-DEFINE_SOIL_ACCESSOR_1D(integer,is_peat)
-
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,tau_groundwater)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_length)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_relief)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_a)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_n)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,hillslope_zeta_bar)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,soil_e_depth)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,zeta)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,tau)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,k_sat_gw)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,vwc_wilt)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,vwc_fc)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,vwc_sat)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,k_sat_ref)
-DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,Qmax)
-
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_dry_dir)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_dry_dif)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_sat_dir)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_sat_dif)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_dry)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_dry)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_dry)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_sat)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_sat)
-DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
-
-DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
-DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
-DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
-
-DEFINE_SOIL_ACCESSOR_1D(real,asoil_in)
-DEFINE_SOIL_ACCESSOR_1D(real,fsc_in)
-DEFINE_SOIL_ACCESSOR_1D(real,ssc_in)
-DEFINE_SOIL_ACCESSOR_1D(real,deadmic_in)
-DEFINE_SOIL_ACCESSOR_1D(real,fast_protected_in)
-DEFINE_SOIL_ACCESSOR_1D(real,slow_protected_in)
-DEFINE_SOIL_ACCESSOR_1D(real,deadmic_protected_in)
-DEFINE_SOIL_ACCESSOR_0D(real,leaflitter_fsc_in)
-DEFINE_SOIL_ACCESSOR_0D(real,leaflitter_ssc_in)
-DEFINE_SOIL_ACCESSOR_0D(real,leaflitter_deadmic_in)
-DEFINE_SOIL_ACCESSOR_0D(real,finewoodlitter_fsc_in)
-DEFINE_SOIL_ACCESSOR_0D(real,finewoodlitter_ssc_in)
-DEFINE_SOIL_ACCESSOR_0D(real,finewoodlitter_deadmic_in)
-DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_fsc_in)
-DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_ssc_in)
-DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_deadmic_in)
-DEFINE_SOIL_ACCESSOR_1D(real,fast_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_1D(real,slow_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_1D(real,deadmic_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_1D(real,fast_protected_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_1D(real,slow_protected_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_1D(real,deadmic_protected_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,leaflitter_fast_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,leaflitter_slow_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,leaflitter_deadmic_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,finewoodlitter_fast_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,finewoodlitter_slow_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,finewoodlitter_deadmic_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_fast_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_slow_turnover_accumulated)
-DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_deadmic_turnover_accumulated)
-
-! stuff below is for CORPSE
-
 #define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine soilc_ ## x ## _ptr(t,i,j,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\
 if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%x;endif;\
-endsubroutine
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,Rtot)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,CO2)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterC)
-
-subroutine sc_soil_C_ptr(t,i,j,k,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%litterC(k)
-  endif
-end subroutine
-
-subroutine sc_protected_C_ptr(t,i,j,k,p)
-  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
-  p=>NULL()
-  if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%protectedC(k)
-  endif
 end subroutine
 
 #define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,p);\
 type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;\
 if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x;endif;\
-endsubroutine
-
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,livingMicrobeC)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,CO2)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,Rtot)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,originalLitterC)
-
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,livingMicrobeC)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,CO2)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,Rtot)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,originalLitterC)
-
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,livingMicrobeC)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,CO2)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,Rtot)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,originalLitterC)
+end subroutine
 
 #define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,j,p);\
 type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();if(associated(t))then;\
 if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x(j);endif;\
-endsubroutine
-
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,litterC)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,protectedC)
-
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,fineWoodLitter,litterC)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,fineWoodLitter,protectedC)
-
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,litterC)
-DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,protectedC)
+end subroutine
 
 #define DEFINE_SOIL_C_POOL_DOC_ACCESSOR(xtype,pool) subroutine soilc_ ## pool ## _DOC_ptr(t,i,p);\
 type(land_tile_type),pointer::t;integer,intent(in)::i;real,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%dissolved_carbon(i);endif;\
-endsubroutine
-
-DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,leafLitter)
-DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,fineWoodLitter)
-DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,coarseWoodLitter)
-
-subroutine soil_fast_DOC_ptr(t,i,p)
-   type(land_tile_type), pointer    :: t
-   integer,              intent(in) :: i
-   real,                 pointer    :: p
-
-   p=>NULL()
-   if(associated(t))then
-      if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(1)
-   endif
 end subroutine
 
-subroutine soil_slow_DOC_ptr(t,i,p)
-   type(land_tile_type), pointer    :: t
-   integer,              intent(in) :: i
-   real,                 pointer    :: p
 
-   p=>NULL()
-   if(associated(t))then
-      if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(2)
-   endif
-end subroutine
-
-subroutine soil_deadMicrobe_DOC_ptr(t,i,p)
-   type(land_tile_type), pointer    :: t
-   integer,              intent(in) :: i
-   real,                 pointer    :: p
-
-   p=>NULL()
-   if(associated(t))then
-      if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(3)
-   endif
-end subroutine
 
 end module soil_mod

@@ -2027,7 +2027,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
   endif
 
-  call update_cana_tracers(tile, tr_flux, dfdtr, &
+  call update_cana_tracers(tile, l, tr_flux, dfdtr, &
            precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, stomatal_cond )
 
   call update_land_bc_fast (tile, l, k, land2cplr)
@@ -2212,7 +2212,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   if (id_hfdsn>0) then
      if (snow) then
         call send_tile_data(id_hfdsn, &
-            snow_flw + snow_fsw + & ! net radiation
+            snow_flw + snow_fsw   & ! net radiation
             - snow_sens & ! turbilent sensible with canopy air
             + vegn_hfprec + vegn_hlprec & ! sensible heat coming with precipitation
             - cpw*(snow_fevap+snow_levap)*(snow_T-tfreeze) & ! sensible heat carried away by water vapor
