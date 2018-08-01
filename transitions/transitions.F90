@@ -178,11 +178,11 @@ character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
 real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 ! specifies how to handle non-conservation
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
+logical :: luh2_missing_transitions_bug = .FALSE.
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
      distribute_transitions, overshoot_handling, overshoot_tolerance, &
-     conservation_handling
-
+     conservation_handling, luh2_missing_transitions_bug
 
 contains ! ###################################################################
 
@@ -374,12 +374,14 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
      enddo
      enddo
-     ! add transitions that are not part "state1_to_state2" variable set
-     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
-     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
+     if (.not.luh2_missing_transitions_bug) then
+        ! add transitions that are not part "state1_to_state2" variable set
+        call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
+        call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
+        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
+        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
+        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
+     endif
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
