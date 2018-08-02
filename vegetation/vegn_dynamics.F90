@@ -1897,8 +1897,8 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
 
   if (do_check_conservation) then
      b1 = plant_C(cc); n1=plant_N(cc)
-     call check_conservation ('biomass_allocation_ppa','carbon', b0, b1, carbon_cons_tol, severity=FATAL)
-     call check_conservation ('biomass_allocation_ppa','nitrogen', n0, n1, nitrogen_cons_tol, severity=FATAL)
+     call check_conservation ('biomass_allocation_ppa','carbon',   b0*cc%nindivs, b1*cc%nindivs, carbon_cons_tol,   severity=FATAL)
+     call check_conservation ('biomass_allocation_ppa','nitrogen', n0*cc%nindivs, n1*cc%nindivs, nitrogen_cons_tol, severity=FATAL)
   endif
   end associate ! F2003
 end subroutine biomass_allocation_ppa

@@ -21,7 +21,9 @@ use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : external_ts_type, init_external_ts, del_external_ts, &
       read_external_ts, read_field
 use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
-      carbon_cons_tol, set_current_point, land_error_message
+      water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, set_current_point, &
+      check_conservation, land_error_message
+use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : lnd, log_version
 use land_tile_mod, only : land_tile_type, land_tile_map, loop_over_tiles, &
       land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
@@ -52,7 +54,7 @@ private
 public  ::  vegn_fire_init, vegn_fire_end, save_fire_restart
 public  ::  update_fire_fast
 public  ::  update_fire_data ! reads external data for fire model
-public  ::  vegn_fire_sendtiledata_Cburned
+! public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  fire_transitions
 
 integer, public, parameter :: FIRE_NONE = 0, FIRE_LM3 = 1, FIRE_UNPACKED = 2
@@ -1057,6 +1059,12 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
   real    :: BF_mth, BF_mth_mult, &
              BA_mth, BA_mth_mult
 
+  ! variables for conservation checks
+  real :: lmass0, fmass0, cmass0, nmass0
+
+  ! conservation check, part 1: calculate totals
+  call check_conservation_1(tile,lmass0,fmass0,cmass0,nmass0)
+
   ! SSR: Get & send Fcrop & Fpast---even for non-agri. tiles! Otherwise throws
   ! "skipped one time level" error.
   ! slm: I do not like calling get_date for every tile every time step. Why not
@@ -1093,6 +1101,8 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
      endif
      call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
   endif
+  ! conservation check, part 2: calculate totals
+  call check_conservation_2(tile,'update_fire_fast',lmass0,fmass0,cmass0,nmass0)
 end subroutine update_fire_fast
 
 ! ==============================================================================
@@ -2459,6 +2469,11 @@ subroutine vegn_burn_ppa(tile)
   integer :: i
   logical :: do_CORPSE
 
+  ! variables for conservation checks
+  real :: lmass0, fmass0, cmass0, nmass0
+
+  call check_conservation_1(tile,lmass0,fmass0,cmass0,nmass0)
+
   N  = tile%vegn%n_cohorts
   BF = max(0.0,min(1.0,tile%vegn%burned_frac))
 
@@ -2494,6 +2509,7 @@ subroutine vegn_burn_ppa(tile)
         burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
         burned_N = burned_N + sum(burned_N_1) + sum(burned_N_2) + burned_N_3
      enddo
+     call check_conservation_2(tile,'vegn_burn_ppa 1',lmass0,fmass0,cmass0-burned_C,nmass0-burned_N)
   endif
 
   ! burn vegetation
@@ -2513,6 +2529,7 @@ subroutine vegn_burn_ppa(tile)
      bc(ms:me) = tile%vegn%cohorts(1:N)
      deallocate(tile%vegn%cohorts)
      tile%vegn%cohorts => bc
+     tile%vegn%n_cohorts = size(bc)
   endif
 
   associate(cc=>tile%vegn%cohorts)
@@ -2559,6 +2576,8 @@ subroutine vegn_burn_ppa(tile)
   enddo
   end associate ! cc
 
+  call check_conservation_2(tile,'vegn_burn_ppa 2',lmass0,fmass0,cmass0-burned_C,nmass0-burned_N)
+
   call vegn_mergecohorts_ppa(tile%vegn, dheat)
   tile%e_res_2 = tile%e_res_2 - dheat
 
@@ -2567,6 +2586,7 @@ subroutine vegn_burn_ppa(tile)
   tile%vegn%csmoke_rate = tile%vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
   ! what do we do with Nsmoke_pool?
 !  tile%vegn%Nsmoke_rate = tile%vegn%Nsmoke_rate * days_per_year ! kg N/(m2 yr)
+  call check_conservation_2(tile,'vegn_burn_ppa 3',lmass0,fmass0,cmass0,nmass0)
 end subroutine vegn_burn_ppa
 
 ! =======================================================================================
@@ -3441,6 +3461,23 @@ subroutine fire_transitions_0D(tiles, land_area, l)
   integer :: k ! index of the tile
   real :: BA_km2 ! burned area in km2
 
+  ! variables for conservations check
+  real :: lmass0, fmass0, cmass0, nmass0
+  real :: lmass1, fmass1, cmass1, nmass1, f1
+  real :: lm,     fm,     cm,     nm
+
+  ! conservation check code, part 1: calculate the pre-transition grid
+  ! cell totals
+  lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; nmass0 = 0 ; f1=0
+  ts = first_elmt(tiles)
+  do while (loop_over_tiles(ts, tile))
+     call check_conservation_1(tile,lm,fm,cm,nm)
+     lmass0 = lmass0 + lm*tile%frac ; fmass0 = fmass0 + fm*tile%frac
+     cmass0 = cmass0 + cm*tile%frac ; nmass0 = nmass0 + nm*tile%frac
+     f1 = f1+tile%frac
+  enddo
+  call check_var_range(f1, 1.0-1e7,1.0+1e7, 'fire_transitions_0D input', 'sum of tile fractions',FATAL)
+  ! cmass0 = cmass0 - 2*carbon_cons_tol
   call land_tile_list_init(burned)
 
   ts = first_elmt(tiles)
@@ -3481,6 +3518,22 @@ subroutine fire_transitions_0D(tiles, land_area, l)
   enddo
   ! list of burned tiles is empty at this point
   call land_tile_list_end(burned)
+
+  ! conservation check code, part 1: calculate the pre-transition grid
+  ! cell totals
+  lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; nmass1 = 0 ; f1 = 0.0
+  ts = first_elmt(tiles)
+  do while (loop_over_tiles(ts, tile))
+     call check_conservation_1(tile,lm,fm,cm,nm)
+     lmass1 = lmass1 + lm*tile%frac ; fmass1 = fmass1 + fm*tile%frac
+     cmass1 = cmass1 + cm*tile%frac ; nmass1 = nmass1 + nm*tile%frac
+     f1 = f1+tile%frac
+  enddo
+  call check_conservation ('fire_transitions_0D', 'liquid water', lmass0, lmass1, water_cons_tol)
+  call check_conservation ('fire_transitions_0D', 'frozen water', fmass0, fmass1, water_cons_tol)
+  call check_conservation ('fire_transitions_0D', 'carbon'      , cmass0, cmass1, carbon_cons_tol)
+  call check_conservation ('fire_transitions_0D', 'nitrogen'    , nmass0, nmass1, nitrogen_cons_tol)
+  call check_var_range(f1, 1.0-1e7,1.0+1e7, 'fire_transitions_0D output', 'sum of tile fractions',FATAL)
 
 end subroutine fire_transitions_0D
 
