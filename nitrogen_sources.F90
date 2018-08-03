@@ -348,7 +348,7 @@ subroutine nitrogen_sources_init(time, id_ug)
 
   call add_tiled_diag_field_alias(id_ndep, cmor_name, 'fNdep', axes, time, &
       'Dry and Wet Deposition of Reactive Nitrogen onto Land', 'kg m-2 s-1', missing_value=-999.0, &
-      standard_name='tendency_of_atmosphere_mass_content_of_nitrogen_compounds_expressed_as_nitrogen_due_to_deposition', &
+      standard_name='minus_tendency_of_atmosphere_mass_content_of_nitrogen_compounds_expressed_as_nitrogen_due_to_deposition', &
       fill_missing=.TRUE.)
 
 end subroutine nitrogen_sources_init

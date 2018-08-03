@@ -1331,20 +1331,20 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        standard_name='liquid_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
        lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='mass_content_of_water_in_soil_layer', fill_missing=.TRUE.)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:1),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content', fill_missing=.TRUE.)
+       standard_name='mass_content_of_water_in_soil', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_mrso, cmor_name, 'mrsoLut', axes(1:1),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content', fill_missing=.FALSE.)
+       standard_name='mass_content_of_water_in_soil', fill_missing=.FALSE.)
   id_mrsos  = register_tiled_diag_field ( cmor_name, 'mrsos', axes(1:1),  &
        lnd%time, 'Moisture in Upper Portion of Soil Column', &
-       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       'kg m-2', missing_value=-100.0, standard_name='mass_content_of_water_in_soil_layer', &
        fill_missing=.TRUE.)
   call  add_tiled_diag_field_alias ( id_mrsos, cmor_name, 'mrsosLut', axes(1:1),  &
        lnd%time, 'Moisture in Upper Portion of Soil Column of Land Use Tile', &
-       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       'kg m-2', missing_value=-100.0, standard_name='mass_content_of_water_in_soil_layer', &
        fill_missing=.FALSE.)
   id_mrfso = register_tiled_diag_field ( cmor_name, 'mrfso', axes(1:1),  &
        lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
@@ -1370,35 +1370,35 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:1),  &
        lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.FALSE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.FALSE.)
   id_cSoilAbove1m = register_tiled_diag_field ( cmor_name, 'cSoilAbove1m', axes(1:1),  &
        lnd%time, 'Carbon mass in soil pool above 1m depth', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
 
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
        lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='fast_soil_pool_carbon_content', fill_missing=.TRUE.)
+       standard_name='fast_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
   id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:1),  &
        lnd%time, 'Carbon Mass in Medium Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='medium_soil_pool_carbon_content', fill_missing=.TRUE.)
+       standard_name='medium_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
        lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
+       standard_name='slow_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cSoilLevels = register_tiled_diag_field ( cmor_name, 'cSoilLevels', axes,  lnd%time, &
        'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
        'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cLitter = register_tiled_diag_field ( cmor_name, 'cLitter', axes(1:1), &
        lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
-       missing_value=-100.0, standard_name='litter_carbon_content', &
+       missing_value=-100.0, standard_name='litter_mass_content_of_carbon', &
        fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_cLitter, cmor_name, 'cLitterLut', axes(1:1),  &
        lnd%time, 'carbon in above and belowground litter pools on land use tiles', &
        'kg m-2', missing_value=-100.0, &
-       standard_name='litter_carbon_content', fill_missing=.FALSE.)
+       standard_name='litter_mass_content_of_carbon', fill_missing=.FALSE.)
   id_cLitterCwd = register_tiled_diag_field ( cmor_name, 'cLitterCwd', axes(1:1), &
        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
@@ -1409,8 +1409,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
-       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
-       missing_value=-100.0)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.FALSE., missing_value=-100.0)
   id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', axes(1:1), &
        lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
@@ -1418,7 +1418,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 
   id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
        lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_nitrogen_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_nitrogen', fill_missing=.TRUE.)
   id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
        lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
