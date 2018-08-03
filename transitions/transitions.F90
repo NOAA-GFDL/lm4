@@ -178,11 +178,11 @@ character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
 real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 ! specifies how to handle non-conservation
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
+logical :: luh2_missing_transitions_bug = .FALSE.
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
      distribute_transitions, overshoot_handling, overshoot_tolerance, &
-     conservation_handling
-
+     conservation_handling, luh2_missing_transitions_bug
 
 contains ! ###################################################################
 
@@ -202,11 +202,10 @@ subroutine land_transitions_init(id_ug, id_cellarea)
 
   integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
   type(nfu_validtype) :: v ! valid values range
-  type(land_tile_enum_type) :: ce
   character(len=12) :: fieldname
 
   type(land_tile_type), pointer :: tile
-
+  type(land_tile_enum_type) :: ce
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
@@ -372,9 +371,17 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         k2 = luh2type(n2)
         input_tran(k1,k2)%name=trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
-        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,luh2name(n1)//'_to_'//luh2name(n2))
+        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
      enddo
      enddo
+     if (.not.luh2_missing_transitions_bug) then
+        ! add transitions that are not part "state1_to_state2" variable set
+        call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
+        call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
+        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
+        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
+        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
+     endif
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
@@ -385,7 +392,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         ! open state file
         ierr=nf_open(state_file,NF_NOWRITE,state_ncid)
         if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'landuse state file "'// &
-             trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+             trim(state_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
         call get_time_axis(state_ncid, state_time_in)
         ! initialize state variable array
         do n2 = 1,size(luh2type)
@@ -399,8 +406,15 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      call error_mesg('land_transitions_init','unknown data_type "'&
                     //trim(data_type)//'", use "luh1" or "luh2"', FATAL)
   end select
-
-
+  if (mpp_pe()==mpp_root_pe()) then
+     write(*,*)'land_transitions_init: summary of land use transitions'
+     do k1 = 1,size(input_tran,1)
+     do k2 = 1,size(input_tran,2)
+        if(input_tran(k1,k2)%name/='') &
+             write(*,'(a)') varset_descr(tran_ncid,input_tran(k1,k2))
+     enddo
+     enddo
+  endif
   ! initialize the input data grid and horizontal interpolator
   ! find any field that is defined in input data
   id = -1
@@ -602,6 +616,30 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    call horiz_interp_ug(interp,buff1*norm_in,frac)
 end subroutine get_varset_data
 
+! ============================================================================
+! returns a string representing the parts of the transition
+function varset_descr(ncid,varset) result(str)
+  character(:), allocatable :: str
+  integer, intent(in) :: ncid
+  type(var_set_type), intent(in) :: varset
+
+  character(NF_MAX_NAME) :: varname
+  integer :: i
+
+  str = trim(varset%name)//' = '
+  if (varset%nvars == 0) then
+     str = str//'0'
+  else
+     do i = 1, varset%nvars
+        __NF_ASRT__(nf_inq_varname(ncid,varset%id(i),varname))
+        if (i==1) then
+           str = str//trim(varname)
+        else
+           str = str//' + '//trim(varname)
+        endif
+     enddo
+  endif
+end function varset_descr
 
 ! ============================================================================
 subroutine save_land_transitions_restart(timestamp)
