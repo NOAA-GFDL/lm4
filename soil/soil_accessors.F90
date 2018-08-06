@@ -56,6 +56,16 @@ subroutine soil_groundwater_T_ptr(t,i,p)
     endif
 end subroutine
 
+subroutine soil_frozen_freq_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%frozen_freq(i)
+    endif
+end subroutine
+
 subroutine soil_w_fc_ptr(t,i,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i

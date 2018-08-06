@@ -172,6 +172,7 @@ real :: max_soil_C_density = 50.0   !(kgC/m3) -- for redistribution of peat
 real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
 
 real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
+real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -197,7 +198,8 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
-                    max_soil_C_density, max_litter_thickness, r_rhiz
+                    max_soil_C_density, max_litter_thickness, r_rhiz, &
+                    tau_smooth_frozen_freq
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -206,6 +208,7 @@ real            :: delta_time ! fast (physical) time step, s
 real            :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 logical         :: use_single_geo
 real            :: Eg_min
+real            :: weight_av_frozen_freq
 
 integer         :: gw_option = -1
 
@@ -239,7 +242,7 @@ integer ::  &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
-    id_Qmax
+    id_Qmax, id_frozen_freq
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -374,6 +377,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! initialize time smoothing parameter for calculation of long-term average frozen soil
+  ! frequency
+  weight_av_frozen_freq = dt_fast_yr/(dt_fast_yr+tau_smooth_frozen_freq)
 
   call uptake_init(num_l,dz,zfull)
   call hlsp_hydro_lev_init(num_l,dz,zfull)
@@ -617,6 +624,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      call get_tile_data(restart, 'ws', 'zfull', soil_ws_ptr )
      call get_tile_data(restart, 'groundwater', 'zfull', soil_groundwater_ptr )
      call get_tile_data(restart, 'groundwater_T', 'zfull', soil_groundwater_T_ptr)
+     if(field_exists(restart, 'frozen_freq')) &
+          call get_tile_data(restart, 'frozen_freq', 'zfull', soil_frozen_freq_ptr)
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
 
@@ -1132,6 +1141,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
   id_excess  = register_tiled_diag_field ( module_name, 'sfc_excess',  axes(1:1),  &
        lnd%time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
+  id_frozen_freq  = register_tiled_diag_field ( module_name, 'frozen_freq',  axes,       &
+       lnd%time, 'frequency of frozen soil (time smoothed)', '1',  missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:1), &
        lnd%time, 'number of iterations for soil uptake',  missing_value=-100.0 )
@@ -1474,6 +1485,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'ws'           , 'zfull', soil_ws_ptr, 'solid water content','kg/m2')
   call add_tile_data(restart,'groundwater'  , 'zfull', soil_groundwater_ptr, units='kg/m2' )
   call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
+  call add_tile_data(restart,'frozen_freq'  , 'zfull', soil_frozen_freq_ptr, 'frequency of frozen soil occurence')
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -1965,6 +1977,8 @@ end subroutine soil_step_1
 
   real, dimension(num_l) :: passive_ammonium_uptake, passive_nitrate_uptake ! Uptake of dissolved mineral N by roots through water uptake
   real, dimension(vegn%n_cohorts) :: passive_N_uptake
+
+  real :: frozen ! frozen soil indicator, used for calculating long-term frozen soil frequency
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -2866,6 +2880,13 @@ end subroutine soil_step_1
    if (i_river_NO3/=NO_TRACER) soil_tr_runf(i_river_NO3) = total_NO3_div/delta_time
    if (i_river_NH4/=NO_TRACER) soil_tr_runf(i_river_NH4) = total_NH4_div/delta_time
 
+   ! update frequency of frozen soil
+   do l = 1, num_l
+      frozen = 0.0
+      if (soil%ws(l)>0) frozen = 1.0
+      soil%frozen_freq(l) = weight_av_frozen_freq*frozen + (1-weight_av_frozen_freq)*soil%frozen_freq(l)
+   enddo
+
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
 !
@@ -2953,6 +2974,8 @@ end subroutine soil_step_1
   call send_tile_data(id_macro_infilt, flow_macro, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
+  call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
+
 end subroutine soil_step_2
 
 ! ============================================================================
