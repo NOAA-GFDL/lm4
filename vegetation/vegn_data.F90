@@ -546,7 +546,7 @@ logical :: calc_SLA_from_lifespan = .TRUE. ! In LM3, whether to calculate SLA fr
 logical :: smooth_N_uptake_C_allocation = .FALSE.
 logical :: N_fix_Tdep_Houlton = .FALSE.
 
-real :: permafrost_depth_thresh = 1.0e36 ! soil depth above which permafrost does not
+real :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which permafrost does not
            ! preclude root existence. Default value reverts to old treatment (roots exist
            ! everywhere)
 real :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is

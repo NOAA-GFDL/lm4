@@ -365,13 +365,13 @@ subroutine update_cohort_root_properties(soil, cohort)
   real :: vbr ! density of fine roots biomass per unit depth, kg C/m
 
   associate(sp => spdata(cohort%species))
+  cohort%br_profile(:) = 0.0
   z = 0
   do l = 1, num_l
-     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh) then
-        cohort%br_profile(l) = 0.0 ! no roots in permafrost
-     else
-        cohort%br_profile(l) = exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta)
-     endif
+     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh) exit ! from loop
+     ! so that the rest of profile remains zero.
+
+     cohort%br_profile(l) = exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta)
      z = z + dz(l)
   enddo
 
