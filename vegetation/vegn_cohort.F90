@@ -15,7 +15,7 @@ use vegn_data_mod, only : spdata, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
    snow_masking_option, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
-use soil_tile_mod, only : max_lev
+use soil_tile_mod, only : soil_tile_type, max_lev, num_l, dz
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 use fms_mod, only : error_mesg, FATAL
 use land_debug_mod, only : is_watch_point
@@ -29,7 +29,6 @@ public :: vegn_cohort_type
 public :: plant_C, plant_N
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
-public :: cohort_root_properties
 public :: cohort_uptake_profile
 public :: cohort_root_litter_profile
 public :: cohort_root_exudate_profile
@@ -40,6 +39,7 @@ public :: leaf_area_from_biomass ! given leaf biomass, calculates leaf area
 public :: height_from_biomass    ! given total biomass, calculated tree height
 public :: update_bio_living_fraction
 public :: update_biomass_pools
+public :: update_cohort_root_properties
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
@@ -353,40 +353,36 @@ end subroutine vegn_data_cover
 
 ! ============================================================================
 ! returns properties of the fine roots
-subroutine cohort_root_properties(cohort, dz, root_length, K_r, r_r)
-  type(vegn_cohort_type), intent(in)  :: cohort
-  real, intent(in)  :: dz(:)
-  real, intent(out) :: &
-       root_length(:), & ! fine root length per unit depth, m of root/m
-       K_r,    & ! root membrane permeability per unit root surface area, kg/(m3 s)
-       r_r       ! radius of fine roots, m
+subroutine update_cohort_root_properties(soil, cohort)
+  type(soil_tile_type),   intent(in)     :: soil
+  type(vegn_cohort_type), intent(inout)  :: cohort
   ! note that in LM3, when the density of individuals per m2 is imposed to be 1,
   ! "per unit depth" measures are the same as volumetric density measures.
 
-  integer :: sp, l
+  integer :: l
   real :: factor, z
   real :: vbr ! density of fine roots biomass per unit depth, kg C/m
 
-  sp = cohort%species
+  associate(sp => spdata(cohort%species))
 
   factor = 1.0/(1.0-exp(-sum(dz)/cohort%root_zeta))
   z = 0
-  do l = 1, size(dz)
+  do l = 1, num_l
      ! calculate the vertical fine root biomass density [kgC/m] for current layer
      ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by normalizing
      ! factor
      vbr = cohort%br * &
           (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))*factor/dz(l)
      ! calculate fine root length per unit depth
-     root_length(l) = vbr*spdata(sp)%srl
+     cohort%root_length(l) = vbr*sp%srl
 
      z = z + dz(l)
   enddo
 
-  K_r = spdata(sp)%root_perm
-  r_r = spdata(sp)%root_r
-
-end subroutine cohort_root_properties
+  cohort%K_r = sp%root_perm
+  cohort%r_r = sp%root_r
+  end associate
+end subroutine update_cohort_root_properties
 
 
 ! ============================================================================
