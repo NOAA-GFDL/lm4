@@ -744,6 +744,8 @@ subroutine read_vegn_data_namelist()
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
           tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo
+  call register_tile_selector('psl', 'primary and secondary land',&
+       tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_PSL )
 
   ! register selectors for species-specific diagnostics
 !   if (.not.do_ppa) then
