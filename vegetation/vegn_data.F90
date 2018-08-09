@@ -91,7 +91,7 @@ integer, public, parameter :: &
 integer, public, parameter ::&
  PHEN_THETA_FC       = 1, &
  PHEN_THETA_POROSITY = 2
- 
+
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
@@ -152,7 +152,7 @@ public :: &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
-    nsc_target_option, &
+    nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -546,6 +546,13 @@ logical :: calc_SLA_from_lifespan = .TRUE. ! In LM3, whether to calculate SLA fr
 logical :: smooth_N_uptake_C_allocation = .FALSE.
 logical :: N_fix_Tdep_Houlton = .FALSE.
 
+real :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which permafrost does not
+           ! preclude root existence. Default value reverts to old treatment (roots exist
+           ! everywhere)
+real :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
+           ! considered permafrost for the root vertical profile calculations
+
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -570,6 +577,7 @@ namelist /vegn_data_nml/ &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, NSC_target_to_use, &
   do_bl_max_merge, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+  permafrost_depth_thresh, permafrost_freq_thresh, &
 
   ! N-related namelist values
   mycorrhizal_turnover_time, &

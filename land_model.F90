@@ -3208,7 +3208,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call realloc1(tile%vegn_tran_lw,N)
 
   if (associated(tile%vegn)) then
-     call update_derived_vegn_data(tile%vegn)
+     call update_derived_vegn_data(tile%vegn, tile%soil)
      ! USE OF SNOWPACK RAD PROPERTIES FOR INTERCEPTED SNOW IS ERRONEOUS,
      ! NEEDS TO BE CHANGED. TEMPORARY.
      call vegn_radiation ( tile%vegn, cosz, snow_depth, snow_refl_dif, snow_emis, &

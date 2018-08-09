@@ -60,7 +60,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
-     cohort_root_properties
+     update_cohort_root_properties
 use canopy_air_mod, only : cana_turbulence
 use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
@@ -2325,8 +2325,9 @@ end function phen_ave_theta
 ! of the calculations are the same. The reason is because this function may
 ! be used in the situation when the biomasses are not precisely consistent, for
 ! example when they come from the data override or from initial conditions.
-subroutine update_derived_vegn_data(vegn)
+subroutine update_derived_vegn_data(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(in)    :: soil
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
@@ -2457,7 +2458,7 @@ subroutine update_derived_vegn_data(vegn)
   VRL(:) = 0.0
   do k = 1, vegn%n_cohorts
      cc=>vegn%cohorts(k)
-     call cohort_root_properties (cc, dz(1:num_l), cc%root_length(1:num_l), cc%K_r, cc%r_r)
+     call update_cohort_root_properties (soil, cc)
      VRL(:) = VRL(:)+cc%root_length(1:num_l)*cc%nindivs
   enddo
 
