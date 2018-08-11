@@ -12,11 +12,13 @@ use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
      mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe, lowercase
+use mpp_mod, only: mpp_sum
 use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
-use land_debug_mod, only : land_error_message
+use land_debug_mod, only : land_error_message, check_conservation, &
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
@@ -24,10 +26,11 @@ use vegn_data_mod, only : do_ppa, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
      nspecies, spdata, agf_bs
-use land_tile_mod, only : land_tile_type
+use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
+     first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
 use soil_tile_mod, only : num_l, LEAF, CWOOD
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_LAI
+     vegn_tile_LAI, vegn_tile_type
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
@@ -42,6 +45,7 @@ public :: vegn_harvesting_init
 public :: vegn_harvesting_end
 
 public :: vegn_harvesting
+public :: crop_seed_transport
 
 public :: vegn_cut_forest
 ! ==== end of public interface ===============================================
@@ -108,6 +112,8 @@ real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harves
 logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported
         ! from outside of cropland can start growing on croplands; if FALSE they are not
         ! allowed to germinate.
+logical :: transport_crop_seeds = .TRUE. ! if true, seeds are transported horizontally 
+        ! to satisfy the demand
 
 namelist/harvesting_nml/ do_harvesting, &
      ! pasture and rangeland grazing parameters
@@ -124,7 +130,8 @@ namelist/harvesting_nml/ do_harvesting, &
      crop_schedule, crop_schedule_file, &
      crop_distribution, luh2_state_file, &
      c3_crop_species, c4_crop_species, &
-     crop_seed_density, allow_weeds_on_crops
+     crop_seed_density, allow_weeds_on_crops, &
+     transport_crop_seeds
 
 integer :: grazing_freq = -1 ! indicator of grazing frequency (GRAZING_ANNUAL or GRAZING_DAILY)
 integer :: crop_schedule_option = -1 ! selected planting/harvesting schedule option
@@ -134,6 +141,8 @@ real, allocatable :: crop_harvest_day(:)  ! day of year when harvesting is done
 integer :: c3_crop_idx = -1, c4_crop_idx = -1 ! index of crop species
 
 integer :: id_crop_planting_day, id_crop_harvest_day
+
+real :: tot_area_land ! global land area, m2 (for normalization in conservation checks)
 
 contains ! ###################################################################
 
@@ -242,6 +251,10 @@ subroutine vegn_harvesting_init(id_ug)
      call error_mesg('vegn_harvesting_init','C4 crop species "'//trim(c4_crop_species)//'" is #'//string(c4_crop_idx)//&
                      ' in the list of species', NOTE)
   endif
+
+  ! calculate total land and soil areas
+  tot_area_land = sum(lnd%ug_area)
+  call mpp_sum(tot_area_land)
 end subroutine vegn_harvesting_init
 
 
@@ -1067,5 +1080,118 @@ subroutine vegn_plant_crop_ppa(tile)
 
   call check_conservation_2(tile,'vegn_plant_crop_ppa', lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_plant_crop_ppa
+
+! ============================================================================
+! transport crops horizontally to satisfy demand on the planting day
+subroutine crop_seed_transport(day_of_year)
+  integer :: day_of_year
+
+  ! local vars
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile
+  integer ::  l ! current point index
+  real :: total_seed_supply_C, total_seed_supply_N
+  real :: total_seed_demand_C
+  real :: crop_seed_supply_C, crop_seed_supply_N, crop_seed_demand_C
+  real :: f_supply ! fraction of the supply that gets spent
+  real :: f_demand ! fraction of the demand that gets satisfied
+
+  real :: btot0, btot1 ! total carbon, for conservation check only
+  real :: ntot0, ntot1 ! total nitrogen, for conservation check only
+
+  if(.not.transport_crop_seeds) return
+
+  ! + conservation check part 1
+  if (do_check_conservation) then
+     btot0 = 0.0; ntot0 = 0.0
+     ce = first_elmt(land_tile_map,lnd%ls)
+     do while (loop_over_tiles(ce,tile,l))
+        btot0 = btot0 + lnd%ug_area(l) * tile%frac * land_tile_carbon(tile)
+        ntot0 = ntot0 + lnd%ug_area(l) * tile%frac * land_tile_nitrogen(tile)
+     end do
+     call mpp_sum(btot0); call mpp_sum(ntot0)
+  end if
+  ! - conservation check part 1
+
+  total_seed_supply_C = 0.0; total_seed_supply_N = 0.0; total_seed_demand_C = 0.0
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
+     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+
+     call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
+     total_seed_supply_C = total_seed_supply_C + crop_seed_supply_C*tile%frac*lnd%ug_area(l)
+     total_seed_supply_N = total_seed_supply_N + crop_seed_supply_N*tile%frac*lnd%ug_area(l)
+     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C)
+     total_seed_demand_C = total_seed_demand_C + crop_seed_demand_C*tile%frac*lnd%ug_area(l)
+  enddo
+  ! sum totals globally
+  call mpp_sum(total_seed_demand_C, pelist=lnd%pelist)
+  call mpp_sum(total_seed_supply_C, pelist=lnd%pelist)
+  call mpp_sum(total_seed_supply_N, pelist=lnd%pelist)
+  ! if either demand or supply are zeros we don't need (or can't) transport anything
+  if (total_seed_demand_C==0.or.total_seed_supply_C==0)then
+     return
+  end if
+
+  ! calculate the fraction of the supply that is going to be used
+  f_supply = MIN(total_seed_demand_C/total_seed_supply_C, 1.0)
+  ! calculate the fraction of the demand that is going to be satisfied
+  f_demand = MIN(total_seed_supply_C/total_seed_demand_C, 1.0)
+  ! note that either f_supply or f_demand is 1; the mass conservation law in the
+  ! following calculations is satisfied since
+  ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
+
+  ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
+  ! of the demand
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce,tile,l))
+     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+     call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
+     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C)
+     tile%vegn%harv_pool_C(HARV_POOL_CROP) = f_demand*crop_seed_demand_C - f_supply*crop_seed_supply_C
+  enddo
+
+  ! + conservation check part 2
+  if (do_check_conservation) then
+     btot1 = 0.0; ntot1 = 0.0
+     ce = first_elmt(land_tile_map,lnd%ls)
+     do while (loop_over_tiles(ce,tile,l))
+        btot1 = btot1 + lnd%ug_area(l) * tile%frac * land_tile_carbon(tile)
+        ntot1 = ntot1 + lnd%ug_area(l) * tile%frac * land_tile_nitrogen(tile)
+     end do
+     call mpp_sum(btot1) ; call mpp_sum(ntot1)
+     if (mpp_pe()==mpp_root_pe()) then
+        call check_conservation ('vegn_reproduction_ppa','total carbon', &
+             btot0/tot_area_land, btot1/tot_area_land, carbon_cons_tol, severity=FATAL)
+        call check_conservation ('vegn_reproduction_ppa','total nitrogen', &
+             ntot0/tot_area_land, ntot1/tot_area_land, nitrogen_cons_tol, severity=FATAL)
+     endif
+  end if
+  ! - conservation check part 2
+
+end subroutine crop_seed_transport
+
+subroutine crop_seed_supply(vegn, crop_seed_supply_C, crop_seed_supply_N)
+   type(vegn_tile_type), intent(in) :: vegn
+   real, intent(out) :: crop_seed_supply_C, crop_seed_supply_N
+   crop_seed_supply_C = max(vegn%harv_pool_C(HARV_POOL_CROP)-crop_seed_density,0.0)
+   if (vegn%harv_pool_C(HARV_POOL_CROP)>0) then
+      crop_seed_supply_N = crop_seed_supply_C*vegn%harv_pool_N(HARV_POOL_CROP)/vegn%harv_pool_C(HARV_POOL_CROP)
+   else
+      crop_seed_supply_N = 0.0
+   endif
+end subroutine crop_seed_supply
+
+subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C)
+   type(vegn_tile_type), intent(in) :: vegn
+   integer, intent(in) :: l ! index of grid cell
+   integer, intent(in) :: day_of_year
+   real, intent(out) :: crop_seed_demand_C
+   crop_seed_demand_C = 0.0
+   if (vegn%landuse/=LU_CROP) return
+   if (day_of_year==nint(crop_planting_day(l))) then
+      crop_seed_demand_C = max(crop_seed_density - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+   endif
+end subroutine
 
 end module

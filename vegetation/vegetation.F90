@@ -82,7 +82,7 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
 use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
-     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
+     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
@@ -2509,6 +2509,10 @@ subroutine update_vegn_slow( )
 
   call update_fire_data(lnd%time)
 
+  if (day0/=day1) then
+     call crop_seed_transport(doy)
+  endif
+  
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
      call set_current_point(l,k) ! this is for debug output only
