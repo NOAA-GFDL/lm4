@@ -105,8 +105,8 @@ character(1024) :: luh2_state_file  = '' ! input data set of LU states (for C3/C
 character(32) :: c3_crop_species  = '' ! name of the species used for C3 crops
 character(32) :: c4_crop_species  = '' ! name of the species used for C4 crops
 real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harvesting, kg/m2
-logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported 
-        ! from outside of cropland can start growing on croplands; if FALSE they are not 
+logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported
+        ! from outside of cropland can start growing on croplands; if FALSE they are not
         ! allowed to germinate.
 
 namelist/harvesting_nml/ do_harvesting, &
@@ -765,7 +765,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
   LAI = 0.0
   do i = 1,vegn%n_cohorts
      if (vegn%cohorts(i)%height < max_grazing_height) &
-             LAI = LAI + vegn%cohorts(i)%lai*vegn%cohorts(i)%nindivs
+             LAI = LAI + vegn%cohorts(i)%leafarea*vegn%cohorts(i)%nindivs
   enddo
   if (LAI < min_lai_for_grazing) return
 
