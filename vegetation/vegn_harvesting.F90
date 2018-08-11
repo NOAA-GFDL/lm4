@@ -1148,7 +1148,8 @@ subroutine crop_seed_transport(day_of_year)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
      call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
      call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C)
-     tile%vegn%harv_pool_C(HARV_POOL_CROP) = f_demand*crop_seed_demand_C - f_supply*crop_seed_supply_C
+     tile%vegn%harv_pool_C(HARV_POOL_CROP) = tile%vegn%harv_pool_C(HARV_POOL_CROP) + &
+                      f_demand*crop_seed_demand_C - f_supply*crop_seed_supply_C
   enddo
 
   ! + conservation check part 2
@@ -1174,12 +1175,12 @@ end subroutine crop_seed_transport
 subroutine crop_seed_supply(vegn, crop_seed_supply_C, crop_seed_supply_N)
    type(vegn_tile_type), intent(in) :: vegn
    real, intent(out) :: crop_seed_supply_C, crop_seed_supply_N
-   crop_seed_supply_C = max(vegn%harv_pool_C(HARV_POOL_CROP)-crop_seed_density,0.0)
-   if (vegn%harv_pool_C(HARV_POOL_CROP)>0) then
-      crop_seed_supply_N = crop_seed_supply_C*vegn%harv_pool_N(HARV_POOL_CROP)/vegn%harv_pool_C(HARV_POOL_CROP)
-   else
+   crop_seed_supply_C = MAX(vegn%harv_pool_C(HARV_POOL_CROP)-crop_seed_density,0.0)
+!    if (vegn%harv_pool_C(HARV_POOL_CROP)>0) then
+!       crop_seed_supply_N = crop_seed_supply_C*vegn%harv_pool_N(HARV_POOL_CROP)/vegn%harv_pool_C(HARV_POOL_CROP)
+!    else
       crop_seed_supply_N = 0.0
-   endif
+!    endif
 end subroutine crop_seed_supply
 
 subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C)
@@ -1190,7 +1191,7 @@ subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C)
    crop_seed_demand_C = 0.0
    if (vegn%landuse/=LU_CROP) return
    if (day_of_year==nint(crop_planting_day(l))) then
-      crop_seed_demand_C = max(crop_seed_density - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+      crop_seed_demand_C = MAX(crop_seed_density - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
    endif
 end subroutine
 
