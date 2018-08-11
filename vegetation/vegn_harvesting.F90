@@ -9,7 +9,7 @@ use fms_mod, only: open_namelist_file
 #include "../shared/debug.inc"
 
 use constants_mod, only : tfreeze
-use fms_mod, only : string, error_mesg, FATAL, NOTE, &
+use fms_mod, only : string, error_mesg, FATAL, NOTE, WARNING, &
      mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe, lowercase
 use mpp_mod, only: mpp_sum
@@ -18,7 +18,7 @@ use diag_manager_mod, only : register_static_field, send_data
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
 use land_debug_mod, only : land_error_message, check_conservation, &
-     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
@@ -1075,6 +1075,8 @@ subroutine vegn_plant_crop_ppa(tile)
      seedN(crop_species_idx) = seedN(crop_species_idx) + deltaN
      if (seedC(crop_species_idx) >= crop_seed_density) exit ! from loop
   enddo
+  call check_var_range(seedC(crop_species_idx),0.99*crop_seed_density,HUGE(1.0),'vegn_plant_crop_ppa','seedC',WARNING)
+
   call add_seedlings_ppa(vegn,soil,seedC,seedN, prob_est = 1.0, prob_ger = 1.0)
   end associate ! vegn,soil
 
@@ -1140,10 +1142,13 @@ subroutine crop_seed_transport(day_of_year)
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
   ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
+  call error_mesg('crop_seed_transport', &
+     'fraction of demand satisfied='//string(f_demand)//' fraction of supply used ='//string(f_supply), NOTE)
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
-  ! of the demand
-  ce = first_elmt(land_tile_map)
+  ! of the demand. This relies on the assumption that supply and demand did not change
+  ! since the last calculation above
+  ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
      call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
@@ -1189,9 +1194,9 @@ subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C)
    integer, intent(in) :: day_of_year
    real, intent(out) :: crop_seed_demand_C
    crop_seed_demand_C = 0.0
-   if (vegn%landuse/=LU_CROP) return
-   if (day_of_year==nint(crop_planting_day(l))) then
-      crop_seed_demand_C = MAX(crop_seed_density - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+   if (vegn%landuse==LU_CROP) then
+      if (day_of_year==nint(crop_planting_day(l))) crop_seed_demand_C = &
+                MAX(crop_seed_density - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
    endif
 end subroutine
 
