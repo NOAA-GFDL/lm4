@@ -55,6 +55,7 @@ public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
 public :: litterDensity
 public :: deadmic_slow_frac
+public :: theta_func
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: A_function
@@ -511,8 +512,8 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
             temp_protected_C_turnover_rate, temp_protected_N_turnover_rate, &
             tempIMM_N, temp_MINERAL, denitrif)
 
-     C_loss_rate(:) = C_loss_rate(:) + tempresp
-     N_loss_rate(:) = N_loss_rate(:) + temp_N_decomposed
+     C_loss_rate(:) = C_loss_rate(:) + tempresp(:)
+     N_loss_rate(:) = N_loss_rate(:) + temp_N_decomposed(:)
 
      prot_C_turnover(:) = prot_C_turnover(:) + temp_protected_C_turnover_rate(:)
      prot_N_turnover(:) = prot_N_turnover(:) + temp_protected_N_turnover_rate(:)
@@ -1035,6 +1036,19 @@ pure subroutine initializeCohort(cohort,&
   cohort%livingMicrobeN = 0.0 ; if (present(initialMicrobeN))   cohort%livingMicrobeN = initialMicrobeN*scale
   cohort%CO2 = 0.0            ; if (present(CO2))cohort%CO2 = CO2*scale
 end subroutine initializeCohort
+
+! slm: for now used for diagnostics only
+elemental real function theta_func(water_filed_porosity,air_filled_porosity)
+  real, intent(in) :: water_filed_porosity ! fraction of pores filled with water
+  real, intent(in) :: air_filled_porosity ! fraction of pores filled with water
+
+  ! Functional dependence on soil moisture, normalized so max is 1
+  theta_func=(water_filed_porosity**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+  ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+  if(water_filed_porosity>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
+  ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+  if(water_filed_porosity<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
+end function theta_func
 
 
 pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_aerobic(N_C_TYPES)

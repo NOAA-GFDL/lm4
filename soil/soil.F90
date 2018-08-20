@@ -44,7 +44,7 @@ use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, l
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, c_diagname, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
-     deposit_dissolved_C, dissolve_carbon
+     deposit_dissolved_C, dissolve_carbon, theta_func
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -242,7 +242,7 @@ integer ::  &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
-    id_Qmax, id_frozen_freq
+    id_Qmax, id_frozen_freq, id_decomp_theta, id_air_filled, id_theta_func
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -1143,6 +1143,12 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
   id_frozen_freq  = register_tiled_diag_field ( module_name, 'frozen_freq',  axes,       &
        lnd%time, 'frequency of frozen soil (time smoothed)', '1',  missing_value=-100.0 )
+  id_decomp_theta = register_tiled_diag_field ( module_name, 'water_filled_por', axes,  &
+       lnd%time, 'water filled porosity for carbon decomposition', '1', missing_value=-100.0 )
+  id_air_filled = register_tiled_diag_field ( module_name, 'air_filled_por', axes,  &
+       lnd%time, 'air filled porosity for carbon decomposition', '1', missing_value=-100.0 )
+  id_theta_func = register_tiled_diag_field ( module_name, 'theta_func', axes,  &
+       lnd%time, 'moisture-related scaling factor for carbon decomposition', '1', missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:1), &
        lnd%time, 'number of iterations for soil uptake',  missing_value=-100.0 )
@@ -3218,6 +3224,11 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! ---- diagnostic section
   call send_tile_data(id_rsoil, vegn%rh, diag)
+  
+  if (id_decomp_theta>0) call send_tile_data(id_decomp_theta, decomp_theta(:),diag)
+  if (id_air_filled>0)   call send_tile_data(id_air_filled, 1.0-(decomp_theta(:)+ice_porosity(:)),diag)
+  if (id_theta_func>0) call send_tile_data(id_theta_func, &
+      theta_func(decomp_theta(:),1.0-(decomp_theta(:)+ice_porosity(:))),diag)
 
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
              (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
