@@ -1737,37 +1737,76 @@ end function multiply_cohort
 
 ! Combine two soil_pools, with weighting
 subroutine combine_pools(pool1,pool2,w1,w2)
-    type(soil_pool),intent(in) :: pool1
-    type(soil_pool),intent(inout) :: pool2
-    real :: w1,w2,x1,x2
-    integer::cc
+  type(soil_pool),intent(in)    :: pool1
+  type(soil_pool),intent(inout) :: pool2
+  real, intent(in) :: w1, w2 ! combination weights
 
-    ! Make sure weights are normalized
-    x1 = w1/(w1+w2)
-    x2 = 1.0 - x1
+  real    :: x1,x2 ! normalized weights
+  integer :: i
+  real, dimension(N_C_TYPES) :: c1, c2, n1, n2, pc1, pc2, pn1, pn2
 
-    ! First multiply existing cohorts by weighting
-    IF(pool2%n_cohorts>0) THEN
-    DO cc=1,pool2%n_cohorts
-        pool2%litterCohorts(cc)=multiply_cohort(pool2%litterCohorts(cc),x2)
-    ENDDO
-    ENDIF
+  ! Make sure weights are normalized
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
 
-    ! Then just add the cohorts in pool1 to pool2, with weights
-    ! Note: Should this do something different if using rhizosphere and bulk soil structure?
-    IF (pool1%n_cohorts>0) THEN
-    DO cc=1,pool1%n_cohorts
-        call add_cohort(pool2,multiply_cohort(pool1%litterCohorts(cc),x1))
-    ENDDO
-    ENDIF
+  ! calculate pool totals for turnover calculations
+  call poolTotals1(pool1,litterC=c1,litterN=n1,protectedC=pc1,protectedN=pn1)
+  call poolTotals1(pool2,litterC=c2,litterN=n2,protectedC=pc2,protectedN=pn2)
+  ! calculate combined pool turnover rates
+  pool2%C_turnover(:)           = combined_turnover(pool1%C_turnover,c1,x1, &
+                                                    pool2%C_turnover,c2,x2  )
+  pool2%N_turnover(:)           = combined_turnover(pool1%N_turnover,n1,x1, &
+                                                    pool2%N_turnover,n2,x2  )
+  pool2%protected_C_turnover(:) = combined_turnover(pool1%protected_C_turnover,pc1,x1, &
+                                                    pool2%protected_C_turnover,pc2,x2  )
+  pool2%protected_N_turnover(:) = combined_turnover(pool1%protected_N_turnover,pn1,x1, &
+                                                    pool2%protected_N_turnover,pn2,x2  )
+  ! combine input rates
+  pool2%C_in(:) = pool2%C_in(:)*x2 + pool1%C_in(:)*x1
+  pool2%N_in(:) = pool2%N_in(:)*x2 + pool1%N_in(:)*x1
+  pool2%protected_C_in(:) = pool2%protected_C_in(:)*x2 + pool1%protected_C_in(:)*x1
+  pool2%protected_N_in(:) = pool2%protected_N_in(:)*x2 + pool1%protected_N_in(:)*x1
 
-    call cull_cohorts(pool2)
-    pool2%dissolved_carbon=pool2%dissolved_carbon*x2 + pool1%dissolved_carbon*x1
-    pool2%dissolved_nitrogen=pool2%dissolved_nitrogen*x2 + pool1%dissolved_nitrogen*x1
-    pool2%ammonium=pool2%ammonium*x2 + pool1%ammonium*x1
-    pool2%nitrate=pool2%nitrate*x2 + pool1%nitrate*x1
-    pool2%nitrif=pool2%nitrif*x2 + pool1%nitrif*x1
-    pool2%denitrif=pool2%denitrif*x2 + pool1%denitrif*x1
+  ! First multiply existing cohorts by weighting
+  if(pool2%n_cohorts>0) then
+     do i=1,pool2%n_cohorts
+         pool2%litterCohorts(i)=multiply_cohort(pool2%litterCohorts(i),x2)
+     enddo
+  endif
+
+  ! Then just add the cohorts in pool1 to pool2, with weights
+  ! Note: Should this do something different if using rhizosphere and bulk soil structure?
+  if (pool1%n_cohorts>0) then
+     do i=1,pool1%n_cohorts
+         call add_cohort(pool2,multiply_cohort(pool1%litterCohorts(i),x1))
+     enddo
+  endif
+
+  call cull_cohorts(pool2)
+  pool2%dissolved_carbon=pool2%dissolved_carbon*x2 + pool1%dissolved_carbon*x1
+  pool2%dissolved_nitrogen=pool2%dissolved_nitrogen*x2 + pool1%dissolved_nitrogen*x1
+  pool2%ammonium=pool2%ammonium*x2 + pool1%ammonium*x1
+  pool2%nitrate=pool2%nitrate*x2 + pool1%nitrate*x1
+  pool2%nitrif=pool2%nitrif*x2 + pool1%nitrif*x1
+  pool2%denitrif=pool2%denitrif*x2 + pool1%denitrif*x1
+
+contains 
+  ! C turnover = average loss_rate/C, that is tovr1 = loss1/c1, tovr2 = loss2/c2.
+  ! the turnover of combination is
+  ! tovr = (loss1+loss2)/(c1+c2) = (tovr1*c1 + tovr2*c2)/(c1+c2)
+  function combined_turnover(tovr1,c1,x1,tovr2,c2,x2) result(tovr)
+     real :: tovr(N_C_TYPES)
+     real, intent(in) :: tovr1(N_C_TYPES), c1(N_C_TYPES), x1
+     real, intent(in) :: tovr2(N_C_TYPES), c2(N_C_TYPES), x2
+
+     real :: denom(N_C_TYPES)
+     denom = c1(:)*x1+c2(:)*x2
+     where (denom(:) > 0)
+        tovr(:) = (tovr1(:)*c1(:)*x1 + tovr2(:)*c2(:)*x2)/denom(:)
+     elsewhere
+        tovr(:) = 0.0
+     end where
+  end function combined_turnover
 end subroutine combine_pools
 
 
