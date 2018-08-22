@@ -1076,8 +1076,6 @@ pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: res
   if(theta>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
   ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
   if(theta<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
-! slm: there is a discontinuity here: for theta=0 theta function suddenly drops 
-! from min_dry_resp_factor to 0
 
   where (Cavail(:)>0)
      resp_aerobic = Vmax(T)*Cavail(:)*enz/(Cavail(:)*kC+enz)*theta_func
@@ -1687,7 +1685,7 @@ subroutine remove_C_N_fraction_from_pool(pool, fractionC, fractionN, &
         endif
      enddo
      end associate ! cc
-         endif
+  endif
   pool%C_in(:) = pool%C_in(:) - litterC_removed(:)
   pool%N_in(:) = pool%N_in(:) - litterN_removed(:)
   pool%protected_C_in(:) = pool%protected_C_in(:) - protectedC_removed(:)
