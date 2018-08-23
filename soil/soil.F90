@@ -44,7 +44,7 @@ use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, l
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, c_diagname, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
-     deposit_dissolved_C, dissolve_carbon
+     deposit_dissolved_C, dissolve_carbon, theta_func
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -172,6 +172,7 @@ real :: max_soil_C_density = 50.0   !(kgC/m3) -- for redistribution of peat
 real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
 
 real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
+real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -197,7 +198,8 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
-                    max_soil_C_density, max_litter_thickness, r_rhiz
+                    max_soil_C_density, max_litter_thickness, r_rhiz, &
+                    tau_smooth_frozen_freq
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -206,6 +208,7 @@ real            :: delta_time ! fast (physical) time step, s
 real            :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 logical         :: use_single_geo
 real            :: Eg_min
+real            :: weight_av_frozen_freq
 
 integer         :: gw_option = -1
 
@@ -239,7 +242,7 @@ integer ::  &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
-    id_Qmax
+    id_Qmax, id_frozen_freq, id_decomp_theta, id_air_filled, id_theta_func
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -374,6 +377,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! initialize time smoothing parameter for calculation of long-term average frozen soil
+  ! frequency
+  weight_av_frozen_freq = dt_fast_yr/(dt_fast_yr+tau_smooth_frozen_freq)
 
   call uptake_init(num_l,dz,zfull)
   call hlsp_hydro_lev_init(num_l,dz,zfull)
@@ -617,6 +624,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      call get_tile_data(restart, 'ws', 'zfull', soil_ws_ptr )
      call get_tile_data(restart, 'groundwater', 'zfull', soil_groundwater_ptr )
      call get_tile_data(restart, 'groundwater_T', 'zfull', soil_groundwater_T_ptr)
+     if(field_exists(restart, 'frozen_freq')) &
+          call get_tile_data(restart, 'frozen_freq', 'zfull', soil_frozen_freq_ptr)
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
 
@@ -1132,6 +1141,14 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
   id_excess  = register_tiled_diag_field ( module_name, 'sfc_excess',  axes(1:1),  &
        lnd%time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
+  id_frozen_freq  = register_tiled_diag_field ( module_name, 'frozen_freq',  axes,       &
+       lnd%time, 'frequency of frozen soil (time smoothed)', '1',  missing_value=-100.0 )
+  id_decomp_theta = register_tiled_diag_field ( module_name, 'water_filled_por', axes,  &
+       lnd%time, 'water filled porosity for carbon decomposition', '1', missing_value=-100.0 )
+  id_air_filled = register_tiled_diag_field ( module_name, 'air_filled_por', axes,  &
+       lnd%time, 'air filled porosity for carbon decomposition', '1', missing_value=-100.0 )
+  id_theta_func = register_tiled_diag_field ( module_name, 'theta_func', axes,  &
+       lnd%time, 'moisture-related scaling factor for carbon decomposition', '1', missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:1), &
        lnd%time, 'number of iterations for soil uptake',  missing_value=-100.0 )
@@ -1331,20 +1348,20 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        standard_name='liquid_water_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
        lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='mass_content_of_water_in_soil_layer', fill_missing=.TRUE.)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:1),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content', fill_missing=.TRUE.)
+       standard_name='mass_content_of_water_in_soil', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_mrso, cmor_name, 'mrsoLut', axes(1:1),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content', fill_missing=.FALSE.)
+       standard_name='mass_content_of_water_in_soil', fill_missing=.FALSE.)
   id_mrsos  = register_tiled_diag_field ( cmor_name, 'mrsos', axes(1:1),  &
        lnd%time, 'Moisture in Upper Portion of Soil Column', &
-       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       'kg m-2', missing_value=-100.0, standard_name='mass_content_of_water_in_soil_layer', &
        fill_missing=.TRUE.)
   call  add_tiled_diag_field_alias ( id_mrsos, cmor_name, 'mrsosLut', axes(1:1),  &
        lnd%time, 'Moisture in Upper Portion of Soil Column of Land Use Tile', &
-       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       'kg m-2', missing_value=-100.0, standard_name='mass_content_of_water_in_soil_layer', &
        fill_missing=.FALSE.)
   id_mrfso = register_tiled_diag_field ( cmor_name, 'mrfso', axes(1:1),  &
        lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
@@ -1370,35 +1387,35 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:1),  &
        lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.FALSE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.FALSE.)
   id_cSoilAbove1m = register_tiled_diag_field ( cmor_name, 'cSoilAbove1m', axes(1:1),  &
        lnd%time, 'Carbon mass in soil pool above 1m depth', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
 
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
        lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='fast_soil_pool_carbon_content', fill_missing=.TRUE.)
+       standard_name='fast_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
   id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:1),  &
        lnd%time, 'Carbon Mass in Medium Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='medium_soil_pool_carbon_content', fill_missing=.TRUE.)
+       standard_name='medium_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
        lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
+       standard_name='slow_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cSoilLevels = register_tiled_diag_field ( cmor_name, 'cSoilLevels', axes,  lnd%time, &
        'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
        'kg m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cLitter = register_tiled_diag_field ( cmor_name, 'cLitter', axes(1:1), &
        lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
-       missing_value=-100.0, standard_name='litter_carbon_content', &
+       missing_value=-100.0, standard_name='litter_mass_content_of_carbon', &
        fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_cLitter, cmor_name, 'cLitterLut', axes(1:1),  &
        lnd%time, 'carbon in above and belowground litter pools on land use tiles', &
        'kg m-2', missing_value=-100.0, &
-       standard_name='litter_carbon_content', fill_missing=.FALSE.)
+       standard_name='litter_mass_content_of_carbon', fill_missing=.FALSE.)
   id_cLitterCwd = register_tiled_diag_field ( cmor_name, 'cLitterCwd', axes(1:1), &
        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
@@ -1409,8 +1426,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
-       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
-       missing_value=-100.0)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.FALSE., missing_value=-100.0)
   id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', axes(1:1), &
        lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
@@ -1418,7 +1435,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 
   id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
        lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_nitrogen_content', fill_missing=.TRUE.)
+       standard_name='soil_mass_content_of_nitrogen', fill_missing=.TRUE.)
   id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
        lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
@@ -1474,6 +1491,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'ws'           , 'zfull', soil_ws_ptr, 'solid water content','kg/m2')
   call add_tile_data(restart,'groundwater'  , 'zfull', soil_groundwater_ptr, units='kg/m2' )
   call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
+  call add_tile_data(restart,'frozen_freq'  , 'zfull', soil_frozen_freq_ptr, 'frequency of frozen soil occurence')
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -1965,6 +1983,8 @@ end subroutine soil_step_1
 
   real, dimension(num_l) :: passive_ammonium_uptake, passive_nitrate_uptake ! Uptake of dissolved mineral N by roots through water uptake
   real, dimension(vegn%n_cohorts) :: passive_N_uptake
+
+  real :: frozen ! frozen soil indicator, used for calculating long-term frozen soil frequency
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -2866,6 +2886,13 @@ end subroutine soil_step_1
    if (i_river_NO3/=NO_TRACER) soil_tr_runf(i_river_NO3) = total_NO3_div/delta_time
    if (i_river_NH4/=NO_TRACER) soil_tr_runf(i_river_NH4) = total_NH4_div/delta_time
 
+   ! update frequency of frozen soil
+   do l = 1, num_l
+      frozen = 0.0
+      if (soil%ws(l)>0) frozen = 1.0
+      soil%frozen_freq(l) = weight_av_frozen_freq*frozen + (1-weight_av_frozen_freq)*soil%frozen_freq(l)
+   enddo
+
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
 !
@@ -2953,6 +2980,8 @@ end subroutine soil_step_1
   call send_tile_data(id_macro_infilt, flow_macro, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
+  call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
+
 end subroutine soil_step_2
 
 ! ============================================================================
@@ -3195,6 +3224,11 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! ---- diagnostic section
   call send_tile_data(id_rsoil, vegn%rh, diag)
+  
+  if (id_decomp_theta>0) call send_tile_data(id_decomp_theta, decomp_theta(:),diag)
+  if (id_air_filled>0)   call send_tile_data(id_air_filled, 1.0-(decomp_theta(:)+ice_porosity(:)),diag)
+  if (id_theta_func>0) call send_tile_data(id_theta_func, &
+      theta_func(decomp_theta(:),1.0-(decomp_theta(:)+ice_porosity(:))),diag)
 
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
              (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)

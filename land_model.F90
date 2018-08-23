@@ -59,7 +59,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      is_c3grass, is_c4grass
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
-use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
+use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
      cana_roughness, &
      save_cana_restart
@@ -269,14 +269,14 @@ integer :: &
   id_water,    id_snow,                                                    &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
-  id_fco2,                                                                 &
+  id_fco2,     id_co2_mol_flux,                                            &
   id_vegn_cover,    id_vegn_cover_1,  id_vegn_cover_U, id_cosz,            &
   id_albedo_dir,    id_albedo_dif,                                         &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
-  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh
+  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 
@@ -2321,6 +2321,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_qco2_dvmr,&
        tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
   call send_tile_data(id_fco2,  vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos, tile%diag)
+  call send_tile_data(id_co2_mol_flux, fco2_0 + Dfco2Dq*delta_co2,      tile%diag)
   call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
   call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
   call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
@@ -2356,7 +2357,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
   endif
   if(id_evspsblveg > 0) call send_tile_data(id_evspsblveg, sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
-  if(id_ec         > 0) call send_tile_data(id_ec,         sum(f(:)*vegn_levap),              tile%diag)
+  if(id_ec         > 0) call send_tile_data(id_ec,         sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
   if(associated(tile%lake)) then
      call send_tile_data(id_eow, subs_levap,                          tile%diag)
   else
@@ -2382,6 +2383,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
+  if (id_cTot1 > 0) &
+      call send_tile_data(id_cTot1, land_tile_carbon(tile)-cana_tile_carbon(tile%cana), tile%diag)
   if (id_nLand > 0) &
       call send_tile_data(id_nLand, land_tile_nitrogen(tile),         tile%diag)
   if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_CO2-DOC_to_atmos, tile%diag)
@@ -3205,7 +3208,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call realloc1(tile%vegn_tran_lw,N)
 
   if (associated(tile%vegn)) then
-     call update_derived_vegn_data(tile%vegn)
+     call update_derived_vegn_data(tile%vegn, tile%soil)
      ! USE OF SNOWPACK RAD PROPERTIES FOR INTERCEPTED SNOW IS ERRONEOUS,
      ! NEEDS TO BE CHANGED. TEMPORARY.
      call vegn_radiation ( tile%vegn, cosz, snow_depth, snow_refl_dif, snow_emis, &
@@ -3885,6 +3888,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'canopy-air CO2 dry volumetric mixing ratio', 'mol CO2/mol air', missing_value=-1.0 )
   id_fco2    = register_tiled_diag_field ( module_name, 'fco2', axes, time, &
              'flux of CO2 to canopy air', 'kg C/(m2 s)', missing_value=-1.0 )
+  id_co2_mol_flux = register_tiled_diag_field ( module_name, 'co2_mol_flux', axes, time, &
+             'flux of CO2 to the atmosphere', 'mol/(m2 s)', missing_value=-1.0 )
   id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_ug,id_band/), time, &
        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_swdn_dif = register_tiled_diag_field ( module_name, 'swdn_dif', (/id_ug,id_band/), time, &
@@ -3969,10 +3974,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
   id_ec = register_tiled_diag_field ( cmor_name, 'ec', axes, time, &
              'Interception evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
-             standard_name='liquid_water_evaporation_flux_from_canopy', fill_missing=.TRUE.)
+             standard_name='water_evaporation_flux_from_canopy', fill_missing=.TRUE.)
   id_eow = register_tiled_diag_field ( cmor_name, 'eow', axes, time, &
              'Open Water Evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
-             standard_name='liquid_water_evaporation_flux_from_open_water', fill_missing=.TRUE.)
+             standard_name='surface_water_evaporation_flux', fill_missing=.TRUE.)
   id_esn = register_tiled_diag_field ( cmor_name, 'esn', axes, time, &
              'Snow Evaporation', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux', fill_missing=.TRUE.)
@@ -3991,7 +3996,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
   id_lwsnl = register_tiled_diag_field ( cmor_name, 'lwsnl', axes, time, &
              'Liquid Water Content of Snow Layer','kg m-2', &
-             standard_name='liquid_water_content_of_snow_layer', &
+             standard_name='liquid_water_content_of_surface_snow', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
@@ -4002,7 +4007,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   id_tws = register_diag_field(cmor_name, 'mrtws', axes, time, &
              'Terrestrial Water Storage','kg m-2', &
-             standard_name='total_water_storage', &
+             standard_name='land_water_amount', &
              area=get_area_id('land'))
   call diag_field_add_attribute(id_tws,'cell_methods','area: mean')
   call diag_field_add_attribute(id_tws,'ocean_fillvalue',0.0)
@@ -4031,7 +4036,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
       standard_name='surface_upward_sensible_heat_flux')
   call add_tiled_diag_field_alias(id_fevaps, cmor_name, 'sbl', axes, time, &
       'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
-      standard_name='surface_snow_and_ice_sublimation_flux', fill_missing=.TRUE.)
+      standard_name='tendency_of_atmosphere_mass_content_of_water_vapor_due_to_sublimation_of_surface_snow_and_ice', &
+      fill_missing=.TRUE.)
 
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
              'Land Area Fraction','%', standard_name='land_area_fraction', &
@@ -4090,6 +4096,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   ! add alias for compatibility with older diag tables
   call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
      'total land carbon', 'kg C/m2', missing_value=-1.0)
+  id_cTot1 = register_tiled_diag_field ( module_name, 'cTot1', axes, time, &
+             'Total Carbon in All Terrestrial Carbon Pools, Except Canopy Air', 'kg m-2', &
+             missing_value=-1.0, fill_missing=.TRUE. )
 
   id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
              'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &

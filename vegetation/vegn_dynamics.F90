@@ -332,10 +332,10 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='plant_respiration_carbon_flux', fill_missing=.FALSE.)
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_plant_respiration', fill_missing=.FALSE.)
   id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_ug/), &
        time, 'Growth Autotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='surface_upward_carbon_mass_flux_due_to_plant_respiration_for_biomass_growth',&
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_plant_respiration_for_biomass_growth',&
        fill_missing=.TRUE.)
 end subroutine vegn_dynamics_init
 
@@ -1011,6 +1011,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
   real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
   real :: w ! smoothing weight
+  real :: alpha_leaf ! leaf overturning rate, 1/yr
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   M = vegn%n_cohorts
@@ -1077,8 +1078,13 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
-     deltaBL = cc%bl     * sp%alpha_leaf * dt_fast_yr
-     deltaNL = cc%leaf_N * sp%alpha_leaf * dt_fast_yr
+     if (cc%layer==1) then
+        alpha_leaf = sp%alpha_leaf
+     else
+        alpha_leaf = sp%alpha_leaf * sp%alpha_leaf_understory_factor
+     endif
+     deltaBL = cc%bl     *    alpha_leaf * dt_fast_yr
+     deltaNL = cc%leaf_N *    alpha_leaf * dt_fast_yr
      deltaBR = cc%br     * sp%alpha_root * dt_fast_yr
      deltaNR = cc%root_N * sp%alpha_root * dt_fast_yr
 
@@ -1891,8 +1897,8 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
 
   if (do_check_conservation) then
      b1 = plant_C(cc); n1=plant_N(cc)
-     call check_conservation ('biomass_allocation_ppa','carbon', b0, b1, carbon_cons_tol, severity=FATAL)
-     call check_conservation ('biomass_allocation_ppa','nitrogen', n0, n1, nitrogen_cons_tol, severity=FATAL)
+     call check_conservation ('biomass_allocation_ppa','carbon',   b0*cc%nindivs, b1*cc%nindivs, carbon_cons_tol,   severity=FATAL)
+     call check_conservation ('biomass_allocation_ppa','nitrogen', n0*cc%nindivs, n1*cc%nindivs, nitrogen_cons_tol, severity=FATAL)
   endif
   end associate ! F2003
 end subroutine biomass_allocation_ppa

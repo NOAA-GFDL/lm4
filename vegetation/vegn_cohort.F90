@@ -13,9 +13,9 @@ use vegn_data_mod, only : spdata, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
-   snow_masking_option, &
+   snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
-use soil_tile_mod, only : max_lev
+use soil_tile_mod, only : soil_tile_type, max_lev, num_l, dz
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 use fms_mod, only : error_mesg, FATAL
 use land_debug_mod, only : is_watch_point
@@ -29,7 +29,6 @@ public :: vegn_cohort_type
 public :: plant_C, plant_N
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
-public :: cohort_root_properties
 public :: cohort_uptake_profile
 public :: cohort_root_litter_profile
 public :: cohort_root_exudate_profile
@@ -40,6 +39,7 @@ public :: leaf_area_from_biomass ! given leaf biomass, calculates leaf area
 public :: height_from_biomass    ! given total biomass, calculated tree height
 public :: update_bio_living_fraction
 public :: update_biomass_pools
+public :: update_cohort_root_properties
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
@@ -131,6 +131,7 @@ type :: vegn_cohort_type
                           ! for diagnostics only
 
 ! ---- uptake-related variables
+  real    :: br_profile(max_lev)  = 0.0 ! normalized vertical distribution of root biomass
   real    :: root_length(max_lev) = 0.0 ! individual root length per unit depth, m of root/m
   real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
   real    :: r_r = 0.0 ! radius of fine roots, m
@@ -353,40 +354,42 @@ end subroutine vegn_data_cover
 
 ! ============================================================================
 ! returns properties of the fine roots
-subroutine cohort_root_properties(cohort, dz, root_length, K_r, r_r)
-  type(vegn_cohort_type), intent(in)  :: cohort
-  real, intent(in)  :: dz(:)
-  real, intent(out) :: &
-       root_length(:), & ! fine root length per unit depth, m of root/m
-       K_r,    & ! root membrane permeability per unit root surface area, kg/(m3 s)
-       r_r       ! radius of fine roots, m
+subroutine update_cohort_root_properties(soil, cohort)
+  type(soil_tile_type),   intent(in)     :: soil
+  type(vegn_cohort_type), intent(inout)  :: cohort
   ! note that in LM3, when the density of individuals per m2 is imposed to be 1,
   ! "per unit depth" measures are the same as volumetric density measures.
 
-  integer :: sp, l
+  integer :: l
   real :: factor, z
   real :: vbr ! density of fine roots biomass per unit depth, kg C/m
 
-  sp = cohort%species
-
-  factor = 1.0/(1.0-exp(-sum(dz)/cohort%root_zeta))
+  associate(sp => spdata(cohort%species))
+  cohort%br_profile(:) = 0.0
   z = 0
-  do l = 1, size(dz)
-     ! calculate the vertical fine root biomass density [kgC/m] for current layer
-     ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by normalizing
-     ! factor
-     vbr = cohort%br * &
-          (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))*factor/dz(l)
-     ! calculate fine root length per unit depth
-     root_length(l) = vbr*spdata(sp)%srl
+  do l = 1, num_l
+     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh) exit ! from loop
+     ! so that the rest of profile remains zero.
 
+     cohort%br_profile(l) = exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta)
      z = z + dz(l)
   enddo
 
-  K_r = spdata(sp)%root_perm
-  r_r = spdata(sp)%root_r
+  factor = 1.0/sum(cohort%br_profile)
+  cohort%br_profile(:) = cohort%br_profile(:)*factor
+  do l = 1, num_l
+     ! calculate the vertical fine root biomass density [kgC/m] for current layer
+     ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by normalizing
+     ! factor
+     vbr = cohort%br * cohort%br_profile(l)*factor/dz(l)
+     ! calculate fine root length per unit depth
+     cohort%root_length(l) = vbr*sp%srl
+  enddo
 
-end subroutine cohort_root_properties
+  cohort%K_r = sp%root_perm
+  cohort%r_r = sp%root_r
+  end associate
+end subroutine update_cohort_root_properties
 
 
 ! ============================================================================
@@ -423,16 +426,8 @@ subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
         z = z + dz(l)
      enddo
   else
-     !linear scaling, LM3V
-     z = 0
-     do l = 1, size(dz)
-        uptake_frac_max(l) = (exp(-z/cohort%root_zeta)    &
-                - exp(-(z+dz(l))/cohort%root_zeta))
-        uptake_frac_max(l) = &
-                max( uptake_frac_max(l), 0.0)
-        z = z + dz(l)
-     enddo
-
+     ! linear scaling, LM3V
+     uptake_frac_max = cohort%br_profile(1:size(uptake_frac_max))
   endif
 
   sum_rf = sum(uptake_frac_max)
@@ -456,15 +451,7 @@ subroutine cohort_root_litter_profile(cohort, dz, profile)
   real, intent(in)  :: dz(:) ! layer thickneses, m
   real, intent(out) :: profile(:)
 
-  real :: z
-  integer :: l
-
-  z = 0
-  do l = 1, size(profile)
-     profile(l) = (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))
-     z = z + dz(l)
-  enddo
-  profile(:) = profile(:)/sum(profile)
+  profile = cohort%br_profile(1:size(profile))
 end subroutine cohort_root_litter_profile
 
 ! ============================================================================

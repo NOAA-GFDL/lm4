@@ -60,7 +60,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
-     cohort_root_properties
+     update_cohort_root_properties
 use canopy_air_mod, only : cana_turbulence
 use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
@@ -82,7 +82,7 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
 use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
-     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
+     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
@@ -1214,19 +1214,19 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_ug/), &
        time, 'Carbon Mass in Leaves', 'kg m-2', missing_value=-1.0, &
-       standard_name='leaf_carbon_content', fill_missing=.TRUE.)
+       standard_name='leaf_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_ug/), &
        time, 'Carbon Mass in Wood', 'kg m-2', missing_value=-1.0, &
-       standard_name='wood_carbon_content', fill_missing=.TRUE.)
+       standard_name='stem_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_ug/), &
        time, 'Carbon Mass in Roots', 'kg m-2', missing_value=-1.0, &
-       standard_name='root_carbon_content', fill_missing=.TRUE.)
+       standard_name='root_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cStem = register_tiled_diag_field ( cmor_name, 'cStem',  (/id_ug/), &
        time, 'Carbon Mass in Stem', 'kg m-2', missing_value=-1.0, &
        standard_name='stem_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
        time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
-       standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
+       standard_name='miscellaneous_living_matter_mass_content_of_carbon', fill_missing=.TRUE.)
 
   call add_tiled_diag_field_alias(id_height, cmor_name, 'vegHeight', (/id_ug/), &
        time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
@@ -1234,10 +1234,10 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
        time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
-       standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
+       standard_name='carbon_mass_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias(id_cProduct, cmor_name, 'cProductLut', (/id_ug/), &
        time, 'wood and agricultural product pool carbon associated with land use tiles; examples of products include paper, cardboard, timber for construction, and crop harvest for food or fuel.', &
-       'kg m-2', missing_value=-999.0, standard_name='carbon_content_of_forestry_and_agricultural_products', &
+       'kg m-2', missing_value=-999.0, standard_name='carbon_mass_content_of_forestry_and_agricultural_products', &
        fill_missing = .FALSE.)
 
   id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
@@ -1307,7 +1307,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        standard_name='miscellaneous_living_matter_mass_content_of_nitrogen', fill_missing=.TRUE.)
   id_nProduct = register_tiled_diag_field( cmor_name, 'nProduct', (/id_ug/), &
        time, 'Nitrogen Mass in Products of Land Use Change', 'kg m-2', missing_value=-999.0, &
-       standard_name='nitrogen_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
+       standard_name='nitrogen_mass_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
 end subroutine
 
@@ -2325,8 +2325,9 @@ end function phen_ave_theta
 ! of the calculations are the same. The reason is because this function may
 ! be used in the situation when the biomasses are not precisely consistent, for
 ! example when they come from the data override or from initial conditions.
-subroutine update_derived_vegn_data(vegn)
+subroutine update_derived_vegn_data(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(in)    :: soil
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
@@ -2457,7 +2458,7 @@ subroutine update_derived_vegn_data(vegn)
   VRL(:) = 0.0
   do k = 1, vegn%n_cohorts
      cc=>vegn%cohorts(k)
-     call cohort_root_properties (cc, dz(1:num_l), cc%root_length(1:num_l), cc%K_r, cc%r_r)
+     call update_cohort_root_properties (soil, cc)
      VRL(:) = VRL(:)+cc%root_length(1:num_l)*cc%nindivs
   enddo
 
@@ -2508,6 +2509,10 @@ subroutine update_vegn_slow( )
 
   call update_fire_data(lnd%time)
 
+  if (day0/=day1) then
+     call crop_seed_transport(doy)
+  endif
+  
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
      call set_current_point(l,k) ! this is for debug output only

@@ -91,7 +91,7 @@ integer, public, parameter :: &
 integer, public, parameter ::&
  PHEN_THETA_FC       = 1, &
  PHEN_THETA_POROSITY = 2
- 
+
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
@@ -152,7 +152,7 @@ public :: &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
-    nsc_target_option, &
+    nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -197,6 +197,7 @@ type spec_data_type
 
   ! decay rates of plant carbon pools, 1/yr
   real    :: alpha_leaf=1.0, alpha_root=1.0, alpha_wood=1.2e-2
+  real    :: alpha_leaf_understory_factor = 1.0 ! leaf overturning rate multiplier for understory
   real    :: branch_loss_height = 2.0 ! trees do not lose branches till they reach that height, m
   ! respiration rates of plant carbon pools
   real    :: beta_sapwood=0.0, beta_root=1.25, beta_vleaf=0.0
@@ -545,6 +546,13 @@ logical :: calc_SLA_from_lifespan = .TRUE. ! In LM3, whether to calculate SLA fr
 logical :: smooth_N_uptake_C_allocation = .FALSE.
 logical :: N_fix_Tdep_Houlton = .FALSE.
 
+real :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which permafrost does not
+           ! preclude root existence. Default value reverts to old treatment (roots exist
+           ! everywhere)
+real :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
+           ! considered permafrost for the root vertical profile calculations
+
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -569,6 +577,7 @@ namelist /vegn_data_nml/ &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, NSC_target_to_use, &
   do_bl_max_merge, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+  permafrost_depth_thresh, permafrost_freq_thresh, &
 
   ! N-related namelist values
   mycorrhizal_turnover_time, &
@@ -743,6 +752,8 @@ subroutine read_vegn_data_namelist()
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
           tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo
+  call register_tile_selector('psl', 'primary and secondary land',&
+       tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_PSL )
 
   ! register selectors for species-specific diagnostics
 !   if (.not.do_ppa) then
@@ -910,6 +921,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(leaf_age_tau)
   __GET_SPDATA_REAL__(Vmax_understory_factor)
   __GET_SPDATA_REAL__(Resp_understory_factor)
+  __GET_SPDATA_REAL__(alpha_leaf_understory_factor)
 
   __GET_SPDATA_REAL__(dfr)
   __GET_SPDATA_REAL__(srl)
@@ -1284,6 +1296,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'leaf_age_tau',  spdata(idx)%leaf_age_tau)
   call add_row(table, 'Vmax_understory_factor', spdata(idx)%Vmax_understory_factor)
   call add_row(table, 'Resp_understory_factor', spdata(idx)%Resp_understory_factor)
+  call add_row(table, 'alpha_leaf_understory_factor', spdata(idx)%alpha_leaf_understory_factor)
 
   ! PPA-related parameters
   call add_row(table, 'Allometry Type',  spdata(idx)%allomt)

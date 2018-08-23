@@ -21,11 +21,6 @@ public :: add_root_exudates
 public :: add_soil_carbon
 public :: rhizosphere_frac
 
-interface add_root_exudates
-   module procedure add_root_exudates_0
-   module procedure add_root_exudates_1
-end interface add_root_exudates
-
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_util'
 #include "../shared/version_variable.inc"
@@ -66,7 +61,7 @@ end subroutine add_root_litter
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates_0(soil,exudateC,exudateN,ammonium,nitrate)
+subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
     type(soil_tile_type), intent(inout)  :: soil
     real,dimension(num_l),intent(in) :: exudateC,exudateN
     real,dimension(num_l),intent(in),optional :: ammonium,nitrate
@@ -86,32 +81,7 @@ subroutine add_root_exudates_0(soil,exudateC,exudateN,ammonium,nitrate)
      soil%org_matter(k)%ammonium = soil%org_matter(k)%ammonium+NH4(k)
      soil%org_matter(k)%nitrate = soil%org_matter(k)%nitrate+NO3(k)
   enddo
-end subroutine add_root_exudates_0
-
-
-! ============================================================================
-subroutine add_root_exudates_1(soil,cohort,exudateC,exudateN,ammonium,nitrate)
-  type(soil_tile_type), intent(inout)  :: soil
-  type(vegn_cohort_type), intent(in)   :: cohort
-  real,intent(in) :: exudateC,exudateN ! kgC/m2 or kgN/m2 of tile
-  real,intent(in),optional :: ammonium,nitrate ! kgN/m2 of tile
-
-  real    :: profile(num_l)
-  integer :: k
-  real :: NH4,NO3
-
-  NH4=0.0
-  NO3=0.0
-  if (present(ammonium)) NH4=ammonium
-  if (present(nitrate)) NO3=nitrate
-
-  call cohort_root_exudate_profile (cohort, dz(1:num_l), profile)
-  do k=1,num_l
-      call add_C_N_to_rhizosphere(soil%org_matter(k),newCarbon=(/exudateC*profile(k),0.0,0.0/),newNitrogen=[exudateN*profile(k),0.0,0.0])
-      soil%org_matter(k)%ammonium=soil%org_matter(k)%ammonium+NH4*profile(k)
-      soil%org_matter(k)%nitrate=soil%org_matter(k)%nitrate+NO3*profile(k)
-  enddo
-end subroutine add_root_exudates_1
+end subroutine add_root_exudates
 
 ! ============================================================================
 subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
