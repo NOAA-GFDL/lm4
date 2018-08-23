@@ -195,6 +195,8 @@ real :: enzfrac=1.0                    ! Relative amount of enzymes produced by 
 real :: tProtected=10.0                ! Turnover rate of protected carbon (yr-1)
 real :: tProtected_N=10.0              ! Turnover rate of protected nitrogen (yr-1)
 real :: protection_rate=1.0            ! Rate that carbon becomes protected (yr-1 kg-microbial-biomass-1)
+real :: tLongest = 0.0 ! Longest turnover time of unprotected carbon (yr); 0 means do not impose limit
+
 
 real,dimension(N_C_TYPES) :: protection_species=(/0.5,0.5,1.0/)  ! Relative protection rate of each flavor
 
@@ -229,6 +231,7 @@ namelist /soil_carbon_nml/ &
     soil_carbon_model_to_use, use_rhizosphere_cohort,&
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
+    tLongest,&
     litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,min_dry_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
     Ea_NH4,Ea_NO3,Ea_nitrif,Ea_denitr,denitrif_theta_min,&
     V_NH4_ref,V_NO3_ref,Knitr_ref,Kdenitr_ref,&
@@ -1060,12 +1063,13 @@ pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: res
 
   real :: enz, Cavail(N_C_TYPES)
   real :: theta_func
+  integer :: i
 
   enz=Chet*enzfrac
 
   ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
   Cavail=Ctotal
-  if (sum(Cavail(:)).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
+  if (sum(Cavail(:)).eq.0 .OR. enz.eq.0) then
       resp_aerobic = 0.0
       return
   endif
@@ -1082,6 +1086,12 @@ pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: res
   elsewhere
      resp_aerobic = 0.0
   end where
+
+  if (tLongest>0) then
+     do i = 1, N_C_TYPES
+        if (Ctotal(i)>=0.0) resp_aerobic(i) = max(resp_aerobic(i), Ctotal(i)/tLongest)
+     enddo
+  endif
 end function resp_aerobic
 
 
@@ -1138,7 +1148,7 @@ pure function resp_myc(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_my
     real, intent(in) :: Chet                       ! heterotrophic (microbial) C
     real, intent(in) :: T,theta                    ! temperature (k), theta (fraction of 1.0)
     real, intent(in) :: air_filled_porosity        ! Fraction of 1.0.  Different from theta since it includes ice
-    
+
     real :: enz,Cavail(N_C_TYPES)
     real :: theta_func  ! soil-moisture factor
 
@@ -1146,7 +1156,7 @@ pure function resp_myc(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_my
     ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
     Cavail=Ctotal
     if (sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
-        ! slm: there is a discontinuity here: in effect for theta=0 theta function 
+        ! slm: there is a discontinuity here: in effect for theta=0 theta function
         ! suddenly drops from min_dry_resp_factor to 0
         resp_myc=0.0
         return
@@ -1802,7 +1812,7 @@ subroutine combine_pools(pool1,pool2,w1,w2)
   pool2%nitrif=pool2%nitrif*x2 + pool1%nitrif*x1
   pool2%denitrif=pool2%denitrif*x2 + pool1%denitrif*x1
 
-contains 
+contains
   ! C turnover = average loss_rate/C, that is tovr1 = loss1/c1, tovr2 = loss2/c2.
   ! the turnover of combination is
   ! tovr = (loss1+loss2)/(c1+c2) = (tovr1*c1 + tovr2*c2)/(c1+c2)
