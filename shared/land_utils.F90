@@ -57,7 +57,7 @@ subroutine put_to_tiles_r1d_fptr(x2d, tile_map, fptr)
 end subroutine
 
 ! ============================================================================
-! + conservation check, part 1: calculate totals. It cannot be in land_debug_mod 
+! + conservation check, part 1: calculate totals. It cannot be in land_debug_mod
 ! because it uses land tile type.
 subroutine check_conservation_1(tile,lmass,fmass,cmass,nmass,heat)
   type(land_tile_type), intent(in) :: tile
@@ -65,16 +65,23 @@ subroutine check_conservation_1(tile,lmass,fmass,cmass,nmass,heat)
 
   real :: lmass1,fmass1
 
-  if (.not.do_check_conservation) return
+  ! to give output args some values
+  if (present(lmass)) lmass = 0.0
+  if (present(fmass)) fmass = 0.0
+  if (present(cmass)) cmass = 0.0
+  if (present(nmass)) nmass = 0.0
+  if (present(heat))  heat  = 0.0
 
-  call get_tile_water(tile,lmass1,fmass1)
-  if (present(lmass)) lmass = lmass1
-  if (present(fmass)) fmass = fmass1
-  if (present(cmass)) cmass = land_tile_carbon(tile)
-  if (present(nmass).and.soil_carbon_option==SOILC_CORPSE_N) then
-     nmass  = land_tile_nitrogen(tile)
+  if (do_check_conservation) then
+     call get_tile_water(tile,lmass1,fmass1)
+     if (present(lmass)) lmass = lmass1
+     if (present(fmass)) fmass = fmass1
+     if (present(cmass)) cmass = land_tile_carbon(tile)
+     if (present(nmass).and.soil_carbon_option==SOILC_CORPSE_N) then
+        nmass  = land_tile_nitrogen(tile)
+     endif
+     if (present(heat)) heat  = land_tile_heat(tile)
   endif
-  if (present(heat)) heat  = land_tile_heat(tile)
 end subroutine check_conservation_1
 
 ! ============================================================================

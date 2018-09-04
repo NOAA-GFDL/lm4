@@ -16,7 +16,7 @@ use vegn_data_mod, only : &
      MSPECIES, nspecies, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
      do_bl_max_merge
@@ -585,7 +585,7 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
   __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
   __MERGE__(topyear)     ! the years that a cohort in canopy layer
-  
+
   __MERGE__(gdd)           ! growing degree-days
   __MERGE__(theta_av_phen) ! relative soil moisture availability for phenology
   __MERGE__(psist_av_phen) ! water stress for phenology
@@ -851,7 +851,11 @@ function vegn_is_selected(vegn, sel)
 
   select case (sel%idata1)
   case (LU_SEL_TAG)
-     vegn_is_selected = (sel%idata2 == vegn%landuse)
+     if (sel%idata2 == LU_PSL) then
+        vegn_is_selected = ((vegn%landuse == LU_NTRL).or.(vegn%landuse == LU_SCND))
+     else
+        vegn_is_selected = (sel%idata2 == vegn%landuse)
+     endif
   case (SP_SEL_TAG)
      if (.not.associated(vegn%cohorts)) then
         vegn_is_selected = .FALSE.

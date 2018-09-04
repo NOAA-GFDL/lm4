@@ -251,6 +251,9 @@ type :: soil_tile_type
    integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
    real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
 
+   real, allocatable :: frozen_freq(:) ! Keeps track of frequency of frozen conditions,
+        ! for permafrost detection in root profile calculations.
+
    ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
    real :: gross_nitrogen_flux_into_tile, gross_nitrogen_flux_out_of_tile
 
@@ -685,6 +688,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
             ptr%org_matter        (num_l),  &
+            ptr%frozen_freq       (num_l),  &
             ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
@@ -778,6 +782,7 @@ subroutine soil_data_init_0d(soil)
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
   soil%ssc_in(:)              = 0.0
+  soil%frozen_freq(:)         = 0.0
 
   soil%gross_nitrogen_flux_into_tile = 0.0
   soil%gross_nitrogen_flux_out_of_tile = 0.0

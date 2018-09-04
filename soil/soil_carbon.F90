@@ -55,6 +55,7 @@ public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
 public :: litterDensity
 public :: deadmic_slow_frac
+public :: theta_func
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: A_function
@@ -194,6 +195,8 @@ real :: enzfrac=1.0                    ! Relative amount of enzymes produced by 
 real :: tProtected=10.0                ! Turnover rate of protected carbon (yr-1)
 real :: tProtected_N=10.0              ! Turnover rate of protected nitrogen (yr-1)
 real :: protection_rate=1.0            ! Rate that carbon becomes protected (yr-1 kg-microbial-biomass-1)
+real :: tLongest = 0.0 ! Longest turnover time of unprotected carbon (yr); 0 means do not impose limit
+
 
 real,dimension(N_C_TYPES) :: protection_species=(/0.5,0.5,1.0/)  ! Relative protection rate of each flavor
 
@@ -228,6 +231,7 @@ namelist /soil_carbon_nml/ &
     soil_carbon_model_to_use, use_rhizosphere_cohort,&
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
+    tLongest,&
     litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,min_dry_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
     Ea_NH4,Ea_NO3,Ea_nitrif,Ea_denitr,denitrif_theta_min,&
     V_NH4_ref,V_NO3_ref,Knitr_ref,Kdenitr_ref,&
@@ -511,8 +515,8 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
             temp_protected_C_turnover_rate, temp_protected_N_turnover_rate, &
             tempIMM_N, temp_MINERAL, denitrif)
 
-     C_loss_rate(:) = C_loss_rate(:) + tempresp
-     N_loss_rate(:) = N_loss_rate(:) + temp_N_decomposed
+     C_loss_rate(:) = C_loss_rate(:) + tempresp(:)
+     N_loss_rate(:) = N_loss_rate(:) + temp_N_decomposed(:)
 
      prot_C_turnover(:) = prot_C_turnover(:) + temp_protected_C_turnover_rate(:)
      prot_N_turnover(:) = prot_N_turnover(:) + temp_protected_N_turnover_rate(:)
@@ -649,7 +653,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     potential_tempResp = resp_aerobic(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity)
 
     ! Respiration of carbon supported by denitrification rather than oxygen; kgC/m2/yr
-    denitrif_Resp = Resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
+    denitrif_Resp = resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
     ! Factor based on stoichiometry of denitrification; kgN/m2/yr
     denitrif_NO3_demand=sum(denitrif_Resp)*denitrif_NO3_factor
 
@@ -1036,6 +1040,19 @@ pure subroutine initializeCohort(cohort,&
   cohort%CO2 = 0.0            ; if (present(CO2))cohort%CO2 = CO2*scale
 end subroutine initializeCohort
 
+! note that in resp_denitrif the dependence on soil moisture is subtly different
+elemental real function theta_func(water_filed_porosity,air_filled_porosity)
+  real, intent(in) :: water_filed_porosity ! fraction of pores filled with water
+  real, intent(in) :: air_filled_porosity ! fraction of pores filled with water
+
+  ! Functional dependence on soil moisture, normalized so max is 1
+  theta_func=(water_filed_porosity**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+  ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
+  if(water_filed_porosity>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
+  ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
+  if(water_filed_porosity<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
+end function theta_func
+
 
 pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_aerobic(N_C_TYPES)
   real,intent(in) :: Ctotal(N_C_TYPES)   ! Substrate C
@@ -1045,42 +1062,39 @@ pure function resp_aerobic(Ctotal,Chet,T,theta,air_filled_porosity); real :: res
   real,intent(in) :: air_filled_porosity ! m3/m3  Different from theta since it includes ice
 
   real :: enz, Cavail(N_C_TYPES)
-  real :: theta_func
+  integer :: i
 
   enz=Chet*enzfrac
 
   ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
   Cavail=Ctotal
-  if (sum(Cavail(:)).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
+  if (sum(Cavail(:)).eq.0 .OR. enz.eq.0) then
       resp_aerobic = 0.0
       return
   endif
 
-  ! Functional dependence on soil moisture, normalized so max is 1
-  theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
-  ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-  if(theta>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
-  ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-  if(theta<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
-! slm: there is a discontinuity here: for theta=0 theta function suddenly drops 
-! from min_dry_resp_factor to 0
-
   where (Cavail(:)>0)
-     resp_aerobic = Vmax(T)*Cavail(:)*enz/(Cavail(:)*kC+enz)*theta_func
+     resp_aerobic = Vmax(T)*Cavail(:)*enz/(Cavail(:)*kC+enz)*theta_func(theta,air_filled_porosity)
   elsewhere
      resp_aerobic = 0.0
   end where
+
+  if (tLongest>0) then
+     do i = 1, N_C_TYPES
+        if (Ctotal(i)>=0.0) resp_aerobic(i) = max(resp_aerobic(i), Ctotal(i)/tLongest)
+     enddo
+  endif
 end function resp_aerobic
 
 
-
-pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
+pure function resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate); real :: resp_denitrif(N_C_TYPES)
     real,intent(in)::Chet                       ! heterotrophic (microbial) C
     real,intent(in)::T,theta                    ! temperature (k), theta (fraction of 1.0)
     real,intent(in)::air_filled_porosity        ! Fraction of 1.0.  Different from theta since it includes ice
-    real,intent(in),dimension(N_C_TYPES)::Ctotal ! Substrate C
-    real,intent(in)::nitrate                     ! Available nitrate
-    real,dimension(N_C_TYPES)::Resp_denitrif,tempresp
+    real,intent(in)::Ctotal(N_C_TYPES)          ! Substrate C
+    real,intent(in)::nitrate                    ! Available nitrate
+
+    real :: tempresp(N_C_TYPES)
     real::denitrif_NO3_demand
     real::enz,Cavail(N_C_TYPES)
     real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
@@ -1090,13 +1104,12 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
     aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
     ! This should be fixed to work with correct denitrif theta dependence
 
-
     enz=Chet*enzfrac
 
     ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
     Cavail=Ctotal
     IF(sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) THEN
-        Resp_denitrif=0.0
+        resp_denitrif=0.0
         return
     ENDIF
 
@@ -1111,14 +1124,11 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
     denitrif_NO3_demand=sum(tempresp)*denitrif_NO3_factor
 
     if(nitrate>0.0) then
-      Resp_denitrif = tempresp * nitrate/(nitrate + k_denitrif*denitrif_NO3_demand)
+      resp_denitrif = tempresp * nitrate/(nitrate + k_denitrif*denitrif_NO3_demand)
     else
       resp_denitrif = 0.0
     endif
-
-
-
-end function Resp_denitrif
+end function resp_denitrif
 
 
 pure function resp_myc(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_myc(N_C_TYPES)
@@ -1126,29 +1136,21 @@ pure function resp_myc(Ctotal,Chet,T,theta,air_filled_porosity); real :: resp_my
     real, intent(in) :: Chet                       ! heterotrophic (microbial) C
     real, intent(in) :: T,theta                    ! temperature (k), theta (fraction of 1.0)
     real, intent(in) :: air_filled_porosity        ! Fraction of 1.0.  Different from theta since it includes ice
-    
+
     real :: enz,Cavail(N_C_TYPES)
-    real :: theta_func  ! soil-moisture factor
 
     enz=Chet*enzfrac
     ! Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
     Cavail=Ctotal
     if (sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) then
-        ! slm: there is a discontinuity here: in effect for theta=0 theta function 
+        ! slm: there is a discontinuity here: in effect for theta=0 theta function
         ! suddenly drops from min_dry_resp_factor to 0
         resp_myc=0.0
         return
     endif
 
-    ! Functional dependence on soil moisture, normalized so max is 1
-    theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
-    ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-    if(theta>theta_resp_max) theta_func = max(theta_func, min_anaerobic_resp_factor)
-    ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-    if(theta<theta_resp_max) theta_func = max(theta_func, min_dry_resp_factor)
-
     where(Cavail>0)
-      resp_myc=Vmax_myc(T)*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*theta_func
+      resp_myc=Vmax_myc(T)*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*theta_func(theta,air_filled_porosity)
     elsewhere
       resp_myc=0.0
     end where
@@ -1160,26 +1162,13 @@ pure function max_immobilization_rate(NH4,NO3,T,theta,air_filled_porosity)
     real,intent(in)::T,theta             ! temperature (k), theta (fraction of 1.0)
     real,intent(in)::air_filled_porosity ! Fraction of 1.0.  Different from theta since it includes ice
     real:: max_immobilization_rate       ! Per unit microbial biomass!
-    real :: aerobic_max, theta_resp_max,theta_func  ! Maximum soil-moisture factor under ideal conditions
-
-    ! From solving theta dependence for maximum:
-    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
-    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
-
-    ! Functional dependence on soil moisture, normalized so max is 1
-    theta_func=(theta**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
-    ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-    if(theta>theta_resp_max .and. theta_func<min_anaerobic_resp_factor) theta_func=min_anaerobic_resp_factor
-    ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-    if(theta<theta_resp_max .and. theta_func<min_dry_resp_factor) theta_func=min_dry_resp_factor
-
 
     IF((NO3+NH4).eq.0.0 .OR. theta.eq.0.0) THEN
         max_immobilization_rate=0.0
         return
     ENDIF
 
-    max_immobilization_rate=(V_NH4(T)*NH4+V_NO3(T)*NO3)*theta_func
+    max_immobilization_rate=(V_NH4(T)*NH4+V_NO3(T)*NO3)*theta_func(theta,air_filled_porosity)
 
 end function max_immobilization_rate
 
@@ -1673,7 +1662,7 @@ subroutine remove_C_N_fraction_from_pool(pool, fractionC, fractionN, &
         endif
      enddo
      end associate ! cc
-         endif
+  endif
   pool%C_in(:) = pool%C_in(:) - litterC_removed(:)
   pool%N_in(:) = pool%N_in(:) - litterN_removed(:)
   pool%protected_C_in(:) = pool%protected_C_in(:) - protectedC_removed(:)
@@ -1737,37 +1726,76 @@ end function multiply_cohort
 
 ! Combine two soil_pools, with weighting
 subroutine combine_pools(pool1,pool2,w1,w2)
-    type(soil_pool),intent(in) :: pool1
-    type(soil_pool),intent(inout) :: pool2
-    real :: w1,w2,x1,x2
-    integer::cc
+  type(soil_pool),intent(in)    :: pool1
+  type(soil_pool),intent(inout) :: pool2
+  real, intent(in) :: w1, w2 ! combination weights
 
-    ! Make sure weights are normalized
-    x1 = w1/(w1+w2)
-    x2 = 1.0 - x1
+  real    :: x1,x2 ! normalized weights
+  integer :: i
+  real, dimension(N_C_TYPES) :: c1, c2, n1, n2, pc1, pc2, pn1, pn2
 
-    ! First multiply existing cohorts by weighting
-    IF(pool2%n_cohorts>0) THEN
-    DO cc=1,pool2%n_cohorts
-        pool2%litterCohorts(cc)=multiply_cohort(pool2%litterCohorts(cc),x2)
-    ENDDO
-    ENDIF
+  ! Make sure weights are normalized
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
 
-    ! Then just add the cohorts in pool1 to pool2, with weights
-    ! Note: Should this do something different if using rhizosphere and bulk soil structure?
-    IF (pool1%n_cohorts>0) THEN
-    DO cc=1,pool1%n_cohorts
-        call add_cohort(pool2,multiply_cohort(pool1%litterCohorts(cc),x1))
-    ENDDO
-    ENDIF
+  ! calculate pool totals for turnover calculations
+  call poolTotals1(pool1,litterC=c1,litterN=n1,protectedC=pc1,protectedN=pn1)
+  call poolTotals1(pool2,litterC=c2,litterN=n2,protectedC=pc2,protectedN=pn2)
+  ! calculate combined pool turnover rates
+  pool2%C_turnover(:)           = combined_turnover(pool1%C_turnover,c1,x1, &
+                                                    pool2%C_turnover,c2,x2  )
+  pool2%N_turnover(:)           = combined_turnover(pool1%N_turnover,n1,x1, &
+                                                    pool2%N_turnover,n2,x2  )
+  pool2%protected_C_turnover(:) = combined_turnover(pool1%protected_C_turnover,pc1,x1, &
+                                                    pool2%protected_C_turnover,pc2,x2  )
+  pool2%protected_N_turnover(:) = combined_turnover(pool1%protected_N_turnover,pn1,x1, &
+                                                    pool2%protected_N_turnover,pn2,x2  )
+  ! combine input rates
+  pool2%C_in(:) = pool2%C_in(:)*x2 + pool1%C_in(:)*x1
+  pool2%N_in(:) = pool2%N_in(:)*x2 + pool1%N_in(:)*x1
+  pool2%protected_C_in(:) = pool2%protected_C_in(:)*x2 + pool1%protected_C_in(:)*x1
+  pool2%protected_N_in(:) = pool2%protected_N_in(:)*x2 + pool1%protected_N_in(:)*x1
 
-    call cull_cohorts(pool2)
-    pool2%dissolved_carbon=pool2%dissolved_carbon*x2 + pool1%dissolved_carbon*x1
-    pool2%dissolved_nitrogen=pool2%dissolved_nitrogen*x2 + pool1%dissolved_nitrogen*x1
-    pool2%ammonium=pool2%ammonium*x2 + pool1%ammonium*x1
-    pool2%nitrate=pool2%nitrate*x2 + pool1%nitrate*x1
-    pool2%nitrif=pool2%nitrif*x2 + pool1%nitrif*x1
-    pool2%denitrif=pool2%denitrif*x2 + pool1%denitrif*x1
+  ! First multiply existing cohorts by weighting
+  if(pool2%n_cohorts>0) then
+     do i=1,pool2%n_cohorts
+         pool2%litterCohorts(i)=multiply_cohort(pool2%litterCohorts(i),x2)
+     enddo
+  endif
+
+  ! Then just add the cohorts in pool1 to pool2, with weights
+  ! Note: Should this do something different if using rhizosphere and bulk soil structure?
+  if (pool1%n_cohorts>0) then
+     do i=1,pool1%n_cohorts
+         call add_cohort(pool2,multiply_cohort(pool1%litterCohorts(i),x1))
+     enddo
+  endif
+
+  call cull_cohorts(pool2)
+  pool2%dissolved_carbon=pool2%dissolved_carbon*x2 + pool1%dissolved_carbon*x1
+  pool2%dissolved_nitrogen=pool2%dissolved_nitrogen*x2 + pool1%dissolved_nitrogen*x1
+  pool2%ammonium=pool2%ammonium*x2 + pool1%ammonium*x1
+  pool2%nitrate=pool2%nitrate*x2 + pool1%nitrate*x1
+  pool2%nitrif=pool2%nitrif*x2 + pool1%nitrif*x1
+  pool2%denitrif=pool2%denitrif*x2 + pool1%denitrif*x1
+
+contains
+  ! C turnover = average loss_rate/C, that is tovr1 = loss1/c1, tovr2 = loss2/c2.
+  ! the turnover of combination is
+  ! tovr = (loss1+loss2)/(c1+c2) = (tovr1*c1 + tovr2*c2)/(c1+c2)
+  function combined_turnover(tovr1,c1,x1,tovr2,c2,x2) result(tovr)
+     real :: tovr(N_C_TYPES)
+     real, intent(in) :: tovr1(N_C_TYPES), c1(N_C_TYPES), x1
+     real, intent(in) :: tovr2(N_C_TYPES), c2(N_C_TYPES), x2
+
+     real :: denom(N_C_TYPES)
+     denom = c1(:)*x1+c2(:)*x2
+     where (denom(:) > 0)
+        tovr(:) = (tovr1(:)*c1(:)*x1 + tovr2(:)*c2(:)*x2)/denom(:)
+     elsewhere
+        tovr(:) = 0.0
+     end where
+  end function combined_turnover
 end subroutine combine_pools
 
 
