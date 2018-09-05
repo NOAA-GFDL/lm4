@@ -50,7 +50,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart
+     save_snow_restart, sweep_tiny_snow
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
@@ -131,7 +131,7 @@ public atm_lnd_bnd_type_chksum  ! routine to print checksums for atmos_land_boun
 public :: Lnd_stock_pe          ! return stocks of conservative quantities
 
 ! re-export land diagnostic subroutines for tiled diag in flux exchange
-public set_default_diag_filter, register_tiled_diag_field, send_tile_data
+public set_default_diag_filter, register_tiled_diag_field, send_tile_data, dump_tile_diag_fields
 public send_global_land_diag
 ! ==== end of public interfaces ==============================================
 
@@ -1251,7 +1251,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%time)
 
   ! deallocate override buffer
   deallocate(phot_co2_data)
@@ -1305,7 +1305,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! linearization coefficients of various fluxes between components of land
   ! surface scheme
   real :: &
-       Ea0,   DEaDqc, &  ! water vapor flux
+       Ea0,   DEaDqc, &  ! water vapor flux from canopy air to the atmosphere
        fco2_0,Dfco2Dq,&  ! co2 flux from canopy air to the atmosphere
        G0,    DGDTg,  &  ! ground heat flux
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
@@ -1410,6 +1410,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: DOC_to_atmos
   logical :: calc_water_cons, calc_carbon_cons, calc_nitrogen_cons
   character(*), parameter :: tag = 'update_land_model_fast_0d'
+  real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
+                                           ! heat swept with tiny snow
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -1447,6 +1449,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     nflux0=0.0
   endif
   ! - end of conservation check, part 1
+
+  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
+  ! avoid numerical issues.
+  call sweep_tiny_snow(tile%snow, lswept, fswept, hlswept, hfswept)
 
   soil_uptake_T(:) = tfreeze ! just to avoid using un-initialized values
   if (associated(tile%glac)) then
@@ -2043,6 +2049,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        snow_levap, snow_fevap, snow_melt, &
        snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
        snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
+  snow_lrunf  = snow_lrunf  + lswept/delta_time
+  snow_frunf  = snow_frunf  + fswept/delta_time
+  snow_hlrunf = snow_hlrunf + hlswept/delta_time
+  snow_hfrunf = snow_hfrunf + hfswept/delta_time
   if(is_watch_point()) then
      write(*,*) 'subs_M_imp', subs_M_imp
   endif
@@ -2470,7 +2480,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%time)
 
   ! land_transitions may have changed the number of tiles per grid cell: reallocate
   ! boundary conditions, if necessary
@@ -3656,7 +3666,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_ntiles = register_tiled_diag_field(module_name,'ntiles', axes,  &
        time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum', &
        cell_methods='area: mean')
-  ! override cell methods to use poper method of interpolation from cubic 
+  ! override cell methods to use poper method of interpolation from cubic
   ! sphere to lat-lon in post-processing
 
 

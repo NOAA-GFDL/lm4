@@ -956,8 +956,7 @@ end subroutine send_tile_data_i0d_fptr
 ! ============================================================================
 !pass in land_tile_map into this routine to temporarily solve the crash issue
 !with Intel compiler when running with multiple openmp threads.
-subroutine dump_tile_diag_fields(land_tile_map,time)
-  type(land_tile_list_type), intent(in) :: land_tile_map(:) ! map of tiles
+subroutine dump_tile_diag_fields(time)
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars

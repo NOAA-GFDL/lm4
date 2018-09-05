@@ -41,6 +41,7 @@ public :: snow_end
 public :: save_snow_restart
 public :: snow_get_sfc_temp
 public :: snow_get_depth_area
+public :: sweep_tiny_snow
 public :: snow_step_1
 public :: snow_step_2
 ! =====end of public interfaces ==============================================
@@ -64,11 +65,15 @@ real :: init_temp = 260.   ! cold-start snow T
 real :: init_pack_ws   =   0.
 real :: init_pack_wl   =   0.
 real :: min_snow_mass = 0.
+logical :: prevent_tiny_snow = .FALSE. ! if true, tiny snow is removed at the
+   ! beginning of fast time step to avoid numerical issues. There is no harm
+   ! in doing that, but it changes answers, so for compatibility with older code
+   ! turn it off.
 
 namelist /snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
                     max_snow, wet_max, snow_density, &
                     init_temp, init_pack_ws, init_pack_wl, &
-                    min_snow_mass
+                    min_snow_mass, prevent_tiny_snow
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -233,6 +238,30 @@ subroutine snow_get_depth_area(snow, snow_depth, snow_area)
   call snow_data_area (snow_depth, snow_area )
 end subroutine
 
+! ============================================================================
+! if snow amount is below specified limit, sweeps it into runoff
+subroutine sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf)
+  type(snow_tile_type), intent(inout) :: snow
+  real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
+
+  real :: snow_mass
+  integer :: l
+
+  lrunf=0 ; frunf=0 ; hlrunf=0 ; hfrunf=0
+  if (.not.prevent_tiny_snow) return ! do nothing, return zeros
+
+  snow_mass  = sum(snow%ws)
+  ! check if the snow is small enough to warrant sweeping
+  if ( snow_mass<0 .or. snow_mass >= min_snow_mass ) return
+
+  lrunf  = sum(snow%wl) ; frunf  = snow_mass
+  hlrunf = 0.0 ; hfrunf = 0.0
+  do l = 1, num_l
+     hlrunf = hlrunf + clw*snow%wl(l)*(snow%T(l)-tfreeze)
+     hfrunf = hfrunf + csw*snow%ws(l)*(snow%T(l)-tfreeze)
+  enddo
+  snow%ws = 0 ; snow%wl = 0
+end subroutine sweep_tiny_snow
 
 ! ============================================================================
 ! update snow properties explicitly for time step.
