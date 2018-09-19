@@ -1041,16 +1041,16 @@ pure subroutine initializeCohort(cohort,&
 end subroutine initializeCohort
 
 ! note that in resp_denitrif the dependence on soil moisture is subtly different
-elemental real function theta_func(water_filed_porosity,air_filled_porosity)
-  real, intent(in) :: water_filed_porosity ! fraction of pores filled with water
+elemental real function theta_func(water_filled_porosity,air_filled_porosity)
+  real, intent(in) :: water_filled_porosity ! fraction of pores filled with water
   real, intent(in) :: air_filled_porosity ! fraction of pores filled with water
 
   ! Functional dependence on soil moisture, normalized so max is 1
-  theta_func=(water_filed_porosity**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+  theta_func=(max(water_filled_porosity,0.0)**substrate_diffusion_exp)*(max(air_filled_porosity,0.0)**gas_diffusion_exp)/aerobic_max
   ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-  if(water_filed_porosity>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
+  if(water_filled_porosity>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
   ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-  if(water_filed_porosity<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
+  if(water_filled_porosity<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
 end function theta_func
 
 
