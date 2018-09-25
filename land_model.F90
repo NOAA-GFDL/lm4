@@ -534,7 +534,10 @@ subroutine land_model_init &
      update_cana_co2 = .TRUE.
   end if
 
-  if (reset_to_ntrl) call remove_non_primary()
+  if (reset_to_ntrl) then
+     call error_mesg('land_model_init','removing non-primary vegetation',NOTE)
+     call remove_non_primary()
+  endif
 
   call mpp_clock_end(landInitClock)
 
@@ -569,7 +572,7 @@ subroutine remove_non_primary()
      if (is_watch_cell()) then
         __DEBUG2__(f_soil, f_ntrl)
      endif
-     if (f_soil==0) cycle ! do nothing for grid cells that doe not have soil/vegetation tiles
+     if (f_soil==0) cycle ! do nothing for grid cells that do not have soil/vegetation tiles
 
      if (f_ntrl==0) then
         ! if natural area in grid cell is zero, find tile with highest biomass and designate
@@ -600,8 +603,8 @@ subroutine remove_non_primary()
      te = tail_elmt(land_tile_map(l))
      do
         if(ce==te) exit ! reached the end of the list
-        next = next_elmt(ce)
         tile=>current_tile(ce)
+        next = next_elmt(ce)
         if (associated(tile%vegn)) then
            if (tile%vegn%landuse==LU_NTRL) then
               tile%frac = tile%frac*f_soil/f_ntrl
