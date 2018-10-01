@@ -14,7 +14,6 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use constants_mod, only : VONKARM
-use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
@@ -29,6 +28,7 @@ use land_data_mod, only : log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, field_exists
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -40,7 +40,6 @@ public :: cana_end
 public :: save_cana_restart
 public :: cana_turbulence
 public :: cana_roughness
-public :: cana_state
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -57,16 +56,13 @@ real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
+logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
+   ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
-logical :: allow_small_z0 = .FALSE. ! to use z0 provided by lake and glac modules
-real :: lai_min_turb = 0.0 ! fudge to desensitize Tv to SW/cosz inconsistency
 real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
-logical :: sai_turb      = .FALSE.  ! if true, SAI is taken into account for con_v_h and 
-                                    ! con_v_v calculations
 namelist /cana_nml/ &
-  init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
-  canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, &
-  allow_small_z0, lai_min_turb, bare_rah_sca, sai_turb
+  init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
+  canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
@@ -107,21 +103,21 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init()
+subroutine cana_init ()
 
   ! ---- local vars ----------------------------------------------------------
-  type(land_tile_enum_type)     :: ce   ! tile list enumerator
-  type(land_tile_type), pointer :: tile ! pointer to current tile
+  type(land_tile_enum_type)     :: ce ! last and current tile
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
   character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
-  character(len=32)  :: name  ! name of the tracer
-  integer            :: tr, i ! tracer indices
-  real               :: init_tr(ntcana) ! initial (cold-start) values of tracers
-  real               :: value ! used for parameter parsing
-  character(len=32)  :: scheme
-  character(len=128) :: parameters
+  character(32)  :: name  ! name of the tracer
+  integer        :: tr, i ! tracer indices
+  real           :: init_tr(ntcana) ! initial (cold-start) values of tracers
+  real           :: value ! used for parameter parsing
+  character(32)  :: scheme
+  character(1024) :: parameters
 
   module_is_initialized = .TRUE.
 
@@ -235,60 +231,97 @@ end subroutine save_cana_restart
 
 ! ============================================================================
 subroutine cana_turbulence (u_star,&
-     vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf, &
+     vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      con_v_h, con_v_v, con_g_h, con_g_v )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
        land_d, land_z0m, land_z0s, grnd_z0s, &
-       vegn_cover, vegn_height, &
-       vegn_lai, vegn_sai, vegn_d_leaf
+       vegn_cover, vegn_height(:), vegn_layerfrac(:), &
+       vegn_bottom(:), & ! height of the bottom of the canopy, m
+       vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
-       con_v_h, con_v_v, & ! one-sided foliage-cas conductance per unit of ground area
-       con_g_h, con_g_v    ! ground-CAS conductance per unit ground area
+       con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
+       con_g_h   , con_g_v       ! ground-CAS conductance per unit ground area
 
   !---- local constants
   real, parameter :: a_max = 3
   real, parameter :: leaf_co = 0.01 ! meters per second^(1/2)
                                     ! leaf_co = g_b(z)/sqrt(wind(z)/d_leaf)
+  real, parameter :: min_thickness = 0.01 ! thickness for switching to thin-canopy approximation, m
+  real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
   ! ---- local vars
   real :: a        ! parameter of exponential wind profile within canopy:
                    ! u = u(ztop)*exp(-a*(1-z/ztop))
-  real :: height   ! effective height of vegetation
+  real :: height   ! height of the current vegetation cohort, m
+  real :: ztop     ! height of the tallest vegetation, m
   real :: wind     ! normalized wind on top of canopy, m/s
   real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
-  real :: vegn_idx ! total vegetation index for turbulence calculations
+  real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: rah_sca  ! ground-SCA resistance
+  real :: h0       ! height of the canopy bottom, m
+  real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
 
-  if (sai_turb) then
-     vegn_idx = max(vegn_lai,vegn_sai,lai_min_turb)
-  else
-     vegn_idx = max(vegn_lai,lai_min_turb)
-  endif
-  
+  integer :: i
+
+  ! TODO: check array sizes
+
   select case(turbulence_option)
   case(TURB_LM3W)
      if(vegn_cover > 0) then
-        wind  = u_star/VONKARM*log((vegn_height-land_d)/land_z0m) ! normalized wind on top of the canopy
+        ztop   = maxval(vegn_height(:))
+
+        wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
         a     = vegn_cover*a_max
-        con_v_h = (2*vegn_idx*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
-        con_g_h = u_star*a*VONKARM*(1-land_d/vegn_height) &
-             / (exp(a*(1-grnd_z0s/vegn_height)) - exp(a*(1-(land_z0s+land_d)/vegn_height)))
+        do i = 1,size(vegn_lai)
+           height = vegn_height(i) ! effective height of the vegetation
+           h0     = vegn_bottom(i) ! height of the bottom of the canopy
+           if(height-h0>min_thickness) then
+              con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+                 *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
+           else
+              ! thin cohort canopy limit
+              con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
+                 *exp(-a/2*(ztop-height)/ztop)
+           endif
+        enddo
+        con_g_h = u_star*a*VONKARM*(1-land_d/ztop) &
+             / (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0s+land_d)/ztop)))
      else
         con_v_h = 0
         con_g_h = 0
      endif
+     con_v_v = con_v_h
   case(TURB_LM3V)
-     height = max(vegn_height,0.1) ! effective height of the vegetation
+     ztop = max(maxval(vegn_height(:)),min_height)
+
      a = a_max
-     wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
+     wind=u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
 
-     con_v_h = (2*vegn_idx*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
+     do i = 1,size(vegn_lai)
+        height = max(vegn_height(i),min_height) ! effective height of the vegetation
+        h0     = vegn_bottom(i) ! height of the canopy bottom above ground
+        if(height-h0>min_thickness) then
+           gb = 2*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
+        else
+           ! thin cohort canopy limit
+           gb = leaf_co*sqrt(wind/vegn_d_leaf(i))&
+              *exp(-a/2*(ztop-height)/ztop)
+        endif
+        con_v_v(i) = vegn_lai(i)*gb
+        if (use_SAI_for_heat_exchange) then
+           con_v_h(i) = (vegn_lai(i)+vegn_sai(i))*gb
+        else
+           con_v_h(i) = vegn_lai(i)*gb
+        endif
+     enddo
 
-     if (land_d > 0.06 .and. vegn_lai+vegn_sai > 0.25) then
-        Kh_top = VONKARM*u_star*(height-land_d)
-        rah_sca = height/a/Kh_top * &
-             (exp(a*(1-grnd_z0s/height)) - exp(a*(1-(land_z0m+land_d)/height)))
+     vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
+     if (land_d > 0.06 .and. vegn_idx > 0.25) then
+        Kh_top = VONKARM*u_star*(ztop-land_d)
+        rah_sca = ztop/a/Kh_top * &
+             (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
         rah_sca = min(rah_sca,1250.0)
      else
         rah_sca = bare_rah_sca
@@ -296,8 +329,7 @@ subroutine cana_turbulence (u_star,&
      con_g_h = 1.0/rah_sca
   end select
   con_g_v = con_g_h
-  con_v_v = con_v_h
-end subroutine
+end subroutine cana_turbulence
 
 ! ============================================================================
 ! update effective surface roughness lengths for CAS-to-atmosphere fluxes
@@ -322,8 +354,8 @@ subroutine cana_roughness(lm2, &
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover, vegn_height, vegn_lai, vegn_sai, &
-     land_d, land_z0m, land_z0s, is_lake_or_glac )
-  logical, intent(in) :: lm2, is_lake_or_glac
+     land_d, land_z0m, land_z0s )
+  logical, intent(in) :: lm2
   real, intent(in) :: &
        subs_z0m, subs_z0s, snow_z0m, snow_z0s, snow_area, vegn_cover, vegn_height, &
        vegn_lai, vegn_sai
@@ -384,31 +416,14 @@ subroutine cana_roughness(lm2, &
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
      else
-        ! bare soil or leaf off
-        land_z0m = 0.1 *height
-        land_d   = 0.66*height
+        land_d   = 0
+        land_z0m = grnd_z0m
      endif
      land_z0s = land_z0m*exp(-2.0)
-
-     if (allow_small_z0.and.is_lake_or_glac) then
-         land_d = 0
-	 land_z0m = grnd_z0m
-	 land_z0s = grnd_z0s
-       endif
 
   end select
 
 end subroutine cana_roughness
-
-! ============================================================================
-subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
-  type(cana_tile_type), intent(in)  :: cana
-  real, optional      , intent(out) :: cana_T, cana_q, cana_co2
-
-  if (present(cana_T))   cana_T   = cana%T
-  if (present(cana_q))   cana_q   = cana%tr(isphum)
-  if (present(cana_co2)) cana_co2 = cana%tr(ico2)
-end subroutine
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

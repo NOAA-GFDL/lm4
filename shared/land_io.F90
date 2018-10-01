@@ -22,6 +22,11 @@ use fms_mod, only: open_namelist_file
 
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
+use time_interp_external_mod, only: time_interp_external_init, &
+     time_interp_external, init_external_field
+use time_manager_mod, only: time_type
+use mpp_domains_mod, only : domain2d
+use axis_utils_mod, only: get_axis_bounds
 
 use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
@@ -35,6 +40,10 @@ private
 public :: init_cover_field
 public :: read_field
 public :: read_land_io_namelist
+
+public :: external_ts_type
+public :: init_external_ts, del_external_ts
+public :: read_external_ts
 
 public :: print_netcdf_error
 
@@ -60,10 +69,20 @@ character(len=*), parameter :: module_name = 'land_io_mod'
 real, parameter :: DEFAULT_FILL_INT  = -HUGE(1)
 real, parameter :: DEFAULT_FILL_REAL = -HUGE(1.0)
 
+! ==== module types ==========================================================
+type external_ts_type
+   character(256) :: filename
+   character(64)  :: fieldname
+   integer :: id ! ID of external field
+   type(horiz_interp_type) :: interp ! interpolator
+   real :: fill ! fill value for missing data
+end type external_ts_type
+
+! ==== module data ===========================================================
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
-integer :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
-logical :: new_land_io = .true.
+integer, protected :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
+logical, protected :: new_land_io = .true.
 namelist /land_io_nml/ interp_method, input_buf_size, new_land_io
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -776,5 +795,74 @@ subroutine print_netcdf_error(ierr, file, line)
      call error_mesg('NetCDF', mesg, FATAL)
   endif
 end subroutine print_netcdf_error
+
+! ==============================================================================
+! simplified interface for the time_inerp_external: takes care of creating
+! the horizntal interpolator
+! ==============================================================================
+subroutine init_external_ts(ts, filename, fieldname, interp, fill)
+  type(external_ts_type), intent(inout) :: ts
+  character(*), intent(in) :: filename, fieldname
+  character(*), intent(in) :: interp ! interpolation method
+  real,         intent(in), optional :: fill ! fill value for missing data
+
+! NOTE: filling missing data is not really implemented yet. It is not clear how to get
+! the input data to determine the input valid data mask. Besides, missing input data mask
+! may be different at different times -- not sure if time_interp_external can handle that
+! at all.
+! TODO: really implement missing data masking and filling
+
+  integer :: axis_sizes(4)
+  type(axistype) :: axis_centers(4), axis_bounds(4)
+  real, allocatable :: lon_in(:), lat_in(:)
+
+  ! initialize external field
+  ts%filename = filename
+  ts%fieldname = fieldname
+  ts%id = init_external_field(filename,fieldname, domain=lnd%sg_domain, &
+       axis_centers=axis_centers, axis_sizes=axis_sizes, &
+       use_comp_domain=.TRUE., override=.TRUE.)
+  !  get lon and lat of the input (source) grid, assuming that axis%data contains
+  !  lat and lon of the input grid (in degrees)
+  call get_axis_bounds(axis_centers(1),axis_bounds(1),axis_centers)
+  call get_axis_bounds(axis_centers(2),axis_bounds(2),axis_centers)
+  allocate(lon_in(axis_sizes(1)+1))
+  allocate(lat_in(axis_sizes(2)+1))
+  call mpp_get_axis_data(axis_bounds(1),lon_in)
+  call mpp_get_axis_data(axis_bounds(2),lat_in)
+  select case (trim(interp))
+  case ('bilinear')
+     call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lnd%sg_lon, lnd%sg_lat, &
+          interp_method='bilinear')
+  case ('conservative')
+     call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lnd%sg_lonb, lnd%sg_latb, &
+          interp_method='conservative')
+  case default
+     call error_mesg('init_external_ts','Unknown interpolation method "'//trim(interp)//'". use "bilinear" or "conservative"', FATAL)
+  end select
+  deallocate(lon_in,lat_in)
+  ts%fill = DEFAULT_FILL_REAL
+  if (present(fill)) ts%fill = fill
+end subroutine init_external_ts
+
+
+! ==============================================================================
+subroutine del_external_ts(ts)
+  type(external_ts_type), intent(inout) :: ts
+  call horiz_interp_del(ts%interp)
+end subroutine del_external_ts
+
+
+! ==============================================================================
+subroutine read_external_ts(ts,time,data_ug)
+  type(external_ts_type), intent(in)  :: ts
+  type(time_type),        intent(in)  :: time
+  real,                   intent(out) :: data_ug(:)
+
+  real :: data_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  call time_interp_external(ts%id, time, data_sg, horz_interp=ts%interp)
+  call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_ug)
+end subroutine read_external_ts
 
 end module

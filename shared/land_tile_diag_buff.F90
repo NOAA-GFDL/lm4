@@ -37,7 +37,7 @@ subroutine realloc_diag_buff(buffer, m)
 
   real    , allocatable :: new_data(:)
   logical , allocatable :: new_mask(:)
-  integer           :: n
+  integer               :: n
 
   ! n is size of the original buffer; m is the current size of the buffer
   ! for all diagnostic fields

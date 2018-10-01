@@ -43,8 +43,6 @@ private
 public :: read_hlsp_namelist
 public :: hlsp_init      ! read surface parameters, read restart file, set
                          ! hillslope-position-dependent parameters
-public :: hlsp_init_predefined ! Initialize hillslope using predefined tile
-                               ! parameters
 !public :: get_max_hidx    ! evaluate maximum hillslope indices for the gridcell
 public :: hlsp_coldfracs ! determine # and fractions of tiles within hillslopes for cold start
                           ! and determine hillslope indices
@@ -344,6 +342,7 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
   real :: NN ! num_vertclusters, real
   real :: sum_l ! sum of dl
   character(len=256) :: mesg
+
   NN = real(num_vertclusters)
   num_lnd = size(tile_frac,1)
   num_tiles = size(tile_frac,2)
@@ -752,82 +751,6 @@ subroutine hlsp_init(id_ug)
 
 end subroutine hlsp_init
 
-! ============================================================================
-! initialize hillslope model
-subroutine hlsp_init_predefined(id_ug)
-  integer,intent(in) :: id_ug !<Unstructured axis id.
-
-  ! ---- local vars
-  integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
-  character(len=256) :: mesg
-  logical :: restart_exists
-  logical :: found
-  integer :: siz(4), tsize
-  type(land_restart_type) :: restart
-
-  ! change the initialization flag to true
-  module_is_initialized = .TRUE.
-
-  ! initialize hillslope-dependent diagnostic fields
-  call hlsp_diag_init(id_ug)
-
-  call open_land_restart(restart,hlsp_rst_ifname,restart_exists)
-  if (restart_exists) then
-     call error_mesg(module_name, 'hlsp_init, '// &
-          'reading NetCDF restart "'//trim(hlsp_rst_ifname)//'"', &
-          NOTE)
-     if (cold_start) &
-        call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
-                             'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
-     call get_int_tile_data(restart, 'HIDX_J', soil_hidx_j_ptr)
-     call get_int_tile_data(restart, 'HIDX_K', soil_hidx_k_ptr)
-  else
-     call error_mesg(module_name, 'hlsp_init: '// &
-          'cold-starting hillslope model',&
-          NOTE)
-
-  endif
-  call free_land_restart(restart)
-
-  ! ---- static [for now] diagnostic section
-  ! List of fields:
-   !id_soil_e_depth, id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
-   !id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, id_transm_bedrock, &
-   !id_hidx_j, id_hidx_k
-   ! soil_e_depth and k_sat_gw will be done in soil_init.
-   call send_tile_data_i0d_fptr(id_hidx_j,         soil_hidx_j_ptr)
-   call send_tile_data_i0d_fptr(id_hidx_k,         soil_hidx_k_ptr)
-!   call send_tile_data_r0d_fptr(id_soil_e_depth,  soil_soil_e_depth_ptr)
-   call send_tile_data_r0d_fptr(id_microtopo,      soil_microtopo_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_length, soil_tile_hlsp_length_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_slope,  soil_tile_hlsp_slope_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,   soil_tile_hlsp_elev_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,   soil_tile_hlsp_hpos_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_width,  soil_tile_hlsp_width_ptr)
-!   call send_tile_data_r0d_fptr(id_transm_bedrock,  soil_transm_bedrock_ptr)
-
- !Print out parameters
- if (is_watch_point()) then
-   ce = first_elmt(land_tile_map)
-   do while (loop_over_tiles(ce,tile))
-      if (.not.associated(tile%soil))cycle
-      print*,'soil_e_depth',tile%soil%pars%soil_e_depth
-      print*,'microtopo',tile%soil%pars%microtopo
-      print*,'k_sat_gw',tile%soil%pars%k_sat_gw
-      print*,'hlsp_elev',tile%soil%pars%tile_hlsp_elev
-      print*,'hlsp_hpos',tile%soil%pars%tile_hlsp_hpos
-      print*,'hlsp_width',tile%soil%pars%tile_hlsp_width
-      print*,'hlsp_slope',tile%soil%pars%tile_hlsp_slope
-      print*,'hlsp_length',tile%soil%pars%tile_hlsp_length
-      print*,'microtopo',tile%soil%pars%microtopo
-      print*,'hidx_j',tile%soil%hidx_j
-      print*,'hidx_k',tile%soil%hidx_k
-   end do
- endif
-
-end subroutine hlsp_init_predefined
 
 ! ============================================================================
 subroutine hlsp_diag_init(id_ug)

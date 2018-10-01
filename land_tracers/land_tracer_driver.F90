@@ -77,14 +77,13 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! ============================================================================
 subroutine land_tracer_driver_init(id_ug)
   integer,intent(in) :: id_ug !<Unstructured axis id.
-!----------
 
   integer :: tr ! tracer index
   real    :: value ! temporary storage for parsing input
   character(32)  :: name, units, funits ! name and units of the tracer and flux
   character(128) :: longname ! long name of the tracer
   character(32)  :: method
-  character(512) :: parameters
+  character(1024) :: parameters
   type(table_printer_type) :: table
 
   ! write the version and tag name to the logfile
@@ -233,7 +232,7 @@ end function laminar_conductance
 ! updates concentration of tracers in the canopy air, taking into account dry
 ! deposition and exchange with the atmosphere
 subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
-     precip_l, precip_s, pressure, ustar, con_g, con_v, stomatal_cond )
+     precip_l, precip_s, pressure, ustar, con_g, con_v_v, stomatal_cond )
   type(land_tile_type), intent(inout) :: tile
   integer :: l ! grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
@@ -244,13 +243,16 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
   real, intent(in) :: ustar ! friction velocity, m/s
   ! real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(in) :: con_g ! aerodynamic conductance between canopy air and ground for tracers
-  real, intent(in) :: con_v ! aerodynamic conductance between canopy air and canopy for tracers
-  real, intent(in) :: stomatal_cond ! integral stomatal conductance of canopy (that is, multiplied by LAI), for water vapor, m/s
+  real, intent(in) :: con_v_v(:) ! aerodynamic conductance between canopy air and canopy
+          ! for tracers, by cohort, per unit area occupied by cohort
+  real, intent(in) :: stomatal_cond(:) ! integral stomatal conductance of each cohort 
+          ! canopy (that is, multiplied by LAI), for water vapor, m/s
 
   integer :: tr      ! tracer index
-  integer :: species ! vegetation species index
+  integer :: k       ! cohort index
   real    :: rho     ! density of canopy air
   real    :: dq      ! canopy air tracer tendency per time step
+  real    :: con_v   ! aerodynamic conductance between canopy air and canopy
   real    :: con_v_lam ! quasi-laminar layer conductance for vegetation, m/s
   real    :: con_g_lam ! quasi-laminar layer conductance for ground, m/s
   real    :: con_st  ! total stomatal conductance, scaled by dry leaf area, m/s
@@ -275,13 +277,12 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
      __DEBUG1__(pressure)
      __DEBUG2__(precip_l, precip_s)
      __DEBUG1__(ustar)
-     __DEBUG3__(con_g, con_v, stomatal_cond)
      write(*,*) 'end of update_cana_tracers input'
   endif
 
   ! update non-generic tracers, e.g.:
   call update_land_dust(tile, l, tr_flux, dfdtr, &
-     precip_l, precip_s, pressure, ustar, con_g, con_v )
+     precip_l, precip_s, pressure, ustar, con_g, con_v_v )
   ! wind10 is not passed to this subroutine yet
 
   ! update generic tracers
@@ -299,22 +300,23 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
   ! momentum dissipates on both leaves and ground; for the momentum conservation
   ! we need to reduce dissipation per unit surface proportionally to the total
   ! surface area. Factor of 2 takes into account that the leaves are 2-sided.
-   ustar_s = ustar/sqrt(2*LAI+1.0)
+  ustar_s = ustar/sqrt(2*LAI+1.0)
 
-  rho = pressure/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum))) ! air density
+  ! FIXME: stomatal conductance does depend on tracer, but perhaps we can scale it as a whole
+  con_st = 0.0; con_v = 0.0
   if (associated(tile%vegn)) then
-     ! our species
-     species = tile%vegn%cohorts(1)%species
-     ! adjust the stomatal conductance for the fraction covered by intercepted water/snow
-     call get_vegn_wet_frac ( tile%vegn%cohorts(1), fw=fw, fs=fs )
-     ft = 1 - fw - fs ! fraction of canopy not covered by water or snow
-     con_st = ft*stomatal_cond
-  else
-     con_st = 0.0
+     associate(cc=>tile%vegn%cohorts)
+     do k = 1, tile%vegn%n_cohorts
+        con_st = con_st + stomatal_cond(k)*cc(k)%layerfrac
+        con_v  = con_v  + con_v_v(k)*cc(k)%layerfrac
+     enddo
+     end associate ! cc
   endif
 
+  rho = pressure/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum))) ! air density
+
   if (is_watch_point()) then
-     __DEBUG4__(LAI,ustar,ustar_s,con_st)
+     __DEBUG3__(LAI,ustar,ustar_s)
   endif
 
   ! loop for generic tracers only
@@ -322,18 +324,22 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
      if (.not.trdata(tr)%is_generic) cycle
 
      if (trdata(tr)%do_deposition) then
+        con_v_lam = 0.0
+        con_cu    = 0.0
         if (associated(tile%vegn)) then
-           ! conductance of quasi-laminar layers
-           con_v_lam = LAI*laminar_conductance(tile%vegn%cohorts(1)%Tv, pressure, &
-                           tile%cana%tr(isphum), ustar_s, diffusivity_h2o/trdata(tr)%diff_ratio)
-           ! cuticular conductance: includes deposition od dry and wet portions of the
-           ! leaves
-           con_cu = LAI * ( ft*spdata(species)%tracer_cuticular_cond &
-                              *(trdata(tr)%Henry_const*1e-5 + trdata(tr)%reactivity) &
-                            + fw / trdata(tr)%r_lw + fs / trdata(tr)%r_ls )
-        else
-           con_v_lam = 0.0
-           con_cu    = 0.0
+           associate(cc=>tile%vegn%cohorts)
+           do k = 1, tile%vegn%n_cohorts
+              ! conductance of quasi-laminar layers
+              con_v_lam = con_v_lam + cc(k)%layerfrac*cc(k)%lai*laminar_conductance(cc(k)%Tv, pressure, &
+                              tile%cana%tr(isphum), ustar_s, diffusivity_h2o/trdata(tr)%diff_ratio)
+              ! cuticular conductance: includes deposition od dry and wet portions of the
+              ! leaves
+              call get_vegn_wet_frac ( cc(k), fw=fw, fs=fs ); ft = 1-fw-fs
+              con_cu = con_cu + cc(k)%layerfrac*cc(k)%lai * ( ft*spdata(cc(k)%species)%tracer_cuticular_cond &
+                                 *(trdata(tr)%Henry_const*1e-5 + trdata(tr)%reactivity) &
+                               + fw / trdata(tr)%r_lw + fs / trdata(tr)%r_ls )
+           enddo
+           end associate ! cc
         endif
 
         ! estimate conductances

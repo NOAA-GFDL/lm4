@@ -16,8 +16,8 @@ subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   character(len=*)  , intent(in) :: name ! name of the variable to read
   integer           , intent(in) :: map_i(lnd%ls:) ! re-mapping index
   integer           , intent(in) :: map_j(lnd%ls:) ! re-mapping index
-  integer, optional , intent(in) :: rec  ! record number (in case there are 
-                                         ! several in the file) 
+  integer, optional , intent(in) :: rec  ! record number (in case there are
+                                         ! several in the file)
   ! subroutine returning the pointer to the data to be written
   interface
      subroutine fptr(cohort, ptr)
@@ -80,7 +80,7 @@ subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   do l = lnd%ls, lnd%le
      ii = map_i(l); jj = map_j(l)
      if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
-     if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data 
+     if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data
 
      ce = first_elmt (land_tile_map(l))
      te = tail_elmt  (land_tile_map(l))
@@ -90,11 +90,11 @@ tile_loop:  do while(ce/=te.and.k<=dimlens(3))
         if (.not.associated(tile%vegn)) cycle
         ! find index of the next valid tile in the input data
         do while(.not.any(mask(ii,jj,k,:)))
-           k=k+1 ! go to the next tile if there's no data (i.e. all mask 
+           k=k+1 ! go to the next tile if there's no data (i.e. all mask
                  ! values are false for this tile)
-           if(k>dimlens(3)) exit tile_loop 
+           if(k>dimlens(3)) exit tile_loop
         enddo
-        
+
         do n = 1,min(size(tile%vegn%cohorts(:)),dimlens(4))
            cohort=>tile%vegn%cohorts(n)
            call fptr(cohort,ptr)
@@ -103,8 +103,8 @@ tile_loop:  do while(ce/=te.and.k<=dimlens(3))
         k = k+1 ! go to the next tile in input data
      enddo tile_loop
   enddo
-  
+
   ! free allocated memory
   deallocate(data,mask)
 
-end subroutine 
+end subroutine
