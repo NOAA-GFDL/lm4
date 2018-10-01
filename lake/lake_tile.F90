@@ -1,6 +1,5 @@
-#include <fms_platform.h>
-
 module lake_tile_mod
+#include <fms_platform.h>
 
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug

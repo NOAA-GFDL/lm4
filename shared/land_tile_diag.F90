@@ -894,9 +894,8 @@ end subroutine send_tile_data_i0d_fptr
 ! ============================================================================
 !pass in land_tile_map into this routine to temporarily solve the crash issue
 !with Intel compiler when running with multiple openmp threads.
-subroutine dump_tile_diag_fields(land_tile_map,time)
-  type(land_tile_list_type), intent(in) :: land_tile_map(:) ! map of tiles
-  type(time_type)          , intent(in) :: time       ! current time
+subroutine dump_tile_diag_fields(time)
+  type(time_type), intent(in) :: time       ! current time
 
   ! ---- local vars
   integer :: ifld ! field number
@@ -990,7 +989,7 @@ subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
 ! this issue.
 
   ! ---- local vars
-  integer :: k, l ! iterators
+  integer :: l ! iterators
   integer :: ks,ke ! array boundaries
   integer :: ls, le
   logical :: used ! value returned from send_data (ignored)
@@ -1010,30 +1009,22 @@ subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
 
   ! accumulate data
   ce = first_elmt(land_tile_map, ls=ls)
-  select case (field%opcode)
+  do while(loop_over_tiles(ce, tile, l))
+    if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
+    if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
+    select case (field%opcode)
     case (OP_AVERAGE,OP_VAR,OP_STD)
-      do k = ks, ke
-        do while(loop_over_tiles(ce, tile, l))
-          if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
-          if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
-          if(tile%diag%mask(k)) then
-             buffer(l,k) = buffer(l,k) + tile%diag%data(k)*tile%frac
-          endif
-          weight(l,k) = weight(l,k) + tile%frac
-        enddo
-      enddo
+       where(tile%diag%mask(ks:ke))
+          buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)*tile%frac
+       end where
+       weight(l,:) = weight(l,:) + tile%frac
     case (OP_SUM)
-      do k = ks, ke
-        do while(loop_over_tiles(ce, tile, l))
-          if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
-          if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
-          if(tile%diag%mask(k)) then
-             buffer(l,k) = buffer(l,k) + tile%diag%data(k)
-          endif
-          weight(l,k) = 1
-        enddo
-      enddo
-  end select
+       where(tile%diag%mask(ks:ke))
+          buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)
+       end where
+       weight(l,:) = 1
+    end select
+  enddo
 
   ! normalize accumulated data
   mask = (weight>0)
