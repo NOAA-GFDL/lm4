@@ -68,6 +68,7 @@ use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      river_tracer_names, get_river_water
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
+use vegn_cohort_mod, only : plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
                           vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
@@ -81,7 +82,7 @@ use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
 use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
-     first_elmt, current_tile, &
+     first_elmt, tail_elmt, next_elmt, operator(==), current_tile, &
      get_tile_tags, get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
@@ -200,6 +201,14 @@ integer :: npes_io_group = 0
   !     4,5,5
   !     2,4,6
 character(len=128) :: mask_table = "INPUT/land_mask_table"
+logical :: reset_to_ntrl = .FALSE. ! if true, on model initialization any vegetation tiles
+  ! that are not natural are removed and fraction of natural vegetation tiles is scaled up
+  ! to occupy the entire soil. If a grid cell does not have any natural tiles, then the tile
+  ! with highest biomass becomes natural.
+  ! This is intended to be used in one-shot runs to convert existing IC with land use into
+  ! IC suitable for potential vegetation runs. Typically one would set this parameter to
+  ! TRUE, run for zero time steps, and collect resulting restarts to be an IC for potential
+  ! vegetation run.
 
 namelist /land_model_nml/ use_old_conservation_equations, &
                           lm2, give_stock_details, &
@@ -213,7 +222,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           con_fac_large, con_fac_small, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
-                          layout, io_layout, npes_io_group, mask_table
+                          layout, io_layout, npes_io_group, mask_table, reset_to_ntrl
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -525,10 +534,85 @@ subroutine land_model_init &
      update_cana_co2 = .TRUE.
   end if
 
+  if (reset_to_ntrl) call remove_non_primary()
+
   call mpp_clock_end(landInitClock)
 
 end subroutine land_model_init
 
+! ============================================================================
+! removes non-primary vegetation tiles, rescaling the fractions
+subroutine remove_non_primary()
+  type(land_tile_enum_type):: ce,te,next
+  integer :: l, k, n_ntrl
+  type(land_tile_type), pointer :: tile, tile_max
+  real :: f_ntrl, f_soil, btot, btot_max
+
+  do l = lnd%ls, lnd%le
+     call set_current_point(l,1)
+     f_ntrl = 0.0; f_soil = 0.0; n_ntrl=0
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce, tile, k=k))
+        if(is_watch_cell()) then
+           __DEBUG2__(k,tile%frac)
+        endif
+        if (.not.associated(tile%vegn)) cycle
+        if (tile%vegn%landuse==LU_NTRL) then
+            f_ntrl = f_ntrl+tile%frac; n_ntrl = n_ntrl+1
+        endif
+        f_soil = f_soil + tile%frac
+        if (is_watch_cell()) then
+           __DEBUG3__(k,tile%vegn%landuse,tile%frac)
+        endif
+     enddo
+
+     if (is_watch_cell()) then
+        __DEBUG2__(f_soil, f_ntrl)
+     endif
+     if (f_soil==0) cycle ! do nothing for grid cells that doe not have soil/vegetation tiles
+
+     if (f_ntrl==0) then
+        ! if natural area in grid cell is zero, find tile with highest biomass and designate
+        ! it as natural
+        call land_error_message('remove_non_primary: fraction of NTRL is zero; looking for tile with highest biomass. f_soil='//&
+                                             trim(string(f_soil))//' n_ntrl='//string(n_ntrl), WARNING)
+        ce = first_elmt(land_tile_map(l)); btot_max = -HUGE(1.0); tile_max => NULL()
+        do while (loop_over_tiles(ce, tile, k=k))
+           if (.not.associated(tile%vegn)) cycle
+           btot = sum(plant_C(tile%vegn%cohorts(1:tile%vegn%n_cohorts)))
+           __DEBUG4__(k,tile%frac,tile%vegn%landuse,btot)
+           if (btot>btot_max .and. tile%frac>0) then
+              btot_max = btot
+              tile_max => tile
+           endif
+        enddo
+        if(.not.associated(tile_max)) &
+            call land_error_message('remove_non_primary: could not find vegetation tile with max biomass', FATAL)
+        __DEBUG3__(tile_max%frac,tile_max%vegn%landuse,btot_max)
+        ! change land use type in tile with max biomass to natural
+        tile_max%vegn%landuse = LU_NTRL
+        ! reconcile total fraction of NTRL in grid cell with land use type changes
+        f_ntrl = tile_max%frac
+     endif
+
+     ! remove all non-natural tiles, and scale fractions of natural tiles
+     ce = first_elmt(land_tile_map(l))
+     te = tail_elmt(land_tile_map(l))
+     do
+        if(ce==te) exit ! reached the end of the list
+        next = next_elmt(ce)
+        tile=>current_tile(ce)
+        if (associated(tile%vegn)) then
+           if (tile%vegn%landuse==LU_NTRL) then
+              tile%frac = tile%frac*f_soil/f_ntrl
+           else
+              call remove(ce)
+           endif
+        endif
+        ce = next
+     enddo
+  enddo
+end subroutine remove_non_primary
 
 ! ============================================================================
 subroutine land_model_end (cplr2land, land2cplr)
