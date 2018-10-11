@@ -649,7 +649,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   ! fraction of grasses happen to be in the canopy layer. For now we use different
   ! approach: we exclude grasses from dying_crownwarea calculations, and in the
   ! tile splitting treat them together with understory plants.
-  if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
+  ! NUMERICS: in rare cases of very low numbers, the product of t0%frac and dying_crownwarea
+  ! is zero even if operands are not
+  if (n_layers>1.and.dying_crownwarea*t0%frac>0.and.nat_mortality_splits_tiles) then
      ! split the disturbed fraction of vegetation as a new tile. The new tile
      ! will contain all crown area trees that are dying, while the
      ! original tile has all the crown trees that survive.
