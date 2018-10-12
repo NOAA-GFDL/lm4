@@ -178,6 +178,11 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
    ! evaporation in one time step.
+real    :: min_lai = 0.0 ! minimum allowed LAI. If cohort lai calculated in update_derived_vegn_data
+   ! falls below this limit, then LAI and leafarea are set to zero. This is to avoid
+   ! numerical problems if bl is extremely small, and calculations of intercepted water
+   ! fractions, teir derivatives, and evap_demand give nonsensical values. Note that there
+   ! is another min_lai in vegn_data_nml, which works only in ppa phenology.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
@@ -206,7 +211,7 @@ namelist /vegn_nml/ &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
-    min_Wl, min_Ws, tau_smooth_ncm, tau_smooth_T_dorm, &
+    min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
     do_peat_redistribution, do_intercept_melt
 
@@ -1059,7 +1064,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
      id_psiph = register_tiled_diag_field ( module_name, 'psi_stress_phen',  &
           (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )
   endif
-     
+
   id_leaf_age = register_cohort_diag_field ( module_name, 'leaf_age',  &
        (/id_ug/), time, 'age of leaves since bud burst', 'days', missing_value=-1.0 )!ens
 
@@ -2204,7 +2209,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   endif
 
   ! Do N deposition first. For now, it all goes to leaf litter
-  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes 
+  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes
   ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
   call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
   call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
@@ -2301,7 +2306,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
 end subroutine vegn_step_3
 
 ! ===========================================================================
-! given soil state and model settings, calculate relative soil moisture for 
+! given soil state and model settings, calculate relative soil moisture for
 ! phenology, with specified depth of averaging
 real function phen_ave_theta(soil,zeta)
   type(soil_tile_type), intent(in) :: soil
@@ -2395,6 +2400,10 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
        cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*layer_area(cc%layer)
+       if(cc%lai<min_lai) then
+          cc%leafarea = 0.0
+          cc%lai      = 0.0
+       endif
        ! calculate the root density as the total biomass below ground, in
        ! biomass (not carbon!) units
        cc%root_density = (cc%br + (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
@@ -2512,7 +2521,7 @@ subroutine update_vegn_slow( )
   if (day0/=day1) then
      call crop_seed_transport(doy)
   endif
-  
+
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
      call set_current_point(l,k) ! this is for debug output only
