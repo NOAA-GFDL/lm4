@@ -176,6 +176,11 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
    ! evaporation in one time step.
+real    :: min_lai = 0.0 ! minimum allowed LAI. If cohort lai calculated in update_derived_vegn_data
+   ! falls below this limit, then LAI and leafarea are set to zero. This is to avoid
+   ! numerical problems if bl is extremely small, and calculations of intercepted water
+   ! fractions, teir derivatives, and evap_demand give nonsensical values. Note that there
+   ! is another min_lai in vegn_data_nml, which works only in ppa phenology.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
@@ -204,7 +209,7 @@ namelist /vegn_nml/ &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
-    min_Wl, min_Ws, tau_smooth_ncm, tau_smooth_T_dorm, &
+    min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
     do_peat_redistribution, do_intercept_melt
 
@@ -2393,6 +2398,10 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
        cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*layer_area(cc%layer)
+       if(cc%lai<min_lai) then
+          cc%leafarea = 0.0
+          cc%lai      = 0.0
+       endif
        ! calculate the root density as the total biomass below ground, in
        ! biomass (not carbon!) units
        cc%root_density = (cc%br + (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
