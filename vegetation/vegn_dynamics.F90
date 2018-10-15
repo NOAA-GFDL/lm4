@@ -32,7 +32,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     agf_bs, min_lai, nsc_starv_frac, nsc_target_option, &
+     agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -2187,7 +2187,7 @@ subroutine vegn_phenology_ppa(tile)
             endif
          endif
          ! drop all leaves if LAI is below certain small minimum
-         if (cc%lai<min_lai) then
+         if (cc%lai<min_lai_pheno) then
             dead_leaves_C = cc%bl
             dead_leaves_N = cc%leaf_N
          endif

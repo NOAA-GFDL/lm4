@@ -180,7 +180,7 @@ real    :: min_lai = 0.0 ! minimum allowed LAI. If cohort lai calculated in upda
    ! falls below this limit, then LAI and leafarea are set to zero. This is to avoid
    ! numerical problems if bl is extremely small, and calculations of intercepted water
    ! fractions, teir derivatives, and evap_demand give nonsensical values. Note that there
-   ! is another min_lai in vegn_data_nml, which works only in ppa phenology.
+   ! is also min_lai_pheno in vegn_data_nml, which works only in ppa phenology.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
