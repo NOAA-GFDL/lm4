@@ -146,7 +146,7 @@ public :: &
     T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     sai_cover, snow_masking_option, &
-    sai_rad, sai_rad_nosnow, min_lai, &
+    sai_rad, sai_rad_nosnow, min_lai_pheno, &
     treeline_thresh_T, treeline_base_T, treeline_season_length, &
     phen_theta_option, phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, min_cohort_nindivs, &
@@ -491,7 +491,7 @@ logical, protected :: sai_rad   = .FALSE. ! if true, SAI is taken into account i
     ! calculation of canopy radiative properties
 logical, protected :: sai_rad_nosnow = .FALSE. ! if true, it is assumed in radiation
     ! calculations that stems/branches are never covered by intercepted snow.
-real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
+real, protected :: min_lai_pheno = 1e-5 ! minimum lai: if leaf fall brings LAI
     ! below this threshold, bl is set to zero
 
 real, protected :: min_cohort_nindivs = 1e-12 ! minimum allowed cohort density, individuals per m2
@@ -567,7 +567,7 @@ namelist /vegn_data_nml/ &
   T_transp_min, &
   phen_theta_to_use, phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
-  scnd_biomass_bins, sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai, &
+  scnd_biomass_bins, sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai_pheno, &
   ! PPA-related namelist values
   do_ppa, &
   cmc_eps, &
