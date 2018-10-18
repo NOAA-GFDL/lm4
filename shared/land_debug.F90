@@ -39,6 +39,7 @@ public :: check_conservation
 
 public :: land_error_message
 public :: log_date
+public :: string_from_time
 public :: dpri
 
 interface dpri
@@ -593,6 +594,17 @@ subroutine land_error_message(text,severity)
   call error_mesg(text,message,severity_)
 
 end subroutine land_error_message
+
+! ============================================================================
+function string_from_time(time) result(str)
+  character(19) :: str  ! YYYY-MM-DD HH:MM:YY
+  type(time_type), intent(in) :: time
+
+  integer :: y,mo,d,h,m,s ! components of date for debug printout
+
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(str,'(i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')y,mo,d,h,m,s
+end function string_from_time
 
 ! ============================================================================
 ! print time in the debug output

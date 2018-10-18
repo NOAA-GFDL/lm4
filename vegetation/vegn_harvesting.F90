@@ -17,7 +17,7 @@ use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
-use land_debug_mod, only : land_error_message, check_conservation, &
+use land_debug_mod, only : string_from_time, land_error_message, check_conservation, &
      do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
@@ -112,7 +112,7 @@ real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harves
 logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported
         ! from outside of cropland can start growing on croplands; if FALSE they are not
         ! allowed to germinate.
-logical :: transport_crop_seeds = .TRUE. ! if true, seeds are transported horizontally 
+logical :: transport_crop_seeds = .TRUE. ! if true, seeds are transported horizontally
         ! to satisfy the demand
 
 namelist/harvesting_nml/ do_harvesting, &
@@ -1131,9 +1131,14 @@ subroutine crop_seed_transport(day_of_year)
   call mpp_sum(total_seed_supply_C, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply_N, pelist=lnd%pelist)
   ! if either demand or supply are zeros we don't need (or can't) transport anything
-  if (total_seed_demand_C==0.or.total_seed_supply_C==0)then
+  if (total_seed_demand_C==0)then
      return
   end if
+  if (total_seed_supply_C==0)then
+     call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
+        'total seed supply is zero, but demand is not:'//string(f_demand), NOTE)
+     return
+  endif
 
   ! calculate the fraction of the supply that is going to be used
   f_supply = MIN(total_seed_demand_C/total_seed_supply_C, 1.0)
@@ -1142,7 +1147,7 @@ subroutine crop_seed_transport(day_of_year)
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
   ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
-  call error_mesg('crop_seed_transport', &
+  call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
      'fraction of demand satisfied='//string(f_demand)//' fraction of supply used ='//string(f_supply), NOTE)
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
