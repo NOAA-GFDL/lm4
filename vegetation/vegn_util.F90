@@ -247,6 +247,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
   real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
   real, allocatable :: height(:) ! height of tallest vegetation in each layer
   real    :: germ_f, prob_e, prob_g
+  real, parameter :: stored_N_tol = 1e-16 ! acceptable negative value of stored N, relative to total_N
 
   germ_f = 1.0
   if (present(germination_factor)) germ_f = 1.0
@@ -317,12 +318,13 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     ! init_cohort_allometry_ppa so it should be correct
     if(cc%nindivs>0) &
         cc%stored_N = seed_N(i)*prob_g*prob_e/cc%nindivs - cc%total_N
-    ! If nindivs is zero, seedling should be killed by kill_small_cohorts. Otherwise there could be balance problems
-    if(cc%stored_N<0 .AND. N_limits_live_biomass) then
+    ! If nindivs is zero, seedling should be killed by kill_small_cohorts_ppa. Otherwise there could be balance problems
+    if(N_limits_live_biomass .and. cc%stored_N < -stored_N_tol*cc%total_N) then
        __DEBUG3__(seed_N(i)/cc%nindivs,cc%total_N,cc%stored_N)
        call land_error_message('add_seedlings_ppa: Not enough N in seeds to make seedling',FATAL)
     endif
-    cc%total_N = cc%total_N + cc%stored_N
+    cc%stored_N = max(0.0,cc%stored_N) ! just in case, to get rid of tiny negatives due to numerics
+    cc%total_N  = cc%total_N + cc%stored_N ! adjust total to include new stored_N
 
     ! print *,'Reproduction:'
     ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
