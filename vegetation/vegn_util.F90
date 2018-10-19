@@ -12,7 +12,7 @@ use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
       min_cohort_nindivs
 use vegn_tile_mod, only : vegn_tile_type
-use vegn_cohort_mod, only : vegn_cohort_type, plant_C, &
+use vegn_cohort_mod, only : vegn_cohort_type, plant_C, plant_N, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
       init_cohort_allometry_ppa, cohort_can_reproduce
 
@@ -303,13 +303,20 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     prob_e = sp%prob_e; if (present(prob_est)) prob_e = prob_est
     prob_g = sp%prob_g; if (present(prob_ger)) prob_g = prob_ger
     cc%nindivs = seed_C(i) * prob_g * germ_f * prob_e/plant_C(cc)
+    failed_seed_C = (1-prob_g*germ_f*prob_e) * seed_C(i)
+    failed_seed_N = (1-prob_g*germ_f*prob_e) * seed_N(i)
+    if (N_limits_live_biomass.and.cc%nindivs*plant_N(cc) > seed_N(i) * prob_g * germ_f * prob_e) then
+       cc%nindivs = seed_N(i) * prob_g * germ_f * prob_e/plant_N(cc)
+       failed_seed_C = max(0.0,seed_C(i) - cc%nindivs*plant_C(cc))
+       failed_seed_N = max(0.0,seed_N(i) - cc%nindivs*plant_N(cc))
+    endif
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
     ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N is
     ! not necessarily consistent with initial C values. cc%total_N is set in
     ! init_cohort_allometry_ppa so it should be correct
     if(cc%nindivs>0) &
-        cc%stored_N = seed_N(i)*prob_g*prob_e/cc%nindivs - (cc%total_N-cc%stored_N)
+        cc%stored_N = seed_N(i)*prob_g*prob_e/cc%nindivs - cc%total_N
     ! If nindivs is zero, seedling should be killed by kill_small_cohorts. Otherwise there could be balance problems
     if(cc%stored_N<0 .AND. N_limits_live_biomass) then
        __DEBUG3__(seed_N(i)/cc%nindivs,cc%total_N,cc%stored_N)
@@ -320,9 +327,6 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     ! print *,'Reproduction:'
     ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
     ! __DEBUG4__(cc%nindivs,cc%stored_N,cc%total_N,cc%total_N-cc%stored_N)
-
-    failed_seed_C = (1-prob_g*germ_f*prob_e) * seed_C(i)
-    failed_seed_N = (1-prob_g*germ_f*prob_e) * seed_N(i)
 
     vegn%litter = vegn%litter + failed_seed_C
     litt_C(:) = litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_C
