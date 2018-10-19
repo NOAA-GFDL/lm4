@@ -109,6 +109,7 @@ character(1024) :: luh2_state_file  = '' ! input data set of LU states (for C3/C
 character(32) :: c3_crop_species  = '' ! name of the species used for C3 crops
 character(32) :: c4_crop_species  = '' ! name of the species used for C4 crops
 real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harvesting, kg/m2
+real :: crop_seed_c2n          = 30    ! crop seed C:N ratio, used to calculate N demand for crop seed transport
 logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported
         ! from outside of cropland can start growing on croplands; if FALSE they are not
         ! allowed to germinate.
@@ -131,7 +132,7 @@ namelist/harvesting_nml/ do_harvesting, &
      crop_distribution, luh2_state_file, &
      c3_crop_species, c4_crop_species, &
      crop_seed_density, allow_weeds_on_crops, &
-     transport_crop_seeds
+     transport_crop_seeds, crop_seed_c2n
 
 integer :: grazing_freq = -1 ! indicator of grazing frequency (GRAZING_ANNUAL or GRAZING_DAILY)
 integer :: crop_schedule_option = -1 ! selected planting/harvesting schedule option
@@ -1093,10 +1094,10 @@ subroutine crop_seed_transport(day_of_year)
   type(land_tile_type), pointer :: tile
   integer ::  l ! current point index
   real :: total_seed_supply_C, total_seed_supply_N
-  real :: total_seed_demand_C
-  real :: crop_seed_supply_C, crop_seed_supply_N, crop_seed_demand_C
-  real :: f_supply ! fraction of the supply that gets spent
-  real :: f_demand ! fraction of the demand that gets satisfied
+  real :: total_seed_demand_C, total_seed_demand_N
+  real :: crop_seed_supply_C, crop_seed_supply_N, crop_seed_demand_C, crop_seed_demand_N
+  real :: f_supply_C, f_supply_N ! fraction of the supply that gets spent
+  real :: f_demand_C, f_demand_N ! fraction of the demand that gets satisfied
 
   real :: btot0, btot1 ! total carbon, for conservation check only
   real :: ntot0, ntot1 ! total nitrogen, for conservation check only
@@ -1115,7 +1116,8 @@ subroutine crop_seed_transport(day_of_year)
   end if
   ! - conservation check part 1
 
-  total_seed_supply_C = 0.0; total_seed_supply_N = 0.0; total_seed_demand_C = 0.0
+  total_seed_supply_C = 0.0; total_seed_demand_C = 0.0
+  total_seed_supply_N = 0.0; total_seed_demand_N = 0.0
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
@@ -1123,11 +1125,13 @@ subroutine crop_seed_transport(day_of_year)
      call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
      total_seed_supply_C = total_seed_supply_C + crop_seed_supply_C*tile%frac*lnd%ug_area(l)
      total_seed_supply_N = total_seed_supply_N + crop_seed_supply_N*tile%frac*lnd%ug_area(l)
-     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C)
+     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C,crop_seed_demand_N)
      total_seed_demand_C = total_seed_demand_C + crop_seed_demand_C*tile%frac*lnd%ug_area(l)
+     total_seed_demand_N = total_seed_demand_N + crop_seed_demand_N*tile%frac*lnd%ug_area(l)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand_C, pelist=lnd%pelist)
+  call mpp_sum(total_seed_demand_N, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply_C, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply_N, pelist=lnd%pelist)
   ! if either demand or supply are zeros we don't need (or can't) transport anything
@@ -1136,19 +1140,23 @@ subroutine crop_seed_transport(day_of_year)
   end if
   if (total_seed_supply_C==0)then
      call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
-        'total seed supply is zero, but demand is not:'//string(f_demand), NOTE)
+        'total seed C supply is zero, but demand is not:'//string(f_demand_C), NOTE)
      return
   endif
 
   ! calculate the fraction of the supply that is going to be used
-  f_supply = MIN(total_seed_demand_C/total_seed_supply_C, 1.0)
+  f_supply_C = MIN(total_seed_demand_C/total_seed_supply_C, 1.0)
+  f_supply_N = MIN(total_seed_demand_N/total_seed_supply_N, 1.0)
   ! calculate the fraction of the demand that is going to be satisfied
-  f_demand = MIN(total_seed_supply_C/total_seed_demand_C, 1.0)
+  f_demand_C = MIN(total_seed_supply_C/total_seed_demand_C, 1.0)
+  f_demand_N = MIN(total_seed_supply_N/total_seed_demand_N, 1.0)
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
   ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
   call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
-     'fraction of demand satisfied='//string(f_demand)//' fraction of supply used ='//string(f_supply), NOTE)
+     'fraction of C demand satisfied='//string(f_demand_C)//' fraction of C supply used ='//string(f_supply_C), NOTE)
+  call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
+     'fraction of N demand satisfied='//string(f_demand_N)//' fraction of N supply used ='//string(f_supply_N), NOTE)
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
   ! of the demand. This relies on the assumption that supply and demand did not change
@@ -1157,9 +1165,11 @@ subroutine crop_seed_transport(day_of_year)
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
      call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
-     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C)
+     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C,crop_seed_demand_N)
      tile%vegn%harv_pool_C(HARV_POOL_CROP) = tile%vegn%harv_pool_C(HARV_POOL_CROP) + &
-                      f_demand*crop_seed_demand_C - f_supply*crop_seed_supply_C
+                      f_demand_C*crop_seed_demand_C - f_supply_C*crop_seed_supply_C
+     tile%vegn%harv_pool_N(HARV_POOL_CROP) = tile%vegn%harv_pool_N(HARV_POOL_CROP) + &
+                      f_demand_N*crop_seed_demand_N - f_supply_N*crop_seed_supply_N
   enddo
 
   ! + conservation check part 2
@@ -1186,22 +1196,22 @@ subroutine crop_seed_supply(vegn, crop_seed_supply_C, crop_seed_supply_N)
    type(vegn_tile_type), intent(in) :: vegn
    real, intent(out) :: crop_seed_supply_C, crop_seed_supply_N
    crop_seed_supply_C = MAX(vegn%harv_pool_C(HARV_POOL_CROP)-crop_seed_density,0.0)
-!    if (vegn%harv_pool_C(HARV_POOL_CROP)>0) then
-!       crop_seed_supply_N = crop_seed_supply_C*vegn%harv_pool_N(HARV_POOL_CROP)/vegn%harv_pool_C(HARV_POOL_CROP)
-!    else
+   if (vegn%harv_pool_C(HARV_POOL_CROP)>0) then
+      crop_seed_supply_N = crop_seed_supply_C*vegn%harv_pool_N(HARV_POOL_CROP)/vegn%harv_pool_C(HARV_POOL_CROP)
+   else
       crop_seed_supply_N = 0.0
-!    endif
+   endif
 end subroutine crop_seed_supply
 
-subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C)
+subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C, crop_seed_demand_N)
    type(vegn_tile_type), intent(in) :: vegn
    integer, intent(in) :: l ! index of grid cell
    integer, intent(in) :: day_of_year
-   real, intent(out) :: crop_seed_demand_C
-   crop_seed_demand_C = 0.0
-   if (vegn%landuse==LU_CROP) then
-      if (day_of_year==nint(crop_planting_day(l))) crop_seed_demand_C = &
-                MAX(crop_seed_density - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+   real, intent(out) :: crop_seed_demand_C, crop_seed_demand_N
+   crop_seed_demand_C = 0.0; crop_seed_demand_N = 0.0
+   if (vegn%landuse==LU_CROP .and. day_of_year==nint(crop_planting_day(l))) then
+      crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+      crop_seed_demand_N = MAX(crop_seed_density/crop_seed_c2n - vegn%harv_pool_N(HARV_POOL_CROP),0.0)
    endif
 end subroutine
 
