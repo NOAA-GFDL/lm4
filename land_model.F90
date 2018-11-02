@@ -1924,15 +1924,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         enddo
         land_evap  = Ea0   + DEaDqc*delta_qc
         land_sens  = Ha0   + DHaDTc*delta_Tc
-      ! [X.7] calculate energy residuals due to cross-product of time tendencies
-#ifdef USE_DRY_CANA_MASS
-        tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
-#else
-        tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
-#endif
-        tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
-      ! calculate the final value upward long-wave radiation flux from the land, to be
-      ! returned to the flux exchange.
+        ! calculate the upward long-wave radiation flux from the land, to be returned to
+        ! the flux exchange.
         tile%lwup = ILa_dn - vegn_flw - flwg
 
         if(is_watch_point())then
@@ -1952,7 +1945,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG1__(vegn_T+delta_Tv )
            __DEBUG1__(vegn_Wl+delta_wl)
            __DEBUG1__(vegn_Ws+delta_ws)
-           __DEBUG2__(tile%e_res_1, tile%e_res_2)
            write(*,*)'#### resulting fluxes'
            __DEBUG4__(flwg, evapg, sensg, grnd_flux)
            __DEBUG1__(vegn_levap)
@@ -1989,6 +1981,17 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! otherwise redo longwave radiation calculations with new values of delta_Tv, delta_Tg
      ! to get better approximation of long-wave radiation derivatives.
   enddo ! lw_step
+
+  ! calculate energy residuals due to cross-product of time tendencies
+#ifdef USE_DRY_CANA_MASS
+  tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
+#else
+  tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
+#endif
+  tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
+  if (is_watch_point()) then
+     __DEBUG2__(tile%e_res_1, tile%e_res_2)
+  endif
 
   ! [*] start of step_2 updates
   ! update canopy air temperature and specific humidity
