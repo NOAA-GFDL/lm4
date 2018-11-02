@@ -1422,6 +1422,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      write(*,*)
      call log_date('#### update_land_model_fast_0d begins:',lnd%time)
   endif
+  ! send residuals to diag at the beginning of the time step so that the diagnostics captures
+  ! adjustments made to residuals in other parts of the model, e.g. during cohort merge.
+  ! NOTE that it is not entirely consistent with other energy balance components, which
+  ! are sent to diag after the timestep, but it is still better than missing e_res_2 changes
+  ! that come from outside of this subroutine.
+  call send_tile_data(id_e_res_1, tile%e_res_1, tile%diag)
+  call send_tile_data(id_e_res_2, tile%e_res_2, tile%diag)
 
   ! sanity checks of some input values
   call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
@@ -2312,8 +2319,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_sensv,   vegn_sens,                          tile%diag)
   call send_tile_data(id_senss,   snow_sens,                          tile%diag)
   call send_tile_data(id_sensg,   subs_sens,                          tile%diag)
-  call send_tile_data(id_e_res_1, tile%e_res_1,                       tile%diag)
-  call send_tile_data(id_e_res_2, tile%e_res_2,                       tile%diag)
   call send_tile_data(id_con_g_h, con_g_h,                            tile%diag)
   call send_tile_data(id_con_g_v, con_g_v,                            tile%diag)
   call send_tile_data(id_transp,  sum(f(:)*vegn_uptk),                tile%diag)
