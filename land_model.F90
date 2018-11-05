@@ -1509,6 +1509,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      write(*,*)
      call log_date('#### update_land_model_fast_0d begins:',lnd%time)
   endif
+  ! send residuals to diag at the beginning of the time step so that the diagnostics captures
+  ! adjustments made to residuals in other parts of the model, e.g. during cohort merge.
+  ! NOTE that it is not entirely consistent with other energy balance components, which
+  ! are sent to diag after the timestep, but it is still better than missing e_res_2 changes
+  ! that come from outside of this subroutine.
+  call send_tile_data(id_e_res_1, tile%e_res_1, tile%diag)
+  call send_tile_data(id_e_res_2, tile%e_res_2, tile%diag)
 
   ! sanity checks of some input values
   call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
@@ -2011,15 +2018,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         enddo
         land_evap  = Ea0   + DEaDqc*delta_qc
         land_sens  = Ha0   + DHaDTc*delta_Tc
-      ! [X.7] calculate energy residuals due to cross-product of time tendencies
-#ifdef USE_DRY_CANA_MASS
-        tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
-#else
-        tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
-#endif
-        tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
-      ! calculate the final value upward long-wave radiation flux from the land, to be
-      ! returned to the flux exchange.
+        ! calculate the upward long-wave radiation flux from the land, to be returned to
+        ! the flux exchange.
         tile%lwup = ILa_dn - vegn_flw - flwg
 
         if(is_watch_point())then
@@ -2039,7 +2039,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG1__(vegn_T+delta_Tv )
            __DEBUG1__(vegn_Wl+delta_wl)
            __DEBUG1__(vegn_Ws+delta_ws)
-           __DEBUG2__(tile%e_res_1, tile%e_res_2)
            write(*,*)'#### resulting fluxes'
            __DEBUG4__(flwg, evapg, sensg, grnd_flux)
            __DEBUG1__(vegn_levap)
@@ -2076,6 +2075,17 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! otherwise redo longwave radiation calculations with new values of delta_Tv, delta_Tg
      ! to get better approximation of long-wave radiation derivatives.
   enddo ! lw_step
+
+  ! calculate energy residuals due to cross-product of time tendencies
+#ifdef USE_DRY_CANA_MASS
+  tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
+#else
+  tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
+#endif
+  tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
+  if (is_watch_point()) then
+     __DEBUG2__(tile%e_res_1, tile%e_res_2)
+  endif
 
   ! [*] start of step_2 updates
   ! update canopy air temperature and specific humidity
@@ -2396,8 +2406,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_sensv,   vegn_sens,                          tile%diag)
   call send_tile_data(id_senss,   snow_sens,                          tile%diag)
   call send_tile_data(id_sensg,   subs_sens,                          tile%diag)
-  call send_tile_data(id_e_res_1, tile%e_res_1,                       tile%diag)
-  call send_tile_data(id_e_res_2, tile%e_res_2,                       tile%diag)
   call send_tile_data(id_con_g_h, con_g_h,                            tile%diag)
   call send_tile_data(id_con_g_v, con_g_v,                            tile%diag)
   call send_tile_data(id_transp,  sum(f(:)*vegn_uptk),                tile%diag)
