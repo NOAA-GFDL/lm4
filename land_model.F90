@@ -51,7 +51,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, sweep_tiny_snow
-use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_URBN
+use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -2435,7 +2435,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   ! LUMIP land use fractions
   call send_cellfrac_data(id_fracLut_psl,  is_psl)
   call send_cellfrac_data(id_fracLut_crp,  is_crop)
-  call send_cellfrac_data(id_fracLut_pst,  is_pasture)
+  call send_cellfrac_data(id_fracLut_pst,  is_pst)
   call send_cellfrac_data(id_fracLut_urb,  is_urban)
 
   ! get components of calendar dates for this and previous time step
@@ -4088,7 +4088,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_fracLut_crp = register_diag_field ( cmor_name, 'fracLut_crop', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','%', &
              standard_name='area_fraction', area=id_cellarea)
-  id_fracLut_pst = register_diag_field ( cmor_name, 'fracLut_past', axes, time, &
+  id_fracLut_pst = register_diag_field ( cmor_name, 'fracLut_pst', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','%', &
              standard_name='area_fraction', area=id_cellarea)
   id_fracLut_urb = register_diag_field ( cmor_name, 'fracLut_urbn', axes, time, &
@@ -4212,6 +4212,7 @@ function is_urban(tile) result(answer); logical :: answer
 end function is_urban
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+! primary or secondary lamd, for LUMIP
 function is_psl(tile) result(answer); logical :: answer
   type(land_tile_type), pointer :: tile
 
@@ -4220,6 +4221,17 @@ function is_psl(tile) result(answer); logical :: answer
   if (.not.associated(tile%vegn)) return
   answer = (tile%vegn%landuse == LU_NTRL.or.tile%vegn%landuse == LU_SCND)
 end function is_psl
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+! pasture or rangeland, for LUMIP
+function is_pst(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_PAST.or.tile%vegn%landuse == LU_RANGE)
+end function is_pst
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_residual(tile) result(answer); logical :: answer
