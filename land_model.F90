@@ -2433,10 +2433,10 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call send_cellfrac_cohort_data(id_grassFracC4, is_psl, is_c4grass)
 
   ! LUMIP land use fractions
-  call send_cellfrac_data(id_fracLut_psl,  is_psl,     scale=1.0)
-  call send_cellfrac_data(id_fracLut_crp,  is_crop,    scale=1.0)
-  call send_cellfrac_data(id_fracLut_pst,  is_pasture, scale=1.0)
-  call send_cellfrac_data(id_fracLut_urb,  is_urban,   scale=1.0)
+  call send_cellfrac_data(id_fracLut_psl,  is_psl)
+  call send_cellfrac_data(id_fracLut_crp,  is_crop)
+  call send_cellfrac_data(id_fracLut_pst,  is_pasture)
+  call send_cellfrac_data(id_fracLut_urb,  is_urban)
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
@@ -4083,17 +4083,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_c4pftFrac   = register_cmor_fraction_field ('c4PftFrac', 'Total C4 PFT Cover Fraction', axes)
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
-             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
-             standard_name='under_review', area=id_cellarea)
+             'Fraction of Grid Cell for Each Land Use Tile','%', &
+             standard_name='area_fraction', area=id_cellarea)
   id_fracLut_crp = register_diag_field ( cmor_name, 'fracLut_crop', axes, time, &
-             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
-             standard_name='under_review', area=id_cellarea)
+             'Fraction of Grid Cell for Each Land Use Tile','%', &
+             standard_name='area_fraction', area=id_cellarea)
   id_fracLut_pst = register_diag_field ( cmor_name, 'fracLut_past', axes, time, &
-             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
-             standard_name='under_review', area=id_cellarea)
+             'Fraction of Grid Cell for Each Land Use Tile','%', &
+             standard_name='area_fraction', area=id_cellarea)
   id_fracLut_urb = register_diag_field ( cmor_name, 'fracLut_urbn', axes, time, &
-             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
-             standard_name='under_review', area=id_cellarea)
+             'Fraction of Grid Cell for Each Land Use Tile','%', &
+             standard_name='area_fraction', area=id_cellarea)
   call diag_field_add_attribute(id_fracLut_psl,'cell_methods','area: mean')
   call diag_field_add_attribute(id_fracLut_crp,'cell_methods','area: mean')
   call diag_field_add_attribute(id_fracLut_pst,'cell_methods','area: mean')
