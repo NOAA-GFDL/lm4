@@ -99,7 +99,8 @@ integer, public, parameter :: & ! land use types
  LU_SCND    = 4, & ! secondary vegetation
  LU_URBN    = 5, & ! urban
  LU_RANGE   = 6, & ! rangeland
- LU_PSL     = 1001 ! primary and secondary land, for LUMIP
+ LU_PSL     = 1001, & ! primary and secondary land, for LUMIP
+ LU_PST     = 1002    ! pasture and rangeland, for LUMIP
 
 character(len=5), public, parameter  :: &
      landuse_name (N_LU_TYPES) = (/ 'past ','crop ','ntrl ','scnd ', 'urbn ', 'range'/)
@@ -753,6 +754,8 @@ subroutine read_vegn_data_namelist()
   enddo
   call register_tile_selector('psl', 'primary and secondary land',&
        tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_PSL )
+  call register_tile_selector('pst', 'pasture and rangeland',&
+       tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_PST )
 
   ! register selectors for species-specific diagnostics
 !   if (.not.do_ppa) then
