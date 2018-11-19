@@ -146,7 +146,7 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
 ! variables for LUMIP diagnostics
 integer, parameter :: N_LUMIP_TYPES = 4, &
    LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
-character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','past','crop','urbn']
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst','crop','urbn']
 integer :: &
    id_frac_in (N_LUMIP_TYPES) = -1, &
    id_frac_out(N_LUMIP_TYPES) = -1
@@ -304,12 +304,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      id_frac_in(k1) = register_diag_field(cmor_name, &
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
-         units='fraction', area = id_cellarea)
+         units='%', standard_name='area_fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
      id_frac_out(k1) = register_diag_field(cmor_name, &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
-         units='fraction', area = id_cellarea)
+         units='%', standard_name='area_fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_out(k1),'ocean_fillvalue',0.0)
   enddo
 
@@ -727,7 +727,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac, time)
+        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac*100.0, time)
      endif
   enddo
   do k1 = 1, N_LUMIP_TYPES
@@ -741,7 +741,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac, time)
+        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac*100.0, time)
      endif
   enddo
 
