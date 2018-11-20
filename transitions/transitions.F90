@@ -148,7 +148,7 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
 ! variables for LUMIP diagnostics
 integer, parameter :: N_LUMIP_TYPES = 4, &
    LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
-character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst','crop','urbn']
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst ','crop','urbn']
 integer :: &
    id_frac_in (N_LUMIP_TYPES) = -1, &
    id_frac_out(N_LUMIP_TYPES) = -1
