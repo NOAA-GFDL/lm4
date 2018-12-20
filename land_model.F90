@@ -4152,7 +4152,7 @@ subroutine send_cellfrac_data(id, f, scale)
   real, intent(in), optional  :: scale ! scaling factor, for unit conversions
 
   ! ---- local vars
-  integer :: l,k
+  integer :: l
   logical :: used
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
@@ -4165,7 +4165,7 @@ subroutine send_cellfrac_data(id, f, scale)
 
   frac(:) = 0.0
   ce = first_elmt(land_tile_map, ls=lnd%ls)
-  do while (loop_over_tiles(ce, tile, l,k))
+  do while (loop_over_tiles(ce, tile, l))
      ! accumulate fractions
      if (f(tile)) then
         frac(l) = frac(l)+tile%frac*scale_*lnd%ug_landfrac(l)
