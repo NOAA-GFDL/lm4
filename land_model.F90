@@ -4081,6 +4081,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_grassFracC4 = register_cmor_fraction_field ('grassFracC4', 'C4 Natural Grass Fraction', axes)
   id_c3pftFrac   = register_cmor_fraction_field ('c3PftFrac', 'Total C3 PFT Cover Fraction', axes)
   id_c4pftFrac   = register_cmor_fraction_field ('c4PftFrac', 'Total C4 PFT Cover Fraction', axes)
+  ! Add 'renormalized' attribute to variable that are reported by send_cellfrac_cohort_data.
+  ! This attribute works as an indicator that the normalization mistake was fixed in the code
+  ! and the variable does not need re-normalization in refineDiag scripts
+  call diag_field_add_attribute (id_cropFracC3,  'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_cropFracC4,  'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_vegFrac,     'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_treeFrac,    'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_c3pftFrac,   'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_c4pftFrac,   'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_grassFrac,   'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_grassFracC3, 'renormalized', 'per-grid-cell-area')
+  call diag_field_add_attribute (id_grassFracC4, 'renormalized', 'per-grid-cell-area')
+
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','%', &
