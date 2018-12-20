@@ -42,23 +42,25 @@ module river_mod
 
 #ifdef INTERNAL_FILE_NML
   use mpp_mod, only: input_nml_file
-#else
-  use fms_mod, only: open_namelist_file
 #endif
 
   use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE
   use mpp_mod,             only : mpp_error, FATAL, WARNING, NOTE, stdout, stdlog
-  use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max
+  use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max, get_unit
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
   use fms_mod,             only : check_nml_error, string
-  use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data
-  use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
-  use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
-  use fms_io_mod,          only : restart_file_type, register_restart_field, restore_state, save_restart, free_restart_type
+  use fms_mod,             only : file_exist, field_size, read_data, write_data
+  use fms_mod,             only : CLOCK_FLAG_DEFAULT
+  use fms_io_mod,          only : get_instance_filename
+
+  use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
+                         register_restart_field, variable_exists, &
+                         read_restart, write_restart, close_file
+
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
   use data_override_mod,   only : data_override
@@ -187,6 +189,8 @@ type tracer_data_type
 end type
 
 type(tracer_data_type), allocatable :: trdata(:) ! common tracer data
+character(len=8),parameter :: river_res_xdim = "x"
+character(len=8),parameter :: river_res_ydim = "y"
 
 contains
 
@@ -212,7 +216,8 @@ contains
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
     type(Leo_Mad_trios)   :: AAS_exp            ! at-a-station equation exponents
 
-    type(restart_file_type) :: river_restart
+    type(FmsNetcdfDomainFile_t) :: river_restart
+    logical :: exists
 
     riverclock = mpp_clock_id('update_river'           , CLOCK_FLAG_DEFAULT, CLOCK_SUBCOMPONENT)
     slowclock = mpp_clock_id('update_river_slow'       , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
@@ -226,14 +231,15 @@ contains
      ierr = check_nml_error(io_status, 'river_nml')
 #else
     if (file_exist('input.nml')) then
-      unit = open_namelist_file()
+      unit = get_unit()
+      open(unit=unit,file="input.nml",action="read")
       ierr = 1;
       do while (ierr /= 0)
          read  (unit, nml=river_nml, iostat=io_status, end=10)
          ierr = check_nml_error(io_status,'river_nml')
       enddo
 10    continue
-      call close_file (unit)
+      close(unit)
     endif
 #endif
 
@@ -358,69 +364,40 @@ contains
 
 !--- read restart file
     call get_instance_filename('INPUT/river.res.nc', filename)
-    call get_mosaic_tile_file(trim(filename), filename, .false., domain)
-
-    if(file_exist(trim(filename),domain) ) then
+    exists = open_file(river_restart, filename, "read", domain, &
+                       is_restart=.true.)
+    if (exists) then
         call mpp_error(NOTE, 'river_init : Read restart files '//trim(filename))
-        if(new_land_io) then
-           id_restart = register_restart_field(river_restart,'river.res.nc','storage', River%storage, domain)
-           id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
-           if (field_exist(filename,'discharge2ocean_c',domain)) then
-              id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean_c',discharge2ocean_next_c, domain)
-              id_restart = register_restart_field(river_restart,'river.res.nc','storage_c', River%storage_c, domain)
-           else
-              do i_species = 1, num_species
-                if (field_exist(filename,'disch2ocn_'//trdata(i_species)%name,domain)) then
-                  id_restart = register_restart_field(river_restart,'river.res.nc','disch2ocn_'//trdata(i_species)%name, &
-                               discharge2ocean_next_c(:,:,i_species),domain)
-                else
-                  call mpp_error(WARNING, 'river_init: disch2ocn_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                endif
-                if (field_exist(filename,'storage_'//trdata(i_species)%name,domain)) then
-                  id_restart = register_restart_field(river_restart,'river.res.nc','storage_'//trdata(i_species)%name, &
-                               River%storage_c(:,:,i_species),domain)
-                else
-                  call mpp_error(WARNING, 'river_init: storage_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                endif
-              enddo
-           endif
-           id_restart = register_restart_field(river_restart,'river.res.nc','Omean', River%outflowmean, domain)
-           if (field_exist(filename,'depth',domain)) then
-              id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
-           endif
-           call restore_state(river_restart)
-           call free_restart_type(river_restart)
+        call register_axis(river_restart, river_res_xdim, "x")
+        call register_axis(river_restart, river_res_ydim, "y")
+        call register_restart_field(river_restart, "storage", river%storage)
+        call register_restart_field(river_restart, "discharge2ocean", &
+                                    discharge2ocean_next)
+        if (variable_exists(river_restart, "discharge2ocean_c")) then
+            call register_restart_field(river_restart, "discharge2ocean_c", discharge2ocean_next_c)
+            call register_restart_field(river_restart, "storage_c", river%storage_c)
         else
-           call read_data(filename,'storage',          River%storage,          domain)
-           call read_data(filename,'discharge2ocean',  discharge2ocean_next,   domain)
-           if (field_exist(filename,'discharge2ocean_c',domain)) then
-              call read_data(filename,'discharge2ocean_c',discharge2ocean_next_c, domain)
-              call read_data(filename,'storage_c',        River%storage_c,        domain)
-           else
-              ! NOTE that the base name of the discharge field was deliberately made
-              ! different from the name of the older 3D tracer array, to avoid conflicts
-              ! with a tracer is called "C"
-              do i_species = 1, num_species
-                 if (field_exist(filename,'disch2ocn_'//trdata(i_species)%name,domain)) then
-                   call read_data(filename,'disch2ocn_'//trdata(i_species)%name,discharge2ocean_next_c(:,:,i_species), domain)
-                 else
-                    call mpp_error(WARNING, 'river_init: disch2ocn_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                 endif
-                 if (field_exist(filename,'storage_'//trdata(i_species)%name,domain)) then
-                   call read_data(filename,'storage_'//trdata(i_species)%name,River%storage_c(:,:,i_species), domain)
-                 else
-                    call mpp_error(WARNING, 'river_init: storage_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                 endif
-              enddo
-           endif
-           call read_data(filename,'Omean',            River%outflowmean,      domain)
-           if (field_exist(filename,'depth',domain)) then
-                ! call mpp_error(WARNING, 'river_init : Reading field "depth" from '//trim(filename))
-                call read_data(filename,'depth',       River%depth,            domain)
-           else
-                ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
-           endif
+            do i_species = 1, num_species
+                if (variable_exists(river_restart, "disch2ocn_"//trdata(i_species)%name)) then
+                    call register_restart_field(river_restart, "disch2ocn_"//trdata(i_species)%name, &
+                                                discharge2ocean_next_c(:,:,i_species))
+                else
+                    call mpp_error(WARNING, "river_init: disch2ocn_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
+                endif
+                if (variable_exists(river_restart, "storage_"//trdata(i_species)%name)) then
+                    call register_restart_field(river_restart, "storage_"//trdata(i_species)%name, &
+                                                river%storage_c(:,:,i_species))
+                else
+                    call mpp_error(WARNING, "river_init: storage_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
+                endif
+            enddo
         endif
+        call register_restart_field(river_restart, "Omean", river%outflowmean)
+        if (variable_exists(river_restart, "depth")) then
+            call register_restart_field(river_restart, "depth", river%depth)
+        endif
+        call read_restart(river_restart)
+        call close_file(river_restart)
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
         River%storage    = 0.0
@@ -1042,40 +1019,31 @@ end subroutine print_river_tracer_data
   subroutine save_river_restart(timestamp)
     character(*), intent(in) :: timestamp
 
-    character(len=128) :: filename
-    integer :: tr, id_restart
-    type(restart_file_type) :: river_restart
+    type(FmsNetcdfDomainFile_t) :: river_restart
+    logical :: s
+    integer :: tr
 
-    if(.not.do_rivers) return ! do nothing further if rivers are turned off
-    if(new_land_io) then
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','storage', River%storage, domain)
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
-       do tr = 1, num_species
-          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','storage_'//trdata(tr)%name, &
-                       River%storage_c(:,:,tr),domain)
-          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','disch2ocn_'//trdata(tr)%name, &
-                       discharge2ocean_next_c(:,:,tr),domain)
-       enddo
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','Omean', River%outflowmean, domain)
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','depth', River%depth, domain, mandatory=.false.)
-       call save_restart(river_restart)
-       call free_restart_type(river_restart)
-    else
-
-       filename = 'RESTART/'//trim(timestamp)//'river.res.nc'
-
-       call write_data(filename,'storage', River%storage(isc:iec,jsc:jec), domain)
-       call write_data(filename,'discharge2ocean', discharge2ocean_next(isc:iec,jsc:jec), domain)
-
-       !--- write out tracer data
-       do tr = 1, num_species
-           call write_data(filename,'storage_'//trdata(tr)%name,River%storage_c(isc:iec,jsc:jec,tr), domain)
-           call write_data(filename,'disch2ocn_'//trdata(tr)%name,discharge2ocean_next_c(isc:iec,jsc:jec,tr), domain)
-       end do
-       call write_data(filename,'Omean', River%outflowmean, domain)
-       call write_data(filename,'depth', River%depth, domain)
-    endif
-
+    if (.not. do_rivers) return ! do nothing further if rivers are turned off
+    s = open_file(river_restart, trim(timestamp)//"river.res.nc", &
+                  "write", domain, is_restart=.true.)
+    call register_axis(river_restart, river_res_xdim, "x")
+    call register_axis(river_restart, river_res_ydim, "y")
+    call register_restart_field(river_restart, "storage", river%storage, &
+                                (/"x","y"/))
+    call register_restart_field(river_restart, "discharge2ocean", &
+                                discharge2ocean_next, (/"x","y"/))
+    do tr = 1, num_species
+        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, &
+                                    river%storage_c(:,:,tr), (/"x","y"/))
+        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, &
+                                    discharge2ocean_next_c(:,:,tr), (/"x","y"/))
+    enddo
+    call register_restart_field(river_restart, "Omean", river%outflowmean, &
+                                (/"x","y"/))
+    call register_restart_field(river_restart, "depth", river%depth, &
+                                (/"x","y"/))
+    call write_restart(river_restart)
+    call close_file(river_restart)
   end subroutine save_river_restart
 
 !#####################################################################
@@ -1748,7 +1716,7 @@ contains
          ierr = check_nml_error (io, 'river_solo_nml')
       enddo
 10    continue
-      call close_file (unit)
+      call close_file(unit)
     endif
 #endif
 
