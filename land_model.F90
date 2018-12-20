@@ -4280,7 +4280,7 @@ subroutine send_cellfrac_cohort_data(id, ttest, ctest, scale)
   do while (loop_over_tiles(ce, tile, l))
      if (associated(tile%vegn).and.ttest(tile)) then
         ! calculate fraction of area covered by suitable cohorts
-        frac(l) = frac(l) + tile%frac*scale_*cohort_area_frac(tile%vegn,ctest)
+        frac(l) = frac(l) + tile%frac*scale_*cohort_area_frac(tile%vegn,ctest)*lnd%ug_landfrac(l)
      endif
   enddo
   used = send_data(id, frac, lnd%time)
