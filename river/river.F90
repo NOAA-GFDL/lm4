@@ -363,7 +363,7 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file
-    call get_instance_filename('INPUT/river.res.nc', filename)
+    call get_instance_filename('INPUT/river.nc', filename)
     exists = open_file(river_restart, filename, "read", domain, &
                        is_restart=.true.)
     if (exists) then
@@ -1024,7 +1024,7 @@ end subroutine print_river_tracer_data
     integer :: tr
 
     if (.not. do_rivers) return ! do nothing further if rivers are turned off
-    s = open_file(river_restart, trim(timestamp)//"river.res.nc", &
+    s = open_file(river_restart, trim(timestamp)//"river.nc", &
                   "write", domain, is_restart=.true.)
     call register_axis(river_restart, river_res_xdim, "x")
     call register_axis(river_restart, river_res_ydim, "y")
