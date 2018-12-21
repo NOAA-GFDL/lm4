@@ -266,7 +266,7 @@ integer :: &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
   id_levapg_max,                                                           &
-  id_water,    id_snow,                                                    &
+  id_water,    id_snow,     id_snow_frac,                                  &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
   id_fco2,     id_co2_mol_flux,                                            &
@@ -1057,6 +1057,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real :: runoff_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
   real :: runoff_c_sg(lnd%is:lnd%ie,lnd%js:lnd%je,n_river_tracers)
 
+  real :: snc(lnd%ls:lnd%le), snow_depth, snow_area ! snow cover, for CMIP6 diagnostics
+
   logical :: used          ! return value of send_data diagnostics routine
   integer :: i,j,k,l   ! lon, lat, and tile indices
   integer :: is,ie,js,je ! horizontal bounds of the override buffer
@@ -1092,6 +1094,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! clear the runoff values, for accumulation over the tiles
   runoff = 0 ; runoff_c = 0
+  ! clear the snc (snow cover diag) values, for accumulation over the tiles
+  snc = 0
 
   ! Calculate groundwater and associated heat fluxes between tiles within each gridcell.
   call hlsp_hydrology_1(n_c_types)
@@ -1099,9 +1103,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
-!$OMP                                  phot_co2_data,runoff,runoff_c,id_area,id_z0m,id_z0s,       &
+!$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts)
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
@@ -1150,6 +1154,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_qca,  land2cplr%tr(l,k,isphum),     tile%diag)
         call send_tile_data(id_cd_m, cplr2land%cd_m(l,k),          tile%diag)
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
+
+        if (id_snc>0) then
+           call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+           snc(l) = snc(l) + snow_area*tile%frac
+        endif
      enddo
   enddo
 
@@ -1246,6 +1255,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      endif
   enddo
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
+  if (id_snc>0) used = send_data(id_snc, snc(:)*lnd%ug_landfrac(:)*100, lnd%time)
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -3363,6 +3373,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call send_tile_data(id_cosz, cosz, tile%diag)
   call send_tile_data(id_albedo_dir, tile%land_refl_dir, tile%diag)
   call send_tile_data(id_albedo_dif, tile%land_refl_dif, tile%diag)
+  call send_tile_data(id_snow_frac,  snow_area,          tile%diag)
 !!$  call send_tile_data(id_vegn_refl_dir, vegn_refl_dir,     tile%diag)
 !!$  call send_tile_data(id_vegn_refl_dif, vegn_refl_dif, tile%diag)
 !!$  call send_tile_data(id_vegn_refl_lw,  vegn_refl_lw, tile%diag)
@@ -3376,7 +3387,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   ! CMOR variables
   call send_tile_data(id_snd, max(snow_depth,0.0),     tile%diag)
-  call send_tile_data(id_snc, snow_area*100,           tile%diag)
 
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
@@ -3966,6 +3976,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_nitrogen_cons = register_tiled_diag_field ( module_name, 'nitrogen_cons', axes, time, &
        'nitrogen non-conservation in update_land_model_fast_0d', 'kgN/(m2 s)', missing_value=-1.0 )
 
+  id_snow_frac = register_tiled_diag_field ( module_name, 'snow_frac', axes, time, &
+             'fraction of area that is covered by snow','1', missing_value=-1.0e+20)
+
   ! CMOR/CMIP variables
   id_pcp = register_tiled_diag_field ( cmor_name, 'pcp', axes, time, &
              'Total Precipitation', 'kg m-2 s-1', missing_value=-1.0e+20, &
@@ -4001,9 +4014,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_snd = register_tiled_diag_field ( cmor_name, 'snd', axes, time, &
              'Snow Depth','m', standard_name='surface_snow_thickness', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
-  id_snc = register_tiled_diag_field ( cmor_name, 'snc', axes, time, &
-             'Snow Area Fraction','%', standard_name='surface_snow_area_fraction', &
-             missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_snc = register_cmor_fraction_field ('snc', 'Snow Area Fraction', axes, &
+             standard_name='surface_snow_area_fraction')
+  call diag_field_add_attribute (id_snc, 'normalization_corrected', 'per-grid-cell-area')
   id_lwsnl = register_tiled_diag_field ( cmor_name, 'lwsnl', axes, time, &
              'Liquid Water Content of Snow Layer','kg m-2', &
              standard_name='liquid_water_content_of_surface_snow', &
@@ -4147,12 +4160,18 @@ end subroutine land_diag_init
 
 
 ! ==============================================================================
-function register_cmor_fraction_field(field_name, long_name, axes) result(id); integer :: id
+function register_cmor_fraction_field(field_name, long_name, axes, standard_name) result(id); integer :: id
   character(*), intent(in) :: field_name, long_name
   integer, intent(in) :: axes(:)
+  character(*), intent(in), optional :: standard_name
 
-  id = register_diag_field ( cmor_name, field_name, axes, lnd%time, &
+  if (present(standard_name)) then
+     id = register_diag_field ( cmor_name, field_name, axes, lnd%time, &
+           long_name,'%', standard_name=standard_name, area=id_cellarea)
+  else
+     id = register_diag_field ( cmor_name, field_name, axes, lnd%time, &
            long_name,'%', standard_name='area_fraction', area=id_cellarea)
+  endif
   call diag_field_add_attribute(id,'cell_methods','area: mean')
   call diag_field_add_attribute(id,'ocean_fillvalue',0.0)
 end function register_cmor_fraction_field
