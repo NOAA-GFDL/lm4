@@ -1255,13 +1255,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      endif
   enddo
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
-  if (id_snc>0) used = send_data(id_snc, snc(:)*lnd%ug_landfrac(:)*100, lnd%time)
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%time)
+  if (id_snc>0) used = send_data(id_snc, snc(:)*lnd%ug_landfrac(:)*100, lnd%time)
 
   ! deallocate override buffer
   deallocate(phot_co2_data)
