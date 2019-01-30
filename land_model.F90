@@ -75,7 +75,7 @@ use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, &
 use land_numerics_mod, only : ludcmp, lubksb, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
-use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
+use land_io_mod, only : read_land_io_namelist, input_buf_size
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, get_tile_tags, land_tile_carbon, land_tile_heat, &
@@ -956,11 +956,7 @@ end subroutine land_cover_cold_start_0d
 ! ============================================================================
 subroutine land_cover_warm_start(restart)
   type(land_restart_type), intent(in) :: restart
-  if (new_land_io) then
-     call land_cover_warm_start_new(restart)
-  else
-     call land_cover_warm_start_orig(restart)
-  endif
+  call land_cover_warm_start_new(restart)
 end subroutine land_cover_warm_start
 
 ! ============================================================================
@@ -999,73 +995,6 @@ subroutine land_cover_warm_start_new (restart)
   enddo
   deallocate(glac, lake, soil, vegn, frac)
 end subroutine land_cover_warm_start_new
-
-
-! ============================================================================
-! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start_orig (restart)
-  type(land_restart_type), intent(in) :: restart
-
-  ! ---- local vars
-  integer, allocatable :: idx(:) ! compressed tile index
-  integer, allocatable :: glac(:), lake(:), soil(:), snow(:), cana(:), vegn(:) ! tile tags
-  real,    allocatable :: frac(:) ! fraction of land covered by tile
-  integer :: ncid ! unit number of the input file
-  integer :: ntiles    ! total number of land tiles in the input file
-  integer :: bufsize   ! size of the input buffer
-  integer :: dimids(1) ! id of tile dimension
-  character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
-  integer :: k,it,npts,g,l
-  type(land_tile_type), pointer :: tile;
-  integer :: start, count ! slab for reading
-  ! netcdf variable IDs
-  integer :: id_idx, id_frac, id_glac, id_lake, id_soil, id_vegn
-
-  __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
-  ! allocate the input data
-  __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
-   ! allocate input buffers for compression index and the variable
-  bufsize=min(input_buf_size,ntiles)
-  allocate(idx (bufsize), glac(bufsize), lake(bufsize), soil(bufsize), &
-           snow(bufsize), cana(bufsize), vegn(bufsize), frac(bufsize)  )
-  ! get the name of the fist (and only) dimension of the variable 'frac' -- this
-  ! is supposed to be the compressed dimension, and associated variable will
-  ! hold the compressed indices
-  __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),name=tile_dim_name))
-  __NF_ASRT__(nfu_inq_var(ncid,tile_dim_name,id=id_idx))
-  ! get the IDs of the variables to read
-  __NF_ASRT__(nfu_inq_var(ncid,'glac',id=id_glac))
-  __NF_ASRT__(nfu_inq_var(ncid,'lake',id=id_lake))
-  __NF_ASRT__(nfu_inq_var(ncid,'soil',id=id_soil))
-  __NF_ASRT__(nfu_inq_var(ncid,'vegn',id=id_vegn))
-
-  npts = lnd%nlon*lnd%nlat
-  do start = 1,ntiles,bufsize
-    count = min(bufsize,ntiles-start+1)
-    ! read the compressed tile indices
-    __NF_ASRT__(nf_get_vara_int(ncid,id_idx,(/start/),(/count/),idx))
-    ! read input data -- fractions and tags
-    __NF_ASRT__(nf_get_vara_double(ncid,id_frac,(/start,1/),(/count,1/),frac))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_glac,(/start,1/),(/count,1/),glac))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_lake,(/start,1/),(/count,1/),lake))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_soil,(/start,1/),(/count,1/),soil))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_vegn,(/start,1/),(/count,1/),vegn))
-    ! create tiles
-    do it = 1,count
-       k = idx(it)
-       if (k<0) cycle ! skip negative indices
-       g = modulo(k,npts)+1
-       if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-       l = lnd%l_index(g)
-       ! the size of the tile set at the point (i,j) must be equal to k
-       tile=>new_land_tile(frac=frac(it),&
-                glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
-       call insert(tile,land_tile_map(l))
-    enddo
-  enddo
-  __NF_ASRT__(nf_close(ncid))
-  deallocate(idx, glac, lake, soil, snow, cana, vegn, frac)
-end subroutine
 
 
 ! ============================================================================

@@ -17,14 +17,14 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, get_variable_size, &
-                       read_data, write_data, open_file
+                       read_data, write_data, open_file, register_restart_field
 
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
 use mpp_domains_mod,   only : mpp_pass_SG_to_UG
 use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_var, nfu_put_att
-use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
+use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, &
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
@@ -785,7 +785,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   !Read in the field from the file.
   allocate(r(size(restart%tidx),flen(1)))
   call read_data(restart%rhandle, varname, r)
-  call distrib_tile_data_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
+! call distrib_tile_data_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
   deallocate(r)
 end subroutine get_tile_data_r1d_fptr_r0ijk
 
@@ -870,11 +870,10 @@ end subroutine get_tile_data_r2d_fptr_r0ijk
 ! given a generic name of the restart file, checks if a file with one of the
 ! possible restarts file names exists, and if it does returns the tile-qualified
 ! (or tile- and processor-qualified) name of the restart.
-subroutine get_input_restart_name(name, restart_exists, actual_name, new_land_io)
+subroutine get_input_restart_name(name, restart_exists, actual_name)
   character(*), intent(in)  :: name        ! "generic" name of the restart
   logical     , intent(out) :: restart_exists ! TRUE if any file found
   character(*), intent(out) :: actual_name ! name of the found file, if any
-  logical, intent(in), optional :: new_land_io
 
   ! ---- local vars
   character(6) :: PE_suffix ! PE number
@@ -892,12 +891,6 @@ subroutine get_input_restart_name(name, restart_exists, actual_name, new_land_io
      write(PE_suffix,'(".",I4.4)') lnd%io_id
      distributed_name = trim(actual_name)//trim(PE_suffix)
      inquire (file=trim(distributed_name), exist=restart_exists)
-     if(present(new_land_io)) then
-       if(.not.new_land_io) actual_name = trim(distributed_name)
-     else
-       ! if new_land_io is not present then revert to behavior of previous revision. That is, as if new_land_io=.false.
-       actual_name = trim(distributed_name)
-     endif
   endif
 
 end subroutine get_input_restart_name
@@ -913,12 +906,12 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   logical :: s
 
   s = open_file(rhandle, name, "write", lnd%ug_domain, is_restart=.true.)
-  call restart_axis(rhandle, "lon", .false., lnd%coord_glon)
+  call register_axis(rhandle, "lon", .false., size(lnd%coord_glon))
   call register_field(rhandle, "lon", "double", (/"lon"/))
   call register_variable_attribute(rhandle, "lon", "units", "degrees_east")
   call register_variable_attribute(rhandle, "lon", "long_name", "longitude")
 
-  call register_axis(rhandle, "lat", .false., lnd%coord_glat)
+  call register_axis(rhandle, "lat", .false., size(lnd%coord_glat))
   call register_field(rhandle, "lat", "double", (/"lat"/))
   call register_variable_attribute(rhandle, "lat", "units", "degrees_north")
   call register_variable_attribute(rhandle, "lat", "long_name", "latitude")

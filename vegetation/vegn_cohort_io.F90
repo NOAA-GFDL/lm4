@@ -8,7 +8,7 @@ use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
      nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
      nfu_inq_var
-use land_io_mod,      only : print_netcdf_error, input_buf_size, new_land_io
+use land_io_mod,      only : print_netcdf_error, input_buf_size
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
      current_tile, operator(/=), nitems, loop_over_tiles
@@ -26,6 +26,14 @@ use fms_io_mod, only: fms_io_unstructured_register_restart_field
 use fms_io_mod, only: HIDX
 use fms_io_mod, only: fms_io_unstructured_read
 
+
+
+use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
+                       register_axis, register_field, register_variable_attribute, &
+                       read_data
+
+
+
 implicit none
 private
 
@@ -37,7 +45,7 @@ public :: get_cohort_data, get_int_cohort_data
 ! remove when cleaning up:
 public :: write_cohort_data_r0d, write_cohort_data_i0d
 public :: gather_cohort_index, gather_cohort_data
-public :: create_cohort_dimension_new, create_cohort_dimension_orig
+public :: create_cohort_dimension_new
 ! ==== end of public interfaces ==============================================
 
 interface gather_cohort_data
@@ -104,88 +112,10 @@ end subroutine get_cohort_by_idx
 subroutine read_create_cohorts(restart)
   type(land_restart_type), intent(inout) :: restart
 
-  if (new_land_io) then
-     if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
-        'cohort index not found in file "'//restart%filename//'"',FATAL)
-     call read_create_cohorts_new(restart%cidx,restart%tile_dim_length)
-  else
-     call read_create_cohorts_orig(restart%ncid,restart%filename)
-  endif
+  if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+      'cohort index not found in file "'//restart%filename//'"',FATAL)
+  call read_create_cohorts_new(restart%cidx,restart%tile_dim_length)
 end subroutine
-
-! ============================================================================
-subroutine read_create_cohorts_orig(ncid, filename)
-  integer, intent(in) :: ncid
-  character(*), intent(in) :: filename
-
-  integer :: ncohorts ! total number of cohorts in restart file
-  integer :: nlon, nlat, ntiles ! size of respective dimensions
-
-  integer, allocatable :: idx(:)
-  integer :: i,j,t,k,m, n, nn, idxid, ierr
-  integer :: bufsize, npts,g,l
-  type(land_tile_enum_type) :: ce, te
-  type(land_tile_type), pointer :: tile
-  character(len=64) :: info ! for error message
-
-  ! get the size of dimensions
-  nlon = lnd%nlon ; nlat = lnd%nlat
-  ierr = nfu_inq_dim(ncid,'tile',len=ntiles)
-  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
-              'dimension "tile" not found in file "'//trim(filename)//'"', FATAL)
-
-  ! read the cohort index
-  ierr = nfu_inq_dim(ncid,cohort_index_name,len=ncohorts)
-  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
-              'dimension "'//trim(cohort_index_name)//'" not found in file "'//trim(filename)//'"', FATAL)
-  ierr = nfu_inq_var(ncid,cohort_index_name,id=idxid)
-  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
-              'variable "'//trim(cohort_index_name)//'" not found in file "'//trim(filename)//'"', FATAL)
-  bufsize = min(input_buf_size,ncohorts)
-  allocate(idx(bufsize))
-
-  npts = nlon*nlat
-  do nn = 1, ncohorts, bufsize
-     __NF_ASRT__(nf_get_vara_int(ncid,idxid,nn,min(bufsize,ncohorts-nn+1),idx))
-
-     do n = 1,min(bufsize,ncohorts-nn+1)
-        k = idx(n)
-        g = modulo(k,npts)+1
-        if(g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-        l = lnd%l_index(g)
-        k = k/npts
-        t = modulo(k,ntiles)+1 ; k = k/ntiles
-        k = k+1
-        ce = first_elmt(land_tile_map(l))
-        do m = 1,t-1
-           ce=next_elmt(ce)
-        enddo
-        tile=>current_tile(ce)
-        if(.not.associated(tile%vegn)) then
-           i = lnd%i_index(i)
-           j = lnd%j_index(j)
-           info = ''
-           write(info,'("(",3i3,")")')i,j,t
-           call error_mesg('read_create_cohort',&
-                'vegn tile'//trim(info)//' does not exist, but is necessary to create a cohort', &
-                WARNING)
-        else
-           tile%vegn%n_cohorts = tile%vegn%n_cohorts + 1
-        endif
-     enddo
-  enddo
-
-  ! go through all tiles in the domain and allocate requested numner of cohorts
-  ce = first_elmt(land_tile_map); te = tail_elmt(land_tile_map)
-  do while (ce/=te)
-     tile=>current_tile(ce); ce = next_elmt(ce)
-     if(.not.associated(tile%vegn))cycle
-     allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
-  enddo
-
-  ! clean up memory
-  deallocate(idx)
-end subroutine read_create_cohorts_orig
 
 ! ============================================================================
 subroutine read_create_cohorts_new(idx,ntiles)
@@ -253,11 +183,7 @@ end subroutine read_create_cohorts_new
 subroutine create_cohort_dimension(restart)
   type(land_restart_type), intent(inout) :: restart
 
-  if (new_land_io) then
-     call create_cohort_dimension_new(restart%rhandle,restart%cidx,restart%basename,restart%tile_dim_length)
-  else
-     call create_cohort_dimension_orig(restart%ncid,restart%cidx,restart%tile_dim_length)
-  endif
+  call create_cohort_dimension_new(restart%rhandle,restart%cidx,restart%basename,restart%tile_dim_length)
 end subroutine create_cohort_dimension
 
 ! ============================================================================
@@ -266,58 +192,8 @@ end subroutine create_cohort_dimension
 ! (because, for example, there happen to be no vegetation in a certain domain),
 ! for the reason that it calls mpp_max, and that should be called for each
 ! processor to work.
-subroutine create_cohort_dimension_orig(ncid,cidx,tile_dim_length)
-  integer, intent(in) :: ncid
-  integer, allocatable, intent(out) :: cidx(:)
-  integer, intent(in) :: tile_dim_length
-
-  ! ---- local vars
-  integer :: i,k,max_cohorts,p
-  integer :: iret
-  integer, allocatable :: ncohorts(:) ! array of idx sizes from all PEs in io_domain
-  integer, allocatable :: idx2(:) ! array of cohort indices from all PEs in io_domain
-
-  call gather_cohort_index(tile_dim_length,cidx)
-  max_cohorts = global_max_cohorts()
-
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     ! if this processor is not doing io (that is, it's not root io_domain
-     ! processor), simply send the data to the root io_domain PE
-     call mpp_send(size(cidx), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
-     call mpp_send(cidx(1),    plen=size(cidx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
-  else
-     ! gather the array of cohort index sizes
-     allocate(ncohorts(size(lnd%io_pelist)))
-     ncohorts(1) = size(cidx)
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(ncohorts(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_1)
-     enddo
-     ! gather cohort index from the processors in our io_domain
-     allocate(idx2(sum(ncohorts(:))))
-     idx2(1:ncohorts(1))=cidx(:)
-     k=ncohorts(1)+1
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(idx2(k), from_pe=lnd%io_pelist(p), glen=ncohorts(p), tag=COMM_TAG_2)
-        k = k+ncohorts(p)
-     enddo
-     ! create cohort dimension in the output file
-     iret = nf_redef(ncid)
-     __NF_ASRT__(nfu_def_dim(ncid,'cohort',(/(i,i=1,max_cohorts)/),'cohort number within tile'))
-     ! create cohort index
-     __NF_ASRT__(nfu_def_dim(ncid,cohort_index_name,idx2,'compressed vegetation cohort index'))
-     __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'compress','cohort tile lat lon'))
-     __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'valid_min',0))
-
-     ! deallocate the data we no longer need
-     deallocate(ncohorts,idx2)
-     ! leave the define mode to commit the new definitions to the disk
-     iret = nf_enddef(ncid)
-  endif
-  call mpp_sync_self()
-end subroutine create_cohort_dimension_orig
-
 subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
-  type(restart_file_type), intent(inout) :: rhandle ! restart file handle
+  type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: rhandle ! fms_io restart file data type
   integer, allocatable,    intent(out)   :: cidx(:) ! rank local tile index vector
   character(len=*),        intent(in)    :: name    ! name of the restart file
   integer,                 intent(in)    :: tile_dim_length ! length of tile axis
@@ -331,7 +207,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
 end subroutine create_cohort_dimension_new
 
 subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
-  type(restart_file_type), intent(inout) :: rhandle     ! restart file handle
+  type(FmsNetcdfUnstructuredDomainFile_t),intent(inout) :: rhandle ! fms_io restart file data type
   character(len=*),      intent(in)  :: name                ! name of the file to create
   integer              , intent(in)  :: cidx(:)             ! integer compressed index of tiles (local)
   integer              , intent(in)  :: cohorts_dim_length  ! length of cohorts axis
@@ -341,25 +217,19 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,lnd%ug_domain)
+! call get_mosaic_tile_file(trim(file_name),file_name,lnd%ug_domain)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call fms_io_unstructured_register_restart_axis(rhandle, &
-                                                 name, &
-                                                 trim(cohort_index_name), &
-                                                 cidx, &
-                                                 "cohort tile lat lon", &
-                                                 "H", &
-                                                 cohorts_dim_length, &
-                                                 lnd%ug_domain, &
-                                                 dimlen_name="cohort", &
-                                                 dimlen_lname="cohort number within tile", &
-                                                 units="none", &
-                                                 longname="compressed vegetation cohort index", &
-                                                 imin=0)
-
+  call register_axis(rhandle, cohort_index_name, .true.)
+  call register_field(rhandle, cohort_index_name, "int", (/cohort_index_name/))
+  call register_variable_attribute(rhandle, cohort_index_name, "compressed", &
+                                   "cohort tile lat lon")
+  call register_variable_attribute(rhandle, cohort_index_name, "units", &
+                                   "none")
+  call register_variable_attribute(rhandle, cohort_index_name, "long_name", &
+                                   "compressed vegetation cohort index")
 end subroutine create_cohort_out_file_idx
 
 subroutine distrib_cohort_data_i0d(fptr,idx,ntiles,data)
@@ -505,17 +375,16 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   character(len=*), intent(in), optional :: units, longname
 
   real, pointer :: r(:)
-  integer :: id_restart
 
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
-  if (new_land_io) then
-     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
-          restart%basename, varname, r, (/HIDX/), lnd%ug_domain, &
-          longname=longname, units=units, restart_owns_data=.true.)
-  else
-     call write_cohort_data_r0d(restart%ncid,varname,r,longname,units)
-     deallocate(r)
+  call register_axis(restart%rhandle, varname, .true.)
+  call register_field(restart%rhandle, varname, "double", (/varname/))
+  if (present(units)) then
+    call register_variable_attribute(restart%rhandle, varname, "units", units)
+  endif
+  if (present(longname)) then
+    call register_variable_attribute(restart%rhandle, varname, "long_name", longname)
   endif
 end subroutine add_cohort_data
 
@@ -531,13 +400,13 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
 
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
-  if (new_land_io) then
-     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
-         restart%basename, varname, r, (/HIDX/), lnd%ug_domain, &
-         longname=longname, units=units, restart_owns_data=.true.)
-  else
-     call write_cohort_data_i0d(restart%ncid,varname,r,longname,units)
-     deallocate(r)
+  call register_axis(restart%rhandle, varname, .true.)
+  call register_field(restart%rhandle, varname, "int", (/varname/))
+  if (present(units)) then
+    call register_variable_attribute(restart%rhandle, varname, "units", units)
+  endif
+  if (present(longname)) then
+    call register_variable_attribute(restart%rhandle, varname, "long_name", longname)
   endif
 end subroutine add_int_cohort_data
 
@@ -548,16 +417,13 @@ subroutine get_cohort_data(restart,varname,fptr)
   procedure(cptr_r0)           :: fptr ! subroutine returning pointer to the data
 
   real, allocatable :: r(:)
-  if (new_land_io) then
-     if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
-        'cohort index not found in file "'//restart%filename//'"',FATAL)
-     allocate(r(size(restart%cidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call distrib_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
-     deallocate(r)
-  else
-     call read_cohort_data_r0d_fptr(restart%ncid,varname,fptr)
-  endif
+
+  if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+      'cohort index not found in file "'//restart%filename//'"',FATAL)
+  allocate(r(size(restart%cidx)))
+  call read_data(restart%rhandle, varname, r, unlim_dim_level=1)
+  call distrib_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
+  deallocate(r)
 end subroutine get_cohort_data
 
 ! ============================================================================
@@ -567,16 +433,13 @@ subroutine get_int_cohort_data(restart,varname,fptr)
   procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
 
   integer, allocatable :: r(:)
-  if (new_land_io) then
-     if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
-        'cohort index not found in file "'//restart%filename//'"',FATAL)
-     allocate(r(size(restart%cidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call distrib_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
-     deallocate(r)
-  else
-     call read_cohort_data_i0d_fptr(restart%ncid,varname,fptr)
-  endif
+
+  if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+      'cohort index not found in file "'//restart%filename//'"',FATAL)
+  allocate(r(size(restart%cidx)))
+  call read_data(restart%rhandle, varname, r, unlim_dim_level=1)
+  call distrib_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
+  deallocate(r)
 end subroutine get_int_cohort_data
 
 #define F90_TYPE real

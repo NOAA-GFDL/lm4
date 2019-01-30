@@ -28,13 +28,13 @@ use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
 use land_data_mod,      only : log_version, lnd
-use land_io_mod,        only : print_netcdf_error, new_land_io
+use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file, gather_tile_index
 use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, &
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use vegn_cohort_mod,    only : vegn_cohort_type
-use cohort_io_mod,      only : create_cohort_dimension_new, create_cohort_dimension_orig, gather_cohort_data, &
+use cohort_io_mod,      only : create_cohort_dimension_new, gather_cohort_data, &
      write_cohort_data_i0d, write_cohort_data_r0d, gather_cohort_index
 
 use fms_io_mod, only: fms_io_unstructured_register_restart_axis
@@ -44,6 +44,11 @@ use fms_io_mod, only: HIDX
 use fms_io_mod, only: fms_io_unstructured_get_field_size
 use fms_io_mod, only: fms_io_unstructured_read
 use fms_io_mod, only: get_field_size,read_compressed
+
+
+use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
+                       register_field, register_variable_attribute, unlimited, &
+                       register_restart_field, write_restart
 
 implicit none
 private
@@ -75,7 +80,7 @@ type(time_type) :: base_time ! model base time for static vegetation output
 type(fieldtype), allocatable :: Fields(:)
 integer :: input_unit, ispecies, ibl, iblv, ibr, ibsw, ibwood, ibliving, istatus
 
-type(restart_file_type) :: static_veg_file ! handle of output file, for new IO
+type(FmsNetcdfUnstructuredDomainFile_t) :: static_veg_file ! handle of output file, for new IO
 integer :: ncid2 ! netcdf id of the output file, for old IO
 integer :: tile_dim_length ! length of tile dimension in output files. global max of number of tiles per gridcell
 integer, allocatable :: cidx(:) ! cohort compression index, local for current PE
@@ -190,236 +195,132 @@ subroutine static_vegn_init( )
      ts = set_date(start_loop(1),start_loop(2),start_loop(3), start_loop(4),start_loop(5),start_loop(6))
      te = set_date(end_loop(1)  ,end_loop(2)  ,end_loop(3)  , end_loop(4)  ,end_loop(5)  ,end_loop(6)  )
 
-     if(new_land_io) then
-     ! OPEN INPUT FILE
-       if(file_exist(trim(input_file),no_domain=.true.)) then
-          call mpp_open(input_unit, trim(input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                     threading=MPP_MULTI, fileset=MPP_SINGLE)
-          call error_mesg('static_vegn_init','Reading global static vegetation file "'&
-               //trim(input_file)//'"', NOTE)
-          input_is_multiface = .FALSE.
-          actual_input_file = input_file
+    ! OPEN INPUT FILE
+    if(file_exist(trim(input_file),no_domain=.true.)) then
+       call mpp_open(input_unit, trim(input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
+                  threading=MPP_MULTI, fileset=MPP_SINGLE)
+       call error_mesg('static_vegn_init','Reading global static vegetation file "'&
+            //trim(input_file)//'"', NOTE)
+       input_is_multiface = .FALSE.
+       actual_input_file = input_file
+    else
+       if(lnd%nfaces==1) then
+          ! for 1-face grid we cannot use multi-face input, even if it exists
+          call error_mesg('static_vegn_init','input file "'//trim(input_file)&
+                  //'" does not exist', FATAL)
        else
-          if(lnd%nfaces==1) then
-             ! for 1-face grid we cannot use multi-face input, even if it exists
-             call error_mesg('static_vegn_init','input file "'//trim(input_file)&
-                     //'" does not exist', FATAL)
+          ! if there is more then one face, try opening face-specific input with consideration of io_layout
+          call get_mosaic_tile_file(trim(input_file),actual_input_file2,.FALSE.,lnd%sg_domain)
+          found_file = get_file_name(input_file, actual_input_file, read_dist, io_domain_exist, &
+                          domain=lnd%sg_domain)
+          if(.not.found_file) call error_mesg('static_vegn_init','"'//trim(actual_input_file2)// &
+             '" and corresponding distributed file are not found', FATAL)
+          if(read_dist) then
+             call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
+                              threading=MPP_MULTI, fileset=MPP_MULTI, domain=lnd%sg_domain)
           else
-             ! if there is more then one face, try opening face-specific input with consideration of io_layout
-             call get_mosaic_tile_file(trim(input_file),actual_input_file2,.FALSE.,lnd%sg_domain)
-             found_file = get_file_name(input_file, actual_input_file, read_dist, io_domain_exist, &
-                             domain=lnd%sg_domain)
-             if(.not.found_file) call error_mesg('static_vegn_init','"'//trim(actual_input_file2)// &
-                '" and corresponding distributed file are not found', FATAL)
-             if(read_dist) then
-                call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                                 threading=MPP_MULTI, fileset=MPP_MULTI, domain=lnd%sg_domain)
-             else
-                call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                              threading=MPP_MULTI, fileset=MPP_SINGLE)
-             endif
-             call error_mesg('static_vegn_init','Reading face-specific vegetation file "'&
-                  //trim(actual_input_file)//'"', NOTE)
-             input_is_multiface = .TRUE.
+             call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
+                           threading=MPP_MULTI, fileset=MPP_SINGLE)
           endif
+          call error_mesg('static_vegn_init','Reading face-specific vegetation file "'&
+               //trim(actual_input_file)//'"', NOTE)
+          input_is_multiface = .TRUE.
        endif
+    endif
 
-       call mpp_get_info(input_unit,ndim,nvar,natt,timelen)
-       call mpp_get_time_axis(input_unit, Time_axis)
+    call mpp_get_info(input_unit,ndim,nvar,natt,timelen)
+    call mpp_get_time_axis(input_unit, Time_axis)
 
-       ! READ TIME AXIS DATA
-       allocate(t(timelen))
-       call mpp_get_times(input_unit, t)
+    ! READ TIME AXIS DATA
+    allocate(t(timelen))
+    call mpp_get_times(input_unit, t)
 
-       allocate(Fields(nvar))
-       call mpp_get_fields(input_unit, Fields)
-       do i=1,nvar
-         call mpp_get_atts(Fields(i), name=name)
-         select case (name)
-         case ('species')
-           ispecies = i
-         case ('bl')
-           ibl = i
-         case ('blv')
-           iblv = i
-         case ('br')
-           ibr = i
-         case ('bsw')
-           ibsw = i
-         case ('bwood')
-           ibwood = i
-         case ('bliving')
-           ibliving = i
-         case ('status')
-           istatus = i
-         end select
-       enddo
+    allocate(Fields(nvar))
+    call mpp_get_fields(input_unit, Fields)
+    do i=1,nvar
+      call mpp_get_atts(Fields(i), name=name)
+      select case (name)
+      case ('species')
+        ispecies = i
+      case ('bl')
+        ibl = i
+      case ('blv')
+        iblv = i
+      case ('br')
+        ibr = i
+      case ('bsw')
+        ibsw = i
+      case ('bwood')
+        ibwood = i
+      case ('bliving')
+        ibliving = i
+      case ('status')
+        istatus = i
+      end select
+    enddo
 
-       ! GET UNITS OF THE TIME AND CALENDAR OF THE DATA
-       units = ' '
-       calendar = 'JULIAN'
-       call mpp_get_atts(Time_axis, units=units, calendar=calendar)
+    ! GET UNITS OF THE TIME AND CALENDAR OF THE DATA
+    units = ' '
+    calendar = 'JULIAN'
+    call mpp_get_atts(Time_axis, units=units, calendar=calendar)
 
-       ! CONVERT TIME TO THE FMS TIME_TYPE AND STORE IT IN THE TIMELINE FOR THE DATA SET
-       allocate(time_line(timelen))
-       do i = 1, size(t)
-          ! set the respective value in the timeline
-          time_line(i) = get_cal_time(t(i),units,calendar)
-       enddo
+    ! CONVERT TIME TO THE FMS TIME_TYPE AND STORE IT IN THE TIMELINE FOR THE DATA SET
+    allocate(time_line(timelen))
+    do i = 1, size(t)
+       ! set the respective value in the timeline
+       time_line(i) = get_cal_time(t(i),units,calendar)
+    enddo
 
-       ! READ HORIZONTAL COORDINATES
-       Lon_axis = mpp_get_axis_by_name(input_unit,'lon')
-       call mpp_get_atts(Lon_axis, len=dimlens(1))
-       allocate(in_lon(dimlens(1)))
-       call mpp_get_axis_data(Lon_axis, in_lon)
+    ! READ HORIZONTAL COORDINATES
+    Lon_axis = mpp_get_axis_by_name(input_unit,'lon')
+    call mpp_get_atts(Lon_axis, len=dimlens(1))
+    allocate(in_lon(dimlens(1)))
+    call mpp_get_axis_data(Lon_axis, in_lon)
 
-       Lat_axis = mpp_get_axis_by_name(input_unit,'lat')
-       call mpp_get_atts(Lat_axis, len=dimlens(2))
-       allocate(in_lat(dimlens(2)))
-       call mpp_get_axis_data(Lat_axis, in_lat)
+    Lat_axis = mpp_get_axis_by_name(input_unit,'lat')
+    call mpp_get_atts(Lat_axis, len=dimlens(2))
+    allocate(in_lat(dimlens(2)))
+    call mpp_get_axis_data(Lat_axis, in_lat)
 
-       in_lon = in_lon*PI/180.0 ; in_lat = in_lat*PI/180.0
+    in_lon = in_lon*PI/180.0 ; in_lat = in_lat*PI/180.0
 
-       ! COMPUTE INDEX REMAPPING ARRAY
-       allocate(map_i(lnd%ls:lnd%le))
-       allocate(map_j(lnd%ls:lnd%le))
-       map_i = -1
-       map_j = -1
-       if( .not. input_is_multiface ) then
-          allocate(mask(size(in_lon),size(in_lat)))
-          mask = .false.
-
-          if(fill_land_mask) then
-             ! READ THE FIRST RECORD AND CALCULATE THE MASK OF THE VALID INPUT DATA
-             Tile_axis   = mpp_get_axis_by_name(input_unit,'tile')
-             call mpp_get_atts(Tile_axis, len=dimlens(3))
-             Cohort_axis = mpp_get_axis_by_name(input_unit,'cohort')
-             call mpp_get_atts(Cohort_axis, len=dimlens(4))
-             ! Note: The input file used for initial testing had
-             ! lon = 144, lat = 90, tile = 2, cohort = 1
-             call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%sg_domain)
-             allocate(cidx(siz(1)), idata(siz(1)))
-             call set_domain(lnd%sg_domain)
-             call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
-             call read_compressed(trim(input_file),'species',idata,timelevel=1)
-             do n = 1,size(cidx)
-                m = cidx(n)
-                i = modulo(m,dimlens(1))+1
-                m = m/dimlens(1)
-                j = modulo(m,dimlens(2))+1
-                m = m/dimlens(2)
-                ! k = modulo(m,dimlens(3))+1 ! This is how to get tile number, if it were needed.
-                m = m/dimlens(3)
-                   ! L = m+1  ! This is how to get cohort number, if it were needed. No need to do
-                              ! modulo with dimlens(4) because at this point m is always < dimlens(4)
-                if(idata(n)>=0 .or. mask(i,j)) then
-                   mask(i,j) = .TRUE. ! If species exists in any cohort of this grid cell then mask is .TRUE.
-                endif
-             enddo
-             deallocate(idata)
-          else
-             mask(:,:) = .TRUE.
-          endif
-       endif
-     else ! original code below here. i.e. if(.not.new_land_io)
-       ! OPEN INPUT FILE
-       if (nf_open(input_file,NF_NOWRITE,ncid)/=NF_NOERR) then
-          if(lnd%nfaces==1) then
-             ! for 1-face grid we cannot use multi-face input, even if it exists
-             call error_mesg('static_vegn_init','input file "'//trim(input_file)&
-                     //'" does not exist', FATAL)
-          else
-             ! if there is more then one face, try opening face-specific input
-             call get_mosaic_tile_file(trim(input_file),actual_input_file,lnd%ug_domain)
-             if (nf_open(actual_input_file,NF_NOWRITE,ncid)/=NF_NOERR) then
-                call error_mesg('static_vegn_init','Neither "'//trim(input_file)&
-                     //'" nor "'//trim(actual_input_file)//'" files exist', FATAL)
-             else
-                call error_mesg('static_vegn_init','Reading face-specific vegetation file "'&
-                     //trim(actual_input_file)//'"', NOTE)
-                input_is_multiface = .TRUE.
-             endif
-          endif
-       else
-          call error_mesg('static_vegn_init','Reading global static vegetation file "'&
-               //trim(input_file)//'"', NOTE)
-          input_is_multiface = .FALSE.
-          actual_input_file = input_file
-       endif
-
-       ! READ TIME AXIS DATA
-       if(nf_inq_unlimdim( ncid, unlimdim )/=NF_NOERR) then
-          call error_mesg('static_vegn_init',&
-              'Input file "'//trim(actual_input_file)//'" lacks record dimension.', FATAL)
-       endif
-       __NF_ASRT__(nf_inq_dimname ( ncid, unlimdim, dimname ))
-       __NF_ASRT__(nf_inq_varid   ( ncid, dimname, timeid ))
-       __NF_ASRT__(nf_inq_dimlen( ncid, unlimdim, timelen ))
-       allocate (time_line(timelen), t(timelen))
-       __NF_ASRT__(nf_get_var_double (ncid, timeid, t ))
-
-       ! GET UNITS OF THE TIME
-       units = ' '
-       if (nf_get_att_text(ncid, timeid,'units',units)/=NF_NOERR) then
-          call error_mesg('static_vegn_init',&
-              'Cannot read time  units from file "'//trim(actual_input_file)//'"', FATAL)
-       endif
-
-       ! GET CALENDAR OF THE DATA
-       calendar = ' '
-       iret = nf_get_att_text(ncid, timeid, 'calendar',calendar)
-       if(iret/=NF_NOERR) &
-            iret = nf_get_att_text(ncid, timeid,'calendar_type',calendar)
-       if(iret/=NF_NOERR) &
-            calendar='JULIAN' ! use model calendar? how to get the name of the model calendar?
-
-       ! CONVERT TIME TO THE FMS TIME_TYPE AND STORE IT IN THE TIMELINE FOR THE
-       ! DATA SET
-       do i = 1, size(t)
-          ! set the respective value in the timeline
-          time_line(i) = get_cal_time(t(i),units,calendar)
-       enddo
-
-       ! READ HORIZONTAL COORDINATES
-       iret = nfu_inq_compressed_var(ncid,'species',ndims=ndims,dimids=dimids,dimlens=dimlens,&
-            has_records=has_records)
-       if (iret/=NF_NOERR) then
-          call error_mesg('static_vegn_init',&
-             'Cannot read compression information from file "'//trim(actual_input_file)//&
-             '": check that all dimensions listed in "compress" attributes are present in the file.', FATAL)
-       endif
-       __NF_ASRT__(iret)
-       allocate(in_lon(dimlens(1)),in_lat(dimlens(2)))
-       __NF_ASRT__(nfu_get_dim(ncid,dimids(1),in_lon)) ! get longitude
-       __NF_ASRT__(nfu_get_dim(ncid,dimids(2),in_lat)) ! get latitude
-       in_lon = in_lon*PI/180.0 ; in_lat = in_lat*PI/180.0
-
-       ! COMPUTE INDEX REMAPPING ARRAY
-       allocate(map_i(lnd%ls:lnd%le))
-       allocate(map_j(lnd%ls:lnd%le))
+    ! COMPUTE INDEX REMAPPING ARRAY
+    allocate(map_i(lnd%ls:lnd%le))
+    allocate(map_j(lnd%ls:lnd%le))
+    map_i = -1
+    map_j = -1
+    if( .not. input_is_multiface ) then
        allocate(mask(size(in_lon),size(in_lat)))
-
-       map_i = -1
-       map_j = -1
        mask = .false.
 
        if(fill_land_mask) then
-          ! CALCULATE THE DIMENSIONS OF THE BUFFER FOR THE INPUT DATA
-          if (has_records) ndims=ndims-1
-          do i = ndims+1,4
-             dimlens(i) = 1
-          enddo
           ! READ THE FIRST RECORD AND CALCULATE THE MASK OF THE VALID INPUT DATA
-          allocate(data(dimlens(1),dimlens(2),dimlens(3),dimlens(4)))
-          !             lon        lat        tile       cohort
-          data(:,:,:,:) = -1
-          __NF_ASRT__(nfu_get_compressed_rec(ncid,'species',1,data))
-          do j = 1,size(data,2)
-          do i = 1,size(data,1)
-             mask(i,j) = any(data(i,j,:,:)>=0)
+          Tile_axis   = mpp_get_axis_by_name(input_unit,'tile')
+          call mpp_get_atts(Tile_axis, len=dimlens(3))
+          Cohort_axis = mpp_get_axis_by_name(input_unit,'cohort')
+          call mpp_get_atts(Cohort_axis, len=dimlens(4))
+          ! Note: The input file used for initial testing had
+          ! lon = 144, lat = 90, tile = 2, cohort = 1
+          call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%sg_domain)
+          allocate(cidx(siz(1)), idata(siz(1)))
+          call set_domain(lnd%sg_domain)
+          call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
+          call read_compressed(trim(input_file),'species',idata,timelevel=1)
+          do n = 1,size(cidx)
+             m = cidx(n)
+             i = modulo(m,dimlens(1))+1
+             m = m/dimlens(1)
+             j = modulo(m,dimlens(2))+1
+             m = m/dimlens(2)
+             ! k = modulo(m,dimlens(3))+1 ! This is how to get tile number, if it were needed.
+             m = m/dimlens(3)
+                ! L = m+1  ! This is how to get cohort number, if it were needed. No need to do
+                           ! modulo with dimlens(4) because at this point m is always < dimlens(4)
+             if(idata(n)>=0 .or. mask(i,j)) then
+                mask(i,j) = .TRUE. ! If species exists in any cohort of this grid cell then mask is .TRUE.
+             endif
           enddo
-          enddo
-          deallocate(data)
+          deallocate(idata)
        else
           mask(:,:) = .TRUE.
        endif
@@ -483,57 +384,67 @@ subroutine init_writing_static_veg()
   base_time = set_date(year, month, day, hour, minute, sec)
   write(units, 11) year, month, day, hour, minute, sec
 
-  if(new_land_io) then
-     call create_tile_out_file(static_veg_file, 'static_veg_out.nc', tidx, tile_dim_length)
-     call create_cohort_dimension_new(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
-     call fms_io_unstructured_register_restart_axis(static_veg_file, "static_veg_out.nc", &
-            "time",(/0.0/), "T", lnd%ug_domain, units=units, calendar=valid_calendar_types(get_calendar_type()))
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "species", species, (/HIDX/), lnd%ug_domain, longname="vegetation species")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "bl", bl, (/HIDX/), lnd%ug_domain, longname="biomass of leaves per individual", units="kg C/m2")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "blv", blv, (/HIDX/), lnd%ug_domain, longname="biomass of virtual leaves (labile store) per individual", units="kg C/m2")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "br", br, (/HIDX/), lnd%ug_domain, longname="biomass of fine roots per individual", units="kg C/m2")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "bsw", bsw, (/HIDX/), lnd%ug_domain, longname="biomass of sapwood per individual", units="kg C/m2")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "bwood", bwood, (/HIDX/), lnd%ug_domain, longname="biomass of heartwood per individual", units="kg C/m2")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "bliving", bliving, (/HIDX/), lnd%ug_domain, longname="total living biomass per individual", units="")
-     k = fms_io_unstructured_register_restart_field(static_veg_file, "static_veg_out.nc", &
-            "status", status, (/HIDX/), lnd%ug_domain, longname="leaf status", units="")
-     call fms_io_unstructured_save_restart(static_veg_file, directory="", time_level=-1.0)
-  else
-     call create_tile_out_file(ncid2,'static_veg_out.nc', tidx, tile_dim_length, &
-                               lnd%coord_glon, lnd%coord_glat)
-     ! create compressed dimension for vegetation cohorts
-     call create_cohort_dimension_orig(ncid2, cidx, tile_dim_length)
-     ! get the base date of the simulation
-     if(mpp_pe()==lnd%io_pelist(1)) then
-        ! create time axis, on root IO processors only
-        __NF_ASRT__(nfu_def_dim(ncid2,'time',NF_UNLIMITED,NF_DOUBLE,units=trim(units)))
-        ! add calendar attribute to the time axis
-        iret=nfu_put_att(ncid2,'time','calendar',trim(valid_calendar_types(get_calendar_type())))
-        __NF_ASRT__(iret)
-     endif
-  endif
+  call create_tile_out_file(static_veg_file, 'static_veg_out.nc', tidx, tile_dim_length)
+  call create_cohort_dimension_new(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
+
+  call register_axis(static_veg_file, "time", unlimited)
+  call register_field(static_veg_file, "time", "double", (/"time"/))
+  call register_variable_attribute(static_veg_file, "time", "units", units)
+  call register_variable_attribute(static_veg_file, "time", "calendar", &
+                                   valid_calendar_types(get_calendar_type()))
+
+  call register_restart_field(static_veg_file, "species", species, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "species", "long_name", &
+                                   "vegetation species")
+
+  call register_restart_field(static_veg_file, "bl", bl, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "bl", "long_name", &
+                                   "biomass of leaves per individual")
+  call register_variable_attribute(static_veg_file, "bl", "units", &
+                                   "kg C/m2")
+
+  call register_restart_field(static_veg_file, "blv", blv, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "blv", "long_name", &
+                                   "biomass of virtual leaves (labile store) per individual")
+  call register_variable_attribute(static_veg_file, "blv", "units", &
+                                   "kg C/m2")
+
+  call register_restart_field(static_veg_file, "br", br, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "br", "long_name", &
+                                   "biomass of fine roots per individual")
+  call register_variable_attribute(static_veg_file, "br", "units", &
+                                   "kg C/m2")
+
+  call register_restart_field(static_veg_file, "bsw", bsw, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "bsw", "long_name", &
+                                   "biomass of sapwood per individual")
+  call register_variable_attribute(static_veg_file, "bsw", "units", &
+                                   "kg C/m2")
+
+  call register_restart_field(static_veg_file, "bwood", bwood, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "bwood", "long_name", &
+                                   "biomass of heartwood per individual")
+  call register_variable_attribute(static_veg_file, "bwood", "units", &
+                                   "kg C/m2")
+
+  call register_restart_field(static_veg_file, "bliving", bliving, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "bliving", "long_name", &
+                                   "total living biomass per individual")
+  call register_variable_attribute(static_veg_file, "bliving", "units", &
+                                   "")
+
+  call register_restart_field(static_veg_file, "status", status, (/"cohort_index"/))
+  call register_variable_attribute(static_veg_file, "status", "long_name", &
+                                   "leaf status")
+  call register_variable_attribute(static_veg_file, "status", "units", &
+                                   "")
+
+  call write_restart(static_veg_file)
 11 format('days since ', i4.4, '-', i2.2, '-', i2.2, ' ', i2.2, ':', i2.2, ':', i2.2)
 end subroutine init_writing_static_veg
 
 ! ===========================================================================
 subroutine static_vegn_end()
-
-  if(new_land_io) return
-
-  if(use_static_veg) then
-     __NF_ASRT__(nf_close(ncid))
-     deallocate(time_line,map_i,map_j)
-  endif
-  if(write_static_veg .and.  mpp_pe()==lnd%io_pelist(1) ) then
-     __NF_ASRT__(nf_close(ncid2))
-  endif
   module_is_initialized = .false.
 end subroutine static_vegn_end
 
@@ -568,98 +479,87 @@ subroutine read_static_vegn (time, err_msg)
   endif
 
   ! read the data into cohort variables
-  if(new_land_io) then
-    if(input_is_multiface) then
-     call fms_io_unstructured_get_field_size(trim(input_file), "cohort_index", siz, lnd%ug_domain)
-     allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-     call fms_io_unstructured_read(trim(input_file), "cohort_index", cidx, lnd%ug_domain, timelevel=index1)
-     call fms_io_unstructured_read(trim(input_file), "species", idata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
-     call fms_io_unstructured_read(trim(input_file), "bl", rdata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), "blv", rdata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), "br", rdata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), "bsw", rdata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), "bwood", rdata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), "bliving", rdata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), "status", idata, lnd%ug_domain, timelevel=index1)
-     call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
-     deallocate(cidx, idata, rdata)
-    else
-     call get_field_size(trim(input_file), &
-                         "cohort_index", &
-                         siz, &
-                         domain=lnd%sg_domain)
-     allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-     call read_compressed(trim(input_file), &
-                          "cohort_index", &
-                          cidx, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_compressed(trim(input_file), &
-                          "species", &
-                          idata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
-     call read_compressed(trim(input_file), &
-                          "bl", &
-                          rdata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file), &
-                          "blv", &
-                          rdata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file), &
-                          "br", &
-                          rdata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file), &
-                          "bsw", &
-                          rdata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file), &
-                          "bwood", &
-                          rdata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file), &
-                          "bliving", &
-                          rdata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file), &
-                          "status", &
-                          idata, &
-                          domain=lnd%sg_domain, &
-                          timelevel=index1)
-     call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
-     deallocate(cidx, idata, rdata)
-    endif
+  if(input_is_multiface) then
+   call fms_io_unstructured_get_field_size(trim(input_file), "cohort_index", siz, lnd%ug_domain)
+   allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
+   call fms_io_unstructured_read(trim(input_file), "cohort_index", cidx, lnd%ug_domain, timelevel=index1)
+   call fms_io_unstructured_read(trim(input_file), "species", idata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
+   call fms_io_unstructured_read(trim(input_file), "bl", rdata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
+   call fms_io_unstructured_read(trim(input_file), "blv", rdata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
+   call fms_io_unstructured_read(trim(input_file), "br", rdata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
+   call fms_io_unstructured_read(trim(input_file), "bsw", rdata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+   call fms_io_unstructured_read(trim(input_file), "bwood", rdata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+   call fms_io_unstructured_read(trim(input_file), "bliving", rdata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+   call fms_io_unstructured_read(trim(input_file), "status", idata, lnd%ug_domain, timelevel=index1)
+   call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
+   deallocate(cidx, idata, rdata)
   else
-     call read_remap_cohort_data_i0d_fptr(ncid, 'species' , cohort_species_ptr , map_i, map_j, index1)
-     call read_remap_cohort_data_r0d_fptr(ncid, 'bl'      , cohort_bl_ptr      , map_i, map_j, index1)
-     call read_remap_cohort_data_r0d_fptr(ncid, 'blv'     , cohort_blv_ptr     , map_i, map_j, index1)
-     call read_remap_cohort_data_r0d_fptr(ncid, 'br'      , cohort_br_ptr      , map_i, map_j, index1)
-     call read_remap_cohort_data_r0d_fptr(ncid, 'bsw'     , cohort_bsw_ptr     , map_i, map_j, index1)
-     call read_remap_cohort_data_r0d_fptr(ncid, 'bwood'   , cohort_bwood_ptr   , map_i, map_j, index1)
-     call read_remap_cohort_data_r0d_fptr(ncid, 'bliving' , cohort_bliving_ptr , map_i, map_j, index1)
-     call read_remap_cohort_data_i0d_fptr(ncid, 'status'  , cohort_status_ptr  , map_i, map_j, index1)
+   call get_field_size(trim(input_file), &
+                       "cohort_index", &
+                       siz, &
+                       domain=lnd%sg_domain)
+   allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
+   call read_compressed(trim(input_file), &
+                        "cohort_index", &
+                        cidx, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_compressed(trim(input_file), &
+                        "species", &
+                        idata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
+   call read_compressed(trim(input_file), &
+                        "bl", &
+                        rdata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
+   call read_compressed(trim(input_file), &
+                        "blv", &
+                        rdata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
+   call read_compressed(trim(input_file), &
+                        "br", &
+                        rdata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
+   call read_compressed(trim(input_file), &
+                        "bsw", &
+                        rdata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+   call read_compressed(trim(input_file), &
+                        "bwood", &
+                        rdata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+   call read_compressed(trim(input_file), &
+                        "bliving", &
+                        rdata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+   call read_compressed(trim(input_file), &
+                        "status", &
+                        idata, &
+                        domain=lnd%sg_domain, &
+                        timelevel=index1)
+   call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
+   deallocate(cidx, idata, rdata)
   endif
 
   ! derived variables will be updated in update_land_bc_fast
@@ -693,34 +593,8 @@ subroutine write_static_vegn()
   call gather_cohort_data(cohort_bwood_ptr,cidx,tile_dim_length,bwood)
   call gather_cohort_data(cohort_bliving_ptr,cidx,tile_dim_length,bliving)
   call gather_cohort_data(cohort_status_ptr,cidx,tile_dim_length,status)
-  if(new_land_io) then
-     call fms_io_unstructured_save_restart(static_veg_file, directory="", append=.true., time_level=t)
-  else
-     ! get the current number of records in the output file, rec is only needed by the io_pelist root pe.
-     rec = 0
-     ! create new record in the output file and store current value of time
-     if(mpp_pe()==lnd%io_pelist(1)) then
-          __NF_ASRT__(nfu_inq_dim(ncid2,'time',rec))
-          rec = rec+1
-        __NF_ASRT__(nfu_put_rec(ncid2,'time',rec,t))
-     endif
-     ! write static vegetation data
-     call write_cohort_data_i0d(ncid2,'species', species, 'vegetation species',record=rec)
-     call write_cohort_data_r0d(ncid2,'bl', bl, &
-          'biomass of leaves per individual','kg C/m2', record=rec)
-     call write_cohort_data_r0d(ncid2,'blv', blv, &
-          'biomass of virtual leaves (labile store) per individual','kg C/m2',record=rec)
-     call write_cohort_data_r0d(ncid2,'br', br, &
-          'biomass of fine roots per individual','kg C/m2', record=rec)
-     call write_cohort_data_r0d(ncid2,'bsw', bsw, &
-          'biomass of sapwood per individual','kg C/m2', record=rec)
-     call write_cohort_data_r0d(ncid2,'bwood', bwood, &
-          'biomass of heartwood per individual','kg C/m2', record=rec)
-     call write_cohort_data_r0d(ncid2,'bliving', bliving, &
-          'total living biomass per individual','kg C/m2', record=rec)
-     call write_cohort_data_i0d(ncid2,'status',  status, &
-          'leaf status', record=rec)
-  endif
+  call write_restart(static_veg_file)
+! call write_restart(static_veg_file, unlim_dim_level=t)
 end subroutine write_static_vegn
 
 

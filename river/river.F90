@@ -76,7 +76,6 @@ module river_mod
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_loop_over_list, fm_change_list
-  use land_io_mod,         only : new_land_io
   use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod

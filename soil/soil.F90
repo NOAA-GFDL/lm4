@@ -1419,9 +1419,9 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'soil.res.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
   if (soil_carbon_option==SOILC_CORPSE) then
-     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
+     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),.true.)
   endif
 
   ! write out fields
@@ -1572,7 +1572,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   if (write_soil_carbon_restart) then
      filename = trim(timestamp)//'soil_carbon.res.nc'
      call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-     call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
 
      call add_tile_data(restart,'asoil_in', 'zfull', soil_asoil_in_ptr ,'aerobic activity modifier', 'unitless')
      call add_tile_data(restart,'fsc_in', 'zfull', soil_fsc_in_ptr ,'fast soil carbon input', 'kg C/m2')
