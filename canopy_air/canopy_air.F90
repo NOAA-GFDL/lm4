@@ -219,7 +219,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'cana.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'cana.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
   ! write temperature

@@ -204,7 +204,7 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'glac.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'glac.nc'
   call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
 

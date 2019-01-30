@@ -627,7 +627,7 @@ subroutine land_model_restart(timestamp)
      if(trim(timestamp)/='') timestamp_=trim(timestamp)//'.'
   endif
   ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp_)//'land.res.nc'
+  filename = 'RESTART/'//trim(timestamp_)//'land.nc'
   call init_land_restart(restart, filename, land_tile_exists, tile_dim_length)
 
   ! [4] write data fields

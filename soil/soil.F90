@@ -1417,7 +1417,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'soil.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'soil.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
   if (soil_carbon_option==SOILC_CORPSE) then
@@ -1570,7 +1570,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 
   if (write_soil_carbon_restart) then
-     filename = trim(timestamp)//'soil_carbon.res.nc'
+     filename = 'RESTART/'//trim(timestamp)//'soil_carbon.nc'
      call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
      call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
 

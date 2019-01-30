@@ -199,7 +199,7 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'snow.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zz(1:num_l),.false.,longname='depth of level centers',sense=-1)
 

@@ -1023,7 +1023,7 @@ end subroutine print_river_tracer_data
     integer :: tr
 
     if (.not. do_rivers) return ! do nothing further if rivers are turned off
-    s = open_file(river_restart, trim(timestamp)//"river.nc", &
+    s = open_file(river_restart, 'RESTART/'//trim(timestamp)//"river.nc", &
                   "write", domain, is_restart=.true.)
     call register_axis(river_restart, river_res_xdim, "x")
     call register_axis(river_restart, river_res_ydim, "y")

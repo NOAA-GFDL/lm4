@@ -17,7 +17,8 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, get_variable_size, &
-                       read_data, write_data, open_file, register_restart_field
+                       read_data, write_data, open_file, register_restart_field, &
+                       compressed_start_and_count
 
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
@@ -904,17 +905,22 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   real,        optional, intent(in)  :: soilCCohort_data(:)
 
   logical :: s
+  integer :: ntidx
+  integer, dimension(:), allocatable :: npes_tidx !Tile index length of each pe in file's pelist.
+  integer, dimension(:), allocatable :: npes_tidx_start !Offset of tile index of each pe in file's pelist.
 
-  s = open_file(rhandle, name, "write", lnd%ug_domain, is_restart=.true.)
+  s = open_file(rhandle, name, "overwrite", lnd%ug_domain, is_restart=.true.)
   call register_axis(rhandle, "lon", .false., size(lnd%coord_glon))
   call register_field(rhandle, "lon", "double", (/"lon"/))
   call register_variable_attribute(rhandle, "lon", "units", "degrees_east")
   call register_variable_attribute(rhandle, "lon", "long_name", "longitude")
+  call write_data(rhandle, "lon", lnd%coord_glon)
 
   call register_axis(rhandle, "lat", .false., size(lnd%coord_glat))
   call register_field(rhandle, "lat", "double", (/"lat"/))
   call register_variable_attribute(rhandle, "lat", "units", "degrees_north")
   call register_variable_attribute(rhandle, "lat", "long_name", "latitude")
+  call write_data(rhandle, "lat", lnd%coord_glat)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
@@ -923,7 +929,11 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   call register_field(rhandle, "tile", "int", (/"tile"/))
   call register_variable_attribute(rhandle, "tile", "long_name", "tile number within grid cell")
 
-  call register_axis(rhandle, tile_index_name, .true.)
+  ntidx = size(tidx)
+  call compressed_start_and_count(rhandle, ntidx, npes_tidx_start, npes_tidx)
+  call register_axis(rhandle, tile_index_name, npes_corner=npes_tidx_start, npes_nelems=npes_tidx)
+! deallocate(npes_tidx)
+! deallocate(npes_tidx_start)
   call register_field(rhandle, tile_index_name, "int", (/tile_index_name/))
   call register_variable_attribute(rhandle, tile_index_name, "long_name", "sed land point index")
   call register_variable_attribute(rhandle, tile_index_name, "compress", "tile lat lon")

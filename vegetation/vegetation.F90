@@ -781,7 +781,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
   ! create output file, including internal structure necessary for tile output
-  filename = trim(timestamp)//'vegn1.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn1.nc'
   call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
 
   ! create compressed dimension for vegetation cohorts -- must be called even
@@ -796,7 +796,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call free_land_restart(restart1)
 
 
-  filename = trim(timestamp)//'vegn2.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn2.nc'
   call init_land_restart(restart2, filename, vegn_tile_exists, tile_dim_length)
   ! create compressed dimension for vegetation cohorts -- see note above
   call create_cohort_dimension(restart2)
