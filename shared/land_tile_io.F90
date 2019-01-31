@@ -908,6 +908,8 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   integer :: ntidx
   integer, dimension(:), allocatable :: npes_tidx !Tile index length of each pe in file's pelist.
   integer, dimension(:), allocatable :: npes_tidx_start !Offset of tile index of each pe in file's pelist.
+  integer, dimension(tile_dim_length) :: buffer
+  integer :: i
 
   s = open_file(rhandle, name, "overwrite", lnd%ug_domain, is_restart=.true.)
   call register_axis(rhandle, "lon", .false., size(lnd%coord_glon))
@@ -928,6 +930,10 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   call register_axis(rhandle, "tile", .false., tile_dim_length)
   call register_field(rhandle, "tile", "int", (/"tile"/))
   call register_variable_attribute(rhandle, "tile", "long_name", "tile number within grid cell")
+  do i = 1, tile_dim_length
+      buffer(i) = i
+  enddo
+  call write_data(rhandle, "tile", buffer)
 
   ntidx = size(tidx)
   call compressed_start_and_count(rhandle, ntidx, npes_tidx_start, npes_tidx)

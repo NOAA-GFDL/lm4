@@ -57,9 +57,13 @@ module river_mod
   use fms_mod,             only : CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_instance_filename
 
+
+!New imports ---
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
-                         register_restart_field, variable_exists, &
-                         read_restart, write_restart, close_file
+                         register_restart_field, variable_exists, register_field, &
+                         read_restart, write_restart, close_file, register_variable_attribute, write_data, &
+                         add_domain_decomposition_attribute, get_compute_domain_dimension_indices
+!-------
 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
@@ -188,8 +192,8 @@ type tracer_data_type
 end type
 
 type(tracer_data_type), allocatable :: trdata(:) ! common tracer data
-character(len=8),parameter :: river_res_xdim = "x"
-character(len=8),parameter :: river_res_ydim = "y"
+character(len=8),parameter :: river_res_xdim = "xaxis_1"
+character(len=8),parameter :: river_res_ydim = "yaxis_1"
 
 contains
 
@@ -1021,26 +1025,58 @@ end subroutine print_river_tracer_data
     type(FmsNetcdfDomainFile_t) :: river_restart
     logical :: s
     integer :: tr
+    integer, dimension(:), allocatable :: buffer
 
     if (.not. do_rivers) return ! do nothing further if rivers are turned off
     s = open_file(river_restart, 'RESTART/'//trim(timestamp)//"river.nc", &
-                  "write", domain, is_restart=.true.)
+                  "overwrite", domain, is_restart=.true.)
+
     call register_axis(river_restart, river_res_xdim, "x")
+    call register_field(river_restart, river_res_xdim, "double", (/river_res_xdim/))
+    call register_variable_attribute(river_restart, river_res_xdim, "long_name", river_res_xdim)
+    call register_variable_attribute(river_restart, river_res_xdim, "units", "none")
+    call register_variable_attribute(river_restart, river_res_xdim, "cartesian_axis", "X")
+    call add_domain_decomposition_attribute(river_restart, river_res_xdim)
+    call get_compute_domain_dimension_indices(river_restart, river_res_xdim, buffer)
+    call write_data(river_restart, river_res_xdim, buffer)
+    deallocate(buffer)
+
     call register_axis(river_restart, river_res_ydim, "y")
-    call register_restart_field(river_restart, "storage", river%storage, &
-                                (/"x","y"/))
-    call register_restart_field(river_restart, "discharge2ocean", &
-                                discharge2ocean_next, (/"x","y"/))
+    call register_field(river_restart, river_res_ydim, "double", (/river_res_ydim/))
+    call register_variable_attribute(river_restart, river_res_ydim, "long_name", river_res_ydim)
+    call register_variable_attribute(river_restart, river_res_ydim, "units", "none")
+    call register_variable_attribute(river_restart, river_res_ydim, "cartesian_axis", "Y")
+    call add_domain_decomposition_attribute(river_restart, river_res_ydim)
+    call get_compute_domain_dimension_indices(river_restart, river_res_ydim, buffer)
+    call write_data(river_restart, river_res_ydim, buffer)
+    deallocate(buffer)
+
+    call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim/))
+    call register_variable_attribute(river_restart, "storage", "long_name", "storage")
+    call register_variable_attribute(river_restart, "storage", "units", "none")
+
+    call register_restart_field(river_restart, "discharge2ocean", discharge2ocean_next, (/river_res_xdim, river_res_ydim/))
+    call register_variable_attribute(river_restart, "discharge2ocean", "long_name", "discharge2ocean")
+    call register_variable_attribute(river_restart, "discharge2ocean", "units", "none")
+
     do tr = 1, num_species
-        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, &
-                                    river%storage_c(:,:,tr), (/"x","y"/))
-        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, &
-                                    discharge2ocean_next_c(:,:,tr), (/"x","y"/))
+        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, river%storage_c(:,:,tr), (/river_res_xdim, river_res_ydim/))
+        call register_variable_attribute(river_restart, "storage_"//trdata(tr)%name, "long_name", "storage_"//trdata(tr)%name)
+        call register_variable_attribute(river_restart, "storage_"//trdata(tr)%name, "units", "none")
+
+        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, discharge2ocean_next_c(:,:,tr), (/river_res_xdim, river_res_ydim/))
+        call register_variable_attribute(river_restart, "disch2ocn_"//trdata(tr)%name, "long_name", "disch2ocn_"//trdata(tr)%name)
+        call register_variable_attribute(river_restart, "disch2ocn_"//trdata(tr)%name, "units", "none")
     enddo
-    call register_restart_field(river_restart, "Omean", river%outflowmean, &
-                                (/"x","y"/))
-    call register_restart_field(river_restart, "depth", river%depth, &
-                                (/"x","y"/))
+
+    call register_restart_field(river_restart, "Omean", river%outflowmean, (/river_res_xdim, river_res_ydim/))
+    call register_variable_attribute(river_restart, "Omean", "long_name", "Omean")
+    call register_variable_attribute(river_restart, "Omean", "units", "none")
+
+    call register_restart_field(river_restart, "depth", river%depth, (/river_res_xdim, river_res_ydim/))
+    call register_variable_attribute(river_restart, "depth", "long_name", "depth")
+    call register_variable_attribute(river_restart, "depth", "units", "none")
+
     call write_restart(river_restart)
     call close_file(river_restart)
   end subroutine save_river_restart
