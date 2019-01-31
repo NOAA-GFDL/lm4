@@ -28,9 +28,9 @@ use fms_io_mod, only: fms_io_unstructured_read
 
 
 
-use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
+use fms2_io_mod, only: compressed_start_and_count, FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, register_variable_attribute, &
-                       read_data
+                       read_data, write_data
 
 
 
@@ -214,6 +214,11 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
 
   ! ---- local vars
   character(256) :: file_name ! full name of the file, including the processor number
+  integer :: ncidx
+  integer, dimension(:), allocatable :: npes_cidx !Cohort index length of each pe in file's pelist.
+  integer, dimension(:), allocatable :: npes_cidx_start !Offset of cohort index of each pe in file's pelist.
+  integer, dimension(cohorts_dim_length) :: buffer
+  integer :: i
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
@@ -222,7 +227,19 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call register_axis(rhandle, cohort_index_name, .true.)
+  call register_axis(rhandle, "cohort", cohorts_dim_length)
+  call register_field(rhandle, "cohort", "int", (/"cohort"/))
+  call register_variable_attribute(rhandle, "cohort", "long_name", "cohort number within tile")
+  do i = 1, cohorts_dim_length
+    buffer(i) = i
+  enddo
+  call write_data(rhandle, "cohort", buffer)
+
+  ncidx =  size(cidx)
+  call compressed_start_and_count(rhandle, ncidx, npes_cidx_start, npes_cidx)
+  call register_axis(rhandle, cohort_index_name, npes_corner=npes_cidx_start, npes_nelems=npes_cidx)
+  deallocate(npes_cidx_start)
+  deallocate(npes_cidx)
   call register_field(rhandle, cohort_index_name, "int", (/cohort_index_name/))
   call register_variable_attribute(rhandle, cohort_index_name, "compressed", &
                                    "cohort tile lat lon")
@@ -230,6 +247,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
                                    "none")
   call register_variable_attribute(rhandle, cohort_index_name, "long_name", &
                                    "compressed vegetation cohort index")
+  call write_data(rhandle, cohort_index_name, cidx)
 end subroutine create_cohort_out_file_idx
 
 subroutine distrib_cohort_data_i0d(fptr,idx,ntiles,data)
