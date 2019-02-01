@@ -35,7 +35,7 @@ use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_typ
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension_new, gather_cohort_data, &
-     write_cohort_data_i0d, write_cohort_data_r0d, gather_cohort_index
+     gather_cohort_index
 
 use fms_io_mod, only: fms_io_unstructured_register_restart_axis
 use fms_io_mod, only: fms_io_unstructured_register_restart_field

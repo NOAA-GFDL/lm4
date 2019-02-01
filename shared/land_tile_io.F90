@@ -1,16 +1,8 @@
 module land_tile_io_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
+use netcdf, only: NF90_MAX_NAME, NF90_FILL_DOUBLE, NF90_FILL_INT
 
-use mpp_mod, only : mpp_send, mpp_recv, mpp_sync, &
-     COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4, &
-     COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8, &
-     COMM_TAG_9,  COMM_TAG_10
-use fms_mod, only : error_mesg, FATAL, NOTE, mpp_pe, get_mosaic_tile_file
+use fms_mod, only : error_mesg, FATAL, mpp_pe
 use fms_io_mod, only : get_instance_filename
 
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
@@ -23,8 +15,6 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
 use mpp_domains_mod,   only : mpp_pass_SG_to_UG
-use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
-     nfu_get_var, nfu_put_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, &
@@ -115,7 +105,6 @@ type land_restart_type
 
    character(267) :: basename ='' ! name of the restart file
    character(267) :: filename ='' ! name of the restart file after adding PE number and such
-   integer :: ncid = -1 ! netcdf id, used only for old land io
    integer, allocatable :: tidx(:) ! tile index
    integer, allocatable :: cidx(:) ! vegetation cohort index
    integer :: tile_dim_length = -1! length of tile dimension
@@ -124,10 +113,6 @@ type land_restart_type
    integer    :: nax=0
    type(axis) :: ax(5)
 end type land_restart_type
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -163,11 +148,12 @@ subroutine open_land_restart(restart,filename,restart_exists)
   integer,dimension(:),allocatable :: flen ! length of the index
 
   restart%basename = filename
-  call get_input_restart_name(restart%basename,restart_exists,restart%filename)
+  restart_exists = open_file(restart%rhandle, restart%basename, "read", &
+                             lnd%ug_domain, is_restart=.true.)
   if (.not. restart_exists) return
 
   !Get the size of the tile dimension from the file.
-  if (.not. variable_exists(restart%rhandle, "tile")) then
+  if (.not. field_exists(restart, "tile")) then
       call error_mesg("open_land_restart", "dimension 'tile' not found in file '" &
                       //trim(filename)//"'.", FATAL)
   endif
@@ -175,7 +161,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
   restart%tile_dim_length = flen(1)
 
   !Get the size of the tile index dimension from the file.
-  if (.not. variable_exists(restart%rhandle, "tile_index")) then
+  if (.not. field_exists(restart, "tile_index")) then
       call error_mesg("open_land_restart", "'tile_index' not found in file '" &
                       //trim(filename)//"'.", FATAL)
   endif
@@ -186,13 +172,14 @@ subroutine open_land_restart(restart,filename,restart_exists)
   call read_data(restart%rhandle, "tile_index", restart%tidx)
 
   !Get the size of the cohort_index dimension from the file.
-  if (variable_exists(restart%rhandle, "cohort_index")) then
+  if (field_exists(restart, "cohort_index")) then
       call get_variable_size(restart%rhandle, "cohort_index", flen)
 
       !Read in the cohort_index field from the file.
       allocate(restart%cidx(flen(1)))
       call read_data(restart%rhandle, "cohort_index", restart%cidx)
   endif
+  deallocate(flen)
   ! TODO: possibly make tile index and cohort index names parameters in this module
   !       just constants, no sense to make them namelists vars
 end subroutine open_land_restart
@@ -213,10 +200,6 @@ subroutine free_land_restart(restart)
 
   if (restart%should_free_rhandle) call close_file(restart%rhandle)
   restart%should_free_rhandle = .FALSE.
-  if (restart%ncid>0) then
-     __NF_ASRT__(nf_close(restart%ncid))
-     restart%ncid = -1
-  endif
   restart%basename = ''
   restart%filename = ''
   if (allocated(restart%tidx)) deallocate(restart%tidx)
@@ -291,7 +274,7 @@ subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
   character(len=*), intent(in), optional :: longname
 
   integer :: id_restart, ierr
-  character(NF_MAX_NAME)::dimnames(2)
+  character(NF90_MAX_NAME)::dimnames(2)
 
   call error_mesg('add_text_data','does not work with new io yet', FATAL)
 end subroutine add_text_data
@@ -478,7 +461,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
 
   nlev = dimlen(restart,zdim)
   allocate(data(size(restart%tidx),nlev))
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
   ! gather data into an array along the tile dimension. It is assumed that
   ! the tile dimension spans all the tiles that need to be written.
@@ -526,7 +509,7 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
   if (nlev<1) call error_mesg('add_tile_data_r0d_fptr_r0i', 'axis "'//trim(zdim)//'" not found', FATAL)
 
   allocate(data(size(restart%tidx),nlev))
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
   ! gather data into an array along the tile dimension. It is assumed that
   ! the tile dimension spans all the tiles that need to be written.
@@ -694,7 +677,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
 
-  if (.not. variable_exists(restart%rhandle, zdim)) then
+  if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r0d_fptr_r0i", &
             "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
             FATAL)
@@ -708,6 +691,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r1d(fptr,restart%tidx,r)
   deallocate(r)
+  deallocate(flen)
 end subroutine get_tile_data_r1d_fptr_r0i
 
 subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
@@ -720,7 +704,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
   integer,dimension(:),allocatable :: flen ! size of the input field
   integer, allocatable :: r(:,:) ! input data buffer
 
-  if (.not. variable_exists(restart%rhandle, zdim)) then
+  if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_i1d_fptr_i0i", &
             "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
             FATAL)
@@ -734,6 +718,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_i1d(fptr,restart%tidx,r)
   deallocate(r)
+  deallocate(flen)
 end subroutine get_tile_data_i1d_fptr_i0i
 
 subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
@@ -747,7 +732,7 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
 
-  if (.not. variable_exists(restart%rhandle, zdim)) then
+  if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ij", &
             "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
             FATAL)
@@ -761,6 +746,7 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r1d_idx(fptr,index,restart%tidx,r)
   deallocate(r)
+  deallocate(flen)
 end subroutine get_tile_data_r1d_fptr_r0ij
 
 subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
@@ -774,7 +760,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
 
-  if (.not. variable_exists(restart%rhandle, zdim)) then
+  if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ijk", &
             "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
             FATAL)
@@ -788,6 +774,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   call read_data(restart%rhandle, varname, r)
 ! call distrib_tile_data_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
   deallocate(r)
+  deallocate(flen)
 end subroutine get_tile_data_r1d_fptr_r0ijk
 
 subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
@@ -801,7 +788,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   integer :: n,m
   real, allocatable :: r(:,:,:) ! input data buffer
 
-  if (.not. variable_exists(restart%rhandle, dim1)) then
+  if (.not. field_exists(restart, dim1)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ij", &
            "axis '"//trim(dim1)//"' was not found in file '"//trim(restart%basename)//"'.", &
            FATAL)
@@ -811,7 +798,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   call get_variable_size(restart%rhandle, dim1, flen)
   n = flen(1)
 
-  if (.not. variable_exists(restart%rhandle, dim2)) then
+  if (.not. field_exists(restart, dim2)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ij", &
            "axis '"//trim(dim2)//"' was not found in file '"//trim(restart%basename)//"'.", &
            FATAL)
@@ -826,6 +813,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r2d(fptr,restart%tidx,r)
   deallocate(r)
+  deallocate(flen)
 end subroutine get_tile_data_r2d_fptr_r0ij
 
 subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
@@ -840,7 +828,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   integer ::  m,n
   real, allocatable :: r(:,:,:) ! input data buffer
 
-  if (.not. variable_exists(restart%rhandle, dim1)) then
+  if (.not. field_exists(restart, dim1)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ijk", &
            "axis '"//trim(dim1)//"' was not found in file '"//trim(restart%basename)//"'.", &
            FATAL)
@@ -850,7 +838,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   call get_variable_size(restart%rhandle, dim1, flen)
   n = flen(1)
 
-  if (.not. variable_exists(restart%rhandle, dim2)) then
+  if (.not. field_exists(restart, dim2)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ijk", &
            "axis '"//trim(dim2)//"' was not found in file '"//trim(restart%basename)//"'.", &
            FATAL)
@@ -865,36 +853,8 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r2d_idx(fptr,index,restart%tidx,r)
   deallocate(r)
+  deallocate(flen)
 end subroutine get_tile_data_r2d_fptr_r0ijk
-
-! =============================================================================
-! given a generic name of the restart file, checks if a file with one of the
-! possible restarts file names exists, and if it does returns the tile-qualified
-! (or tile- and processor-qualified) name of the restart.
-subroutine get_input_restart_name(name, restart_exists, actual_name)
-  character(*), intent(in)  :: name        ! "generic" name of the restart
-  logical     , intent(out) :: restart_exists ! TRUE if any file found
-  character(*), intent(out) :: actual_name ! name of the found file, if any
-
-  ! ---- local vars
-  character(6) :: PE_suffix ! PE number
-  character(len=256) :: distributed_name
-
-  ! Build the restart file name.
-  call get_instance_filename(trim(name), actual_name)
-  call get_mosaic_tile_file(trim(actual_name),actual_name, lnd%ug_domain)
-  ! we cannot use fms file_exist function here, because it lies: it checks not
-  ! just the original name, but the name with PE suffix, and returns true if
-  ! either of those exist
-  inquire (file=trim(actual_name), exist=restart_exists)
-  if (.not.restart_exists) then
-     ! try the name with current PE number attached
-     write(PE_suffix,'(".",I4.4)') lnd%io_id
-     distributed_name = trim(actual_name)//trim(PE_suffix)
-     inquire (file=trim(distributed_name), exist=restart_exists)
-  endif
-
-end subroutine get_input_restart_name
 
 subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_data,soilCCohort_data)
   type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: rhandle     ! restart file handle
@@ -1043,7 +1003,7 @@ subroutine gather_tile_data_i0d(fptr,idx,data)
   integer, pointer :: ptr ! pointer to the tile data
   integer :: i
 
-  data = NF_FILL_INT
+  data = NF90_FILL_INT
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1064,7 +1024,7 @@ subroutine gather_tile_data_r0d(fptr,idx,data)
   real   , pointer :: ptr ! pointer to the tile data
   integer :: i
 
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1086,7 +1046,7 @@ subroutine gather_tile_data_r0i(fptr,n,idx,data)
   real   , pointer :: ptr ! pointer to the tile data
   integer :: i
 
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1108,7 +1068,7 @@ subroutine gather_tile_data_r0ij(fptr,n,m,idx,data)
   real   , pointer :: ptr ! pointer to the tile data
   integer :: i
 
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1129,7 +1089,7 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
   real   , pointer :: ptr ! pointer to the tile data
   integer :: i,j
 
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1152,7 +1112,7 @@ subroutine gather_tile_data_i1d(fptr,idx,data)
   integer, pointer :: ptr ! pointer to the tile data
   integer :: i,j
 
-  data = NF_FILL_INT
+  data = NF90_FILL_INT
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1175,7 +1135,7 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
   real   , pointer :: ptr ! pointer to the tile data
   integer :: i,k,m
 
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
@@ -1201,7 +1161,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
   real   , pointer :: ptr ! pointer to the tile data
   integer :: i,k,m
 
-  data = NF_FILL_DOUBLE
+  data = NF90_FILL_DOUBLE
 
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.

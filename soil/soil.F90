@@ -380,7 +380,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
-  character(*), parameter :: restart_file_name = 'INPUT/soil.res.nc'
+  character(*), parameter :: restart_file_name = 'INPUT/soil.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)

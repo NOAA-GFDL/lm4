@@ -112,7 +112,7 @@ subroutine cana_init()
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: ce   ! tile list enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/cana.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 

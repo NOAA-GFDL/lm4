@@ -65,7 +65,7 @@ use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 use soil_mod, only : add_root_litter, redistribute_peat_carbon
 
-use fms_io_mod, only: fms_io_unstructured_read
+use fms2_io_mod, only: read_data
 
 implicit none
 private
@@ -261,8 +261,8 @@ subroutine vegn_init(id_ug,id_band)
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
-  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
+  call open_land_restart(restart1,'INPUT/vegn1.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.nc',restart_2_exists)
   if (restart_1_exists) then
      call error_mesg('vegn_init',&
           'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
@@ -285,14 +285,8 @@ subroutine vegn_init(id_ug,id_band)
 
 
      ! read global variables
-     call fms_io_unstructured_read(restart2%basename, &
-                                   "n_accum", &
-                                   n_accum, &
-                                   lnd%ug_domain)
-     call fms_io_unstructured_read(restart2%basename, &
-                                   "nmn_acm", &
-                                   nmn_acm, &
-                                   lnd%ug_domain)
+     call read_data(restart2%rhandle, "n_accum", n_accum)
+     call read_data(restart2%rhandle, "nmn_acm", nmn_acm)
 
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
      call get_cohort_data(restart2, 'hite', cohort_height_ptr)

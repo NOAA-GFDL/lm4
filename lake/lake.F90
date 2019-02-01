@@ -314,7 +314,7 @@ subroutine lake_init (id_ug)
   real, allocatable :: buffer(:),bufferc(:),buffert(:)
   integer :: i, g, l
   logical :: river_data_exist
-  character(*), parameter :: restart_file_name = 'INPUT/lake.res.nc'
+  character(*), parameter :: restart_file_name = 'INPUT/lake.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)

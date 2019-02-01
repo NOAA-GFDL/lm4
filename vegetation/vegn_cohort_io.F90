@@ -1,13 +1,10 @@
 module cohort_io_mod
 
-use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
-use fms_io_mod,       only : restart_file_type, get_instance_filename
-use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
-                             COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4, &
-                             mpp_sync_self, stdout
-use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
-     nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
-     nfu_inq_var
+use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
+
+use fms_mod,          only : error_mesg, FATAL, WARNING
+use fms_io_mod,       only : get_instance_filename
+use mpp_mod,          only : mpp_max
 use land_io_mod,      only : print_netcdf_error, input_buf_size
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
@@ -21,17 +18,10 @@ use land_tile_io_mod, only: land_restart_type, &
 use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd
 
-use fms_io_mod, only: fms_io_unstructured_register_restart_axis
-use fms_io_mod, only: fms_io_unstructured_register_restart_field
-use fms_io_mod, only: HIDX
-use fms_io_mod, only: fms_io_unstructured_read
-
-
 
 use fms2_io_mod, only: compressed_start_and_count, FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, register_variable_attribute, &
                        read_data, write_data
-
 
 
 implicit none
@@ -43,7 +33,6 @@ public :: create_cohort_dimension
 public :: add_cohort_data, add_int_cohort_data
 public :: get_cohort_data, get_int_cohort_data
 ! remove when cleaning up:
-public :: write_cohort_data_r0d, write_cohort_data_i0d
 public :: gather_cohort_index, gather_cohort_data
 public :: create_cohort_dimension_new
 ! ==== end of public interfaces ==============================================
@@ -76,9 +65,6 @@ abstract interface
      integer               , pointer :: ptr  ! returned pointer to the data
   end subroutine cptr_i0
 end interface
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -222,7 +208,6 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-! call get_mosaic_tile_file(trim(file_name),file_name,lnd%ug_domain)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
@@ -355,7 +340,7 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), ntiles, cohort)
-     data(i) = NF_FILL_INT
+     data(i) = NF90_FILL_INT
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) data(i) = ptr
@@ -377,7 +362,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), ntiles, cohort)
-     data(i) = NF_FILL_DOUBLE
+     data(i) = NF90_FILL_DOUBLE
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) data(i) = ptr
@@ -396,7 +381,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
 
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
-  call register_field(restart%rhandle, varname, "double", (/"cohort_index"/))
+  call register_field(restart%rhandle, varname, "double", (/cohort_index_name/))
   if (present(units)) then
     call register_variable_attribute(restart%rhandle, varname, "units", units)
   endif
@@ -417,7 +402,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
 
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
-  call register_field(restart%rhandle, varname, "int", (/"cohort_index"/))
+  call register_field(restart%rhandle, varname, "int", (/cohort_index_name/))
   if (present(units)) then
     call register_variable_attribute(restart%rhandle, varname, "units", units)
   endif
@@ -437,7 +422,7 @@ subroutine get_cohort_data(restart,varname,fptr)
   if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
       'cohort index not found in file "'//restart%filename//'"',FATAL)
   allocate(r(size(restart%cidx)))
-  call read_data(restart%rhandle, varname, r, unlim_dim_level=1)
+  call read_data(restart%rhandle, varname, r)
   call distrib_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
   deallocate(r)
 end subroutine get_cohort_data
@@ -453,25 +438,9 @@ subroutine get_int_cohort_data(restart,varname,fptr)
   if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
       'cohort index not found in file "'//restart%filename//'"',FATAL)
   allocate(r(size(restart%cidx)))
-  call read_data(restart%rhandle, varname, r, unlim_dim_level=1)
+  call read_data(restart%rhandle, varname, r)
   call distrib_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
   deallocate(r)
 end subroutine get_int_cohort_data
-
-#define F90_TYPE real
-#define NF_TYPE NF_DOUBLE
-#define NF_FILL_VALUE NF_FILL_DOUBLE
-#define READ_0D_FPTR read_cohort_data_r0d_fptr
-#define WRITE_0D_FPTR write_cohort_data_r0d_fptr
-#define WRITE_0D write_cohort_data_r0d
-#include "vegn_cohort_io.inc"
-
-#define F90_TYPE integer
-#define NF_TYPE NF_INT
-#define NF_FILL_VALUE NF_FILL_INT
-#define READ_0D_FPTR read_cohort_data_i0d_fptr
-#define WRITE_0D_FPTR write_cohort_data_i0d_fptr
-#define WRITE_0D write_cohort_data_i0d
-#include "vegn_cohort_io.inc"
 
 end module cohort_io_mod

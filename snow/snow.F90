@@ -138,7 +138,7 @@ subroutine snow_init()
   integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/snow.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 

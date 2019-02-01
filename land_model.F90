@@ -111,12 +111,12 @@ use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, &
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
                                 close_database_predefined_tiles
-
-use fms_io_mod,      only: fms_io_unstructured_read
 use mpp_domains_mod, only: domainUG
 use mpp_domains_mod, only: mpp_get_UG_compute_domain
 use mpp_domains_mod, only: mpp_get_UG_domain_grid_index
 use diag_axis_mod,   only: diag_axis_add_attribute
+
+use fms2_io_mod, only: read_data
 
 implicit none
 private
@@ -348,7 +348,7 @@ subroutine land_model_init &
   integer :: ico2_atm ! index of CO2 tracer in the atmos, or NO_TRACER
 
   type(land_restart_type) :: restart
-  character(*), parameter :: restart_file_name='INPUT/land.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/land.nc'
   logical :: restart_exists
 
   ! IDs of local clocks
@@ -974,11 +974,11 @@ subroutine land_cover_warm_start_new (restart)
   ntiles = size(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "glac", glac, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "lake", lake, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "soil", soil, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
+  call read_data(restart%rhandle, "frac", frac)
+  call read_data(restart%rhandle, "glac", glac)
+  call read_data(restart%rhandle, "lake", lake)
+  call read_data(restart%rhandle, "soil", soil)
+  call read_data(restart%rhandle, "vegn", vegn)
 
   npts = lnd%nlon*lnd%nlat
   ! create tiles

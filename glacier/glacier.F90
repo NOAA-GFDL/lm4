@@ -129,7 +129,7 @@ subroutine glac_init (id_ug)
   type(land_tile_type), pointer :: tile ! pointer to current tile
   type(land_restart_type) :: restart
   logical :: restart_exists
-  character(*), parameter :: restart_file_name='INPUT/glac.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/glac.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
