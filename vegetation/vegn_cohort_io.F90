@@ -388,6 +388,8 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   if (present(longname)) then
     call register_variable_attribute(restart%rhandle, varname, "long_name", longname)
   endif
+  call write_data(restart%rhandle, varname, r)
+  deallocate(r)
 end subroutine add_cohort_data
 
 ! ============================================================================
@@ -409,6 +411,8 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   if (present(longname)) then
     call register_variable_attribute(restart%rhandle, varname, "long_name", longname)
   endif
+  call write_data(restart%rhandle, varname, r)
+  deallocate(r)
 end subroutine add_int_cohort_data
 
 ! ============================================================================
