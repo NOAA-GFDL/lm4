@@ -226,12 +226,13 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   deallocate(npes_cidx_start)
   deallocate(npes_cidx)
   call register_field(rhandle, cohort_index_name, "int", (/cohort_index_name/))
-  call register_variable_attribute(rhandle, cohort_index_name, "compressed", &
+  call register_variable_attribute(rhandle, cohort_index_name, "compress", &
                                    "cohort tile lat lon")
   call register_variable_attribute(rhandle, cohort_index_name, "units", &
                                    "none")
   call register_variable_attribute(rhandle, cohort_index_name, "long_name", &
                                    "compressed vegetation cohort index")
+  call register_variable_attribute(rhandle, cohort_index_name, "valid_min", 0)
   call write_data(rhandle, cohort_index_name, cidx)
 end subroutine create_cohort_out_file_idx
 
@@ -382,6 +383,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
   call register_field(restart%rhandle, varname, "double", (/cohort_index_name/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(units)) then
     call register_variable_attribute(restart%rhandle, varname, "units", units)
   endif
@@ -405,6 +407,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
   call register_field(restart%rhandle, varname, "int", (/cohort_index_name/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(units)) then
     call register_variable_attribute(restart%rhandle, varname, "units", units)
   endif

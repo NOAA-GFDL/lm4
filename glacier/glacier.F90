@@ -206,7 +206,7 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = 'RESTART/'//trim(timestamp)//'glac.nc'
   call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
   ! Output data provides signature
   call add_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')

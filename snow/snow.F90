@@ -201,7 +201,7 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zz(1:num_l),.false.,longname='depth of level centers',sense=-1)
+  call add_restart_axis(restart,'zfull',zz(1:num_l),.false.,"Z",longname='depth of level centers',sense=-1)
 
   call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
   call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')

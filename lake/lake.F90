@@ -466,7 +466,7 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = 'RESTART/'//trim(timestamp)//'lake.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,'m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
   ! write out fields
   call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')

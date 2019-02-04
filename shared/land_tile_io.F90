@@ -9,7 +9,7 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, get_variable_size, &
-                       read_data, write_data, open_file, register_restart_field, &
+                       read_data, write_data, open_file, &
                        compressed_start_and_count
 
 use time_manager_mod, only : time_type
@@ -208,11 +208,12 @@ subroutine free_land_restart(restart)
 end subroutine free_land_restart
 
 ! ==============================================================================
-subroutine add_restart_axis(restart,name,data,is_unstructured,units,longname,sense)
+subroutine add_restart_axis(restart,name,data,is_unstructured,cartesian,units,longname,sense)
   type(land_restart_type),    intent(inout) :: restart
   character(len=*),           intent(in)    :: name
   real,                       intent(in)    :: data(:)
   logical,                    intent(in)    :: is_unstructured
+  character(len=1), optional, intent(in)    :: cartesian
   character(len=*), optional, intent(in)    :: units, longname
   integer,          optional, intent(in)    :: sense
 
@@ -223,16 +224,24 @@ subroutine add_restart_axis(restart,name,data,is_unstructured,units,longname,sen
   data_(:) = data(:)
   call register_axis(restart%rhandle, name, is_unstructured, size(data))
   call register_field(restart%rhandle, name, "double", (/name/))
+  if (present(cartesian)) then
+      call register_variable_attribute(restart%rhandle, name, "cartesian_axis", cartesian)
+  endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, name, "units", units)
   endif
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, name, "longname", longname)
+      call register_variable_attribute(restart%rhandle, name, "long_name", longname)
   endif
   if (present(sense)) then
-      call register_variable_attribute(restart%rhandle, name, "sense", sense)
+      if (sense .eq. -1) then
+          call register_variable_attribute(restart%rhandle, name, "positive", "down")
+      else
+          call register_variable_attribute(restart%rhandle, name, "positive", "up")
+      endif
   endif
   call write_data(restart%rhandle,name,data_)
+  deallocate(data_)
 
   ! record dimension information for future use
   n = restart%nax+1; restart%nax = n
@@ -255,15 +264,17 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   integer,          intent(in) :: datum
   character(len=*), intent(in), optional :: units, longname
 
-  call register_restart_field(restart%rhandle, varname, datum)
+  call register_field(restart%rhandle, varname, "int")
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, datum)
 end subroutine add_scalar_data
 
 subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
@@ -291,15 +302,18 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_i0d(fptr,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index"/))
+  call register_field(restart%rhandle, varname, "int", (/"tile_index"/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_i0d_fptr_i0
 
 subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
@@ -314,15 +328,18 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_r0d(fptr,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index"/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0
 
 subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
@@ -338,15 +355,18 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_r0i(fptr,index,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index"/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0i
 
 subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,units)
@@ -362,15 +382,18 @@ subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,u
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_r0ij(fptr,idx1,idx2,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index"/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0ij
 
 ! given restart and name of the dimension, returns the size of this dimension
@@ -405,15 +428,18 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   nlev = dimlen(restart,zdim)
   allocate(data(size(restart%tidx),nlev))
   call gather_tile_data_i1d(fptr,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index",zdim/))
+  call register_field(restart%rhandle, varname, "int", (/"tile_index",zdim/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_i1d_fptr_i0i
 
 subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
@@ -432,15 +458,18 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   nlev = dimlen(restart,zdim)
   allocate(data(size(restart%tidx),nlev))
   call gather_tile_data_r1d(fptr,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index",zdim/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index",zdim/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r1d_fptr_r0i
 
 subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,units)
@@ -474,15 +503,18 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
         endif
      enddo
   enddo
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index",zdim/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index",zdim/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r1d_fptr_r0ij
 
 subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,longname,units)
@@ -522,15 +554,18 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
         endif
      enddo
   enddo
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index",zdim/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index",zdim/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r1d_fptr_r0ijk
 
 subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,units)
@@ -551,15 +586,18 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   dim2len = dimlen(restart,dim2)
   allocate(data(size(restart%tidx),dim1len,dim2len))
   call gather_tile_data_r2d(fptr,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index",dim1,dim2/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index",dim1,dim2/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r2d_fptr_r0ij
 
 subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,longname,units)
@@ -581,15 +619,18 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   dim2len = dimlen(restart,dim2)
   allocate(data(size(restart%tidx),dim1len,dim2len))
   call gather_tile_data_r2d_idx(fptr,index,restart%tidx,data)
-  call register_restart_field(restart%rhandle, varname, data, (/"tile_index",dim1,dim2/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index",dim1,dim2/))
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
-      call register_variable_attribute(restart%rhandle, varname, "longname", &
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
 end subroutine add_tile_data_r2d_fptr_r0ijk
 
 ! =============================================================================
@@ -876,12 +917,14 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   call register_field(rhandle, "lon", "double", (/"lon"/))
   call register_variable_attribute(rhandle, "lon", "units", "degrees_east")
   call register_variable_attribute(rhandle, "lon", "long_name", "longitude")
+  call register_variable_attribute(rhandle, "lon", "cartesian_axis", "X")
   call write_data(rhandle, "lon", lnd%coord_glon)
 
   call register_axis(rhandle, "lat", .false., size(lnd%coord_glat))
   call register_field(rhandle, "lat", "double", (/"lat"/))
   call register_variable_attribute(rhandle, "lat", "units", "degrees_north")
   call register_variable_attribute(rhandle, "lat", "long_name", "latitude")
+  call register_variable_attribute(rhandle, "lat", "cartesian_axis", "Y")
   call write_data(rhandle, "lat", lnd%coord_glat)
 
   ! the size of tile dimension really does not matter for the output, but it does
@@ -901,8 +944,9 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
 ! deallocate(npes_tidx)
 ! deallocate(npes_tidx_start)
   call register_field(rhandle, tile_index_name, "int", (/tile_index_name/))
-  call register_variable_attribute(rhandle, tile_index_name, "long_name", "sed land point index")
+  call register_variable_attribute(rhandle, tile_index_name, "long_name", "compressed land point index")
   call register_variable_attribute(rhandle, tile_index_name, "compress", "tile lat lon")
+  call register_variable_attribute(rhandle, tile_index_name, "units", "")
   call register_variable_attribute(rhandle, tile_index_name, "valid_min", 0)
   call write_data(rhandle, tile_index_name, tidx)
 
