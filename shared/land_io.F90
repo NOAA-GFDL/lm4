@@ -28,7 +28,8 @@ use land_data_mod, only : log_version, lnd, horiz_interp_ug
 
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
                        get_variable_dimension_names, get_variable_size, &
-                       is_valid, open_file, read_data, Valid_t, variable_exists
+                       is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists
+use legacy_mod, only: axis_edges
 
 implicit none
 private
@@ -187,25 +188,6 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
 end subroutine read_cover_field
 
 ! ============================================================================
-function get_field(fields,field_name,field)
-  type(fieldtype), intent(in) :: fields(:)
-  character(len=*), intent(in) :: field_name
-  type(fieldtype), intent(out) :: field
-  integer :: get_field, n
-  character(len=256) :: name_out
-
-  n =  mpp_get_field_index(fields,trim(field_name))
-  if ( n > 0 ) then
-    get_field = 0
-    field = fields(n)
-  else
-    get_field = 1
-  endif
-
-end function get_field
-
-
-! ============================================================================
 subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, frac)
 
   type(FmsNetcdfFile_t), intent(in)  :: fileobj
@@ -239,15 +221,9 @@ subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, fra
   nlon = dimlens(1)
   nlat = dimlens(2)
   allocate(in_lonb(nlon+1), in_latb(nlat+1))
-
-  buffer = ""
-  call get_variable_attribute(fileobj, dimnames(1), "edges", buffer)
-  call read_data(fileobj, buffer, in_lonb)
+  call axis_edges(fileobj, dimnames(1), in_lonb)
   in_lonb = in_lonb*PI/180
-
-  buffer = ""
-  call get_variable_attribute(fileobj, dimnames(2), "edges", buffer)
-  call read_data(fileobj, buffer, in_latb)
+  call axis_edges(fileobj, dimnames(2), in_latb)
   in_latb = in_latb*PI/180
   deallocate(dimlens)
   deallocate(dimnames)
@@ -441,8 +417,8 @@ end subroutine do_read_cover_field
 end subroutine do_read_fraction_field
 
 ! ============================================================================
-subroutine read_field_N_2D_int(filename, varname, data_ug, interp, fill)
-  character(*), intent(in)  :: filename
+subroutine read_field_N_2D_int(fileobj, varname, data_ug, interp, fill)
+  type(FmsNetcdfFile_t), intent(in) :: fileobj
   character(*), intent(in)  :: varname
   integer,      intent(out) :: data_ug(:)
   character(*), intent(in), optional :: interp  ! kind of interpolation
@@ -454,13 +430,13 @@ subroutine read_field_N_2D_int(filename, varname, data_ug, interp, fill)
   fill_ = DEFAULT_FILL_INT
   if (present(fill)) fill_ = fill
 
-  call read_field_N_3D(filename, varname, data3, interp, fill_)
+  call read_field_N_3D(fileobj, varname, data3, interp, fill_)
   data_ug = nint(data3(:,1))
 end subroutine read_field_N_2D_int
 
 ! ============================================================================
-subroutine read_field_N_3D_int(filename, varname, data_ug, interp, fill)
-  character(*), intent(in)  :: filename
+subroutine read_field_N_3D_int(fileobj, varname, data_ug, interp, fill)
+  type(FmsNetcdfFile_t), intent(in) :: fileobj
   character(*), intent(in)  :: varname
   integer,      intent(out) :: data_ug(:,:)
   character(*), intent(in), optional :: interp
@@ -472,49 +448,13 @@ subroutine read_field_N_3D_int(filename, varname, data_ug, interp, fill)
   fill_ = DEFAULT_FILL_INT
   if (present(fill)) fill_ = fill
 
-  call read_field_N_3D(filename, varname, data3, interp, fill_)
+  call read_field_N_3D(fileobj, varname, data3, interp, fill_)
   data_ug = nint(data3(:,:))
 end subroutine read_field_N_3D_int
 
 ! ============================================================================
-!subroutine read_field_I_2D_int(ncid, varname, data_ug, interp, fill)
-!  integer,      intent(in)  :: ncid
-!  character(*), intent(in)  :: varname
-!  integer,      intent(out) :: data_ug(:)
-!  character(*), intent(in), optional :: interp
-!  integer,      intent(in), optional :: fill
-!  ! ---- local vars
-!  real :: data3(size(data_ug,1),1)
-!  real :: fill_
-!
-!  fill_ = DEFAULT_FILL_INT
-!  if (present(fill)) fill_ = fill
-!
-!  call read_field_I_3D(ncid, varname, data3, interp, fill_)
-!  data_ug = nint(data3(:,1))
-!end subroutine read_field_I_2D_int
-
-! ============================================================================
-!subroutine read_field_I_3D_int(ncid, varname, data_ug, interp, fill)
-!  integer,      intent(in)  :: ncid
-!  character(*), intent(in)  :: varname
-!  integer,      intent(out) :: data_ug(:,:)
-!  character(*), intent(in), optional :: interp
-!  integer,      intent(in), optional :: fill
-!  ! ---- local vars
-!  real    :: data3(size(data_ug,1),size(data_ug,2))
-!  real :: fill_
-!
-!  fill_ = DEFAULT_FILL_INT
-!  if (present(fill)) fill_ = fill
-!
-!  call read_field_I_3D(ncid, varname, data3, interp, fill_)
-!  data_ug = nint(data3(:,:))
-!end subroutine read_field_I_3D_int
-
-! ============================================================================
-subroutine read_field_N_2D(filename, varname, data_ug, interp, fill)
-  character(*), intent(in)  :: filename
+subroutine read_field_N_2D(fileobj, varname, data_ug, interp, fill)
+  type(FmsNetcdfFile_t), intent(in) :: fileobj
   character(*), intent(in)  :: varname
   real,         intent(out) :: data_ug(:)
   character(*), intent(in),  optional :: interp
@@ -522,61 +462,26 @@ subroutine read_field_N_2D(filename, varname, data_ug, interp, fill)
   ! ---- local vars
   real    :: data3(size(data_ug,1),1)
 
-  call read_field_N_3D(filename, varname, data3, interp, fill)
+  call read_field_N_3D(fileobj, varname, data3, interp, fill)
   data_ug = data3(:,1)
 end subroutine read_field_N_2D
 
 ! ============================================================================
-subroutine read_field_N_3D(filename, varname, data_ug, interp, fill)
-  character(*), intent(in)  :: filename
-  character(*), intent(in)  :: varname
-  real,         intent(out) :: data_ug(:,:)
-  character(*), intent(in), optional :: interp
-  real,         intent(in), optional :: fill
-  ! ---- local vars
-  type(FmsNetcdfFile_t) :: fileobj
-  integer :: ierr, input_unit
-
-  ! Files read: biodata.nc, geohydrology.nc, soil_brdf.nc
-  
-  input_unit = -9999
-  call mpp_open(input_unit, trim(filename), action=MPP_RDONLY, form=MPP_NETCDF, &
-           threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=ierr)
-  call read_field_I_3D(input_unit, varname, data_ug, interp, fill)
-  call mpp_sync()
-  call mpp_close(input_unit)
-end subroutine read_field_N_3D
-
-! ============================================================================
-!subroutine read_field_I_2D(ncid, varname, data_ug, interp, fill)
-!  integer,      intent(in)  :: ncid
-!  character(*), intent(in)  :: varname
-!  real,         intent(out) :: data_ug(:)
-!  character(*), intent(in), optional :: interp
-!  real,         intent(in), optional :: fill
-!  ! ---- local vars
-!  real    :: data3(size(data_ug,1),1)
-!  logical :: mask3(size(data_ug,1),1)
-!
-!  call read_field_I_3D(ncid, varname, data3, interp, fill)
-!  data_ug = data3(:,1)
-!end subroutine read_field_I_2D
-
-! ============================================================================
-subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
-  integer,      intent(in)  :: input_unit
+subroutine read_field_N_3D(fileobj, varname, data_ug, interp, fill)
+  type(FmsNetcdfFile_t), intent(in) :: fileobj
   character(*), intent(in)  :: varname
   real,         intent(out) :: data_ug(lnd%ls:,:)
   character(*), intent(in), optional :: interp
   real,         intent(in), optional :: fill
-
-  ! TODO: possibly check the size of the output array
-
   ! ---- local vars
-  integer :: nlon, nlat, nlev ! size of input grid
+  character(len=20) :: interp_
+  real    :: fill_
+  integer, dimension(:), allocatable :: dimlens
   integer :: varndims ! number of variable dimension
-  integer :: dimlens(1024) ! sizes of respective dimensions
+  integer :: nlon, nlat, nlev ! size of input grid
   real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
+  character(len=nf90_max_name), dimension(:), allocatable :: dimnames
+  type(Valid_t) :: v
   real,    allocatable :: in_data(:,:,:) ! input buffer
   logical, allocatable :: lmask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
@@ -584,17 +489,9 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
   real,    allocatable :: omask(:,:) ! mask of valid output data
   real,    allocatable :: data2(:,:)
   integer :: k,imap,jmap,l
-  type(validtype) :: v
   type(horiz_interp_type) :: hinterp
   integer :: ndim,nvar,natt,nrec
-  type(axistype), allocatable ::  varaxes(:)
-  type(axistype):: axis_bnd
-  type(fieldtype), allocatable :: fields(:)
-  type(fieldtype) :: fld
-  character(len=256) :: file_name
   integer :: jstart, jend
-  character(len=20) :: interp_
-  real    :: fill_
 
   interp_ = 'bilinear'
   if(present(interp)) interp_ = interp
@@ -602,55 +499,51 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
   fill_ = DEFAULT_FILL_REAL
   if (present(fill)) fill_=fill
 
-  ! find the field in the file
-  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
-  file_name = mpp_get_file_name(input_unit)
-  allocate(fields(nvar))
-  call mpp_get_fields(input_unit, fields)
-  k = mpp_get_field_index(fields,trim(varname))
-  if(k > 0) then
-    fld = fields(k)
-  else
-    call error_mesg('read_field','variable "'//trim(varname)//'" not found in file "'//trim(file_name)//'"',FATAL)
+  if (.not. variable_exists(fileobj, varname)) then
+    call error_mesg('read_field', &
+                    'variable "'//trim(varname)//'" not found in file "'//trim(fileobj%path)//'"', &
+                    FATAL)
   endif
 
   ! get the dimensions of our variable
-  call mpp_get_atts(fld, ndim=varndims, siz=dimlens, valid=v)
-  if(varndims<2.or.varndims>3) then
-     call error_mesg('read_field','variable "'//trim(varname)//'" in file "'//trim(file_name)//&
+  call get_variable_size(fileobj, varname, dimlens)
+  varndims = size(dimlens)
+  if (varndims .lt. 2 .or. varndims .gt. 3) then
+     call error_mesg('read_field','variable "'//trim(varname)//'" in file "'//trim(fileobj%path)// &
           '" is '//string(varndims)//'D, but only reading 2D or 3D variables is supported', FATAL)
   endif
-  allocate(varaxes(varndims))
-  call mpp_get_atts(fld, axes=varaxes)
   nlon = dimlens(1) ; nlat = dimlens(2)
   nlev = 1;
   if (varndims==3) nlev=dimlens(3)
   if(nlev/=size(data_ug,2)) then
      call error_mesg('read_field','3rd dimension length of the variable "'&
-          //trim(varname)//'" ('//trim(string(nlev))//') in file "'//trim(file_name)//&
+          //trim(varname)//'" ('//trim(string(nlev))//') in file "'//trim(fileobj%path)//&
           '" is different from the expected size of data ('// trim(string(size(data_ug,2)))//')', &
           FATAL)
   endif
-
-  allocate (in_lon  (nlon),   in_lat  (nlat),  &
-            in_lonb (nlon+1), in_latb (nlat+1) )
+  deallocate(dimlens)
+  v = get_valid(fileobj, varname)
 
   ! read boundaries of the grid cells in longitudinal direction
-  call mpp_get_axis_data(varaxes(1), in_lon)
-  call mpp_get_axis_data(varaxes(2), in_lat)
-  in_lon = in_lon*PI/180.0; in_lat = in_lat*PI/180.0
-  call get_axis_bounds(varaxes(1), axis_bnd, varaxes)
-  call mpp_get_axis_data(axis_bnd, in_lonb)
-  call get_axis_bounds(varaxes(2), axis_bnd, varaxes)
-  call mpp_get_axis_data(axis_bnd, in_latb)
-  in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
+  allocate (in_lon  (nlon),   in_lat  (nlat),  &
+            in_lonb (nlon+1), in_latb (nlat+1) )
+  call get_variable_dimension_names(fileobj, varname, dimnames)
+  call read_data(fileobj, dimnames(1), in_lon)
+  in_lon = in_lon*PI/180
+  call axis_edges(fileobj, dimnames(1), in_lonb)
+  in_lonb = in_lonb*PI/180
+  call read_data(fileobj, dimnames(2), in_lat)
+  in_lat = in_lat*PI/180
+  call axis_edges(fileobj, dimnames(2), in_latb)
+  in_latb = in_latb*PI/180
+  deallocate(dimnames)
 
   select case(trim(interp_))
   case('nearest')
      allocate (in_data(nlon, nlat, nlev), lmask(nlon, nlat, nlev))
      ! read input data. In case of nearest interpolation we need global fields.
-     call mpp_read(input_unit, fld, in_data)
-     lmask = mpp_is_valid(in_data,v)
+     call read_data(fileobj, varname, in_data)
+     lmask = is_valid(in_data,v)
      do k = 1,size(data_ug,2)
         do l = lnd%ls,lnd%le
            call nearest (lmask(:,:,k), in_lon, in_lat, lnd%ug_lon(l), lnd%ug_lat(l), imap, jmap)
@@ -699,7 +592,6 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
   end select
 
   deallocate(in_lonb, in_latb, in_lon, in_lat)
-  deallocate(varaxes, fields)
 
   contains ! internal subroutines
 
@@ -714,8 +606,8 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
     start(3)  = 1;       count(3)  = nlev
     start(4:) = 1;       count(4:) = 1
     ! read input data
-    call mpp_read(input_unit, fld, in_data, start, count)
-    where (mpp_is_valid(in_data,v))
+    call read_data(fileobj, varname, in_data, corner=start, edge_lengths=count)
+    where (is_valid(in_data,v))
        rmask = 1.0
     elsewhere
        rmask = 0.0
@@ -753,7 +645,7 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
     jend = min(jend+1,nlat)
   end subroutine jlimits
 
-end subroutine read_field_I_3D
+end subroutine read_field_N_3D
 
 ! ============================================================================
 subroutine print_netcdf_error(ierr, file, line)

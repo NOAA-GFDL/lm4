@@ -8,7 +8,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only: error_mesg, NOTE,FATAL, file_exist, close_file, &
+use fms_mod, only: error_mesg, NOTE,FATAL, file_exist, &
       check_nml_error, stdlog
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe, mpp_sync, stdout
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
@@ -65,7 +65,7 @@ use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 use soil_mod, only : add_root_litter, redistribute_peat_carbon
 
-use fms2_io_mod, only: read_data
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data
 
 implicit none
 private
@@ -189,21 +189,8 @@ subroutine read_vegn_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-    read (input_nml_file, nml=vegn_nml, iostat=io)
-    ierr = check_nml_error(io, 'vegn_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=vegn_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_nml')
 
   unit=stdlog()
 
@@ -250,6 +237,8 @@ subroutine vegn_init(id_ug,id_band)
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
   integer :: i,j,l ! indices of current tile
+  logical :: exists
+  type(FmsNetcdfFile_t) :: fileobj
 
   module_is_initialized = .TRUE.
 
@@ -369,22 +358,25 @@ subroutine vegn_init(id_ug,id_band)
   call free_land_restart(restart2)
 
   ! read climatological fields for initialization of species distribution
-  if (file_exist('INPUT/biodata.nc'))then
+  exists = open_file(fileobj, "INPUT/biodata.nc", mode="read")
+  if (exists) then
      allocate(&
           t_ann (lnd%ls:lnd%le),&
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
+     call read_field(fileobj, 'T_ANN', t_ann, interp='nearest')
+     call read_field(fileobj, 'T_COLD', t_cold, interp='nearest')
+     call read_field(fileobj, 'P_ANN', p_ann, interp='nearest')
+     call read_field(fileobj, 'NCM', ncm, interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
+     call close_file(fileobj)
   else
      did_read_biodata = .FALSE.
      call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
   endif
+
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
