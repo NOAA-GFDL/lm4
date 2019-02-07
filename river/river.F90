@@ -40,10 +40,6 @@ module river_mod
 !  </DATA>
 ! </NAMELIST>
 
-#ifdef INTERNAL_FILE_NML
-  use mpp_mod, only: input_nml_file
-#endif
-
   use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE
   use mpp_mod,             only : mpp_error, FATAL, WARNING, NOTE, stdout, stdlog
   use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max, get_unit
@@ -52,7 +48,7 @@ module river_mod
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
-  use fms_mod,             only : check_nml_error, string
+  use fms_mod,             only : check_nml_error, string, input_nml_file
   use fms_mod,             only : file_exist, field_size, read_data, write_data
   use fms_mod,             only : CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_instance_filename
@@ -229,22 +225,8 @@ contains
     diagclock    = mpp_clock_id('river diag'           , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
 
 !--- read namelist -------------------------------------------------
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=river_nml, iostat=io_status)
-     ierr = check_nml_error(io_status, 'river_nml')
-#else
-    if (file_exist('input.nml')) then
-      unit = get_unit()
-      open(unit=unit,file="input.nml",action="read")
-      ierr = 1;
-      do while (ierr /= 0)
-         read  (unit, nml=river_nml, iostat=io_status, end=10)
-         ierr = check_nml_error(io_status,'river_nml')
-      enddo
-10    continue
-      close(unit)
-    endif
-#endif
+    read (input_nml_file, nml=river_nml, iostat=io_status)
+    ierr = check_nml_error(io_status, 'river_nml')
 
 !--- write version and namelist info to logfile --------------------
     call log_version(version, module_name, &

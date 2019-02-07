@@ -3,13 +3,7 @@
 ! ============================================================================
 module glacier_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, close_file, &
+use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, input_nml_file, &
      mpp_pe, mpp_root_pe, FATAL, NOTE
 
 use time_manager_mod,   only: time_type_to_real
@@ -89,21 +83,8 @@ subroutine read_glac_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=glac_nml, iostat=io)
-     ierr = check_nml_error(io, 'glac_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=glac_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'glac_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=glac_nml, iostat=io)
+  ierr = check_nml_error(io, 'glac_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=glac_nml)

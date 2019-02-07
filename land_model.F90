@@ -12,16 +12,9 @@ use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_r
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count, mpp_pass_SG_to_UG, mpp_pass_ug_to_sg, &
                             mpp_get_UG_domain_tile_pe_inf, mpp_get_UG_domain_ntiles
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
-use fms_io_mod, only : restart_file_type, free_restart_type
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
-     mpp_root_pe, file_exist, check_nml_error, close_file, &
+     mpp_root_pe, file_exist, check_nml_error, input_nml_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
 use field_manager_mod, only : MODEL_LAND, MODEL_ATMOS
@@ -83,7 +76,6 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      tile_exists_func, loop_over_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_data_init, land_data_end, lnd, log_version
-use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
@@ -369,25 +361,11 @@ subroutine land_model_init &
   call mpp_clock_begin(landInitClock)
 
   ! [2] read land model namelist
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=land_model_nml, iostat=io)
-     ierr = check_nml_error(io, 'land_model_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=land_model_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'land_model_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=land_model_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_model_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=land_model_nml)
-     call close_file (unit)
   endif
 
   ! initialize astronomy, in case it is not initialized, e.g. when using atmos_null

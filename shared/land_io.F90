@@ -1,31 +1,14 @@
 module land_io_mod
 
 use netcdf, only: nf90_max_name
-
 use mpp_domains_mod, only : mpp_pass_sg_to_ug
-
-use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields, mpp_get_axis_data, &
-     mpp_read, validtype, mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, &
-     axistype, mpp_open, mpp_close, mpp_is_valid, mpp_get_file_name, mpp_get_field_index
-
-use axis_utils_mod, only : get_axis_bounds
-
 use constants_mod,     only : PI
-use fms_mod, only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, string, check_nml_error
-
-use mpp_mod, only: mpp_sync
-use mpp_mod, only: input_nml_file
-
-
+use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
+     mpp_root_pe, string, check_nml_error, input_nml_file
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
-
 use land_numerics_mod, only : nearest, bisect
-use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
-     nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
 use land_data_mod, only : log_version, lnd, horiz_interp_ug
-
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
                        get_variable_dimension_names, get_variable_size, &
                        is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists
@@ -39,8 +22,6 @@ public :: init_cover_field
 public :: read_field
 public :: read_land_io_namelist
 
-public :: print_netcdf_error
-
 public :: input_buf_size
 ! ==== end of public interface ===============================================
 
@@ -48,10 +29,6 @@ interface read_field
    module procedure read_field_N_2D, read_field_N_3D
    module procedure read_field_N_2D_int, read_field_N_3D_int
 end interface
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_io_mod'
@@ -646,22 +623,5 @@ subroutine read_field_N_3D(fileobj, varname, data_ug, interp, fill)
   end subroutine jlimits
 
 end subroutine read_field_N_3D
-
-! ============================================================================
-subroutine print_netcdf_error(ierr, file, line)
-  ! prints out NetCDF library error message, including file name and line number
-  integer,          intent(in) :: ierr ! error code
-  character(len=*), intent(in) :: file ! name of the file
-  integer,          intent(in) :: line ! number of line in the file
-
-  ! ---- local vars
-  character(len=1024) :: mesg
-
-  if (ierr.ne.NF_NOERR) then
-     write(mesg, "('File ',a,' Line ',i4.4,' :: ',a)") &
-          trim(file),line,trim(NF_STRERROR(ierr))
-     call error_mesg('NetCDF', mesg, FATAL)
-  endif
-end subroutine print_netcdf_error
 
 end module

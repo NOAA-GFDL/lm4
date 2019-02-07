@@ -1,7 +1,6 @@
 module land_tile_io_mod
 
 use netcdf, only: NF90_MAX_NAME, NF90_FILL_DOUBLE, NF90_FILL_INT
-
 use fms_mod, only : error_mesg, FATAL, mpp_pe
 use fms_io_mod, only : get_instance_filename
 
@@ -15,7 +14,7 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
 use mpp_domains_mod,   only : mpp_pass_SG_to_UG
-use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
+use land_io_mod, only : read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, &
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
@@ -45,7 +44,6 @@ public :: create_tile_out_file
 
 ! auxiliary subroutines
 public :: get_tile_by_idx
-public :: print_netcdf_error
 
 ! ==== end of public interfaces ==============================================
 interface create_tile_out_file
