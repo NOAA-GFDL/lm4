@@ -1,5 +1,7 @@
 module land_io_mod
 
+use netcdf, only: nf90_max_name
+
 use mpp_domains_mod, only : mpp_pass_sg_to_ug
 
 use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields, mpp_get_axis_data, &
@@ -10,14 +12,10 @@ use axis_utils_mod, only : get_axis_bounds
 
 use constants_mod,     only : PI
 use fms_mod, only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, string, check_nml_error, close_file
+     mpp_root_pe, string, check_nml_error
 
 use mpp_mod, only: mpp_sync
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
 
 use horiz_interp_mod,  only : horiz_interp_type, &
@@ -27,6 +25,10 @@ use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
 use land_data_mod, only : log_version, lnd, horiz_interp_ug
+
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
+                       get_variable_dimension_names, get_variable_size, &
+                       is_valid, open_file, read_data, Valid_t, variable_exists
 
 implicit none
 private
@@ -43,9 +45,7 @@ public :: input_buf_size
 
 interface read_field
    module procedure read_field_N_2D, read_field_N_3D
-   module procedure read_field_I_2D, read_field_I_3D
    module procedure read_field_N_2D_int, read_field_N_3D_int
-   module procedure read_field_I_2D_int, read_field_I_3D_int
 end interface
 
 ! ==== NetCDF declarations ===================================================
@@ -75,25 +75,11 @@ subroutine read_land_io_namelist()
   call log_version (version, module_name, &
   __FILE__)
 
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=land_io_nml, iostat=io)
-     ierr = check_nml_error(io, 'land_io_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=land_io_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'land_io_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=land_io_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_io_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=land_io_nml)
-     call close_file (unit)
   endif
 
   if(trim(interp_method) .NE. "conservative" .AND. trim(interp_method) .NE. "conserve_great_circle") then
@@ -174,38 +160,29 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
   integer, optional , intent(in)  :: input_cover_types(:)
 
   ! --- local vars
-! integer :: ncid, varid
-  integer :: input_unit , ndim , nvar , natt , nrec , iret
-  type(fieldtype), allocatable, dimension(:) :: fields
-  type(fieldtype) :: field
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
-  if (.not.file_exist(file)) call error_mesg(module_name,'input file "'//trim(file)//'" does not exist',FATAL)
+  exists = open_file(fileobj, trim(file), "read")
+  if (.not. exists) then
+    call error_mesg(module_name, 'input file "'//trim(file)//'" does not exist', &
+                    fatal)
+  endif
 
 ! If field named 'cover' does not exist in file then read field named 'frac'
 ! 'cover' does not exist in either ground_type.nc or cover_type.nc
 ! The extent of the third dimension is 10 in ground_type.nc and 11 in cover_type.nc
-  call mpp_open(input_unit, trim(file), action=MPP_RDONLY, form=MPP_NETCDF, &
-       threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=iret)
-  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
-  allocate(fields(nvar))
-  call mpp_get_fields(input_unit,fields)
-
-! if(nf_inq_varid(ncid,cover_field_name,varid)==NF_NOERR) then
-!    call do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
-! else if ( nf_inq_varid(ncid,frac_field_name,varid)==NF_NOERR) then
-!     call do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
-
-  if(get_field(fields,cover_field_name,field)==0) then
-     call do_read_cover_field(input_unit,field,lonb,latb,input_cover_types,frac)
-  else if ( get_field(fields,frac_field_name,field)==0) then
-     call do_read_fraction_field(input_unit,field,lonb,latb,input_cover_types,frac)
+  if (variable_exists(fileobj, cover_field_name)) then
+    call do_read_cover_field(fileobj, cover_field_name, lonb, latb, input_cover_types, frac)
+  elseif (variable_exists(fileobj, frac_field_name)) then
+    call do_read_fraction_field(fileobj, frac_field_name, lonb, latb, input_cover_types, frac)
   else
-     call error_mesg(module_name,&
-          'neither "'//trim(cover_field_name)//'" nor "'//&
-          frac_field_name//'" is present in input file "'//trim(file)//'"' ,&
-          FATAL)
+    call error_mesg(module_name, &
+                    'neither "'//trim(cover_field_name)//'" nor "'//&
+                    frac_field_name//'" is present in input file "'//trim(file)//'"' , &
+                    fatal)
   endif
-  call mpp_close(input_unit)
+  call close_file(fileobj)
 
 end subroutine read_cover_field
 
@@ -229,42 +206,51 @@ end function get_field
 
 
 ! ============================================================================
-subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types, frac)
-  integer, intent(in)  :: input_unit
-  type(fieldtype), intent(in) :: field
+subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, frac)
+
+  type(FmsNetcdfFile_t), intent(in)  :: fileobj
+  character(len=*), intent(in) :: name
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
   real   , intent(out) :: frac(:,:)
 
   ! ---- local vars
+  integer, dimension(:), allocatable :: dimlens
+  character(len=nf90_max_name), dimension(:), allocatable :: dimnames
+  character(len=nf90_max_name) :: buffer
+
   integer :: nlon, nlat, k
   integer, allocatable :: in_cover(:,:)
   real, allocatable    :: in_lonb(:), in_latb(:), x(:,:), r_in_cover(:,:)
   type(horiz_interp_type) :: interp
-  type(validtype) :: v
+  type(Valid_t) :: v
   integer :: in_j_start, in_j_end, in_j_count ! limits of the latitude belt we read
-  integer :: ndim, dimlens(2)
-  type(axistype) :: axes_centers(2), axis_bounds
   integer :: start(4), count(4)
-  character(len=256) :: name
   real :: min_in_latb, max_in_latb, y
 
-  ! check the field dimensions
-  call mpp_get_atts(field, ndim=ndim, name=name)
-  if (ndim.ne.2) call error_mesg('do_read_cover_field',&
-          'cover field "'//trim(name)//'" in file "'//trim(mpp_get_file_name(input_unit))// &
-          '" must be two-dimensional (lon,lat)', FATAL)
+  ! check the field dimenions and get size of the longitude and latitude axes
+  call get_variable_size(fileobj, name, dimlens)
+  call get_variable_dimension_names(fileobj, name, dimnames)
+  if (size(dimlens) .ne. 2) then
+    call error_mesg('do_read_cover_field', &
+                    'cover field "'//trim(name)//'" in file "'//trim(fileobj%path)// &
+                    '" must be two-dimensional (lon,lat)', fatal)
+  endif
+  nlon = dimlens(1)
+  nlat = dimlens(2)
+  allocate(in_lonb(nlon+1), in_latb(nlat+1))
 
-  ! get size of the longitude and latitude axes
-  call mpp_get_atts(field, name=name, siz=dimlens, axes=axes_centers)
-  nlon = dimlens(1); nlat = dimlens(2)
-  allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
+  buffer = ""
+  call get_variable_attribute(fileobj, dimnames(1), "edges", buffer)
+  call read_data(fileobj, buffer, in_lonb)
+  in_lonb = in_lonb*PI/180
 
-  call get_axis_bounds(axes_centers(1), axis_bounds, axes_centers)
-  call mpp_get_axis_data(axis_bounds, in_lonb)
-  call get_axis_bounds(axes_centers(2), axis_bounds, axes_centers)
-  call mpp_get_axis_data(axis_bounds, in_latb)
-  in_lonb = in_lonb*PI/180; in_latb = in_latb*PI/180
+  buffer = ""
+  call get_variable_attribute(fileobj, dimnames(2), "edges", buffer)
+  call read_data(fileobj, buffer, in_latb)
+  in_latb = in_latb*PI/180
+  deallocate(dimlens)
+  deallocate(dimnames)
 
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
   ! of latitude belt in input data that covers the entire latb array
@@ -291,15 +277,15 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   ! check for unreasonable values
   if (in_j_start<1) &
      call error_mesg('do_read_cover_field','reading field "'//trim(name)//'" from file "'&
-                     //trim(mpp_get_file_name(input_unit))//'" input latitude start index ('&
+                     //trim(fileobj%path)//'" input latitude start index ('&
                      //trim(string(in_j_start))//') is out of bounds', FATAL)
   if (in_j_count<1) &
      call error_mesg('do_read_cover_field','reading field "'//trim(name)//'" from file "'&
-                     //trim(mpp_get_file_name(input_unit))//'" computed input latitude count for domain'&
+                     //trim(fileobj%path)//'" computed input latitude count for domain'&
                      //' is not positive, perhaps input data do not cover entire globe', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
      call error_mesg('do_read_cover_field','reading field "'//trim(name)//'" from file "'&
-                     //trim(mpp_get_file_name(input_unit))//'input latitude count ('&
+                     //trim(fileobj%path)//'input latitude count ('&
                      //trim(string(in_j_count))//') is too large (start index='&
                      //trim(string(in_j_start))//')', FATAL)
 
@@ -307,20 +293,18 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   allocate ( x(nlon,in_j_count), in_cover(nlon,in_j_count), r_in_cover(nlon,in_j_count) )
 
   ! read input data
-! iret = nf_get_vara_int(ncid,varid, (/1,in_j_start/), (/nlon,in_j_count/), in_cover)
   start = (/1,in_j_start,1,1/)
   count(1:2) = shape(in_cover)
   count(3:4) = 1
-  call mpp_read( input_unit, field, r_in_cover, start, count )
+  call read_data(fileobj, name, r_in_cover, corner=start, edge_lengths=count)
   in_cover = r_in_cover
-  call mpp_get_atts(field,valid=v)
-
+  v = get_valid(fileobj, name)
   call horiz_interp_new(interp, in_lonb,in_latb(in_j_start:in_j_start+in_j_count), &
        lonb,latb, interp_method=trim(interp_method))
   frac=0
   do k = 1,size(input_cover_types(:))
      x=0
-     where(mpp_is_valid(r_in_cover,v).and.in_cover==input_cover_types(k)) x = 1
+     where(is_valid(r_in_cover,v).and.in_cover==input_cover_types(k)) x = 1
      call horiz_interp_ug(interp,x,frac(:,k))
   enddo
 
@@ -333,43 +317,54 @@ end subroutine do_read_cover_field
 
 
 ! ============================================================================
- subroutine do_read_fraction_field(input_unit,field,lonb,latb,input_cover_types,frac)
-  integer, intent(in)  :: input_unit
-  type(fieldtype), intent(in) :: field
+ subroutine do_read_fraction_field(fileobj, name, lonb, latb, input_cover_types, frac)
+
+  type(FmsNetcdfFile_t), intent(in)  :: fileobj
+  character(len=*), intent(in) :: name
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
   real   , intent(out) :: frac(:,:)
 
   ! ---- local vars
+  integer, dimension(:), allocatable :: dimlens
+  character(len=nf90_max_name), dimension(:), allocatable :: dimnames
+  character(len=nf90_max_name) :: buffer
+
   integer :: nlon, nlat, ntypes, k, cover
   real, allocatable :: in_frac(:,:,:)
   real, allocatable :: in_lonb(:), in_latb(:)
   real, allocatable :: in_mask(:,:)
   type(horiz_interp_type) :: interp
-  type(validtype) :: v
+  type(Valid_t) :: v
   integer :: in_j_end, in_j_start, in_j_count ! limits of the latitude belt we read
-  integer :: ndim, dimlens(3)
-  type(axistype) :: axes_centers(3), axis_bounds
   integer :: start(4), count(4)
-  character(len=256) :: name
   real :: min_in_latb, max_in_latb, y
 
-  ! check the field dimensions
-  call mpp_get_atts(field, ndim=ndim, name=name)
-  if (ndim.ne.3) call error_mesg('do_read_fraction_field', &
-         'fraction field "'//trim(name)//'" in file "'//trim(mpp_get_file_name(input_unit))// &
-         '" must be three-dimensional (lon,lat,_)', FATAL)
+  ! check the field dimenions and get size of the longitude and latitude axes
+  call get_variable_size(fileobj, name, dimlens)
+  call get_variable_dimension_names(fileobj, name, dimnames)
+  if (size(dimlens) .ne. 3) then
+    call error_mesg('do_read_cover_field', &
+                    'cover field "'//trim(name)//'" in file "'//trim(fileobj%path)// &
+                    '" must be two-dimensional (lon,lat,_)', fatal)
+  endif
+  nlon = dimlens(1)
+  nlat = dimlens(2)
+  ntypes = dimlens(3)
+  allocate(in_lonb(nlon+1), in_latb(nlat+1))
 
-  ! get size of the longitude and latitude axes
-  call mpp_get_atts(field, name=name, siz=dimlens, axes=axes_centers)
-  nlon = dimlens(1); nlat = dimlens(2) ; ntypes = dimlens(3)
-  allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
+  buffer = ""
+  call get_variable_attribute(fileobj, dimnames(1), "edges", buffer)
+  call read_data(fileobj, buffer, in_lonb)
+  in_lonb = in_lonb*PI/180
 
-  call get_axis_bounds(axes_centers(1), axis_bounds, axes_centers)
-  call mpp_get_axis_data(axis_bounds, in_lonb)
-  call get_axis_bounds(axes_centers(2), axis_bounds, axes_centers)
-  call mpp_get_axis_data(axis_bounds, in_latb)
-  in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
+  buffer = ""
+  call get_variable_attribute(fileobj, dimnames(2), "edges", buffer)
+  call read_data(fileobj, buffer, in_latb)
+  in_latb = in_latb*PI/180
+  deallocate(dimlens)
+  deallocate(dimnames)
+
   ! find the boundaries of latitude belt in input data that covers the
   ! entire latb array
   min_in_latb = minval(in_latb); max_in_latb = maxval(in_latb)
@@ -395,15 +390,15 @@ end subroutine do_read_cover_field
   ! check for unreasonable values
   if (in_j_start<1) &
      call error_mesg('do_read_fraction_field','reading field "'//trim(name)//'" from file "'&
-                     //trim(mpp_get_file_name(input_unit))//'input latitude start index ('&
+                     //trim(fileobj%path)//'input latitude start index ('&
                      //trim(string(in_j_start))//') is out of bounds', FATAL)
   if (in_j_count<1) &
      call error_mesg('do_read_fraction_field','reading field "'//trim(name)//'" from file "'&
-                     //trim(mpp_get_file_name(input_unit))//'computed input latitude count for domain'&
+                     //trim(fileobj%path)//'computed input latitude count for domain'&
                      //' is not positive, perhaps input data do not cover entire globe', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
      call error_mesg('do_read_fraction_field','reading field "'//trim(name)//'" from file "'&
-                     //trim(mpp_get_file_name(input_unit))//'input latitude count ('&
+                     //trim(fileobj%path)//'input latitude count ('&
                      //trim(string(in_j_count))//') is too large (start index='&
                      //trim(string(in_j_start))//')', FATAL)
 
@@ -414,13 +409,13 @@ end subroutine do_read_cover_field
   start = (/1,in_j_start,1,1/)
   count(1:3) = shape(in_frac)
   count(4) = 1
-  call mpp_read( input_unit, field, in_frac, start, count ) ! interface called here is mpp_read_region_r3D
-  call mpp_get_atts(field,valid=v)
+  call read_data(fileobj, name, in_frac, corner=start, edge_lengths=count)
+  v = get_valid(fileobj, name)
 
   ! Initialize horizontal interpolator; we assume that the valid data mask is
   ! the same for all levels in input frac array. This is probably a good assumption
   ! in all cases.
-  where(mpp_is_valid(in_frac(:,:,1),v))
+  where(is_valid(in_frac(:,:,1),v))
      in_mask = 1.0
   elsewhere
      in_mask = 0.0
@@ -482,40 +477,40 @@ subroutine read_field_N_3D_int(filename, varname, data_ug, interp, fill)
 end subroutine read_field_N_3D_int
 
 ! ============================================================================
-subroutine read_field_I_2D_int(ncid, varname, data_ug, interp, fill)
-  integer,      intent(in)  :: ncid
-  character(*), intent(in)  :: varname
-  integer,      intent(out) :: data_ug(:)
-  character(*), intent(in), optional :: interp
-  integer,      intent(in), optional :: fill
-  ! ---- local vars
-  real :: data3(size(data_ug,1),1)
-  real :: fill_
-
-  fill_ = DEFAULT_FILL_INT
-  if (present(fill)) fill_ = fill
-
-  call read_field_I_3D(ncid, varname, data3, interp, fill_)
-  data_ug = nint(data3(:,1))
-end subroutine read_field_I_2D_int
+!subroutine read_field_I_2D_int(ncid, varname, data_ug, interp, fill)
+!  integer,      intent(in)  :: ncid
+!  character(*), intent(in)  :: varname
+!  integer,      intent(out) :: data_ug(:)
+!  character(*), intent(in), optional :: interp
+!  integer,      intent(in), optional :: fill
+!  ! ---- local vars
+!  real :: data3(size(data_ug,1),1)
+!  real :: fill_
+!
+!  fill_ = DEFAULT_FILL_INT
+!  if (present(fill)) fill_ = fill
+!
+!  call read_field_I_3D(ncid, varname, data3, interp, fill_)
+!  data_ug = nint(data3(:,1))
+!end subroutine read_field_I_2D_int
 
 ! ============================================================================
-subroutine read_field_I_3D_int(ncid, varname, data_ug, interp, fill)
-  integer,      intent(in)  :: ncid
-  character(*), intent(in)  :: varname
-  integer,      intent(out) :: data_ug(:,:)
-  character(*), intent(in), optional :: interp
-  integer,      intent(in), optional :: fill
-  ! ---- local vars
-  real    :: data3(size(data_ug,1),size(data_ug,2))
-  real :: fill_
-
-  fill_ = DEFAULT_FILL_INT
-  if (present(fill)) fill_ = fill
-
-  call read_field_I_3D(ncid, varname, data3, interp, fill_)
-  data_ug = nint(data3(:,:))
-end subroutine read_field_I_3D_int
+!subroutine read_field_I_3D_int(ncid, varname, data_ug, interp, fill)
+!  integer,      intent(in)  :: ncid
+!  character(*), intent(in)  :: varname
+!  integer,      intent(out) :: data_ug(:,:)
+!  character(*), intent(in), optional :: interp
+!  integer,      intent(in), optional :: fill
+!  ! ---- local vars
+!  real    :: data3(size(data_ug,1),size(data_ug,2))
+!  real :: fill_
+!
+!  fill_ = DEFAULT_FILL_INT
+!  if (present(fill)) fill_ = fill
+!
+!  call read_field_I_3D(ncid, varname, data3, interp, fill_)
+!  data_ug = nint(data3(:,:))
+!end subroutine read_field_I_3D_int
 
 ! ============================================================================
 subroutine read_field_N_2D(filename, varname, data_ug, interp, fill)
@@ -539,9 +534,11 @@ subroutine read_field_N_3D(filename, varname, data_ug, interp, fill)
   character(*), intent(in), optional :: interp
   real,         intent(in), optional :: fill
   ! ---- local vars
+  type(FmsNetcdfFile_t) :: fileobj
   integer :: ierr, input_unit
 
   ! Files read: biodata.nc, geohydrology.nc, soil_brdf.nc
+  
   input_unit = -9999
   call mpp_open(input_unit, trim(filename), action=MPP_RDONLY, form=MPP_NETCDF, &
            threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=ierr)
@@ -551,19 +548,19 @@ subroutine read_field_N_3D(filename, varname, data_ug, interp, fill)
 end subroutine read_field_N_3D
 
 ! ============================================================================
-subroutine read_field_I_2D(ncid, varname, data_ug, interp, fill)
-  integer,      intent(in)  :: ncid
-  character(*), intent(in)  :: varname
-  real,         intent(out) :: data_ug(:)
-  character(*), intent(in), optional :: interp
-  real,         intent(in), optional :: fill
-  ! ---- local vars
-  real    :: data3(size(data_ug,1),1)
-  logical :: mask3(size(data_ug,1),1)
-
-  call read_field_I_3D(ncid, varname, data3, interp, fill)
-  data_ug = data3(:,1)
-end subroutine read_field_I_2D
+!subroutine read_field_I_2D(ncid, varname, data_ug, interp, fill)
+!  integer,      intent(in)  :: ncid
+!  character(*), intent(in)  :: varname
+!  real,         intent(out) :: data_ug(:)
+!  character(*), intent(in), optional :: interp
+!  real,         intent(in), optional :: fill
+!  ! ---- local vars
+!  real    :: data3(size(data_ug,1),1)
+!  logical :: mask3(size(data_ug,1),1)
+!
+!  call read_field_I_3D(ncid, varname, data3, interp, fill)
+!  data_ug = data3(:,1)
+!end subroutine read_field_I_2D
 
 ! ============================================================================
 subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
