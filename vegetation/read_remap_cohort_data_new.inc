@@ -11,8 +11,9 @@
 #endif
 
 ! ============================================================================
-subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
-  type(fieldtype), intent(in) :: Field
+subroutine READ_REMAP_SUB(fileobj, name, fptr, map_i, map_j, cidx, compressed_data)
+  class(NetcdfFile_t), intent(in) :: fileobj
+  character(len=*), intent(in) :: name
   integer        , intent(in) :: map_i(lnd%ls:) ! re-mapping index
   integer        , intent(in) :: map_j(lnd%ls:) ! re-mapping index
   integer        , intent(in) :: cidx(:)
@@ -39,30 +40,24 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   F90_TYPE, allocatable :: expanded_data(:,:,:,:) ! buffer for input data
   logical,  allocatable :: mask(:,:,:,:) ! validity mask for input data
   logical :: is_compressed
-  integer :: dimlens(1024)
-  type(axistype), allocatable :: Axes(:)
-  character(len=256) :: att_name, dim_name
-  type(axistype) :: Axis
-  character(len=256) :: default_string, compress_att, string
+  integer, dimension(4) :: dimlens
+  character(len=256) :: dim_name
+  character(len=256) :: compress_att, string
 
   ! get the size of dimensions
-  call mpp_get_atts(Field, ndim=ndims)
-  allocate(Axes(ndims))
-  call mpp_get_atts(Field, axes=Axes)
-  call mpp_get_atts(default_axis, compressed=default_string)
-  is_compressed = .FALSE.
-  do n=1,ndims
-    call mpp_get_atts(Axes(n), name=att_name)
-    if(trim(att_name) == 'cohort_index') then
-       call mpp_get_atts(Axes(n), compressed=compress_att)
-       if(compress_att /= default_string) is_compressed = .TRUE.
+  is_compressed = .false.
+  if (variable_exists(fileobj, "cohort_index")) then
+    if (variable_att_exists(fileobj, "cohort_index", "compress")) then
+      call get_variable_attribute(fileobj, "cohort_index", "compress", compress_att)
+      if (trim(compress_att) .ne. "unspecified") then
+        is_compressed = .true.
+      endif
     endif
-  enddo
+  endif
 
   if(.not.is_compressed) then
-    call mpp_get_atts(Field, name=string)
     call error_mesg(module_name, &
-    'compress attribute not found for cohort_index. Therefore, do not know how to decompress '//trim(string)//' (pjp)',FATAL)
+    'compress attribute not found for cohort_index. Therefore, do not know how to decompress '//trim(name)//' (pjp)',FATAL)
   endif
 
   ! Get size of each dimension specified by compress_att
@@ -70,8 +65,7 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   do n=1,4
      npos = scan(string, ' ')
      dim_name = string(1:npos-1)
-     Axis = mpp_get_axis_by_name(input_unit,trim(dim_name))
-     call mpp_get_atts(Axis, len=dimlens(n))
+     call get_dimension_size(fileobj, dim_name, dimlens(n))
      string = string(npos+1:len_trim(string))
      npos = verify(string, ' ')
      if(npos == 0) exit

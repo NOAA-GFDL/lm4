@@ -5,10 +5,8 @@ module hillslope_mod
 
 #include "../shared/debug.inc"
 
-use mpp_mod, only: input_nml_file
-
 use mpp_mod, only: mpp_pe, mpp_root_pe
-use fms_mod, only: error_mesg, file_exist, check_nml_error, &
+use fms_mod, only: error_mesg, input_nml_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -21,9 +19,7 @@ use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_int_tile_data, get_int_tile_data, &
-     print_netcdf_error
-use nf_utils_mod,  only : nfu_inq_dim
+     add_restart_axis, add_int_tile_data, get_int_tile_data
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
 use land_transitions_mod, only : do_landuse_change
 use vegn_harvesting_mod , only : do_harvesting
@@ -32,7 +28,7 @@ use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
      gw_scale_length, gw_scale_relief
 
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_dimension_size, open_file
 
 implicit none
 private
@@ -161,10 +157,6 @@ real, private, allocatable :: init_wt_loc (:,:,:) ! water table depth to init by
 
 ! ==== end of module variables ===============================================
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 contains
 
 ! ============================================================================
@@ -237,9 +229,8 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
   logical :: exists
 
   ! Check length of nhlsps dimension on input file.
-  __NF_ASRT__(nf_open(hillslope_surfdata, NF_NOWRITE,ncid))
-  ierr = nfu_inq_dim(ncid, hlsp_surf_dimname, totnumhlsps)
-  __NF_ASRT__(nf_close(ncid))
+  exists = open_file(fileobj, hillslope_surfdata, "read")
+  call get_dimension_size(fileobj, hlsp_surf_dimname, totnumhlsps)
   !write(*,*)'totnumhlsps = ',totnumhlsps,', max_num_topo_hlsps = ', &
   !      max_num_topo_hlsps
   if (ierr > 0) call error_mesg(module_name, 'Error reading file '// hillslope_surfdata // ','// &
@@ -258,7 +249,6 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
                      'is not on the native grid.', NOTE)
   ! Note: this function is not currently a robust "nearest" interpolation for cubic-sphere
   ! grids and will need to be updated.
-  exists = open_file(fileobj, hillslope_surfdata, "read")
   if (.not. exists) then
     call error_mesg("read_hillslope_surfdat", trim(hillslope_surfdata)//" does not exist.", &
                     fatal)

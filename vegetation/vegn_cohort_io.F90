@@ -5,7 +5,7 @@ use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
 use fms_mod,          only : error_mesg, FATAL, WARNING
 use fms_io_mod,       only : get_instance_filename
 use mpp_mod,          only : mpp_max
-use land_io_mod,      only : print_netcdf_error, input_buf_size
+use land_io_mod,      only : input_buf_size
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
      current_tile, operator(/=), nitems, loop_over_tiles

@@ -12,23 +12,13 @@ use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use fms_mod,            only : error_mesg, FATAL, NOTE, &
-     mpp_pe, file_exist, close_file, check_nml_error, stdlog, lowercase, &
+     mpp_pe, file_exist, input_nml_file, check_nml_error, stdlog, lowercase, &
      mpp_root_pe, get_mosaic_tile_file, fms_error_handler
 use time_interp_mod,    only : time_interp
 use diag_manager_mod,   only : get_base_date
 
-use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
-     nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
-     nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
 use land_data_mod,      only : log_version, lnd
-use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file, gather_tile_index
 use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, &
@@ -48,7 +38,10 @@ use fms_io_mod, only: get_field_size,read_compressed
 
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
                        register_field, register_variable_attribute, unlimited, &
-                       register_restart_field, write_restart
+                       register_restart_field, write_restart, get_dimension_size, &
+                       get_variable_size, read_data, FmsNetcdfFile_t, open_file, &
+                       close_file, variable_exists, variable_att_exists, NetcdfFile_t, &
+                       get_variable_attribute
 
 implicit none
 private
@@ -78,7 +71,7 @@ integer, allocatable :: map_i(:), map_j(:)! remapping arrays: for each of the
      ! in the input grid.
 type(time_type) :: base_time ! model base time for static vegetation output
 type(fieldtype), allocatable :: Fields(:)
-integer :: input_unit, ispecies, ibl, iblv, ibr, ibsw, ibwood, ibliving, istatus
+integer :: ispecies, ibl, iblv, ibr, ibsw, ibwood, ibliving, istatus
 
 type(FmsNetcdfUnstructuredDomainFile_t) :: static_veg_file ! handle of output file, for new IO
 integer :: ncid2 ! netcdf id of the output file, for old IO
@@ -106,11 +99,8 @@ namelist/static_veg_nml/use_static_veg,input_file,timeline,start_loop,end_loop,&
      fill_land_mask, write_static_veg, static_veg_freq
 
 logical :: input_is_multiface ! TRUE if the input files are face-specific
-
-! ==== NetCDF declarations ==================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
-
+type(FmsNetcdfFile_t) :: fileobj
+type(FmsNetcdfUnstructuredDomainFile_t) :: fileobj_domainug
 
 contains
 
@@ -124,21 +114,8 @@ subroutine read_static_vegn_namelist(static_veg_used)
   call log_version(version, module_name, &
   __FILE__)
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=static_veg_nml, iostat=io)
   ierr = check_nml_error(io, 'static_veg_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=static_veg_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'static_veg_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
@@ -163,46 +140,34 @@ end subroutine read_static_vegn_namelist
 subroutine static_vegn_init( )
 
   ! ---- local vars
-  integer :: unlimdim, timelen, timeid
-  integer :: i,j,k,iret
-  character(len=NF_MAX_NAME) :: dimname  ! name of the dimension variable : time, lon, and lat
-  integer                    :: ndims    ! rank of input vars
-  integer                    :: dimids (NF_MAX_VAR_DIMS) ! netcdf IDs of input var dimensions
-  integer                    :: dimlens(NF_MAX_VAR_DIMS) ! sizes of respective dimensions
-  real, allocatable          :: t(:)     ! temporary real timeline
+  integer :: i,j,k
+  integer, dimension(4) :: dimlens ! sizes of respective dimensions
   character(len=256)         :: units    ! units of time in the file
   character(len=256)         :: calendar ! calendar of the data
   real, allocatable          :: in_lon(:)! longitude coordinates in input file
   real, allocatable          :: in_lat(:)! latitude coordinates in input file
   logical, allocatable       :: mask(:,:)! mask of valid points in input data
-  integer, allocatable       :: data(:,:,:,:) ! temporary array used to calculate the mask of
-                                         ! valid input data
-  logical                    :: has_records ! true if input variable has records
-  integer :: m, n, siz(4), ndim, nvar, natt, l
-  character(len=1024) :: actual_input_file, actual_input_file2
+  integer :: m, n, l
+  integer, dimension(:), allocatable :: siz
 !  logical :: input_is_multiface ! TRUE if the input files are face-specific
-  logical :: found_file, read_dist, io_domain_exist
-  type(axistype) :: Lon_axis, Lat_axis, Tile_axis, Cohort_axis
-  type(axistype) :: Time_axis
-  character(len=256) :: name
   integer, allocatable :: cidx(:), idata(:)
+  logical:: exists
+  real, dimension(:), allocatable :: t
 
   if(module_is_initialized) return
 
   if(use_static_veg) then
 
-     ! SET UP LOOP BOUNDARIES
-     ts = set_date(start_loop(1),start_loop(2),start_loop(3), start_loop(4),start_loop(5),start_loop(6))
-     te = set_date(end_loop(1)  ,end_loop(2)  ,end_loop(3)  , end_loop(4)  ,end_loop(5)  ,end_loop(6)  )
+    ! SET UP LOOP BOUNDARIES
+    ts = set_date(start_loop(1),start_loop(2),start_loop(3), start_loop(4),start_loop(5),start_loop(6))
+    te = set_date(end_loop(1)  ,end_loop(2)  ,end_loop(3)  , end_loop(4)  ,end_loop(5)  ,end_loop(6)  )
 
     ! OPEN INPUT FILE
-    if(file_exist(trim(input_file),no_domain=.true.)) then
-       call mpp_open(input_unit, trim(input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                  threading=MPP_MULTI, fileset=MPP_SINGLE)
+    exists = open_file(fileobj, input_file, "read")
+    if (exists) then
        call error_mesg('static_vegn_init','Reading global static vegetation file "'&
             //trim(input_file)//'"', NOTE)
        input_is_multiface = .FALSE.
-       actual_input_file = input_file
     else
        if(lnd%nfaces==1) then
           ! for 1-face grid we cannot use multi-face input, even if it exists
@@ -210,79 +175,57 @@ subroutine static_vegn_init( )
                   //'" does not exist', FATAL)
        else
           ! if there is more then one face, try opening face-specific input with consideration of io_layout
-          call get_mosaic_tile_file(trim(input_file),actual_input_file2,.FALSE.,lnd%sg_domain)
-          found_file = get_file_name(input_file, actual_input_file, read_dist, io_domain_exist, &
-                          domain=lnd%sg_domain)
-          if(.not.found_file) call error_mesg('static_vegn_init','"'//trim(actual_input_file2)// &
+          exists = open_file(fileobj_domainug, input_file, "read", lnd%ug_domain)
+          if (.not. exists) then
+             call error_mesg('static_vegn_init','"'//trim(input_file)// &
              '" and corresponding distributed file are not found', FATAL)
-          if(read_dist) then
-             call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                              threading=MPP_MULTI, fileset=MPP_MULTI, domain=lnd%sg_domain)
-          else
-             call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                           threading=MPP_MULTI, fileset=MPP_SINGLE)
+
           endif
           call error_mesg('static_vegn_init','Reading face-specific vegetation file "'&
-               //trim(actual_input_file)//'"', NOTE)
+               //trim(input_file)//'"', NOTE)
           input_is_multiface = .TRUE.
        endif
     endif
 
-    call mpp_get_info(input_unit,ndim,nvar,natt,timelen)
-    call mpp_get_time_axis(input_unit, Time_axis)
-
-    ! READ TIME AXIS DATA
-    allocate(t(timelen))
-    call mpp_get_times(input_unit, t)
-
-    allocate(Fields(nvar))
-    call mpp_get_fields(input_unit, Fields)
-    do i=1,nvar
-      call mpp_get_atts(Fields(i), name=name)
-      select case (name)
-      case ('species')
-        ispecies = i
-      case ('bl')
-        ibl = i
-      case ('blv')
-        iblv = i
-      case ('br')
-        ibr = i
-      case ('bsw')
-        ibsw = i
-      case ('bwood')
-        ibwood = i
-      case ('bliving')
-        ibliving = i
-      case ('status')
-        istatus = i
-      end select
-    enddo
-
-    ! GET UNITS OF THE TIME AND CALENDAR OF THE DATA
     units = ' '
     calendar = 'JULIAN'
-    call mpp_get_atts(Time_axis, units=units, calendar=calendar)
 
+    ! READ TIME AXIS DATA
+    ! GET UNITS OF THE TIME AND CALENDAR OF THE DATA
     ! CONVERT TIME TO THE FMS TIME_TYPE AND STORE IT IN THE TIMELINE FOR THE DATA SET
-    allocate(time_line(timelen))
-    do i = 1, size(t)
-       ! set the respective value in the timeline
-       time_line(i) = get_cal_time(t(i),units,calendar)
-    enddo
-
     ! READ HORIZONTAL COORDINATES
-    Lon_axis = mpp_get_axis_by_name(input_unit,'lon')
-    call mpp_get_atts(Lon_axis, len=dimlens(1))
+    if (input_is_multiface) then
+      call get_variable_attribute(fileobj_domainug, "time", "units", units)
+      call get_variable_attribute(fileobj_domainug, "time", "calendar", calendar)
+      call get_dimension_size(fileobj_domainug, "time", dimlens(1))
+      call get_dimension_size(fileobj_domainug, "lon", dimlens(1))
+      call get_dimension_size(fileobj_domainug, "lat", dimlens(2))
+    else
+      call get_variable_attribute(fileobj, "time", "units", units)
+      call get_variable_attribute(fileobj, "time", "calendar", calendar)
+      call get_dimension_size(fileobj, "time", dimlens(1))
+      call get_dimension_size(fileobj, "lon", dimlens(1))
+      call get_dimension_size(fileobj, "lat", dimlens(2))
+    endif
+    allocate(t(dimlens(1)))
+    allocate(time_line(dimlens(1)))
     allocate(in_lon(dimlens(1)))
-    call mpp_get_axis_data(Lon_axis, in_lon)
-
-    Lat_axis = mpp_get_axis_by_name(input_unit,'lat')
-    call mpp_get_atts(Lat_axis, len=dimlens(2))
     allocate(in_lat(dimlens(2)))
-    call mpp_get_axis_data(Lat_axis, in_lat)
-
-    in_lon = in_lon*PI/180.0 ; in_lat = in_lat*PI/180.0
+    if (input_is_multiface) then
+      call read_data(fileobj_domainug, "time", t)
+      call read_data(fileobj_domainug, "lon", in_lon)
+      call read_data(fileobj_domainug, "lat", in_lat)
+    else
+      call read_data(fileobj, "time", t)
+      call read_data(fileobj, "lon", in_lon)
+      call read_data(fileobj, "lat", in_lat)
+    endif
+    do i = 1, dimlens(1)
+       ! set the respective value in the timeline
+       time_line(i) = get_cal_time(t(i), units, calendar)
+    enddo
+    in_lon = in_lon*PI/180.0
+    in_lat = in_lat*PI/180.0
 
     ! COMPUTE INDEX REMAPPING ARRAY
     allocate(map_i(lnd%ls:lnd%le))
@@ -295,17 +238,16 @@ subroutine static_vegn_init( )
 
        if(fill_land_mask) then
           ! READ THE FIRST RECORD AND CALCULATE THE MASK OF THE VALID INPUT DATA
-          Tile_axis   = mpp_get_axis_by_name(input_unit,'tile')
-          call mpp_get_atts(Tile_axis, len=dimlens(3))
-          Cohort_axis = mpp_get_axis_by_name(input_unit,'cohort')
-          call mpp_get_atts(Cohort_axis, len=dimlens(4))
+          call get_dimension_size(fileobj, "tile", dimlens(3))
+          call get_dimension_size(fileobj, "cohort", dimlens(4))
+
           ! Note: The input file used for initial testing had
           ! lon = 144, lat = 90, tile = 2, cohort = 1
-          call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%sg_domain)
+          call get_variable_size(fileobj, "cohort_index", siz)
           allocate(cidx(siz(1)), idata(siz(1)))
-          call set_domain(lnd%sg_domain)
-          call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
-          call read_compressed(trim(input_file),'species',idata,timelevel=1)
+          deallocate(siz)
+          call read_data(fileobj, 'cohort_index', cidx, unlim_dim_level=1)
+          call read_data(fileobj, 'species', idata, unlim_dim_level=1)
           do n = 1,size(cidx)
              m = cidx(n)
              i = modulo(m,dimlens(1))+1
@@ -344,7 +286,6 @@ subroutine static_vegn_init( )
     endif
     deallocate (in_lon,in_lat)
     if(allocated(mask)) deallocate(mask)
-    deallocate(t)
   endif
 
   if(write_static_veg) &
@@ -439,12 +380,19 @@ subroutine init_writing_static_veg()
   call register_variable_attribute(static_veg_file, "status", "units", &
                                    "")
 
-  call write_restart(static_veg_file)
 11 format('days since ', i4.4, '-', i2.2, '-', i2.2, ' ', i2.2, ':', i2.2, ':', i2.2)
 end subroutine init_writing_static_veg
 
 ! ===========================================================================
 subroutine static_vegn_end()
+  if (use_static_veg) then
+    if (input_is_multiface) then
+      call close_file(fileobj_domainug)
+    else
+      call close_file(fileobj)
+    endif
+    call close_file(static_veg_file)
+  endif
   module_is_initialized = .false.
 end subroutine static_vegn_end
 
@@ -457,7 +405,7 @@ subroutine read_static_vegn (time, err_msg)
   integer :: index1, index2 ! result of time interpolation (only index1 is used)
   real    :: weight         ! another result of time interp, not used
   character(len=256) :: msg
-  integer :: siz(4)
+  integer,dimension(:), allocatable :: siz
   integer, allocatable :: cidx(:), idata(:)
   real,    allocatable :: rdata(:)
 
@@ -480,85 +428,48 @@ subroutine read_static_vegn (time, err_msg)
 
   ! read the data into cohort variables
   if(input_is_multiface) then
-   call fms_io_unstructured_get_field_size(trim(input_file), "cohort_index", siz, lnd%ug_domain)
+   call get_variable_size(fileobj_domainug, "cohort_index", siz)
    allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-   call fms_io_unstructured_read(trim(input_file), "cohort_index", cidx, lnd%ug_domain, timelevel=index1)
-   call fms_io_unstructured_read(trim(input_file), "species", idata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
-   call fms_io_unstructured_read(trim(input_file), "bl", rdata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
-   call fms_io_unstructured_read(trim(input_file), "blv", rdata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
-   call fms_io_unstructured_read(trim(input_file), "br", rdata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
-   call fms_io_unstructured_read(trim(input_file), "bsw", rdata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
-   call fms_io_unstructured_read(trim(input_file), "bwood", rdata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
-   call fms_io_unstructured_read(trim(input_file), "bliving", rdata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
-   call fms_io_unstructured_read(trim(input_file), "status", idata, lnd%ug_domain, timelevel=index1)
-   call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
+   deallocate(siz)
+   call read_data(fileobj_domainug, "cohort_index", cidx, unlim_dim_level=index1)
+   call read_data(fileobj_domainug, "species", idata, unlim_dim_level=index1)
+   call read_remap_cohort_data_i0d_new(fileobj_domainug, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
+   call read_data(fileobj_domainug, "bl", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bl", cohort_bl_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj_domainug, "blv", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj_domainug, "blv", cohort_blv_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj_domainug, "br", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj_domainug, "br", cohort_br_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj_domainug, "bsw", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bsw", cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj_domainug, "bwood", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bwood", cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj_domainug, "bliving", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bliving", cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj_domainug, "status", idata, unlim_dim_level=index1)
+   call read_remap_cohort_data_i0d_new(fileobj_domainug, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
    deallocate(cidx, idata, rdata)
   else
-   call get_field_size(trim(input_file), &
-                       "cohort_index", &
-                       siz, &
-                       domain=lnd%sg_domain)
+   call get_variable_size(fileobj, "cohort_index", siz)
    allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-   call read_compressed(trim(input_file), &
-                        "cohort_index", &
-                        cidx, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_compressed(trim(input_file), &
-                        "species", &
-                        idata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
-   call read_compressed(trim(input_file), &
-                        "bl", &
-                        rdata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
-   call read_compressed(trim(input_file), &
-                        "blv", &
-                        rdata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
-   call read_compressed(trim(input_file), &
-                        "br", &
-                        rdata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
-   call read_compressed(trim(input_file), &
-                        "bsw", &
-                        rdata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
-   call read_compressed(trim(input_file), &
-                        "bwood", &
-                        rdata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
-   call read_compressed(trim(input_file), &
-                        "bliving", &
-                        rdata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
-   call read_compressed(trim(input_file), &
-                        "status", &
-                        idata, &
-                        domain=lnd%sg_domain, &
-                        timelevel=index1)
-   call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
+   deallocate(siz)
+   call read_data(fileobj, "cohort_index", cidx, unlim_dim_level=index1)
+   call read_data(fileobj, "species", idata, unlim_dim_level=index1)
+   call read_remap_cohort_data_i0d_new(fileobj, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
+   call read_data(fileobj, "bl", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj, "bl", cohort_bl_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj, "blv", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj, "blv", cohort_blv_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj, "br", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj, "br", cohort_br_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj, "bsw", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj, "bsw", cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj, "bwood", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj, "bwood", cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj, "bliving", rdata, unlim_dim_level=index1)
+   call read_remap_cohort_data_r0d_new(fileobj, "bliving", cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+   call read_data(fileobj, "status", idata, unlim_dim_level=index1)
+   call read_remap_cohort_data_i0d_new(fileobj, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
    deallocate(cidx, idata, rdata)
   endif
 
@@ -597,15 +508,6 @@ subroutine write_static_vegn()
 ! call write_restart(static_veg_file, unlim_dim_level=t)
 end subroutine write_static_vegn
 
-
-! ============================================================================
-#define F90_TYPE       integer
-#define READ_REMAP_SUB read_remap_cohort_data_i0d_fptr
-#include "read_remap_cohort_data.inc"
-
-#define F90_TYPE       real
-#define READ_REMAP_SUB read_remap_cohort_data_r0d_fptr
-#include "read_remap_cohort_data.inc"
 
 ! ============================================================================
 #define F90_TYPE       integer
