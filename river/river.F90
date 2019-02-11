@@ -1078,6 +1078,7 @@ end subroutine print_river_tracer_data
     type(FmsNetcdfDomainFile_t) :: fileobj
     logical :: exists
     integer, dimension(:), allocatable :: siz
+    integer :: isize, jsize
 
     ntiles = mpp_get_ntile_count(domain)
 
@@ -1102,10 +1103,14 @@ end subroutine print_river_tracer_data
         call read_data(fileobj, "x", glon)
         call read_data(fileobj, "y", glat)
       endif
-    call read_data(fileobj, "x", xt)
-    call read_data(fileobj, "y", yt)
-    call read_data(fileobj, "land_frac", frac)
-    call read_data(fileobj, "lake_frac", lake_frac)
+    isize = iec - isc + 1
+    jsize = jec - jsc + 1
+    call read_data(fileobj, "x", xt, corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
+    call read_data(fileobj, "y", yt, corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
+    call read_data(fileobj, "land_frac", frac, corner=(/isc, jsc/), &
+                   edge_lengths=(/isize, jsize/))
+    call read_data(fileobj, "lake_frac", lake_frac, &
+                   corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
     !--- the following will be changed when the river data sets is finalized.
     xt = land_lon
     yt = land_lat
@@ -1183,7 +1188,8 @@ end subroutine print_river_tracer_data
     River%inflow    = 0.
     River%inflow_c  = 0.
 !--- read the data from the source file
-    call read_data(fileobj, "tocell", River%tocell)
+    call read_data(fileobj, "tocell", River%tocell, corner=(/isc, jsc/), &
+                   edge_lengths=(/isize, jsize/))
 
     where (River%tocell(:,:).eq.  4) River%tocell(:,:)=3
     where (River%tocell(:,:).eq.  8) River%tocell(:,:)=4
@@ -1223,7 +1229,8 @@ end subroutine print_river_tracer_data
     if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
         'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
-    call read_data(fileobj, "basin", River%basinid)
+    call read_data(fileobj, "basin", River%basinid, corner=(/isc, jsc/), &
+                   edge_lengths=(/isize, jsize/))
     where (River%basinid >0)
        River%mask = .true.
     elsewhere
@@ -1231,14 +1238,18 @@ end subroutine print_river_tracer_data
     endwhere
 
     River%travel = 0
-    call read_data(fileobj, "travel", River%travel(isc:iec,jsc:jec))
+    call read_data(fileobj, "travel", River%travel(isc:iec,jsc:jec), &
+                   corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
     call mpp_update_domains(River%travel, domain)
-    call read_data(fileobj, "celllength", River%reach_length)
+    call read_data(fileobj, "celllength", River%reach_length, &
+                   corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
     River%reach_length = River%reach_length * River%landfrac * (1.-lake_frac)
     if (land_area_called_cellarea) then
-        call read_data(fileobj, "cellarea", River%land_area)
+        call read_data(fileobj, "cellarea", River%land_area, &
+                       corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
       else
-        call read_data(fileobj, "land_area", River%land_area)
+        call read_data(fileobj, "land_area", River%land_area, &
+                       corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
       endif
 !    call read_data(fileobj, "So", River%So)
     River%So = 0.0
