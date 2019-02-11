@@ -2,19 +2,13 @@ module static_vegn_mod
 
 use constants_mod,      only : pi
 use mpp_mod,            only : mpp_max, mpp_sum
-use mpp_io_mod, only : fieldtype, axistype, mpp_get_atts, mpp_open, MPP_RDONLY, &
-      MPP_NETCDF, MPP_MULTI, MPP_SINGLE, mpp_get_axis_by_name, default_axis, &
-      mpp_get_info, mpp_get_times, mpp_get_fields, mpp_get_axis_data, mpp_get_axis_data, &
-      validtype, mpp_is_valid, mpp_get_time_axis
-use fms_io_mod, only : restart_file_type, set_domain, nullify_domain, &
-     get_file_name
 use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
 
 use fms_mod,            only : error_mesg, FATAL, NOTE, &
-     mpp_pe, file_exist, input_nml_file, check_nml_error, stdlog, lowercase, &
-     mpp_root_pe, get_mosaic_tile_file, fms_error_handler
+     mpp_pe, input_nml_file, check_nml_error, stdlog, lowercase, &
+     mpp_root_pe, fms_error_handler
 use time_interp_mod,    only : time_interp
 use diag_manager_mod,   only : get_base_date
 
@@ -26,15 +20,6 @@ use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_typ
 use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension_new, gather_cohort_data, &
      gather_cohort_index
-
-use fms_io_mod, only: fms_io_unstructured_register_restart_axis
-use fms_io_mod, only: fms_io_unstructured_register_restart_field
-use fms_io_mod, only: fms_io_unstructured_save_restart
-use fms_io_mod, only: HIDX
-use fms_io_mod, only: fms_io_unstructured_get_field_size
-use fms_io_mod, only: fms_io_unstructured_read
-use fms_io_mod, only: get_field_size,read_compressed
-
 
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
                        register_field, register_variable_attribute, unlimited, &
@@ -70,7 +55,6 @@ integer, allocatable :: map_i(:), map_j(:)! remapping arrays: for each of the
      ! land grid cells in current domain they hold indices of corresponding points
      ! in the input grid.
 type(time_type) :: base_time ! model base time for static vegetation output
-type(fieldtype), allocatable :: Fields(:)
 integer :: ispecies, ibl, iblv, ibr, ibsw, ibwood, ibliving, istatus
 
 type(FmsNetcdfUnstructuredDomainFile_t) :: static_veg_file ! handle of output file, for new IO

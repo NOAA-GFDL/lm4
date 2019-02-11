@@ -42,15 +42,14 @@ module river_mod
 
   use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE
   use mpp_mod,             only : mpp_error, FATAL, WARNING, NOTE, stdout, stdlog
-  use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max, get_unit
+  use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
-  use fms_mod,             only : check_nml_error, string, input_nml_file
-  use fms_mod,             only : file_exist, field_size, read_data, write_data
-  use fms_mod,             only : CLOCK_FLAG_DEFAULT
+  use fms_mod,             only : check_nml_error, string, input_nml_file, get_unit
+  use fms_mod,             only : CLOCK_FLAG_DEFAULT, error_mesg
   use fms_io_mod,          only : get_instance_filename
 
 
@@ -58,7 +57,8 @@ module river_mod
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
-                         add_domain_decomposition_attribute, get_compute_domain_dimension_indices
+                         add_domain_decomposition_attribute, get_compute_domain_dimension_indices, &
+                         get_variable_size, read_data
 !-------
 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
@@ -389,8 +389,10 @@ contains
         River%storage_c  = 0.0
         discharge2ocean_next   = 0.0
         discharge2ocean_next_c = 0.0
-        if(file_exist(river_Omean_file)) then
-           call read_data(river_Omean_file, 'Omean', River%outflowmean, domain)
+        exists = open_file(river_restart, river_Omean_file, "read", domain)
+        if (exists) then
+           call read_data(river_restart, 'Omean', River%outflowmean)
+           call close_file(river_restart)
         else
            River%outflowmean = CONST_OMEAN
         end if
@@ -1069,15 +1071,26 @@ end subroutine print_river_tracer_data
     real,            intent(in) :: land_lat(isc:,jsc:)  ! geographical lattitude of cell center
     real,            intent(in) :: land_frac(isc:,jsc:) ! land area fraction of land grid.
 
-    integer                           :: ni, nj, i, j, siz(4), ntiles
+    integer                           :: ni, nj, i, j, ntiles
     real, dimension(:,:), allocatable :: xt, yt, frac, glon, glat, lake_frac
     integer :: nerrors ! number of errors detected during initialization
 
+    type(FmsNetcdfDomainFile_t) :: fileobj
+    logical :: exists
+    integer, dimension(:), allocatable :: siz
+
     ntiles = mpp_get_ntile_count(domain)
 
-    call field_size(river_src_file, 'basin', siz, domain=domain)
+    exists = open_file(fileobj, river_src_file, "read", domain)
+    if (.not. exists) then
+      call error_mesg("get_river_data", &
+                      "file "//trim(river_src_file)//" does not exist.", &
+                      fatal)
+    endif
+    call get_variable_size(fileobj, "basin", siz)
     ni = siz(1)
     nj = siz(2)
+    deallocate(siz)
     if(ni .NE. River%nlon .OR. nj .NE. River%nlat) call mpp_error(FATAL, &
        "river_mod: size mismatch between river grid and land grid")
 
@@ -1086,13 +1099,13 @@ end subroutine print_river_tracer_data
     allocate(lake_frac(isc:iec, jsc:jec))
 
     if (ntiles == 1) then
-        call read_data(river_src_file, 'x', glon, no_domain=.true.)
-        call read_data(river_src_file, 'y', glat, no_domain=.true.)
+        call read_data(fileobj, "x", glon)
+        call read_data(fileobj, "y", glat)
       endif
-    call read_data(river_src_file, 'x', xt, domain)
-    call read_data(river_src_file, 'y', yt, domain)
-    call read_data(river_src_file, 'land_frac', frac, domain)
-    call read_data(river_src_file, 'lake_frac', lake_frac, domain)
+    call read_data(fileobj, "x", xt)
+    call read_data(fileobj, "y", yt)
+    call read_data(fileobj, "land_frac", frac)
+    call read_data(fileobj, "lake_frac", lake_frac)
     !--- the following will be changed when the river data sets is finalized.
     xt = land_lon
     yt = land_lat
@@ -1170,7 +1183,7 @@ end subroutine print_river_tracer_data
     River%inflow    = 0.
     River%inflow_c  = 0.
 !--- read the data from the source file
-    call read_data(river_src_file, 'tocell', River%tocell, domain)
+    call read_data(fileobj, "tocell", River%tocell)
 
     where (River%tocell(:,:).eq.  4) River%tocell(:,:)=3
     where (River%tocell(:,:).eq.  8) River%tocell(:,:)=4
@@ -1210,7 +1223,7 @@ end subroutine print_river_tracer_data
     if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
         'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
-    call read_data(river_src_file, 'basin', River%basinid, domain)
+    call read_data(fileobj, "basin", River%basinid)
     where (River%basinid >0)
        River%mask = .true.
     elsewhere
@@ -1218,19 +1231,20 @@ end subroutine print_river_tracer_data
     endwhere
 
     River%travel = 0
-    call read_data(river_src_file, 'travel', River%travel(isc:iec,jsc:jec), domain)
+    call read_data(fileobj, "travel", River%travel(isc:iec,jsc:jec))
     call mpp_update_domains(River%travel, domain)
-    call read_data(river_src_file, 'celllength', River%reach_length, domain)
+    call read_data(fileobj, "celllength", River%reach_length)
     River%reach_length = River%reach_length * River%landfrac * (1.-lake_frac)
     if (land_area_called_cellarea) then
-        call read_data(river_src_file, 'cellarea', River%land_area, domain)
+        call read_data(fileobj, "cellarea", River%land_area)
       else
-        call read_data(river_src_file, 'land_area', River%land_area, domain)
+        call read_data(fileobj, "land_area", River%land_area)
       endif
-!    call read_data(river_src_file, 'So', River%So, domain)
+!    call read_data(fileobj, "So", River%So)
     River%So = 0.0
     where (River%So .LT. 0.0) River%So = Somin
 
+    call close_file(fileobj)
     deallocate(lake_frac)
 
   end subroutine get_river_data
@@ -1619,10 +1633,8 @@ program river_solo
   use mpp_domains_mod,          only : mpp_define_layout, mpp_define_domains
   use mpp_domains_mod,          only : mpp_get_compute_domain, domain2d, CYCLIC_GLOBAL_DOMAIN
   use mpp_domains_mod,          only : mpp_get_current_ntile, mpp_get_tile_id
-  use mpp_io_mod,               only : mpp_open, MPP_RDONLY, MPP_NETCDF, MPP_SINGLE
-  use mpp_io_mod,               only : MPP_ASCII, MPP_OVERWR, mpp_close
-  use fms_mod,                  only : fms_init, fms_end, stdlog, open_namelist_file
-  use fms_mod,                  only : check_nml_error, close_file, file_exist, stdout, read_data
+  use fms_mod,                  only : fms_init, fms_end, stdlog
+  use fms_mod,                  only : check_nml_error, stdout, input_nml_file, get_unit
   use fms_io_mod,               only : fms_io_exit
   use time_manager_mod,         only : time_type, increment_time, set_date, increment_date, set_time
   use time_manager_mod,         only : set_calendar_type, JULIAN, NOLEAP, THIRTY_DAY_MONTHS, NO_CALENDAR
@@ -1634,6 +1646,8 @@ program river_solo
   use grid_mod,                 only : get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area
   use grid_mod,                 only : define_cube_mosaic, get_grid_ntiles
   use river_mod,                only : num_species
+
+  use fms2_io_mod, only: close_file, file_exists, FmsNetcdfFile_t, open_file
 
 
   implicit none
@@ -1694,11 +1708,11 @@ program river_solo
   call get_date(Time,yr,mon,day,hr,min,sec)
 
   if (mpp_pe() == mpp_root_pe()) then
-      call mpp_open(unit, 'RESTART/river_solo.res',form=MPP_ASCII,&
-           action=MPP_OVERWR,threading=MPP_SINGLE,fileset=MPP_SINGLE,nohdrs=.true.)
+      unit = get_unit
+      open(unit=unit, file="RESTART/river_solo.res", action="write")
       write(unit,*) yr, mon, day, hr, min, sec
       write(unit,*) calendar_type
-      call mpp_close(unit)
+      close(unit)
   endif
 
   call fms_io_exit
@@ -1718,24 +1732,13 @@ contains
     real,   allocatable         :: area_lnd(:,:), area_lnd_cell(:,:), gfrac(:,:)
     integer                     :: date(6)
     character(len=9)            :: month
+    type(FmsNetcdfFile_t ) :: fileobj
+    logical :: exists
 
     call constants_init
 
-#ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=river_solo_nml, iostat=io)
     ierr = check_nml_error(io, 'river_solo_nml')
-#else
-    if (file_exist('input.nml')) then
-      unit = open_namelist_file ()
-      ierr=1
-      do while (ierr /= 0)
-         read  (unit, nml=river_solo_nml, iostat=io, end=10)
-         ierr = check_nml_error (io, 'river_solo_nml')
-      enddo
-10    continue
-      call close_file(unit)
-    endif
-#endif
 
     unit=stdlog()
     write(unit, nml= river_solo_nml)
@@ -1756,11 +1759,12 @@ contains
     endif
 
 ! get river_solo restart
-    if (file_exist('INPUT/river_solo.res')) then
-        call mpp_open(unit,'INPUT/river_solo.res',form=MPP_ASCII,action=MPP_RDONLY)
+    if (file_exists("INPUT/river_solo.res")) then
+        unit = get_unit()
+        open(unit=unit, file="INPUT/river_solo.res", action="read")
         read(unit,*) date
         read(unit,*) calendar_type
-        call close_file(unit)
+        close(unit)
     endif
 
     call set_calendar_type (calendar_type)
@@ -1774,7 +1778,7 @@ contains
              current_date(4),current_date(5),current_date(6))
     endif
 
-    if (file_exist('INPUT/river_solo.res')) then
+    if (file_exists('INPUT/river_solo.res')) then
         Time_start =  set_date(date(1),date(2),date(3),date(4),date(5),date(6))
     else
         Time_start = Time_start
@@ -1787,16 +1791,16 @@ contains
     Time_step_fast = set_time(dt_fast, 0)
     num_fast_step  = Run_len/Time_step_fast
 
-    call mpp_open (unit, 'time_stamp.out', form=MPP_ASCII, action=MPP_OVERWR,threading=MPP_SINGLE)
-
-    month = month_name(current_date(2))
-    if ( mpp_pe() == mpp_root_pe() ) write (unit,'(6i4,2x,a3)') date, month(1:3)
-
-    call get_date (Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
-    month = month_name(date(2))
-    if ( mpp_pe() == mpp_root_pe() ) write (unit,'(6i4,2x,a3)') date, month(1:3)
-
-    call close_file (unit)
+    if (mpp_pe() .eq. mpp_root_pe()) then
+      unit = get_unit()
+      open(unit=unit, file="time_stamp.out", action="write")
+      month = month_name(current_date(2))
+      write (unit,'(6i4,2x,a3)') date, month(1:3)
+      call get_date (Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
+      month = month_name(date(2))
+      write (unit,'(6i4,2x,a3)') date, month(1:3)
+      close(unit)
+    endif
 
 !--- get the land grid and set up domain decomposition
     call get_grid_size('LND', 1, ni, nj)
@@ -1835,14 +1839,13 @@ contains
 
     allocate(runoff_c(isc:iec,jsc:jec,num_species) )
     allocate(runoff(isc:iec,jsc:jec), discharge(isc:iec,jsc:jec) )
-    if(file_exist("INPUT/runoff.nc")) then
-       call read_data("INPUT/runoff.nc", "runoff", runoff )
+    exists = open_file(fileobj, "INPUT/runoff.nc", "read")
+    if (exists) then
+       call read_data(fileobj, "runoff", runoff)
+       call read_data(fileobj, "runoff_c", runoff_c)
+       call close_file(fileobj)
     else
        runoff = CONST_RUNOFF
-    end if
-    if(file_exist("INPUT/runoff.nc")) then
-       call read_data("INPUT/runoff.nc", "runoff_c", runoff_c )
-    else
        runoff_c = CONST_RUNOFF
     end if
     allocate( discharge2ocean(isc:iec,jsc:jec) )
