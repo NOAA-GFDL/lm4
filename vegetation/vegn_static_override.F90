@@ -25,8 +25,8 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
                        register_field, register_variable_attribute, unlimited, &
                        register_restart_field, write_restart, get_dimension_size, &
                        get_variable_size, read_data, FmsNetcdfFile_t, open_file, &
-                       close_file, variable_exists, variable_att_exists, NetcdfFile_t, &
-                       get_variable_attribute
+                       close_file, variable_exists, variable_att_exists, &
+                       get_variable_attribute, get_variable_num_dimensions
 
 implicit none
 private
@@ -137,6 +137,7 @@ subroutine static_vegn_init( )
   integer, allocatable :: cidx(:), idata(:)
   logical:: exists
   real, dimension(:), allocatable :: t
+  integer :: ndims
 
   if(module_is_initialized) return
 
@@ -227,6 +228,8 @@ subroutine static_vegn_init( )
 
           ! Note: The input file used for initial testing had
           ! lon = 144, lat = 90, tile = 2, cohort = 1
+          ndims = get_variable_num_dimensions(fileobj, "cohort_index")
+          allocate(siz(ndims))
           call get_variable_size(fileobj, "cohort_index", siz)
           allocate(cidx(siz(1)), idata(siz(1)))
           deallocate(siz)
@@ -392,6 +395,7 @@ subroutine read_static_vegn (time, err_msg)
   integer,dimension(:), allocatable :: siz
   integer, allocatable :: cidx(:), idata(:)
   real,    allocatable :: rdata(:)
+  integer :: ndims
 
   if(.not.use_static_veg)return;
 
@@ -412,6 +416,8 @@ subroutine read_static_vegn (time, err_msg)
 
   ! read the data into cohort variables
   if(input_is_multiface) then
+   ndims = get_variable_num_dimensions(fileobj, "cohort_index")
+   allocate(siz(ndims))
    call get_variable_size(fileobj_domainug, "cohort_index", siz)
    allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
    deallocate(siz)
@@ -434,6 +440,8 @@ subroutine read_static_vegn (time, err_msg)
    call read_remap_cohort_data_i0d_new(fileobj_domainug, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
    deallocate(cidx, idata, rdata)
   else
+   ndims = get_variable_num_dimensions(fileobj, "cohort_index")
+   allocate(siz(ndims))
    call get_variable_size(fileobj, "cohort_index", siz)
    allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
    deallocate(siz)

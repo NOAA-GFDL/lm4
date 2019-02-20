@@ -57,8 +57,8 @@ module river_mod
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
-                         add_domain_decomposition_attribute, get_compute_domain_dimension_indices, &
-                         get_variable_size, read_data
+                         get_compute_domain_dimension_indices, &
+                         get_variable_size, read_data, get_variable_num_dimensions
 !-------
 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
@@ -1020,7 +1020,6 @@ end subroutine print_river_tracer_data
     call register_variable_attribute(river_restart, river_res_xdim, "long_name", river_res_xdim)
     call register_variable_attribute(river_restart, river_res_xdim, "units", "none")
     call register_variable_attribute(river_restart, river_res_xdim, "cartesian_axis", "X")
-    call add_domain_decomposition_attribute(river_restart, river_res_xdim)
     call get_compute_domain_dimension_indices(river_restart, river_res_xdim, buffer)
     call write_data(river_restart, river_res_xdim, buffer)
     deallocate(buffer)
@@ -1030,7 +1029,6 @@ end subroutine print_river_tracer_data
     call register_variable_attribute(river_restart, river_res_ydim, "long_name", river_res_ydim)
     call register_variable_attribute(river_restart, river_res_ydim, "units", "none")
     call register_variable_attribute(river_restart, river_res_ydim, "cartesian_axis", "Y")
-    call add_domain_decomposition_attribute(river_restart, river_res_ydim)
     call get_compute_domain_dimension_indices(river_restart, river_res_ydim, buffer)
     call write_data(river_restart, river_res_ydim, buffer)
     deallocate(buffer)
@@ -1079,6 +1077,7 @@ end subroutine print_river_tracer_data
     logical :: exists
     integer, dimension(:), allocatable :: siz
     integer :: isize, jsize
+    integer :: ndims
 
     ntiles = mpp_get_ntile_count(domain)
 
@@ -1088,6 +1087,8 @@ end subroutine print_river_tracer_data
                       "file "//trim(river_src_file)//" does not exist.", &
                       fatal)
     endif
+    ndims = get_variable_num_dimensions(fileobj, "basin")
+    allocate(siz(ndims))
     call get_variable_size(fileobj, "basin", siz)
     ni = siz(1)
     nj = siz(2)

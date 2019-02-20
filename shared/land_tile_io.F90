@@ -9,7 +9,7 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, get_variable_size, &
                        read_data, write_data, open_file, &
-                       compressed_start_and_count
+                       get_variable_num_dimensions, compressed_start_and_count
 
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
@@ -144,6 +144,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
 
   ! ---- local vars
   integer,dimension(:),allocatable :: flen ! length of the index
+  integer :: ndims
 
   restart%basename = filename
   restart_exists = open_file(restart%rhandle, restart%basename, "read", &
@@ -155,29 +156,37 @@ subroutine open_land_restart(restart,filename,restart_exists)
       call error_mesg("open_land_restart", "dimension 'tile' not found in file '" &
                       //trim(filename)//"'.", FATAL)
   endif
+  ndims = get_variable_num_dimensions(restart%rhandle, "tile")
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, "tile", flen)
   restart%tile_dim_length = flen(1)
+  deallocate(flen)
 
   !Get the size of the tile index dimension from the file.
   if (.not. field_exists(restart, "tile_index")) then
       call error_mesg("open_land_restart", "'tile_index' not found in file '" &
                       //trim(filename)//"'.", FATAL)
   endif
+  ndims = get_variable_num_dimensions(restart%rhandle, "tile_index")
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, "tile_index", flen)
   allocate(restart%tidx(flen(1)))
+  deallocate(flen)
 
   !Read in the tile_index field from the file.
   call read_data(restart%rhandle, "tile_index", restart%tidx)
 
   !Get the size of the cohort_index dimension from the file.
   if (field_exists(restart, "cohort_index")) then
+      ndims = get_variable_num_dimensions(restart%rhandle, "cohort_index")
+      allocate(flen(ndims))
       call get_variable_size(restart%rhandle, "cohort_index", flen)
 
       !Read in the cohort_index field from the file.
       allocate(restart%cidx(flen(1)))
+      deallocate(flen)
       call read_data(restart%rhandle, "cohort_index", restart%cidx)
   endif
-  deallocate(flen)
   ! TODO: possibly make tile index and cohort index names parameters in this module
   !       just constants, no sense to make them namelists vars
 end subroutine open_land_restart
@@ -220,7 +229,11 @@ subroutine add_restart_axis(restart,name,data,is_unstructured,cartesian,units,lo
 
   allocate(data_(size(data)))
   data_(:) = data(:)
-  call register_axis(restart%rhandle, name, is_unstructured, size(data))
+  if (is_unstructured) then
+    call register_axis(restart%rhandle, name)
+  else
+    call register_axis(restart%rhandle, name, size(data))
+  endif
   call register_field(restart%rhandle, name, "double", (/name/))
   if (present(cartesian)) then
       call register_variable_attribute(restart%rhandle, name, "cartesian_axis", cartesian)
@@ -715,6 +728,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   ! ---- local vars
   integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
+  integer :: ndims
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -723,6 +737,8 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   endif
 
   !Get the size of z-dimension from the file.
+  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, zdim, flen)
 
   !Read in the field from the file.
@@ -742,6 +758,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
   ! ---- local vars
   integer,dimension(:),allocatable :: flen ! size of the input field
   integer, allocatable :: r(:,:) ! input data buffer
+  integer :: ndims
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_i1d_fptr_i0i", &
@@ -750,6 +767,8 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
   endif
 
   !Get the size of z-dimension from the file.
+  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, zdim, flen)
 
   !Read in the field from the file.
@@ -770,6 +789,7 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   ! ---- local vars
   integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
+  integer :: ndims
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ij", &
@@ -778,6 +798,8 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   endif
 
   !Get the size of z-dimension from the file.
+  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, zdim, flen)
 
   !Read in the field from the file.
@@ -798,6 +820,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   ! ---- local vars
   integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
+  integer :: ndims
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ijk", &
@@ -806,6 +829,8 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   endif
 
   !Get the size of z-dimension from the file.
+  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, zdim, flen)
 
   !Read in the field from the file.
@@ -826,6 +851,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   integer,dimension(:),allocatable :: flen ! size of the input field
   integer :: n,m
   real, allocatable :: r(:,:,:) ! input data buffer
+  integer :: ndims
 
   if (.not. field_exists(restart, dim1)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ij", &
@@ -834,8 +860,11 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   endif
 
   !Get the size of the first dimension of the field.
+  ndims = get_variable_num_dimensions(restart%rhandle, dim1)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, dim1, flen)
   n = flen(1)
+  deallocate(flen)
 
   if (.not. field_exists(restart, dim2)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ij", &
@@ -844,15 +873,17 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   endif
 
   !Get the size of the second dimension of the field.
+  ndims = get_variable_num_dimensions(restart%rhandle, dim2)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, dim2, flen)
   m = flen(1)
+  deallocate(flen)
 
   !Read in the field data from the file.
   allocate(r(size(restart%tidx),n,m))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r2d(fptr,restart%tidx,r)
   deallocate(r)
-  deallocate(flen)
 end subroutine get_tile_data_r2d_fptr_r0ij
 
 subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
@@ -866,6 +897,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   integer,dimension(:),allocatable :: flen ! size of the input field
   integer ::  m,n
   real, allocatable :: r(:,:,:) ! input data buffer
+  integer :: ndims
 
   if (.not. field_exists(restart, dim1)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ijk", &
@@ -874,8 +906,11 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   endif
 
   !Get the size of the first dimension of the field.
+  ndims = get_variable_num_dimensions(restart%rhandle, dim1)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, dim1, flen)
   n = flen(1)
+  deallocate(flen)
 
   if (.not. field_exists(restart, dim2)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ijk", &
@@ -884,15 +919,17 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   endif
 
   !Get the size of the second dimension of the field.
+  ndims = get_variable_num_dimensions(restart%rhandle, dim2)
+  allocate(flen(ndims))
   call get_variable_size(restart%rhandle, dim2, flen)
   m = flen(1)
+  deallocate(flen)
 
   !Read in the field from the file.
   allocate(r(size(restart%tidx),n,m))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r2d_idx(fptr,index,restart%tidx,r)
   deallocate(r)
-  deallocate(flen)
 end subroutine get_tile_data_r2d_fptr_r0ijk
 
 subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_data,soilCCohort_data)
@@ -911,14 +948,14 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   integer :: i
 
   s = open_file(rhandle, name, "overwrite", lnd%ug_domain, is_restart=.true.)
-  call register_axis(rhandle, "lon", .false., size(lnd%coord_glon))
+  call register_axis(rhandle, "lon", size(lnd%coord_glon))
   call register_field(rhandle, "lon", "double", (/"lon"/))
   call register_variable_attribute(rhandle, "lon", "units", "degrees_east")
   call register_variable_attribute(rhandle, "lon", "long_name", "longitude")
   call register_variable_attribute(rhandle, "lon", "cartesian_axis", "X")
   call write_data(rhandle, "lon", lnd%coord_glon)
 
-  call register_axis(rhandle, "lat", .false., size(lnd%coord_glat))
+  call register_axis(rhandle, "lat", size(lnd%coord_glat))
   call register_field(rhandle, "lat", "double", (/"lat"/))
   call register_variable_attribute(rhandle, "lat", "units", "degrees_north")
   call register_variable_attribute(rhandle, "lat", "long_name", "latitude")
@@ -928,7 +965,7 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call register_axis(rhandle, "tile", .false., tile_dim_length)
+  call register_axis(rhandle, "tile", tile_dim_length)
   call register_field(rhandle, "tile", "int", (/"tile"/))
   call register_variable_attribute(rhandle, "tile", "long_name", "tile number within grid cell")
   do i = 1, tile_dim_length
@@ -939,8 +976,8 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   ntidx = size(tidx)
   call compressed_start_and_count(rhandle, ntidx, npes_tidx_start, npes_tidx)
   call register_axis(rhandle, tile_index_name, npes_corner=npes_tidx_start, npes_nelems=npes_tidx)
-! deallocate(npes_tidx)
-! deallocate(npes_tidx_start)
+  deallocate(npes_tidx)
+  deallocate(npes_tidx_start)
   call register_field(rhandle, tile_index_name, "int", (/tile_index_name/))
   call register_variable_attribute(rhandle, tile_index_name, "long_name", "compressed land point index")
   call register_variable_attribute(rhandle, tile_index_name, "compress", "tile lat lon")
@@ -949,7 +986,7 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   call write_data(rhandle, tile_index_name, tidx)
 
   if (present(zaxis_data)) then
-      call register_axis(rhandle, "zfull", .false., size(zaxis_data))
+      call register_axis(rhandle, "zfull", size(zaxis_data))
       call register_field(rhandle, "zfull", "double", (/"zfull"/))
       call register_variable_attribute(rhandle, "zfull", "long_name", "full level")
       call register_variable_attribute(rhandle, "zfull", "units", "m")
@@ -958,7 +995,7 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   endif
 
   if (present(soilCCohort_data)) then
-      call register_axis(rhandle, "soilCCohort", .false., size(soilCCohort_data))
+      call register_axis(rhandle, "soilCCohort", size(soilCCohort_data))
       call register_field(rhandle, "soilCCohort", "double", (/"soilCCohort"/))
       call register_variable_attribute(rhandle, "soilCCohort", "long_name", "Soil carbon cohort")
       call write_data(rhandle,"soilCCohort",soilCCohort_data)

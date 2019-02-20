@@ -12,7 +12,7 @@
 
 ! ============================================================================
 subroutine READ_REMAP_SUB(fileobj, name, fptr, map_i, map_j, cidx, compressed_data)
-  class(NetcdfFile_t), intent(in) :: fileobj
+  class(FmsNetcdfFile_t), intent(in) :: fileobj
   character(len=*), intent(in) :: name
   integer        , intent(in) :: map_i(lnd%ls:) ! re-mapping index
   integer        , intent(in) :: map_j(lnd%ls:) ! re-mapping index

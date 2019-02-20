@@ -10,7 +10,7 @@ use horiz_interp_mod,  only : horiz_interp_type, &
 use land_numerics_mod, only : nearest, bisect
 use land_data_mod, only : log_version, lnd, horiz_interp_ug
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
-                       get_variable_dimension_names, get_variable_size, &
+                       get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
                        is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists
 use legacy_mod, only: axis_edges
 
@@ -178,6 +178,7 @@ subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, fra
   character(len=nf90_max_name), dimension(:), allocatable :: dimnames
   character(len=nf90_max_name) :: buffer
 
+  integer :: ndims
   integer :: nlon, nlat, k
   integer, allocatable :: in_cover(:,:)
   real, allocatable    :: in_lonb(:), in_latb(:), x(:,:), r_in_cover(:,:)
@@ -188,13 +189,16 @@ subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, fra
   real :: min_in_latb, max_in_latb, y
 
   ! check the field dimenions and get size of the longitude and latitude axes
-  call get_variable_size(fileobj, name, dimlens)
-  call get_variable_dimension_names(fileobj, name, dimnames)
-  if (size(dimlens) .ne. 2) then
+  ndims = get_variable_num_dimensions(fileobj, name)
+  if (ndims .ne. 2) then
     call error_mesg('do_read_cover_field', &
                     'cover field "'//trim(name)//'" in file "'//trim(fileobj%path)// &
                     '" must be two-dimensional (lon,lat)', fatal)
   endif
+  allocate(dimlens(ndims))
+  allocate(dimnames(ndims))
+  call get_variable_size(fileobj, name, dimlens)
+  call get_variable_dimension_names(fileobj, name, dimnames)
   nlon = dimlens(1)
   nlat = dimlens(2)
   allocate(in_lonb(nlon+1), in_latb(nlat+1))
@@ -283,6 +287,7 @@ end subroutine do_read_cover_field
   character(len=nf90_max_name), dimension(:), allocatable :: dimnames
   character(len=nf90_max_name) :: buffer
 
+  integer :: ndims
   integer :: nlon, nlat, ntypes, k, cover
   real, allocatable :: in_frac(:,:,:)
   real, allocatable :: in_lonb(:), in_latb(:)
@@ -294,13 +299,16 @@ end subroutine do_read_cover_field
   real :: min_in_latb, max_in_latb, y
 
   ! check the field dimenions and get size of the longitude and latitude axes
-  call get_variable_size(fileobj, name, dimlens)
-  call get_variable_dimension_names(fileobj, name, dimnames)
-  if (size(dimlens) .ne. 3) then
+  ndims = get_variable_num_dimensions(fileobj, name)
+  if (ndims .ne. 3) then
     call error_mesg('do_read_cover_field', &
                     'cover field "'//trim(name)//'" in file "'//trim(fileobj%path)// &
                     '" must be two-dimensional (lon,lat,_)', fatal)
   endif
+  allocate(dimlens(ndims))
+  allocate(dimnames(ndims))
+  call get_variable_size(fileobj, name, dimlens)
+  call get_variable_dimension_names(fileobj, name, dimnames)
   nlon = dimlens(1)
   nlat = dimlens(2)
   ntypes = dimlens(3)
@@ -483,12 +491,13 @@ subroutine read_field_N_3D(fileobj, varname, data_ug, interp, fill)
   endif
 
   ! get the dimensions of our variable
-  call get_variable_size(fileobj, varname, dimlens)
-  varndims = size(dimlens)
+  varndims = get_variable_num_dimensions(fileobj, varname)
   if (varndims .lt. 2 .or. varndims .gt. 3) then
      call error_mesg('read_field','variable "'//trim(varname)//'" in file "'//trim(fileobj%path)// &
           '" is '//string(varndims)//'D, but only reading 2D or 3D variables is supported', FATAL)
   endif
+  allocate(dimlens(varndims))
+  call get_variable_size(fileobj, varname, dimlens)
   nlon = dimlens(1) ; nlat = dimlens(2)
   nlev = 1;
   if (varndims==3) nlev=dimlens(3)
@@ -504,6 +513,7 @@ subroutine read_field_N_3D(fileobj, varname, data_ug, interp, fill)
   ! read boundaries of the grid cells in longitudinal direction
   allocate (in_lon  (nlon),   in_lat  (nlat),  &
             in_lonb (nlon+1), in_latb (nlat+1) )
+  allocate(dimnames(varndims))
   call get_variable_dimension_names(fileobj, varname, dimnames)
   call read_data(fileobj, dimnames(1), in_lon)
   in_lon = in_lon*PI/180

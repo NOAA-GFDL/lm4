@@ -16,7 +16,7 @@ use tiling_input_types_mod, only : soil_predefined_type
 use land_debug_mod, only : is_watch_point
 
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
-                       open_file, read_data
+                       open_file, read_data, get_variable_num_dimensions
 
 implicit none
 private
@@ -551,6 +551,7 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   type(FmsNetcdfFile_t) :: fileobj
   logical :: exists
   integer, dimension(:), allocatable :: dimlens
+  integer :: ndims
 
   call log_version(version, module_name, &
   __FILE__)
@@ -632,6 +633,8 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
                        "file INPUT/geohydrology_table_2a2n.nc does not exist.", &
                        fatal)
      endif
+     ndims = get_variable_num_dimensions(fileobj, "log_rho_a0n1")
+     allocate(dimlens(ndims))
      call get_variable_size(fileobj, "log_rho_a0n1", dimlens)
      num_storage_pts = dimlens(1)
      num_tau_pts = dimlens(2)

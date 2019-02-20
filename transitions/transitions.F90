@@ -16,7 +16,7 @@ use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
                        get_valid, is_valid, variable_exists, get_variable_size, &
                        get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
-                       get_variable_dimension_names
+                       get_variable_dimension_names, get_variable_num_dimensions
 use legacy_mod, only: axis_edges
 
 
@@ -200,6 +200,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   logical :: exists
   character(len=nf90_max_name) :: name
   type(FmsNetcdfFile_t) :: fileobj_static
+  integer :: ndims
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
@@ -420,7 +421,8 @@ l1:do k1 = 1,size(input_tran,1)
   ! we assume that all transition rate fields are specified on the same grid,
   ! in both horizontal and time "directions". Therefore there is a single grid
   ! for all fields, initialized only once.
-
+  ndims = get_variable_num_dimensions(fileobj_tran, name)
+  allocate(dimlens(ndims))
   call get_variable_size(fileobj_tran, name, dimlens)
   nlon_in = dimlens(1); nlat_in=dimlens(2)
   deallocate(dimlens)
@@ -433,6 +435,7 @@ l1:do k1 = 1,size(input_tran,1)
 
   ! get the boundaries of the horizontal axes and initialize horizontal
   ! interpolator
+  allocate(dimnames(ndims))
   call get_variable_dimension_names(fileobj_tran, name, dimnames)
   call axis_edges(fileobj_tran, dimnames(1), lon_in(:,1))
   call axis_edges(fileobj_tran, dimnames(2), lat_in(1,:))
