@@ -15,7 +15,7 @@ use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
 use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
-use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
+use constants_mod,    only: tfreeze, rdgas, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 
 use vegn_tile_mod, only: vegn_tile_type, &
@@ -43,17 +43,15 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
-use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
-     LEAF_ON, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, N_HARV_POOLS, HARV_POOL_NAMES, &
-     HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     HARV_POOL_PAST, HARV_POOL_CROP, &
+use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
+     LEAF_ON, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     c2n_N_fixer,C2N_SEED, N_limits_live_biomass, &
+     c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY
 use vegn_cohort_mod, only : vegn_cohort_type, &

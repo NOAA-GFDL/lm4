@@ -15,10 +15,9 @@ use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, MPa_per_m
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use land_data_mod, only : log_version
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_VEGN, register_tile_selector
+use land_tile_selectors_mod, only : SEL_VEGN, register_tile_selector
 use table_printer_mod
 
 implicit none
@@ -69,9 +68,9 @@ integer, public, parameter :: & ! phenology type
  WARM_INTOLERANT = 1
 
 integer, public, parameter :: & ! allometry type
- ALLOM_EW     = 0, & ! Ensheng's original
- ALLOM_EW1    = 1, & ! Ensheng's "alternative"
- ALLOM_HML    = 2    ! Helena's allometry
+ ALLOM_EW     = 0, & ! Ensheng original
+ ALLOM_EW1    = 1, & ! Ensheng "alternative"
+ ALLOM_HML    = 2    ! Helena allometry
 
 integer, public, parameter :: & ! status of leaves
  LEAF_ON      = 0, &  ! leaves are displayed
@@ -116,7 +115,7 @@ integer, public, parameter :: & ! harvesting pools parameters
  HARV_POOL_WOOD_FAST = 4, &
  HARV_POOL_WOOD_MED  = 5, &
  HARV_POOL_WOOD_SLOW = 6
-character(len=9), public :: HARV_POOL_NAMES(N_HARV_POOLS)
+character(len=9), public, protected :: HARV_POOL_NAMES(N_HARV_POOLS)
 data HARV_POOL_NAMES &
  / 'past', 'crop', 'cleared', 'wood_fast', 'wood_med', 'wood_slow' /
 
@@ -126,14 +125,14 @@ real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calcula
 real, public, parameter :: C2N_SEED = 50 ! seed C:N ratio
 
 integer, public, parameter :: & ! NSC target calculation options
-  NSC_TARGET_FROM_BLMAX        = 1, &  ! from max biomass of leaves, like in Ensheng's paper
+  NSC_TARGET_FROM_BLMAX        = 1, &  ! from max biomass of leaves, like in Ensheng paper
   NSC_TARGET_FROM_CANOPY_BLMAX = 2, &  ! from max biomass of leaves of canopy trees
        ! This is to make sure that NSC target does not jumps suddenly when trees go in and
        ! out of canppy layer
   NSC_TARGET_FROM_BSW          = 3     ! form sapwood biomass
 
 ! ---- public data
-integer, public :: nspecies ! total number of species
+integer, public, protected :: nspecies ! total number of species
 public :: &
     vegn_to_use,  input_cover_types, &
     mcv_min, mcv_lai, use_bucket, vegn_index_constant, &
@@ -142,7 +141,7 @@ public :: &
     min_cosz, &
     agf_bs, K1,K2, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
-    GR_factor, tg_c3_thresh, T_cold_tropical, tg_c4_thresh, &
+    GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
@@ -162,8 +161,8 @@ public :: &
     excess_stored_N_leakage_rate, min_N_stress, &
     et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
 
-logical, public :: do_ppa = .FALSE.
-logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
+logical, public, protected :: do_ppa = .FALSE.
+logical, public, protected :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
 integer, protected :: nsc_target_option = -1
 integer, protected :: snow_masking_option = -1
@@ -254,7 +253,7 @@ type spec_data_type
   real    :: gdd_crit  = 360.0
   real    :: gdd_base_T =  273.16 ! base temperature for GDD calculations, degK
   ! critical soil-water-stress index, used in place of fact_crit_phen and
-  ! cnst_crit_phen. It is used if and only if it's value is greater than 0
+  ! cnst_crit_phen. It is used if and only if its value is greater than 0
   real    :: psi_stress_crit_phen = 0.0
   real    :: fact_crit_phen = 0.0, cnst_crit_phen = 0.15 ! wilting factor and offset to
     ! get critical value for leaf drop -- only one is non-zero at any time
@@ -431,58 +430,58 @@ type spec_data_type
 end type
 
 ! ---- species parameters ----------------------------------------------------
-type(spec_data_type), allocatable :: spdata(:)
+type(spec_data_type), allocatable, protected :: spdata(:)
 
 ! ---- namelist --------------------------------------------------------------
-logical :: use_bucket = .false.
-real    :: mcv_min = 5.   * 4218.
-real    :: mcv_lai = 0.15 * 4218.
+logical, protected :: use_bucket = .false.
+real,    protected :: mcv_min = 5.   * 4218.
+real,    protected :: mcv_lai = 0.15 * 4218.
 
 ! ---- remainder are used only for cold start
-character(len=16):: vegn_to_use     = 'single-tile'
+character(len=16), protected :: vegn_to_use     = 'single-tile'
        ! 'multi-tile' for tiled vegetation
        ! 'single-tile' for geographically varying vegetation with single type per
        !     model grid cell
        ! 'uniform' for global constant vegetation, e.g., to reproduce MCM
-integer :: vegn_index_constant   = 1         ! index of global constant vegn,
-                                             ! used when vegn_to_use is 'uniform'
-real    :: critical_root_density = 0.125
+integer, protected :: vegn_index_constant   = 1 ! index of global constant vegn,
+                                                ! used when vegn_to_use is 'uniform'
+real, protected :: critical_root_density = 0.125
 
-integer, dimension(1:MSPECIES) :: &
+integer, dimension(1:MSPECIES), protected :: &
  input_cover_types=(/          -1,   -1,   -1,   -1, &
                           1,    2,    3,    4,    5,    6,    7,    8,    9/)
 
-real :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
+real, protected :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
    ! properties calculations.
-   ! It probably doesn't make sense to set it any less than the default value, because the angular
+   ! It probably does not make sense to set it any less than the default value, because the angular
    ! diameter of the sun is about 0.01 radian (0.5 degree), so the spread of the direct radiation
    ! zenith angles is about this. Besides, the sub-grid variations of land surface slope are
    ! probably even larger that that.
-real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
-real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
-real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
-real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
-real :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
-real :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
-real :: GR_factor = 0.33 ! growth respiration factor
+real, protected :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
+real, protected :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
+real, protected :: agf_bs       = 0.8   ! ratio of above ground stem to total stem
+real, protected :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
+real, protected :: tau_drip_l = 21600.0 ! canopy water residence time, for drip calculations
+real, protected :: tau_drip_s = 86400.0 ! canopy snow residence time, for drip calculations
+real, protected :: GR_factor = 0.33     ! growth respiration factor
 
-real :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
-real :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
-real :: T_cold_tropical = 278.16 ! Minimum T_cold that makes vegetation tropical (not deciduous)
-real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
+real, protected :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
+real, protected :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
+real, protected :: T_cold_tropical = 278.16 ! Minimum T_cold that makes vegetation tropical (not deciduous)
+real, protected :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! fast soil carbon is entirely converted to the fast soil carbon
-real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
+real, protected :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! slow soil carbon is entirely converted to the slow soil carbon
-real :: harvest_spending_time(N_HARV_POOLS) = &
+real, protected :: harvest_spending_time(N_HARV_POOLS) = &
      (/1.0, 1.0, 1.0, 1.0, 10.0, 100.0/)
      ! time (yrs) during which intermediate pool of harvested carbon is completely
      ! released to the atmosphere.
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
-real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enabled
+real, protected :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enabled
                            ! 0 means no limit, lm3v value is 268.0
-! Ensheng's growth parameters:
-real :: b0_growth   = 0.02   ! min biomass for growth formula, kgC/indiv
-real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, year
+! Ensheng`s growth parameters:
+real, protected :: b0_growth   = 0.02   ! min biomass for growth formula, kgC/indiv
+real, protected :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, year
 
 logical, protected :: sai_cover = .FALSE. ! if true, SAI is taken into account in vegetation
     ! cover calculations
@@ -500,14 +499,14 @@ real, protected :: min_cohort_nindivs = 1e-12 ! minimum allowed cohort density, 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
 ! ORDER.
-real  :: scnd_biomass_bins(10) &
+real, protected :: scnd_biomass_bins(10) &
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
 
 character(32) :: phen_theta_to_use = 'relative-to-field-capacity' ! or 'relative-to-porosity'
-real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/deciduous
+real, protected :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/deciduous
       ! differentiation (see phenology_type in cohort.F90)
 
-real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
+real, protected :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
                        ! the same value is used for liquid and snow
 
 ! tree line parameters from Paulsen and Korner (2014) A climate-based model to predict
@@ -531,26 +530,26 @@ real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allo
 character(24)   :: NSC_target_to_use = 'from-blmax' ! or 'from-bsw'
 logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are merged when cohorts are merged
 
-real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
-real :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
-real :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
-real :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
-real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
-real :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
-logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
-real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
-real :: min_N_stress = 0.05            ! Minimum value for N stress
-real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
+real, protected :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
+real, protected :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
+real, protected :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
+real, protected :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
+real, protected :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
+real, protected :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
+logical, protected :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
+real, protected :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
+real, protected :: min_N_stress = 0.05            ! Minimum value for N stress
+real, protected :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
 logical :: calc_SLA_from_lifespan = .TRUE. ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
 
-logical :: smooth_N_uptake_C_allocation = .FALSE.
-logical :: N_fix_Tdep_Houlton = .FALSE.
+logical, protected :: smooth_N_uptake_C_allocation = .FALSE.
+logical, protected :: N_fix_Tdep_Houlton = .FALSE.
 
-real :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which permafrost does not
+real, protected :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which permafrost does not
            ! preclude root existence. Default value reverts to old treatment (roots exist
            ! everywhere)
-real :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
+real, protected :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
            ! considered permafrost for the root vertical profile calculations
 
 

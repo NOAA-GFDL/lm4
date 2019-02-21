@@ -216,7 +216,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 ! returns biomass of an individual of given cohort, kgC
-real function plant_C(cc)
+pure elemental real function plant_C(cc)
   type(vegn_cohort_type), intent(in) :: cc
   plant_C = &
           cc%bl  + cc%blv + &
@@ -232,7 +232,7 @@ end function plant_C
 
 ! ============================================================================
 ! returns nitrogen of an individual of given cohort, kgN
-real function plant_N(cc)
+pure elemental real function plant_N(cc)
   type(vegn_cohort_type), intent(in) :: cc
   plant_N = &
          cc%root_N + cc%sapwood_N + &

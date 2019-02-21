@@ -30,7 +30,8 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
      nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, landuse_name, landuse_longname
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
+     landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
@@ -78,9 +79,10 @@ integer, parameter :: &
      DISTR_LM3 = 0, &
      DISTR_MIN = 1
 ! order of transitions (resulting land use types, hight to low priority) for the
-! min-n-tiles transition distribution option
-! integer, parameter :: tran_order(4) = (/LU_URBAN, LU_CROP, LU_PAST, LU_SCND/)
-integer, parameter :: tran_order(3) = (/LU_CROP, LU_PAST, LU_SCND/)
+! min-n-tiles transition distribution option. ALL land use types MUST be present in this
+! array, otherwise some transitions may be missed -- except perhaps LU_NTRL, since we
+! assume there are no transitions to LU_NTRL
+integer, parameter :: tran_order(N_LU_TYPES) = (/LU_URBN, LU_CROP, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
 
 ! TODO: describe differences between data sets
 
@@ -146,7 +148,7 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
 ! variables for LUMIP diagnostics
 integer, parameter :: N_LUMIP_TYPES = 4, &
    LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
-character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst','crop','urbn']
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst ','crop','urbn']
 integer :: &
    id_frac_in (N_LUMIP_TYPES) = -1, &
    id_frac_out(N_LUMIP_TYPES) = -1
@@ -854,7 +856,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      ! the transitions. The arrays are of equal size. For each initial and final
      ! LU types src and dst, there is only one element src->dst in these arrays.
      !
-     ! We go in order (U,C,P,S) through the final LU types, and apply all transitions
+     ! We go in order (U,C,P,R,S) through the final LU types, and apply all transitions
      ! that convert land to this type. Since initial type for each of these transitions
      ! are different, there should not be dependence on the order of operations.
      !
