@@ -1445,7 +1445,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
   if (soil_carbon_option==SOILC_CORPSE) then
-     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),.true.)
+     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/), .false.)
   endif
 
   ! write out fields
