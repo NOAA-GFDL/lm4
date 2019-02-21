@@ -149,6 +149,7 @@ integer :: &
 ! translation table: model land use types -> LUMIP types: for each of the model
 ! LU types it lists the corresponding LUMIP type.
 integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB] 
+logical :: close_state_file = .false.
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -378,6 +379,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         exists = open_file(fileobj_state, state_file, "read")
         if (.not. exists) call error_mesg('land_transitions_init', 'landuse state file "'// &
              trim(state_file)//'" could not be opened.', FATAL)
+        close_state_file = .true.
         call get_time_axis(fileobj_state, state_time_in)
         ! initialize state variable array
         do n2 = 1,size(luh2type)
@@ -532,7 +534,9 @@ subroutine land_transitions_end()
   if (do_landuse_change) call horiz_interp_del(interp)
   if(allocated(time_in)) deallocate(time_in)
   call close_file(fileobj_tran)
-  call close_file(fileobj_state)
+  if (close_state_file) then
+    call close_file(fileobj_state)
+  endif
 
 end subroutine land_transitions_end
 
