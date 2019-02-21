@@ -176,8 +176,6 @@ subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, fra
   ! ---- local vars
   integer, dimension(:), allocatable :: dimlens
   character(len=nf90_max_name), dimension(:), allocatable :: dimnames
-  character(len=nf90_max_name) :: buffer
-
   integer :: ndims
   integer :: nlon, nlat, k
   integer, allocatable :: in_cover(:,:)
@@ -285,8 +283,6 @@ end subroutine do_read_cover_field
   ! ---- local vars
   integer, dimension(:), allocatable :: dimlens
   character(len=nf90_max_name), dimension(:), allocatable :: dimnames
-  character(len=nf90_max_name) :: buffer
-
   integer :: ndims
   integer :: nlon, nlat, ntypes, k, cover
   real, allocatable :: in_frac(:,:,:)
@@ -313,15 +309,9 @@ end subroutine do_read_cover_field
   nlat = dimlens(2)
   ntypes = dimlens(3)
   allocate(in_lonb(nlon+1), in_latb(nlat+1))
-
-  buffer = ""
-  call get_variable_attribute(fileobj, dimnames(1), "edges", buffer)
-  call read_data(fileobj, buffer, in_lonb)
+  call axis_edges(fileobj, dimnames(1), in_lonb)
   in_lonb = in_lonb*PI/180
-
-  buffer = ""
-  call get_variable_attribute(fileobj, dimnames(2), "edges", buffer)
-  call read_data(fileobj, buffer, in_latb)
+  call axis_edges(fileobj, dimnames(2), in_latb)
   in_latb = in_latb*PI/180
   deallocate(dimlens)
   deallocate(dimnames)
