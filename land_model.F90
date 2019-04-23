@@ -135,7 +135,7 @@ public atm_lnd_bnd_type_chksum  ! routine to print checksums for atmos_land_boun
 public :: Lnd_stock_pe          ! return stocks of conservative quantities
 
 ! re-export land diagnostic subroutines for tiled diag in flux exchange
-public set_default_diag_filter, register_tiled_diag_field, send_tile_data
+public set_default_diag_filter, register_tiled_diag_field, send_tile_data, dump_tile_diag_fields
 public send_global_land_diag
 ! ==== end of public interfaces ==============================================
 
@@ -1278,7 +1278,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map,lnd%time)
+  call dump_tile_diag_fields(lnd%time)
 
   ! send CMOR cell fraction fields
   call send_cellfrac_data(id_vegFrac,      is_vegn)
@@ -2253,7 +2253,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call land_transitions( lnd%time )
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%time)
 
   ! land_transitions may have changed the number of tiles per grid cell: reallocate
   ! boundary conditions, if necessary
