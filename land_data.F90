@@ -397,8 +397,16 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   ug_io_layout = mpp_get_io_domain_UG_layout(lnd%ug_domain)
   lnd%append_io_id = (ug_io_layout>1)
 
-  ! get the domain information for unstructure domain
-  call mpp_get_UG_compute_domain(lnd%ug_domain, lnd%ls,lnd%le)
+  ! get the domain information for unstructured domain.
+  ! NOTE that lnd%ls is always set to 1. This a work around (apparent) compiler issue,
+  ! when with multiple openmp threads *and* debug flags Intel compilers (15 and 16) report
+  ! index errors, as if global land_tile_map array started from 1 instead of lnd%ls
+  !
+  ! This problem does not occur with other compilation flags (e.g. prod, or prod-openmp are
+  ! both fine). Nevertheless, to address this issue we now start all our lnd%ls:lnd%le
+  ! arrays at index 1.
+  lnd%ls = 1
+  call mpp_get_UG_compute_domain(lnd%ug_domain, size=lnd%le)
 
   !--- get the i,j index of each unstructure grid.
   allocate(grid_index(lnd%ls:lnd%le))
