@@ -1,14 +1,9 @@
 module land_debug_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 use mpp_mod, only: mpp_max
 use constants_mod, only: PI
-use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, lowercase, &
-     close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
+use fms_mod, only: error_mesg, check_nml_error, stdlog, lowercase, &
+     input_nml_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: get_grid_ntiles
@@ -127,31 +122,10 @@ subroutine land_debug_init()
   call log_version(version, module_name, &
   __FILE__)
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)
   ierr = check_nml_error(io, 'land_debug_nml')
   read (input_nml_file, nml=land_conservation_nml, iostat=io)
   ierr = check_nml_error(io, 'land_conservation_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=land_debug_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'land_debug_nml')
-     enddo
-10   continue
-     call close_file (unit)
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=land_conservation_nml, iostat=io, end=11)
-        ierr = check_nml_error (io, 'land_conservation_nml')
-     enddo
-11   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=land_debug_nml)

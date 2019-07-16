@@ -5,14 +5,11 @@ module soil_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
+
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
 use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+     stdlog, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
@@ -86,6 +83,9 @@ use river_mod, only : river_tracer_index
 
 ! Test tridiagonal solution for advection
 use land_numerics_mod, only : tridiag
+
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
+
 implicit none
 private
 
@@ -308,21 +308,10 @@ subroutine read_soil_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=soil_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=soil_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'soil_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_nml)
@@ -372,7 +361,9 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
-  character(*), parameter :: restart_file_name = 'INPUT/soil.res.nc'
+  character(*), parameter :: restart_file_name = 'INPUT/soil.nc'
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -402,16 +393,27 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      select case (gw_option)
      case (GW_LINEAR,GW_LM2)
         allocate(gw_param(lnd%ls:lnd%le))
-        call read_field( 'INPUT/groundwater_residence.nc','tau', gw_param, interp='bilinear' )
+        exists = open_file(fileobj, "INPUT/groundwater_residence.nc", "read")
+        if (.not. exists) then
+          call error_mesg("soil_init", "INPUT/groundwater_residence.nc does not exist", &
+                          fatal)
+        endif
+        call read_field( fileobj, 'tau', gw_param, interp='bilinear' )
+        call close_file(fileobj)
         call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_tau_groundwater_ptr )
         deallocate(gw_param)
      case (GW_HILL, GW_HILL_AR5)
         allocate(gw_param (lnd%ls:lnd%le))
         allocate(gw_param2(lnd%ls:lnd%le))
         allocate(gw_param3(lnd%ls:lnd%le))
-        call read_field( 'INPUT/geohydrology.nc','hillslope_length', gw_param, interp='bilinear' )
+        exists = open_file(fileobj, "INPUT/geohydrology.nc", "read")
+        if (.not. exists) then
+          call error_mesg("soil_init", "INPUT/geohydrology.nc does not exist", &
+                          fatal)
+        endif
+        call read_field( fileobj, 'hillslope_length', gw_param, interp='bilinear' )
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-        call read_field( 'INPUT/geohydrology.nc','slope', gw_param2, interp='bilinear' )
+        call read_field( fileobj, 'slope', gw_param2, interp='bilinear' )
         gw_param = gw_param*gw_param2
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
 
@@ -420,20 +422,20 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             gw_param = 1.
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_n_ptr )
-!            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
+!            call read_field( fileobj, 'hillslope_zeta_bar', &
 !              lnd%sg_lon, lnd%sg_lat, gw_param, interp='bilinear' )
             gw_param = 0.5
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
         else
-            call read_field( 'INPUT/geohydrology.nc','hillslope_a', gw_param, interp='bilinear' )
+            call read_field( fileobj, 'hillslope_a', gw_param, interp='bilinear' )
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
-            call read_field( 'INPUT/geohydrology.nc','hillslope_n', gw_param2, interp='bilinear' )
+            call read_field( fileobj, 'hillslope_n', gw_param2, interp='bilinear' )            
             call put_to_tiles_r0d_fptr( gw_param2, land_tile_map, soil_hillslope_n_ptr )
             gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
             call put_to_tiles_r0d_fptr( gw_param3, land_tile_map, soil_hillslope_zeta_bar_ptr )
         endif
 
-        call read_field( 'INPUT/geohydrology.nc','soil_e_depth', gw_param, interp='bilinear' )
+        call read_field( fileobj, 'soil_e_depth', gw_param, interp='bilinear' )
         if (slope_exp.gt.0.01) then
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
                                                   land_tile_map, soil_soil_e_depth_ptr )
@@ -441,7 +443,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
         endif
         if (gw_option /= GW_HILL_AR5) then
-            call read_field( 'INPUT/geohydrology.nc','perm', gw_param, interp='bilinear' )
+            call read_field( fileobj, 'perm', gw_param, interp='bilinear' )
             call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                             soil_k_sat_gw_ptr )
         endif
@@ -456,18 +458,24 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
                 call soil_data_init_derive_subsurf_pars_ar5(tile%soil)
             end select
         enddo
+        call close_file(fileobj)
      case (GW_TILED)
         if (use_geohydrodata) then
+           exists = open_file(fileobj, "INPUT/geohydrology.nc", "read")
+           if (.not. exists) then
+             call error_mesg("soil_init", "INPUT/geohydrology.nc does not exist", &
+                             fatal)
+           endif
            allocate(gw_param (lnd%ls:lnd%le), gw_param2(lnd%ls:lnd%le))
-           call read_field( 'INPUT/geohydrology.nc','hillslope_length', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'hillslope_length', gw_param, interp='bilinear' )
            call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-           call read_field( 'INPUT/geohydrology.nc','slope', gw_param2, interp='bilinear' )
+           call read_field( fileobj, 'slope', gw_param2, interp='bilinear' )
            gw_param = gw_param*gw_param2
            call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
-           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'hillslope_zeta_bar', gw_param, interp='bilinear' )
            if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
-           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'soil_e_depth', gw_param, interp='bilinear' )
 
            if (slope_exp.gt.0.01) then
            ! ZMS It is probably inconsistent to leave in this if statement.
@@ -478,10 +486,11 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            else
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
            endif
-           call read_field( 'INPUT/geohydrology.nc','perm', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'perm', gw_param, interp='bilinear' )
            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                           soil_k_sat_gw_ptr )
            deallocate(gw_param, gw_param2)
+           call close_file(fileobj)
         end if
         ce = first_elmt(land_tile_map)
         do while(loop_over_tiles(ce,tile))
@@ -504,8 +513,14 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
      allocate(albedo(lnd%ls:lnd%le,NBANDS))
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
+     exists = open_file(fileobj, "INPUT/soil_albedo.nc", "read")
+     if (.not. exists) then
+       call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", &
+                       fatal)
+     endif
+     call read_field( fileobj, 'SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
+     call close_file(fileobj)
      call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
@@ -519,12 +534,18 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      allocate(   f_vol(lnd%ls:lnd%le,NBANDS))
      allocate(   f_geo(lnd%ls:lnd%le,NBANDS))
      allocate(refl_dif(lnd%ls:lnd%le,NBANDS))
-     call read_field( 'INPUT/soil_brdf.nc','f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_geo_vis', f_geo(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_iso_nir', f_iso(:,BAND_NIR),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_vol_nir', f_vol(:,BAND_NIR),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_geo_nir', f_geo(:,BAND_NIR),'bilinear')
+     exists = open_file(fileobj, "INPUT/soil_brdf.nc", "read")
+     if (.not. exists) then
+       call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", &
+                       fatal)
+     endif
+     call read_field( fileobj, 'f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'f_geo_vis', f_geo(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'f_iso_nir', f_iso(:,BAND_NIR),'bilinear')
+     call read_field( fileobj, 'f_vol_nir', f_vol(:,BAND_NIR),'bilinear')
+     call read_field( fileobj, 'f_geo_nir', f_geo(:,BAND_NIR),'bilinear')
+     call close_file(fileobj)
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
      call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_dry_ptr )
      call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_dry_ptr )
@@ -553,8 +574,14 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
   if (use_coldstart_wtt_data) then
      allocate(ref_soil_t(lnd%ls:lnd%le), wetmask(lnd%ls:lnd%le))
-     call read_field( coldstart_datafile, 'REFSOILT', ref_soil_t, interp='bilinear' )
-     call read_field( coldstart_datafile, 'WETMASK', wetmask, interp='bilinear' )
+     exists = open_file(fileobj, coldstart_datafile, "read")
+     if (.not. exists) then
+       call error_mesg("soil_init", trim(coldstart_datafile)//" does not exist.", &
+                       fatal)
+     endif
+     call read_field( fileobj, 'REFSOILT', ref_soil_t, interp='bilinear' )
+     call read_field( fileobj, 'WETMASK', wetmask, interp='bilinear' )
+     call close_file(fileobj)
   end if
 
   ! -------- initialize soil state --------
@@ -1477,12 +1504,12 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'soil.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'soil.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
   if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
-     call add_restart_axis(restart,'litterCCohort',(/1.0/),'CC')
+     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/), .false.)
+     call add_restart_axis(restart,'litterCCohort',(/1.0/),.false.)
   endif
 
   ! write out fields
@@ -1572,9 +1599,9 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 
   if (write_soil_carbon_restart) then
-     filename = trim(timestamp)//'soil_carbon.res.nc'
+     filename = 'RESTART/'//trim(timestamp)//'soil_carbon.nc'
      call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-     call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
      select case (soil_carbon_option)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)

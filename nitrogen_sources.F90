@@ -2,13 +2,20 @@ module nitrogen_sources_mod
 
 #include "shared/debug.inc"
 
+use netcdf, only: nf90_max_name
 use constants_mod, only : PI
 use time_manager_mod, only : time_type, get_date, operator(/=), operator(-), &
      operator(<), valid_calendar_types, get_calendar_type, time_type_to_real
+use mpp_mod, only: input_nml_file
 use fms_mod, only : &
      file_exist, open_namelist_file, &
-     check_nml_error, close_file, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
+     check_nml_error, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
      FATAL, NOTE, string
+use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
+                       get_valid, is_valid, variable_exists, get_variable_size, &
+                       get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
+                       get_variable_dimension_names, get_variable_num_dimensions
+use legacy_mod, only: axis_edges
 use mpp_domains_mod, only : mpp_pass_SG_to_UG
 use time_interp_external_mod, only : init_external_field, time_interp_external, &
      time_interp_external_init
@@ -17,13 +24,9 @@ use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
 use time_interp_mod, only : time_interp
 use get_cal_time_mod, only : get_cal_time
 
-use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec, &
-     nfu_get_dim, nfu_get_valid_range, nfu_is_valid
-
 use land_constants_mod, only : seconds_per_year
 use land_data_mod, only: land_state_type, lnd, log_version
 use land_io_mod, only : read_field
-use land_tile_io_mod, only : print_netcdf_error
 use land_tile_diag_mod, only : cmor_name, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, set_default_diag_filter, &
      add_tiled_diag_field_alias
@@ -136,7 +139,8 @@ integer :: &
    id_ndep_org_in = -1    ! id of external field for time interpolation
 
 type :: fert_data_type ! type describing input fertilization data
-   integer :: ncid = -1  ! netcdf ID of the input data file
+	type(FmsNetcdfFile_t) :: fileobj
+   logical :: exists
    integer :: nlon_in = -1, nlat_in = -1 ! input grid size
    type(time_type), pointer :: time_in(:) => NULL() ! input time axis
    real, pointer :: lonb_in(:,:) => NULL() ! input longitude boundaries
@@ -146,8 +150,8 @@ type :: fert_data_type ! type describing input fertilization data
    real, pointer :: nfert(:) => NULL() ! amount of fertilizer
    real, pointer :: tfert(:) => NULL() ! time of application
    real, pointer :: mask (:) => NULL() ! mask of valid data
-   type(nfu_validtype) :: nfert_v ! valid range for amount of fertilizer
-   type(nfu_validtype) :: tfert_v ! valid range for time of fertilizer
+   type(Valid_t) :: nfert_v ! valid range for amount of fertilizer
+   type(Valid_t) :: tfert_v ! valid range for time of fertilizer
 end type
 
 type(fert_data_type) :: &
@@ -176,23 +180,18 @@ subroutine nitrogen_sources_init(time, id_ug)
   ! ---- local vars
   integer :: unit, ierr, io
   integer :: axes(1) ! IDs of diagnostic axes
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   call log_version(version, module_name, &
   __FILE__)
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=nitrogen_deposition_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'nitrogen_deposition_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
+
+  read (input_nml_file, nml=nitrogen_deposition_nml, iostat=io)
+  ierr = check_nml_error (io, 'nitrogen_deposition_nml')
+
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=nitrogen_deposition_nml)
-     call close_file (unit)
   endif
 
   if (trim(n_deposition_type)=='interpolate-two-maps') then
@@ -240,8 +239,23 @@ subroutine nitrogen_sources_init(time, id_ug)
                  ndep_ant(lnd%ls:lnd%le)  )
 !                  print *,'lon',lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je)
 !                  print *,'lat',lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je)
-       call read_field( 'INPUT/nbiodata_nat.nc','ndep', ndep_nat, interp='nearest')
-       call read_field( 'INPUT/nbiodata_ant.nc','ndep', ndep_ant, interp='nearest')
+
+	    exists = open_file(fileobj, 'INPUT/nbiodata_nat.nc', "read")
+  		 if (.not. exists) then
+    		call error_mesg(" nitrogen_sources_init", "INPUT/nbiodata_nat.nc does not exist.", fatal)
+  		 endif
+
+	    call read_field( fileobj,'ndep', ndep_nat, interp='nearest')
+  	    call close_file(fileobj)
+
+	    exists = open_file(fileobj, 'INPUT/nbiodata_ant.nc', "read")
+  		 if (.not. exists) then
+    		call error_mesg(" nitrogen_sources_init", "INPUT/nbiodata_ant.nc does not exist.", fatal)
+  		 endif
+
+	    call read_field( fileobj,'ndep', ndep_ant, interp='nearest')
+  	    call close_file(fileobj)
+
      case (NDEP_TIMESERIES)
        ! initialize external fields
        call time_interp_external_init()
@@ -562,11 +576,12 @@ subroutine fert_data_init(filename, fert)
   type(fert_data_type), intent(inout) :: fert
 
   ! ---- local vars
-  integer :: dimids(NF_MAX_VAR_DIMS) ! IDs of dimensions
-  integer :: dimlens(NF_MAX_VAR_DIMS) ! sizes of dimensions
+  integer, dimension(:), allocatable :: dimlens
+  character(len=nf90_max_name), dimension(:), allocatable :: dimnames
+  integer :: ndims
   integer :: timedim ! id of the record (time) dimension
   integer :: timevar ! id of the time variable
-  character(len=NF_MAX_NAME) :: timename  ! name of the time variable
+  character(len=nf90_max_name) :: timename 
   character(len=256)         :: timeunits ! units of time in the file
   character(len=24) :: calendar ! model calendar
   real, allocatable :: time(:)  ! time line from fertilization file
@@ -576,25 +591,30 @@ subroutine fert_data_init(filename, fert)
 
   if (trim(filename)=='') return ! do nothing if the file name is empty string
 
-  ierr=nf_open(filename,NF_NOWRITE,fert%ncid)
+  fert%exists = open_file(fert%fileobj, filename, "read")
 
-  if(ierr/=NF_NOERR) call error_mesg('nitrogen_sources_init', &
+  if (.not. fert%exists) call error_mesg('nitrogen_sources_init', &
        'do_fertilization is requested, but fertilization "'// &
-       trim(filename)//'" could not be opened because '//nf_strerror(ierr), &
-       FATAL)
-
-  __NF_ASRT__(nfu_inq_var(fert%ncid,'nfert',dimids=dimids,dimlens=dimlens,nrec=nrec))
+       trim(filename)//'" could not be opened.', FATAL)
+ 
+  ndims = get_variable_num_dimensions(fert%fileobj, 'nfert')
+  allocate(dimlens(ndims))
+  call get_variable_size(fert%fileobj, 'nfert', dimlens)
+  call get_dimension_size(fert%fileobj, timename, nrec)
   allocate(time(nrec), fert%time_in(nrec))
 
   ! read fertilization time line
   ! get the time axis
-  __NF_ASRT__(nf_inq_unlimdim(fert%ncid, timedim))
-  __NF_ASRT__(nfu_get_dim(fert%ncid, timedim, time))
+
+  call get_unlimited_dimension_name(fert%fileobj, timename)
+
+  call read_data(fert%fileobj, timename, time)
+
   ! get units of time
-  __NF_ASRT__(nf_inq_dimname(fert%ncid, timedim, timename))
-  __NF_ASRT__(nf_inq_varid(fert%ncid,timename, timevar))
+
   timeunits = ' '
-  __NF_ASRT__(nf_get_att_text(fert%ncid,timevar,'units',timeunits))
+  call get_variable_attribute(fert%fileobj, timename, "units", timeunits)
+
   ! get model calendar
   calendar=valid_calendar_types(get_calendar_type())
 
@@ -606,8 +626,12 @@ subroutine fert_data_init(filename, fert)
   ! get the boundaries of the horizontal axes
   allocate(fert%lonb_in(dimlens(1)+1,1), &
            fert%latb_in(1,dimlens(2)+1)  )
-  __NF_ASRT__(nfu_get_dim_bounds(fert%ncid, dimids(1), fert%lonb_in(:,1)))
-  __NF_ASRT__(nfu_get_dim_bounds(fert%ncid, dimids(2), fert%latb_in(1,:)))
+
+  call get_variable_dimension_names(fert%fileobj, 'nfert', dimnames)
+  call axis_edges(fert%fileobj, dimnames(1), fert%lonb_in(:,1))
+  call axis_edges(fert%fileobj, dimnames(2), fert%latb_in(1,:))
+  deallocate(dimnames)
+
   ! convert them to radian
   fert%lonb_in = fert%lonb_in*PI/180.0
   fert%latb_in = fert%latb_in*PI/180.0
@@ -615,8 +639,8 @@ subroutine fert_data_init(filename, fert)
   fert%nlon_in = dimlens(1)
   fert%nlat_in = dimlens(2)
   ! set up the valid ranges
-  __NF_ASRT__(nfu_get_valid_range(fert%ncid,'nfert',fert%nfert_v))
-  ierr = nfu_get_valid_range(fert%ncid,'tfert',fert%tfert_v) ! ignore errors here
+
+  fert%nfert_v = get_valid(fert%fileobj, 'nfert')
 
   ! allocate buffers for data
   allocate(fert%nfert(lnd%ls:lnd%le))
@@ -628,6 +652,7 @@ subroutine fert_data_init(filename, fert)
 
   ! deallocate temporary variables
   deallocate(time)
+  call close_file(fert%fileobj)
 
 end subroutine
 
@@ -637,8 +662,6 @@ end subroutine
 subroutine fert_data_end(fert)
   type(fert_data_type), intent(inout) :: fert
 
-  integer :: ierr ! error code
-
   __DEALLOC__(fert%time_in)
   __DEALLOC__(fert%lonb_in)
   __DEALLOC__(fert%latb_in)
@@ -647,8 +670,6 @@ subroutine fert_data_end(fert)
   __DEALLOC__(fert%mask)
   fert%curr_rec=-1
 
-  ierr = nf_close(fert%ncid) ! ignore errors here
-  fert%ncid = -1
 end subroutine
 #undef __DEALLOC__
 
@@ -676,7 +697,7 @@ subroutine fert_data_get(fert, t0,t1,fert_rate)
 
   ! do nothing further if the input was not initialized (or initialized with
   ! empty filename)
-  if (fert%ncid<0) return
+  if (.not. fert%exists) return
 
   ! do nothing if we are before the start of the data: assume there is no
   ! fertilization
@@ -694,22 +715,20 @@ subroutine fert_data_get(fert, t0,t1,fert_rate)
      ! for every record
 
      ! read fertilization time
-     ierr = nfu_get_rec(fert%ncid,"tfert",i1,tfert_in)
-     if(ierr==NF_NOERR) then
-        where (nfu_is_valid(tfert_in,fert%tfert_v))
+	  call read_data(fert%fileobj, "tfert", tfert_in, unlim_dim_level=i1)
+
+
+        where (is_valid(tfert_in,fert%tfert_v))
           mask_in = 1
         elsewhere
           mask_in = 0
         end where
-     else
-        tfert_in = 0
-        mask_in  = 1
-     endif
 
      ! read fertilization amount
-     __NF_ASRT__(nfu_get_rec(fert%ncid,"nfert",i1,nfert_in))
+	  call read_data(fert%fileobj, "nfert", nfert_in, unlim_dim_level=i1)
+
      ! mask is 1 only where both tfert and nfert are valid
-     where (.not.nfu_is_valid(nfert_in,fert%nfert_v)) &
+     where (.not. is_valid(nfert_in,fert%nfert_v)) &
            mask_in = mask_in*0
 
      ! construct interpolator
