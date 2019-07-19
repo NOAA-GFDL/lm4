@@ -606,11 +606,11 @@ subroutine land_model_restart(timestamp)
 
   ! [4] write data fields
   ! write fractions and tile tags
-  call add_tile_data(restart,'frac',land_frac_ptr,'fractional area of tile')
-  call add_int_tile_data(restart,'glac',glac_tag_ptr,'tag of glacier tiles')
-  call add_int_tile_data(restart,'lake',lake_tag_ptr,'tag of lake tiles')
-  call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles')
-  call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
+  call add_tile_data(restart,'frac',land_frac_ptr,'fractional area of tile', units="none")
+  call add_int_tile_data(restart,'glac',glac_tag_ptr,'tag of glacier tiles', units="none")
+  call add_int_tile_data(restart,'lake',lake_tag_ptr,'tag of lake tiles', units="none")
+  call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles', units="none")
+  call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles', units="none")
   ! write the upward long-wave flux
   call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
   ! write energy residuals
