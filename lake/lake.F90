@@ -466,7 +466,7 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = 'RESTART/'//trim(timestamp)//'lake.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level')
 
   ! write out fields
   call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
@@ -1031,7 +1031,7 @@ subroutine lake_diag_init(id_ug)
 
   ! ---- local vars
   integer :: axes(2)
-  integer :: id_zhalf, id_zfull
+  integer :: id_zhalf, id_zfull, id_nv
 
   ! define vertical axis
   id_zhalf = diag_axis_init ( &
@@ -1039,6 +1039,7 @@ subroutine lake_diag_init(id_ug)
   id_zfull = diag_axis_init ( &
        'zfull_lake', zfull(1:num_l),   'meters', 'z', 'full level',  -1, set_name='lake', &
        edges=id_zhalf )
+  id_nv = diag_axis_init('nv', (/1.,2./), 'none', 'N', 'vertex number', set_name='nv')    
 
   ! define array of axis indices
   axes = (/id_ug,id_zfull/)

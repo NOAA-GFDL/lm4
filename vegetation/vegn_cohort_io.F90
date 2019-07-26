@@ -382,7 +382,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
 
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
-  call register_field(restart%rhandle, varname, "double", (/cohort_index_name/))
+  call register_field(restart%rhandle, varname, "double", (/cohort_index_name, "Time"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(units)) then
     call register_variable_attribute(restart%rhandle, varname, "units", units)
@@ -406,7 +406,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
 
   allocate(r(size(restart%cidx)))
   call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
-  call register_field(restart%rhandle, varname, "int", (/cohort_index_name/))
+  call register_field(restart%rhandle, varname, "int", (/cohort_index_name, "Time"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(units)) then
     call register_variable_attribute(restart%rhandle, varname, "units", units)

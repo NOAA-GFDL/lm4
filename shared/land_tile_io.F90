@@ -22,7 +22,7 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_ty
 
 use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
-
+use mpp_mod, only : mpp_chksum
 
 implicit none
 private
@@ -275,7 +275,7 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   integer,          intent(in) :: datum
   character(len=*), intent(in), optional :: units, longname
 
-  call register_field(restart%rhandle, varname, "int")
+  call register_field(restart%rhandle, varname, "int", (/"Time"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -334,7 +334,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
   character(len=*), intent(in), optional :: units, longname
 
   real, pointer :: data(:)
-
+  
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
@@ -349,6 +349,9 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   mpp_chksum(data, restart%rhandle%pelist))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0

@@ -58,7 +58,7 @@ module river_mod
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
                          get_compute_domain_dimension_indices, FmsNetcdfFile_t, &
-                         get_variable_size, read_data, get_variable_num_dimensions
+                         get_variable_size, read_data, get_variable_num_dimensions, unlimited
 !-------
 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
@@ -1033,6 +1033,13 @@ end subroutine print_river_tracer_data
     call get_compute_domain_dimension_indices(river_restart, river_res_ydim, buffer)
     call write_data(river_restart, river_res_ydim, buffer)
     deallocate(buffer)
+
+    call register_axis(river_restart, "Time", unlimited)
+    call register_field(river_restart, "Time", "double", (/"Time"/))
+    call register_variable_attribute(river_restart, "Time", "long_name", "Time")
+    call register_variable_attribute(river_restart, "Time", "units", "time level")
+    call register_variable_attribute(river_restart, "Time", "cartesian_axis", "T")
+    call write_data(river_restart, "Time", 1)
 
     call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim/))
     call register_variable_attribute(river_restart, "storage", "long_name", "storage")

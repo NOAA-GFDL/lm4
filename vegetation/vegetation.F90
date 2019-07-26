@@ -800,9 +800,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max
   ! to handle the situation when there are no tiles in the current domain
   call mpp_max(n_accum); call mpp_max(nmn_acm)
-  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
+  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps', 'none')
 
-  call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
+  call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months', 'none')
   call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
   call add_cohort_data(restart2,'hite', cohort_height_ptr, 'vegetation height','m')
   call add_cohort_data(restart2,'bl', cohort_bl_ptr, 'biomass of leaves per individual','kg C/m2')
