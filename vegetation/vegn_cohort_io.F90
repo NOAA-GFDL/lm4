@@ -22,7 +22,8 @@ use land_data_mod, only : lnd
 use fms2_io_mod, only: compressed_start_and_count, FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, register_variable_attribute, &
                        read_data, write_data
-
+use mpp_mod, only : mpp_chksum                       
+use land_chksum_mod 
 
 implicit none
 private
@@ -377,7 +378,8 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   character(len=*), intent(in) :: varname ! name of the variable to write
   procedure(cptr_r0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
-
+  character(len=32) :: chksum
+  
   real, pointer :: r(:)
 
   allocate(r(size(restart%cidx)))
@@ -390,6 +392,10 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   if (present(longname)) then
     call register_variable_attribute(restart%rhandle, varname, "long_name", longname)
   endif
+
+  call get_land_chksum_r0d(r,chksum)
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, r)
   deallocate(r)
 end subroutine add_cohort_data
@@ -401,6 +407,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
+  character(len=32) :: chksum
   integer, pointer :: r(:)
   integer :: id_restart
 
@@ -414,6 +421,10 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   if (present(longname)) then
     call register_variable_attribute(restart%rhandle, varname, "long_name", longname)
   endif
+  
+  call get_land_chksum_i0d(r,chksum)
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, r)
   deallocate(r)
 end subroutine add_int_cohort_data

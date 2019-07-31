@@ -22,7 +22,7 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_ty
 
 use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
-use mpp_mod, only : mpp_chksum
+use land_chksum_mod
 
 implicit none
 private
@@ -274,7 +274,8 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   character(len=*), intent(in) :: varname ! name of the variable to write
   integer,          intent(in) :: datum
   character(len=*), intent(in), optional :: units, longname
-
+  character(len=32) :: chksum
+  
   call register_field(restart%rhandle, varname, "int", (/"Time"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
@@ -285,6 +286,11 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+
+  call get_land_chksum_is(datum,chksum)
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
+                                   
   call write_data(restart%rhandle, varname, datum)
 end subroutine add_scalar_data
 
@@ -306,6 +312,7 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
   character(len=*), intent(in) :: varname ! name of the variable to write
   procedure(fptr_i0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   integer, pointer :: data(:)
 
@@ -323,6 +330,10 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+
+  call get_land_chksum_i0d(data,chksum)
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_i0d_fptr_i0
@@ -332,6 +343,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
   character(len=*), intent(in) :: varname ! name of the variable to write
   procedure(fptr_r0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   real, pointer :: data(:)
   
@@ -349,10 +361,12 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
-  
+
+  call get_land_chksum_r0d(data,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", &
-                                   mpp_chksum(data, restart%rhandle%pelist))
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
+
   deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0
 
@@ -362,6 +376,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   procedure(fptr_r0i)          :: fptr ! subroutine returning pointer to the data
   integer ,         intent(in) :: index ! index of the fptr array element to write
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   real, pointer :: data(:)
 
@@ -379,6 +394,10 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  
+  call get_land_chksum_r0d(data,chksum)
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0i
@@ -389,6 +408,7 @@ subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,u
   procedure(fptr_r0ij)         :: fptr ! subroutine returning pointer to the data
   integer ,         intent(in) :: idx1,idx2 ! indices of the fptr array element to write
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   real, pointer :: data(:)
 
@@ -406,6 +426,10 @@ subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,u
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_r0d(data,chksum)
+
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r0d_fptr_r0ij
@@ -432,6 +456,7 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   character(len=*), intent(in) :: zdim      ! name of the z-dimension
   procedure(fptr_i0i)          :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   integer, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,nlev
@@ -452,6 +477,10 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_i1d(data,chksum)
+
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_i1d_fptr_i0i
@@ -462,6 +491,7 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   character(len=*), intent(in) :: zdim      ! name of the z-dimension
   procedure(fptr_r0i)          :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,nlev
@@ -482,6 +512,10 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_r1d(data,chksum)
+
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r1d_fptr_r0i
@@ -493,6 +527,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   integer         , intent(in) :: index   ! index of the array element to write
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
   real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
@@ -527,6 +562,10 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_r1d(data,chksum)
+
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r1d_fptr_r0ij
@@ -538,6 +577,7 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
   procedure(fptr_r0ijk)        :: fptr    ! subroutine returning pointer to the data
   integer         , intent(in) :: idx1,idx2  ! indices of the array element to write
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   integer :: id_restart
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -578,6 +618,10 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_r1d(data,chksum)
+
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r1d_fptr_r0ijk
@@ -588,6 +632,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   character(len=*), intent(in) :: dim1,dim2 ! names of extra dimensions
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   integer :: id_restart
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
@@ -610,6 +655,10 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_r2d(data,chksum)
+
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   chksum)
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r2d_fptr_r0ij
@@ -621,6 +670,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   procedure(fptr_r0ijk)        :: fptr    ! subroutine returning pointer to the data
   integer         , intent(in) :: index   ! index of the array element to write
   character(len=*), intent(in), optional :: units, longname
+  character(len=32) :: chksum
 
   integer :: id_restart
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
@@ -643,6 +693,9 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
       call register_variable_attribute(restart%rhandle, varname, "units", &
                                        units)
   endif
+  call get_land_chksum_r2d(data,chksum)
+  call register_variable_attribute(restart%rhandle, varname, "checksum", &
+                                   (chksum))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
 end subroutine add_tile_data_r2d_fptr_r0ijk

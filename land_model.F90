@@ -612,7 +612,7 @@ subroutine land_model_restart(timestamp)
   call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles', units="none")
   call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles', units="none")
   ! write the upward long-wave flux
-  call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
+  call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux', 'none')
   ! write energy residuals
   call add_tile_data(restart,'e_res_1',land_e_res_1_ptr,&
        'energy residual in canopy air energy balance equation', 'W/m2')

@@ -803,7 +803,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps', 'none')
 
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months', 'none')
-  call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
+  call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species', 'none')
   call add_cohort_data(restart2,'hite', cohort_height_ptr, 'vegetation height','m')
   call add_cohort_data(restart2,'bl', cohort_bl_ptr, 'biomass of leaves per individual','kg C/m2')
   call add_cohort_data(restart2,'blv', cohort_blv_ptr, 'biomass of virtual leaves (labile store) per individual','kg C/m2')
@@ -811,7 +811,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bsw', cohort_bsw_ptr, 'biomass of sapwood per individual','kg C/m2')
   call add_cohort_data(restart2,'bwood', cohort_bwood_ptr, 'biomass of heartwood per individual','kg C/m2')
   call add_cohort_data(restart2,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
-  call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
+  call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status', 'none')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
 
   !#### MODIFIED BY PPG 2016-12-01
@@ -821,7 +821,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
-  call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
+  call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type', 'none')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
   call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr, &
        'intermediate pool for AG fast soil carbon input', 'kg C/m2')
@@ -851,23 +851,23 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! monthly-mean values
   call add_tile_data(restart2,'tc_av', vegn_tc_av_ptr,'average canopy air temperature','degK')
-  call add_tile_data(restart2,'theta_av_phen', vegn_theta_av_phen_ptr,'average soil moisture for phenology')
-  call add_tile_data(restart2,'theta_av_fire', vegn_theta_av_fire_ptr,'average soil moisture for fire')
-  call add_tile_data(restart2,'psist_av', vegn_psist_av_ptr,'average soil-water-stress index')
+  call add_tile_data(restart2,'theta_av_phen', vegn_theta_av_phen_ptr,'average soil moisture for phenology', 'none')
+  call add_tile_data(restart2,'theta_av_fire', vegn_theta_av_fire_ptr,'average soil moisture for fire', 'none')
+  call add_tile_data(restart2,'psist_av', vegn_psist_av_ptr,'average soil-water-stress index', 'none')
   call add_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr,'average bulk soil temperature for soil carbon','degK')
   call add_tile_data(restart2,'precip_av', vegn_precip_av_ptr,'average total precipitation','kg/(m2 s)')
-  call add_tile_data(restart2,'lambda', vegn_lambda_ptr,'dryness parameter')
+  call add_tile_data(restart2,'lambda', vegn_lambda_ptr,'dryness parameter', 'none')
   call add_tile_data(restart2,'fuel', vegn_fuel_ptr,'fuel density','kg C/m2')
   ! annual-mean values
   call add_tile_data(restart2,'t_ann', vegn_t_ann_ptr,'average annual canopy air temperature','degK')
   call add_tile_data(restart2,'t_cold', vegn_t_cold_ptr,'average canopy air temperature of coldest month','degK')
   call add_tile_data(restart2,'p_ann', vegn_p_ann_ptr,'average annual precipitation','kg/(m2 s)')
-  call add_tile_data(restart2,'ncm', vegn_ncm_ptr,'number of cold months')
+  call add_tile_data(restart2,'ncm', vegn_ncm_ptr,'number of cold months', 'none')
   ! accumulated values for annual averaging
   call add_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr,'accumulated annual canopy air temperature','degK')
   call add_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr,'accumulated temperature of coldest month','degK')
   call add_tile_data(restart2,'p_ann_acm', vegn_p_ann_acm_ptr,'accumulated precipitation','kg/(m2 s)')
-  call add_tile_data(restart2,'ncm_acm', vegn_ncm_acm_ptr,'accumulated number of cold months')
+  call add_tile_data(restart2,'ncm_acm', vegn_ncm_acm_ptr,'accumulated number of cold months', 'none')
 
   ! burned carbon pool and rate
   call add_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')

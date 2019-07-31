@@ -1041,29 +1041,29 @@ end subroutine print_river_tracer_data
     call register_variable_attribute(river_restart, "Time", "cartesian_axis", "T")
     call write_data(river_restart, "Time", 1)
 
-    call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim/))
+    call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim, "Time"/))
     call register_variable_attribute(river_restart, "storage", "long_name", "storage")
     call register_variable_attribute(river_restart, "storage", "units", "none")
 
-    call register_restart_field(river_restart, "discharge2ocean", discharge2ocean_next, (/river_res_xdim, river_res_ydim/))
+    call register_restart_field(river_restart, "discharge2ocean", discharge2ocean_next, (/river_res_xdim, river_res_ydim, "Time"/))
     call register_variable_attribute(river_restart, "discharge2ocean", "long_name", "discharge2ocean")
     call register_variable_attribute(river_restart, "discharge2ocean", "units", "none")
 
     do tr = 1, num_species
-        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, river%storage_c(:,:,tr), (/river_res_xdim, river_res_ydim/))
+        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, river%storage_c(:,:,tr), (/river_res_xdim, river_res_ydim, "Time"/))
         call register_variable_attribute(river_restart, "storage_"//trdata(tr)%name, "long_name", "storage_"//trdata(tr)%name)
         call register_variable_attribute(river_restart, "storage_"//trdata(tr)%name, "units", "none")
 
-        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, discharge2ocean_next_c(:,:,tr), (/river_res_xdim, river_res_ydim/))
+        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, discharge2ocean_next_c(:,:,tr), (/river_res_xdim, river_res_ydim, "Time"/))
         call register_variable_attribute(river_restart, "disch2ocn_"//trdata(tr)%name, "long_name", "disch2ocn_"//trdata(tr)%name)
         call register_variable_attribute(river_restart, "disch2ocn_"//trdata(tr)%name, "units", "none")
     enddo
 
-    call register_restart_field(river_restart, "Omean", river%outflowmean, (/river_res_xdim, river_res_ydim/))
+    call register_restart_field(river_restart, "Omean", river%outflowmean, (/river_res_xdim, river_res_ydim, "Time"/))
     call register_variable_attribute(river_restart, "Omean", "long_name", "Omean")
     call register_variable_attribute(river_restart, "Omean", "units", "none")
 
-    call register_restart_field(river_restart, "depth", river%depth, (/river_res_xdim, river_res_ydim/))
+    call register_restart_field(river_restart, "depth", river%depth, (/river_res_xdim, river_res_ydim, "Time"/))
     call register_variable_attribute(river_restart, "depth", "long_name", "depth")
     call register_variable_attribute(river_restart, "depth", "units", "none")
 
