@@ -227,7 +227,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   call register_axis(rhandle, trim(cohort_index_name), npes_corner=npes_cidx_start, npes_nelems=npes_cidx)
   deallocate(npes_cidx_start)
   deallocate(npes_cidx)
-  call register_field(rhandle, trim(cohort_index_name), "int", (/trim(cohort_index_name/)))
+  call register_field(rhandle, trim(cohort_index_name), "int", (/trim(cohort_index_name)/))
   call register_variable_attribute(rhandle, trim(cohort_index_name), "compress", &
                                    "cohort tile lat lon")
   call register_variable_attribute(rhandle, trim(cohort_index_name), "units", &
