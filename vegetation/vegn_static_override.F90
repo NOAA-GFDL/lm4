@@ -26,7 +26,7 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
                        register_restart_field, write_restart, get_dimension_size, &
                        get_variable_size, read_data, FmsNetcdfFile_t, open_file, &
                        close_file, variable_exists, variable_att_exists, &
-                       get_variable_attribute, get_variable_num_dimensions
+                       get_variable_attribute, get_variable_num_dimensions, get_unlimited_dimension_name
 
 implicit none
 private
@@ -125,7 +125,7 @@ subroutine static_vegn_init( )
 
   ! ---- local vars
   integer :: i,j,k
-  integer, dimension(4) :: dimlens ! sizes of respective dimensions
+  integer, dimension(5) :: dimlens ! sizes of respective dimensions (lon, lat, tile, cohort, time)
   character(len=256)         :: units    ! units of time in the file
   character(len=256)         :: calendar ! calendar of the data
   real, allocatable          :: in_lon(:)! longitude coordinates in input file
@@ -138,6 +138,7 @@ subroutine static_vegn_init( )
   logical:: exists
   real, dimension(:), allocatable :: t
   integer :: ndims
+  character(len=256) :: dimension_name !NAME OF UNLIMITED DIMENSION (i.e "time")
 
   if(module_is_initialized) return
 
@@ -180,32 +181,34 @@ subroutine static_vegn_init( )
     ! CONVERT TIME TO THE FMS TIME_TYPE AND STORE IT IN THE TIMELINE FOR THE DATA SET
     ! READ HORIZONTAL COORDINATES
     if (input_is_multiface) then
-      call get_variable_attribute(fileobj_domainug, "time", "units", units)
-      call get_variable_attribute(fileobj_domainug, "time", "calendar", calendar)
-      call get_dimension_size(fileobj_domainug, "time", dimlens(1))
+		call get_unlimited_dimension_name(fileobj_domainug, dimension_name)
+      call get_variable_attribute(fileobj_domainug, dimension_name, "units", units)
+      call get_variable_attribute(fileobj_domainug, dimension_name, "calendar", calendar)
+      call get_dimension_size(fileobj_domainug, dimension_name, dimlens(5))
       call get_dimension_size(fileobj_domainug, "lon", dimlens(1))
       call get_dimension_size(fileobj_domainug, "lat", dimlens(2))
     else
-      call get_variable_attribute(fileobj, "time", "units", units)
-      call get_variable_attribute(fileobj, "time", "calendar", calendar)
-      call get_dimension_size(fileobj, "time", dimlens(1))
+		call get_unlimited_dimension_name(fileobj, dimension_name)
+      call get_variable_attribute(fileobj, dimension_name, "units", units)
+      call get_variable_attribute(fileobj, dimension_name, "calendar", calendar)
+      call get_dimension_size(fileobj, dimension_name, dimlens(5))
       call get_dimension_size(fileobj, "lon", dimlens(1))
       call get_dimension_size(fileobj, "lat", dimlens(2))
     endif
-    allocate(t(dimlens(1)))
-    allocate(time_line(dimlens(1)))
+    allocate(t(dimlens(5)))
+    allocate(time_line(dimlens(5)))
     allocate(in_lon(dimlens(1)))
     allocate(in_lat(dimlens(2)))
     if (input_is_multiface) then
-      call read_data(fileobj_domainug, "time", t)
+      call read_data(fileobj_domainug, dimension_name, t)
       call read_data(fileobj_domainug, "lon", in_lon)
       call read_data(fileobj_domainug, "lat", in_lat)
     else
-      call read_data(fileobj, "time", t)
+      call read_data(fileobj, dimension_name, t)
       call read_data(fileobj, "lon", in_lon)
       call read_data(fileobj, "lat", in_lat)
     endif
-    do i = 1, dimlens(1)
+    do i = 1, dimlens(5)
        ! set the respective value in the timeline
        time_line(i) = get_cal_time(t(i), units, calendar)
     enddo
@@ -233,7 +236,7 @@ subroutine static_vegn_init( )
           call get_variable_size(fileobj, "cohort_index", siz)
           allocate(cidx(siz(1)), idata(siz(1)))
           deallocate(siz)
-          call read_data(fileobj, 'cohort_index', cidx, unlim_dim_level=1)
+          call read_data(fileobj, 'cohort_index',cidx) !, unlim_dim_level=1)
           call read_data(fileobj, 'species', idata, unlim_dim_level=1)
           do n = 1,size(cidx)
              m = cidx(n)
@@ -445,7 +448,7 @@ subroutine read_static_vegn (time, err_msg)
    call get_variable_size(fileobj, "cohort_index", siz)
    allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
    deallocate(siz)
-   call read_data(fileobj, "cohort_index", cidx, unlim_dim_level=index1)
+   call read_data(fileobj, "cohort_index", cidx)
    call read_data(fileobj, "species", idata, unlim_dim_level=index1)
    call read_remap_cohort_data_i0d_new(fileobj, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
    call read_data(fileobj, "bl", rdata, unlim_dim_level=index1)
