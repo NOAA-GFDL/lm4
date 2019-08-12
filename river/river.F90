@@ -47,7 +47,7 @@ module river_mod
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
-  use mpp_domains_mod,     only : mpp_pass_sg_to_ug
+  use mpp_domains_mod,     only : mpp_pass_sg_to_ug, mpp_get_tile_id
   use fms_mod,             only : check_nml_error, string, input_nml_file, get_unit
   use fms_mod,             only : CLOCK_FLAG_DEFAULT, error_mesg
   use fms_io_mod,          only : get_instance_filename
@@ -1085,9 +1085,16 @@ end subroutine print_river_tracer_data
     logical :: exists
     integer, dimension(:), allocatable :: siz
     integer :: isize, jsize
-    integer :: ndims
+    integer :: ndims, L
+    integer, dimension(1) :: tile_id
 
     ntiles = mpp_get_ntile_count(domain)
+    tile_id = mpp_get_tile_id(domain)
+    
+    if (ntiles>1) then !If there are more than 1 tile add .tilex. to the name 
+        L = len(trim(river_src_file))
+        write(river_src_file, '(a,a,i1,a)') trim(river_src_file(1:L-2)), 'tile', tile_id(1), '.nc'
+    endif
 
     exists = open_file(fileobj, river_src_file, "read")
     if (.not. exists) then
