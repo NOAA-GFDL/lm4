@@ -45,7 +45,7 @@ module river_mod
   use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
-  use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
+  use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count, mpp_get_tile_id
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
   use fms_mod,             only : check_nml_error, string, input_nml_file, get_unit
@@ -58,7 +58,7 @@ module river_mod
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
                          get_compute_domain_dimension_indices, FmsNetcdfFile_t, &
-                         get_variable_size, read_data, get_variable_num_dimensions
+                         get_variable_size, read_data, get_variable_num_dimensions, unlimited
 !------- 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
@@ -189,6 +189,7 @@ end type
 type(tracer_data_type), allocatable :: trdata(:) ! common tracer data
 character(len=8),parameter :: river_res_xdim = "xaxis_1"
 character(len=8),parameter :: river_res_ydim = "yaxis_1"
+character(len=8),parameter :: river_res_zdim = "zaxis_1"
 
 contains
 
@@ -1046,7 +1047,21 @@ end subroutine print_river_tracer_data
     call get_compute_domain_dimension_indices(river_restart, river_res_ydim, buffer)
     call write_data(river_restart, river_res_ydim, buffer)
     deallocate(buffer)
+    
+    call register_axis(river_restart, "Time", unlimited)
+    call register_field(river_restart, "Time", "double", (/"Time"/))
+    call register_variable_attribute(river_restart, "Time", "long_name", "Time")
+    call register_variable_attribute(river_restart, "Time", "units", "time level")
+    call register_variable_attribute(river_restart, "Time", "cartesian_axis", "T")
+    call write_data(river_restart, "Time", 1)
 
+    call register_axis(river_restart, river_res_zdim, 1)
+    call register_field(river_restart, river_res_zdim, "double", (/river_res_zdim/))
+    call register_variable_attribute(river_restart, river_res_zdim, "long_name", river_res_zdim)
+    call register_variable_attribute(river_restart, river_res_zdim, "units", "none")
+    call register_variable_attribute(river_restart, river_res_zdim, "cartesian_axis", "Z")
+    call write_data(river_restart, river_res_zdim, 1)
+    
     call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim/))
     call register_variable_attribute(river_restart, "storage", "long_name", "storage")
     call register_variable_attribute(river_restart, "storage", "units", "none")
@@ -1089,10 +1104,17 @@ end subroutine print_river_tracer_data
     logical :: exists
     integer, dimension(:), allocatable :: siz
     integer :: isize, jsize
-    integer :: ndims
+    integer :: ndims, L
+    integer, dimension(1) :: tile_id
 
     ntiles = mpp_get_ntile_count(domain)
-
+    tile_id = mpp_get_tile_id(domain)
+    
+    if (ntiles>1) then 
+        L = len(trim(river_src_file))
+        write(river_src_file, '(a,a,i1,a)') trim(river_src_file(1:L-2)), 'tile', tile_id(1), '.nc'
+    endif
+    
     exists = open_file(fileobj, river_src_file, "read")
     if (.not. exists) then
       call error_mesg("get_river_data", &
