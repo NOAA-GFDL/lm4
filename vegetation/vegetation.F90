@@ -1465,7 +1465,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
      call add_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
                         'seed carbon dropped by dying plants', 'kgC/m2')
      call add_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
-                        'seed nirogen dropped by dying plants', 'kgC/m2')
+                        'seed nitrogen dropped by dying plants', 'kgC/m2')
   enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
