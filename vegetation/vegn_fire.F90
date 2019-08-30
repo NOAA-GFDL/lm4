@@ -958,7 +958,7 @@ subroutine save_fire_restart(tile_dim_length,timestamp)
 
   if (fire_option == FIRE_UNPACKED) then
      call error_mesg('fire_end','writing NetCDF restart',NOTE)
-     filename = trim(timestamp)//'fire.res.nc'
+     filename = 'RESTART/'//trim(timestamp)//'fire.res.nc'
      call init_land_restart(restart, filename, vegn_tile_exists, tile_dim_length)
      ! create dimension for multi-day fire duration axis
      call add_restart_axis(restart,'mdf_day',[(real(i),i=1,MAX_MDF_LENGTH)], .false., "Z")
