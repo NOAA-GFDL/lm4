@@ -699,7 +699,8 @@ subroutine get_text_data(restart,varname,text)
   character(len=*), intent(in) :: varname ! name of the variable to write
   character, allocatable, intent(out) :: text(:,:)
 
-  call error_mesg('get_text_data','does not work with new io yet', FATAL)
+  call read_data(restart%rhandle,varname,text)
+!  call error_mesg('get_text_data','does not work with new io yet', FATAL)
 end subroutine get_text_data
 
 subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
