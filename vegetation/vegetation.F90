@@ -3047,7 +3047,7 @@ subroutine read_remap_species(restart)
   integer :: nsp ! number of input species
   integer :: i, sp
   character(fm_field_name_len), allocatable :: spnames(:)
-  character, allocatable :: text(:,:)
+  character(len=256), allocatable :: text(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
