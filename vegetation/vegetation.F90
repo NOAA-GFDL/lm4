@@ -3046,8 +3046,8 @@ subroutine read_remap_species(restart)
   ! ---- local vars
   integer :: nsp ! number of input species
   integer :: i, sp
-  character(fm_field_name_len), allocatable :: spnames(:)
-  character(len=256), allocatable :: text(:)
+!  character(fm_field_name_len), allocatable :: spnames(:)
+  character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
@@ -3059,13 +3059,13 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
-  call get_text_data(restart, 'species_names', text)
-  nsp = size(text,2)
-  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
+  call get_text_data(restart, 'species_names', spnames)
+  nsp = size(spnames)
+!  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
   sptable(:) = -1
   do i = 0, nsp-1
      ! convert character array to strings
-     call array2str(text(:,i+1),spnames(i))
+!     call array2str(text(:,i+1),spnames(i))
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then
@@ -3092,7 +3092,7 @@ subroutine read_remap_species(restart)
         tile%vegn%cohorts(i)%species = sptable(sp)
      enddo
   enddo
-  deallocate(text, spnames, sptable)
+  deallocate(spnames, sptable)
 end subroutine read_remap_species
 
 ! =====================================================================================
