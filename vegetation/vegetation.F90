@@ -1331,7 +1331,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
-  character:: spnames(fm_field_name_len, nspecies) ! names of the species
+  character(len=fm_field_name_len) :: spnames(nspecies) ! names of the species
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
@@ -1359,11 +1359,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)], .false.,"Z")
   call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],.false.,"Z")
   do i = 0, nspecies-1
-     do j = 1,size(spnames,1)
-        spnames(j,i+1) = ' '
+     do j = 1,fm_field_name_len
+        spnames(i+1)(j:j) = ' '
      enddo
-     do j = 1,min(len(spdata(i)%name),size(spnames,1))
-        spnames(j,i+1) = spdata(i)%name(j:j)
+     do j = 1,min(len(spdata(i)%name),fm_field_name_len)
+        spnames(i+1)(j:j) = spdata(i)%name(j:j)
      enddo
   enddo
 !  call add_text_data(restart2,'species_names','textlen','nspecies',spnames)

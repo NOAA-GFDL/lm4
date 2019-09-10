@@ -314,7 +314,7 @@ subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: dim1, dim2 ! name of the text dimensions
-  character,        intent(in) :: datum(:,:)
+  character(len=*), intent(in) :: datum(:)
   character(len=*), intent(in), optional :: longname
 
 !  integer :: id_restart, ierr
