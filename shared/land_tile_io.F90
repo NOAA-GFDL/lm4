@@ -694,12 +694,13 @@ subroutine get_scalar_data(restart,varname,datum)
   call read_data(restart%rhandle,varname,datum)
 end subroutine get_scalar_data
 
-subroutine get_text_data(restart,varname,text)
+subroutine get_text_data(restart,varname,textlength,text)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
+  integer, intent(in) :: textlength
   character(len=256), allocatable, intent(out) :: text(:)
 
-  allocate(text(1:20))
+  allocate(text(1:textlength))
   call read_data(restart%rhandle,varname,text)
 !  call error_mesg('get_text_data','does not work with new io yet', FATAL)
 end subroutine get_text_data

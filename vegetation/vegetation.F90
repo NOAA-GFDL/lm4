@@ -88,7 +88,8 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
+    get_variable_size
 
 implicit none
 private
@@ -3046,6 +3047,7 @@ subroutine read_remap_species(restart)
   ! ---- local vars
   integer :: nsp ! number of input species
   integer :: i, sp
+  integer :: sp_dims(2)
 !  character(fm_field_name_len), allocatable :: spnames(:)
   character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
@@ -3059,9 +3061,10 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
-  allocate(spnames(1:20))
-  call get_text_data(restart, 'species_names', spnames)
-  nsp = size(spnames)
+  call get_variable_size(restart%rhandle, "species_names", sp_dims)
+  nsp = sp_dims(2)
+  allocate(spnames(1:nsp))
+  call get_text_data(restart, 'species_names', nsp, spnames)
 !  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
   sptable(:) = -1
   do i = 0, nsp-1
