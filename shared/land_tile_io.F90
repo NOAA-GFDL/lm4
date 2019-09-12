@@ -8,7 +8,7 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, get_variable_size, &
-                       read_data, write_data, open_file, &
+                       read_data, write_data, open_file, get_dimension_size, &
                        get_variable_num_dimensions, compressed_start_and_count
 
 use time_manager_mod, only : time_type
@@ -156,6 +156,23 @@ restart_exists = open_file(restart%rhandle, restart%basename, "read", &
   if (.not. field_exists(restart, "tile")) then
       call error_mesg("open_land_restart", "dimension 'tile' not found in file '" &
                       //trim(filename)//"'.", FATAL)
+! Checks if the file has a variable called "tile"
+  if (.not. field_exists(restart, "tile")) then 
+! If there isn't a variable called "tile", read a dimension called "tile" 
+		allocate(flen(1))
+ 		call get_dimension_size(restart%rhandle, "tile", flen(1))
+  		restart%tile_dim_length = flen(1)
+  		deallocate(flen)
+  else
+! If there is a varaible called "tile" read it and assign the tile_dim_length
+  		ndims = get_variable_num_dimensions(restart%rhandle, "tile")
+  		allocate(flen(ndims))
+  		call get_variable_size(restart%rhandle, "tile", flen)
+  		restart%tile_dim_length = flen(1)
+  		deallocate(flen)
+  endif
+
+
   endif
   ndims = get_variable_num_dimensions(restart%rhandle, "tile")
   allocate(flen(ndims))
