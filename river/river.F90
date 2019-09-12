@@ -190,6 +190,7 @@ end type
 type(tracer_data_type), allocatable :: trdata(:) ! common tracer data
 character(len=8),parameter :: river_res_xdim = "xaxis_1"
 character(len=8),parameter :: river_res_ydim = "yaxis_1"
+character(len=8),parameter :: river_res_zdim = "zaxis_1"
 
 contains
 
@@ -1011,6 +1012,7 @@ end subroutine print_river_tracer_data
     logical :: s
     integer :: tr
     integer, dimension(:), allocatable :: buffer
+    real, dimension(:,:,:), allocatable :: buffer3d
 	 integer :: starting, ending, i
 
     if (.not. do_rivers) return ! do nothing further if rivers are turned off
@@ -1043,6 +1045,13 @@ end subroutine print_river_tracer_data
     call write_data(river_restart, river_res_ydim, buffer)
     deallocate(buffer)
 
+    call register_axis(river_restart, river_res_zdim, 1)
+    call register_field(river_restart, river_res_zdim, "double", (/river_res_zdim/))
+    call register_variable_attribute(river_restart, river_res_zdim, "long_name", river_res_zdim)
+    call register_variable_attribute(river_restart, river_res_zdim, "units", "none")
+    call register_variable_attribute(river_restart, river_res_zdim, "cartesian_axis", "Z")
+    call write_data(river_restart, river_res_zdim, 1)
+
     call register_axis(river_restart, "Time", unlimited)
     call register_field(river_restart, "Time", "double", (/"Time"/))
     call register_variable_attribute(river_restart, "Time", "long_name", "Time")
@@ -1050,33 +1059,56 @@ end subroutine print_river_tracer_data
     call register_variable_attribute(river_restart, "Time", "cartesian_axis", "T")
     call write_data(river_restart, "Time", 1)
 
-    call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim, "Time"/))
+    allocate(buffer3d(size(river%storage,1), size(river%storage,2), 1))
+    buffer3d(:,:,1) = river%storage
+    call register_restart_field(river_restart, "storage", buffer3d, (/river_res_xdim, river_res_ydim, river_res_zdim, "Time"/))
     call register_variable_attribute(river_restart, "storage", "long_name", "storage")
     call register_variable_attribute(river_restart, "storage", "units", "none")
+    call write_data(river_restart, "storage", buffer3d)
+    deallocate(buffer3d)
 
-    call register_restart_field(river_restart, "discharge2ocean", discharge2ocean_next, (/river_res_xdim, river_res_ydim, "Time"/))
+    allocate(buffer3d(size(discharge2ocean_next,1), size(discharge2ocean_next,2), 1))
+    buffer3d(:,:,1) = discharge2ocean_next
+    call register_restart_field(river_restart, "discharge2ocean", buffer3d, (/river_res_xdim, river_res_ydim, river_res_zdim, "Time"/))
     call register_variable_attribute(river_restart, "discharge2ocean", "long_name", "discharge2ocean")
     call register_variable_attribute(river_restart, "discharge2ocean", "units", "none")
+    call write_data(river_restart, "discharge2ocean", buffer3d)
+    deallocate(buffer3d)
 
-    do tr = 1, num_species
-        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, river%storage_c(:,:,tr), (/river_res_xdim, river_res_ydim, "Time"/))
+     do tr = 1, num_species
+        allocate(buffer3d(size(river%storage_c(:,:,tr),1), size(river%storage_c(:,:,tr),2), 1))
+        buffer3d(:,:,1) = river%storage_c(:,:,tr)
+        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, buffer3d, (/river_res_xdim, river_res_ydim, river_res_zdim, "Time"/))
         call register_variable_attribute(river_restart, "storage_"//trdata(tr)%name, "long_name", "storage_"//trdata(tr)%name)
         call register_variable_attribute(river_restart, "storage_"//trdata(tr)%name, "units", "none")
+        call write_data(river_restart, "storage_"//trdata(tr)%name, buffer3d)
+	     deallocate(buffer3d)
 
-        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, discharge2ocean_next_c(:,:,tr), (/river_res_xdim, river_res_ydim, "Time"/))
+        allocate(buffer3d(size(discharge2ocean_next_c(:,:,tr),1), size(discharge2ocean_next_c(:,:,tr),2), 1))
+        buffer3d(:,:,1) = discharge2ocean_next_c(:,:,tr)
+        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, buffer3d, (/river_res_xdim, river_res_ydim, river_res_zdim, "Time"/))
         call register_variable_attribute(river_restart, "disch2ocn_"//trdata(tr)%name, "long_name", "disch2ocn_"//trdata(tr)%name)
         call register_variable_attribute(river_restart, "disch2ocn_"//trdata(tr)%name, "units", "none")
+        call write_data(river_restart, "disch2ocn_"//trdata(tr)%name, buffer3d)
+	     deallocate(buffer3d)
     enddo
 
-    call register_restart_field(river_restart, "Omean", river%outflowmean, (/river_res_xdim, river_res_ydim, "Time"/))
+    allocate(buffer3d(size(river%outflowmean,1), size(river%outflowmean,2), 1))
+    buffer3d(:,:,1) = river%outflowmean
+    call register_restart_field(river_restart, "Omean", buffer3d, (/river_res_xdim, river_res_ydim, river_res_zdim, "Time"/))
     call register_variable_attribute(river_restart, "Omean", "long_name", "Omean")
     call register_variable_attribute(river_restart, "Omean", "units", "none")
+    call write_data(river_restart, "Omean", buffer3d)
+    deallocate(buffer3d)
 
-    call register_restart_field(river_restart, "depth", river%depth, (/river_res_xdim, river_res_ydim, "Time"/))
+    allocate(buffer3d(size(river%depth,1), size(river%depth,2), 1))
+    buffer3d(:,:,1) = river%depth
+    call register_restart_field(river_restart, "depth", buffer3d, (/river_res_xdim, river_res_ydim, river_res_zdim, "Time"/))
     call register_variable_attribute(river_restart, "depth", "long_name", "depth")
     call register_variable_attribute(river_restart, "depth", "units", "none")
+    call write_data(river_restart, "depth", buffer3d)
+    deallocate(buffer3d)
 
-    call write_restart(river_restart)
     call close_file(river_restart)
   end subroutine save_river_restart
 
