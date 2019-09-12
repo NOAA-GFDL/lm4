@@ -317,16 +317,12 @@ subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
   character(len=*), intent(in) :: datum(:)
   character(len=*), intent(in), optional :: longname
 
-!  integer :: id_restart, ierr
-!  character(NF90_MAX_NAME)::dimnames(2)
-
   call register_field(restart%rhandle, varname, "char", (/dim1, dim2/))
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
                                        longname)
   endif
   call write_data(restart%rhandle, varname, datum)	
-!  call error_mesg('add_text_data','does not work with new io yet', FATAL)
 
 end subroutine add_text_data
 
@@ -702,7 +698,6 @@ subroutine get_text_data(restart,varname,textlength,text)
 
   allocate(text(1:textlength))
   call read_data(restart%rhandle,varname,text)
-!  call error_mesg('get_text_data','does not work with new io yet', FATAL)
 end subroutine get_text_data
 
 subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)

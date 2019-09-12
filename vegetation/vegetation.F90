@@ -3048,7 +3048,6 @@ subroutine read_remap_species(restart)
   integer :: nsp ! number of input species
   integer :: i, sp
   integer :: sp_dims(2)
-!  character(fm_field_name_len), allocatable :: spnames(:)
   character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
@@ -3064,12 +3063,10 @@ subroutine read_remap_species(restart)
   call get_variable_size(restart%rhandle, "species_names", sp_dims)
   nsp = sp_dims(2)
   allocate(spnames(1:nsp))
+  allocate(sptable(1:nsp))
   call get_text_data(restart, 'species_names', nsp, spnames)
-!  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
   sptable(:) = -1
-  do i = 0, nsp-1
-     ! convert character array to strings
-!     call array2str(text(:,i+1),spnames(i))
+  do i = 1, nsp
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then
@@ -3089,11 +3086,11 @@ subroutine read_remap_species(restart)
         sp = tile%vegn%cohorts(i)%species
         if (sp<0.or.sp>=nsp) &
              call error_mesg('vegn_init','species index is outside of the bounds', FATAL)
-        if (sptable(sp)<0) &
-             call error_mesg('vegn_init','species "'//trim(spnames(sp))// &
+        if (sptable(sp+1)<0) &
+             call error_mesg('vegn_init','species "'//trim(spnames(sp+1))// &
                             '" from restart are not found in the model species parameter list',&
                             FATAL)
-        tile%vegn%cohorts(i)%species = sptable(sp)
+        tile%vegn%cohorts(i)%species = sptable(sp+1)
      enddo
   enddo
   deallocate(spnames, sptable)
