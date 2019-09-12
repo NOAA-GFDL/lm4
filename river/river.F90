@@ -57,7 +57,7 @@ module river_mod
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
-                         get_compute_domain_dimension_indices, FmsNetcdfFile_t, &
+                         get_global_io_domain_indices, FmsNetcdfFile_t, &
                          get_variable_size, read_data, get_variable_num_dimensions, unlimited
 !------- 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
@@ -1025,6 +1025,7 @@ end subroutine print_river_tracer_data
     logical :: s
     integer :: tr
     integer, dimension(:), allocatable :: buffer
+    integer :: starting, ending, i
 	 real, dimension(:,:,:), allocatable :: buffer3d
 
     if (.not. do_rivers) return ! do nothing further if rivers are turned off
@@ -1036,7 +1037,11 @@ end subroutine print_river_tracer_data
     call register_variable_attribute(river_restart, river_res_xdim, "long_name", river_res_xdim)
     call register_variable_attribute(river_restart, river_res_xdim, "units", "none")
     call register_variable_attribute(river_restart, river_res_xdim, "cartesian_axis", "X")
-    call get_compute_domain_dimension_indices(river_restart, river_res_xdim, buffer)
+    call get_global_io_domain_indices(river_restart, river_res_xdim, starting, ending)
+    allocate(buffer(ending-starting+1))
+    do i = starting, ending 
+       buffer(i-starting+1) = i
+    end do
     call write_data(river_restart, river_res_xdim, buffer)
     deallocate(buffer)
 
@@ -1045,7 +1050,11 @@ end subroutine print_river_tracer_data
     call register_variable_attribute(river_restart, river_res_ydim, "long_name", river_res_ydim)
     call register_variable_attribute(river_restart, river_res_ydim, "units", "none")
     call register_variable_attribute(river_restart, river_res_ydim, "cartesian_axis", "Y")
-    call get_compute_domain_dimension_indices(river_restart, river_res_ydim, buffer)
+    call get_global_io_domain_indices(river_restart, river_res_ydim, starting, ending)
+	 allocate(buffer(ending-starting+1))
+    do i = starting, ending 
+       buffer(i-starting+1) = i
+    end do
     call write_data(river_restart, river_res_ydim, buffer)
     deallocate(buffer)
 
@@ -1126,15 +1135,22 @@ end subroutine print_river_tracer_data
     integer                           :: ni, nj, i, j, ntiles
     real, dimension(:,:), allocatable :: xt, yt, frac, glon, glat, lake_frac
     integer :: nerrors ! number of errors detected during initialization
-    type(FmsNetcdfDomainFile_t) :: fileobj
+    type(FmsNetcdfFile_t) :: fileobj
     logical :: exists
     integer, dimension(:), allocatable :: siz
     integer :: isize, jsize
     integer :: ndims, L
+    integer, dimension(1) :: tile_id
 
     ntiles = mpp_get_ntile_count(domain)
+    tile_id = mpp_get_tile_id(domain)
     
-    exists = open_file(fileobj, river_src_file, "read", domain, is_restart=.false.)
+    if (ntiles>1) then 
+        L = len(trim(river_src_file))
+        write(river_src_file, '(a,a,i1,a)') trim(river_src_file(1:L-2)), 'tile', tile_id(1), '.nc'
+    endif
+    
+    exists = open_file(fileobj, river_src_file, "read")
     if (.not. exists) then
       call error_mesg("get_river_data", &
                       "file "//trim(river_src_file)//" does not exist.", &
