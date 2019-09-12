@@ -205,9 +205,9 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zz(1:num_l),.false.,"Z",longname='depth of level centers',sense=-1)
 
-  call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
-  call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')
-  call add_tile_data(restart,'ws'  ,'zfull', snow_ws_ptr,   'snow solid water content','kg/m2')
+  call add_tile_data(restart,'temp','zfull          ', snow_temp_ptr, 'snow temperature','degrees_K')
+  call add_tile_data(restart,'wl'  ,'zfull          ', snow_wl_ptr,   'snow liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'  ,'zfull          ', snow_ws_ptr,   'snow solid water content','kg/m2')
 
   call save_land_restart(restart)
   call free_land_restart(restart)
