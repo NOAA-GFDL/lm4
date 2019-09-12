@@ -3059,6 +3059,7 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
+  allocate(spnames(1:20))
   call get_text_data(restart, 'species_names', spnames)
   nsp = size(spnames)
 !  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
