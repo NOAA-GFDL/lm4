@@ -280,7 +280,7 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   character(len=*), intent(in), optional :: units, longname
   character(len=32) :: chksum
   
-  call register_field(restart%rhandle, varname, "int", (/"Time"/))
+  call register_field(restart%rhandle, varname, "int")
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -324,7 +324,7 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_i0d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "int", (/"tile_index", "Time"/))
+  call register_field(restart%rhandle, varname, "int", (/"tile_index"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -355,7 +355,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_r0d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index", "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -388,7 +388,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_r0i(fptr,index,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index", "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -420,7 +420,7 @@ subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,u
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
   call gather_tile_data_r0ij(fptr,idx1,idx2,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index", "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -471,7 +471,7 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   nlev = dimlen(restart,zdim)
   allocate(data(size(restart%tidx),nlev))
   call gather_tile_data_i1d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "int", (/"tile_index",zdim, "Time"/))
+  call register_field(restart%rhandle, varname, "int", (/"tile_index     ",zdim/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -506,7 +506,7 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   nlev = dimlen(restart,zdim)
   allocate(data(size(restart%tidx),nlev))
   call gather_tile_data_r1d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index",zdim, "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",zdim/) )
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -556,7 +556,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
         endif
      enddo
   enddo
-  call register_field(restart%rhandle, varname, "double", (/"tile_index",zdim, "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",zdim/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -612,7 +612,7 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
         endif
      enddo
   enddo
-  call register_field(restart%rhandle, varname, "double", (/"tile_index",zdim, "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",zdim/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -649,7 +649,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   dim2len = dimlen(restart,dim2)
   allocate(data(size(restart%tidx),dim1len,dim2len))
   call gather_tile_data_r2d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index",dim1,dim2,"Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",dim1,dim2/) )
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &
@@ -687,7 +687,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   dim2len = dimlen(restart,dim2)
   allocate(data(size(restart%tidx),dim1len,dim2len))
   call gather_tile_data_r2d_idx(fptr,index,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index",dim1,dim2, "Time"/))
+  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",dim1,dim2/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", &

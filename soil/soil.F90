@@ -1449,16 +1449,16 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   endif
 
   ! write out fields
-  call add_tile_data(restart,'temp'         , 'zfull', soil_T_ptr,  'soil temperature','degrees_K')
-  call add_tile_data(restart,'wl'           , 'zfull', soil_wl_ptr, 'liquid water content','kg/m2')
-  call add_tile_data(restart,'ws'           , 'zfull', soil_ws_ptr, 'solid water content','kg/m2')
-  call add_tile_data(restart,'groundwater'  , 'zfull', soil_groundwater_ptr, "groundwater", units='kg/m2' )
-  call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
+  call add_tile_data(restart,'temp'         , 'zfull          ', soil_T_ptr,  'soil temperature','degrees_K')
+  call add_tile_data(restart,'wl'           , 'zfull          ', soil_wl_ptr, 'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'           , 'zfull          ', soil_ws_ptr, 'solid water content','kg/m2')
+  call add_tile_data(restart,'groundwater'  , 'zfull          ', soil_groundwater_ptr, units='kg/m2' )
+  call add_tile_data(restart,'groundwater_T', 'zfull          ', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
-     call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
+     call add_tile_data(restart,'fsc', 'zfull          ', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
+     call add_tile_data(restart,'ssc', 'zfull          ', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
   case (SOILC_CORPSE)
      ce = first_elmt(land_tile_map)
      do while(loop_over_tiles(ce,tile))
@@ -1471,31 +1471,31 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         enddo
      end do
 
-     call add_tile_data(restart,'fast_soil_C','zfull','soilCCohort', &
+     call add_tile_data(restart,'fast_soil_C','zfull          ','soilCCohort    ', &
                         sc_soil_C_ptr,C_CEL,'Fast soil carbon','kg/m2')
-     call add_tile_data(restart,'slow_soil_C', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'slow_soil_C', 'zfull          ','soilCCohort    ', &
                         sc_soil_C_ptr,C_LIG,'Slow soil carbon','kg/m2')
-     call add_tile_data(restart,'deadMic', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'deadMic', 'zfull          ','soilCCohort    ', &
                         sc_soil_C_ptr,C_MIC,'Dead microbe carbon','kg/m2')
-     call add_tile_data(restart,'fastProtectedC', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'fastProtectedC', 'zfull          ','soilCCohort    ', &
                         sc_protected_C_ptr,C_CEL,'Protected fast carbon','kg/m2')
-     call add_tile_data(restart,'slowProtectedC', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'slowProtectedC', 'zfull          ','soilCCohort    ', &
                         sc_protected_C_ptr,C_LIG,'Protected slow carbon','kg/m2')
-     call add_tile_data(restart,'deadMicrobeProtectedC', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'deadMicrobeProtectedC', 'zfull          ','soilCCohort    ', &
                         sc_protected_C_ptr,C_MIC,'Protected dead microbe carbon','kg/m2')
 
-     call add_tile_data(restart,'liveMic', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'liveMic', 'zfull          ','soilCCohort    ', &
                         soilc_livingMicrobeC_ptr,'Living microbial carbon','kg/m2')
-     call add_tile_data(restart,'CO2', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'CO2', 'zfull          ','soilCCohort    ', &
                         soilc_CO2_ptr,'Cohort CO2 generated','kg/m2')
-     call add_tile_data(restart,'Rtot', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'Rtot', 'zfull          ','soilCCohort    ', &
                         soilc_Rtot_ptr,'Total degradation','kg/m2')
-     call add_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', &
+     call add_tile_data(restart,'originalCohortC', 'zfull          ','soilCCohort    ', &
                         soilc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
-     call add_tile_data(restart,'soil_DOC_fast', 'zfull', soil_fast_DOC_ptr ,'Dissolved fast carbon','kg/m2')
-     call add_tile_data(restart,'soil_DOC_slow', 'zfull', soil_slow_DOC_ptr ,'Dissolved slow carbon','kg/m2')
-     call add_tile_data(restart,'soil_DOC_deadmic', 'zfull', &
+     call add_tile_data(restart,'soil_DOC_fast', 'zfull          ', soil_fast_DOC_ptr ,'Dissolved fast carbon','kg/m2')
+     call add_tile_data(restart,'soil_DOC_slow', 'zfull          ', soil_slow_DOC_ptr ,'Dissolved slow carbon','kg/m2')
+     call add_tile_data(restart,'soil_DOC_deadmic', 'zfull          ', &
                         soil_deadmicrobe_DOC_ptr ,'Dissolved dead microbe carbon','kg/m2')
 
      call add_tile_data(restart,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, &
@@ -1505,17 +1505,17 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'deadmic_DOC_leached',     soil_deadmic_DOC_leached_ptr, &
                         'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
 
-     call add_tile_data(restart,'leaf_litter_fast_C', 'soilCCohort', &
+     call add_tile_data(restart,'leaf_litter_fast_C', 'soilCCohort    ', &
                         soilc_leafLitter_litterC_ptr,C_CEL,'Leaf litter fast C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_slow_C', 'soilCCohort', &
+     call add_tile_data(restart,'leaf_litter_slow_C', 'soilCCohort    ', &
                         soilc_leafLitter_litterC_ptr,C_LIG,'Leaf litter slow C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_deadMic_C', 'soilCCohort', &
+     call add_tile_data(restart,'leaf_litter_deadMic_C', 'soilCCohort    ', &
                         soilc_leafLitter_litterC_ptr,C_MIC,'Leaf litter dead microbe C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_liveMic_C','soilCCohort', &
+     call add_tile_data(restart,'leaf_litter_liveMic_C','soilCCohort    ', &
                         soilc_leafLitter_livingMicrobeC_ptr,'Leaf litter live microbe C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_CO2','soilCCohort', &
+     call add_tile_data(restart,'leaf_litter_CO2','soilCCohort    ', &
                         soilc_leafLitter_CO2_ptr,'Leaf litter CO2 generated','kg/m2')
-     call add_tile_data(restart,'leaf_litter_Rtot','soilCCohort', &
+     call add_tile_data(restart,'leaf_litter_Rtot','soilCCohort    ', &
                         soilc_leafLitter_Rtot_ptr,'Leaf litter total degradation','kg/m2')
      call add_tile_data(restart,'leaf_litter_originalCohortC','soilCCohort', &
                         soilc_leafLitter_originalLitterC_ptr,'Leaf litter cohort original carbon','kg/m2')
@@ -1530,17 +1530,17 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'leaf_litter_DOC_slow',soilc_leafLitter_DOC_ptr,C_LIG,'Dissolved leaf litter slow carbon','kg/m2')
      call add_tile_data(restart,'leaf_litter_DOC_deadmic',soilc_leafLitter_DOC_ptr,C_MIC,'Dissolved leaf litter dead microbe carbon','kg/m2')
 
-     call add_tile_data(restart,'fineWood_litter_fast_C', 'soilCCohort', &
+     call add_tile_data(restart,'fineWood_litter_fast_C', 'soilCCohort    ', &
                         soilc_fineWoodLitter_litterC_ptr,C_CEL,'Fine wood litter fast C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_slow_C', 'soilCCohort', &
+     call add_tile_data(restart,'fineWood_litter_slow_C', 'soilCCohort    ', &
                         soilc_fineWoodLitter_litterC_ptr,C_LIG,'Fine wood litter slow C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_deadMic_C', 'soilCCohort', &
+     call add_tile_data(restart,'fineWood_litter_deadMic_C', 'soilCCohort    ', &
                         soilc_fineWoodLitter_litterC_ptr,C_MIC,'Fine wood litter dead microbe C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_liveMic_C', 'soilCCohort', &
+     call add_tile_data(restart,'fineWood_litter_liveMic_C', 'soilCCohort    ', &
                         soilc_fineWoodLitter_livingMicrobeC_ptr,'Fine wood litter live microbe C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_CO2','soilCCohort', &
+     call add_tile_data(restart,'fineWood_litter_CO2','soilCCohort    ', &
                         soilc_fineWoodLitter_CO2_ptr,'Fine wood litter CO2 generated','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_Rtot','soilCCohort', &
+     call add_tile_data(restart,'fineWood_litter_Rtot','soilCCohort    ', &
                         soilc_fineWoodLitter_Rtot_ptr,'Fine wood litter total degradation','kg/m2')
      call add_tile_data(restart,'fineWood_litter_originalCohortC','soilCCohort', &
                         soilc_fineWoodLitter_originalLitterC_ptr,'Fine wood litter cohort original carbon','kg/m2')
@@ -1558,17 +1558,17 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'fineWood_litter_DOC_deadmic',soilc_fineWoodLitter_DOC_ptr,C_MIC,&
                         'Dissolved fine wood litter dead microbe carbon','kg/m2')
 
-     call add_tile_data(restart,'coarseWood_litter_fast_C', 'soilCCohort', &
+     call add_tile_data(restart,'coarseWood_litter_fast_C', 'soilCCohort    ', &
                         soilc_coarseWoodLitter_litterC_ptr,C_CEL,'Coarse wood litter fast C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_slow_C', 'soilCCohort', &
+     call add_tile_data(restart,'coarseWood_litter_slow_C', 'soilCCohort    ', &
                         soilc_coarseWoodLitter_litterC_ptr,C_LIG,'Coarse wood litter slow C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_deadMic_C', 'soilCCohort', &
+     call add_tile_data(restart,'coarseWood_litter_deadMic_C', 'soilCCohort    ', &
                         soilc_coarseWoodLitter_litterC_ptr,C_MIC,'Coarse wood litter dead microbe C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_liveMic_C', 'soilCCohort', &
+     call add_tile_data(restart,'coarseWood_litter_liveMic_C', 'soilCCohort    ', &
                         soilc_coarseWoodLitter_livingMicrobeC_ptr,'Coarse wood litter live microbe C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_CO2','soilCCohort', &
+     call add_tile_data(restart,'coarseWood_litter_CO2','soilCCohort    ', &
                         soilc_coarseWoodLitter_CO2_ptr,'Coarse wood litter CO2 generated','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_Rtot','soilCCohort', &
+     call add_tile_data(restart,'coarseWood_litter_Rtot','soilCCohort    ', &
                         soilc_coarseWoodLitter_Rtot_ptr,'Coarse wood litter total degradation','kg/m2')
      call add_tile_data(restart,'coarseWood_litter_originalCohortC','soilCCohort', &
                         soilc_coarseWoodLitter_originalLitterC_ptr,'Coarse wood litter cohort original carbon','kg/m2')
@@ -1586,7 +1586,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'coarseWood_litter_DOC_deadmic',soilc_coarseWoodLitter_DOC_ptr,C_MIC, &
                         'Dissolved coarse wood litter dead microbe carbon','kg/m2')
 
-     call add_int_tile_data(restart,'is_peat', 'zfull', soil_is_peat_ptr ,'Is layer peat?','Boolean')
+     call add_int_tile_data(restart,'is_peat', 'zfull          ', soil_is_peat_ptr ,'Is layer peat?','Boolean')
   case default
      call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
   end select
@@ -1596,31 +1596,31 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   if (write_soil_carbon_restart) then
      filename = 'RESTART/'//trim(timestamp)//'soil_carbon.nc'
      call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level')
+     call add_restart_axis(restart,'zfull          ',zfull(1:num_l),.false.,"Z",'m','full level')
 
-     call add_tile_data(restart,'asoil_in', 'zfull', soil_asoil_in_ptr ,'aerobic activity modifier', 'unitless')
-     call add_tile_data(restart,'fsc_in', 'zfull', soil_fsc_in_ptr ,'fast soil carbon input', 'kg C/m2')
-     call add_tile_data(restart,'ssc_in', 'zfull', soil_ssc_in_ptr ,'slow soil carbon input', 'kg C/m2')
+     call add_tile_data(restart,'asoil_in', 'zfull          ', soil_asoil_in_ptr ,'aerobic activity modifier', 'unitless')
+     call add_tile_data(restart,'fsc_in', 'zfull          ', soil_fsc_in_ptr ,'fast soil carbon input', 'kg C/m2')
+     call add_tile_data(restart,'ssc_in', 'zfull          ', soil_ssc_in_ptr ,'slow soil carbon input', 'kg C/m2')
      if (soil_carbon_option == SOILC_CORPSE) then
-        call add_tile_data(restart,'deadmic_in', 'zfull', &
+        call add_tile_data(restart,'deadmic_in', 'zfull          ', &
                            soil_deadmic_in_ptr ,'dead microbe soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'fast_protected_in', 'zfull', &
+        call add_tile_data(restart,'fast_protected_in', 'zfull          ', &
                            soil_fast_protected_in_ptr ,'protected fast soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'slow_protected_in', 'zfull', &
+        call add_tile_data(restart,'slow_protected_in', 'zfull          ', &
                            soil_slow_protected_in_ptr ,'protected slow soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'deadmic_protected_in', 'zfull', &
+        call add_tile_data(restart,'deadmic_protected_in', 'zfull          ', &
                            soil_deadmic_protected_in_ptr ,'protected dead microbe soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'fast_turnover_accumulated', 'zfull', &
+        call add_tile_data(restart,'fast_turnover_accumulated', 'zfull          ', &
                            soil_fast_turnover_accumulated_ptr ,'fast soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'slow_turnover_accumulated', 'zfull', &
+        call add_tile_data(restart,'slow_turnover_accumulated', 'zfull          ', &
                            soil_slow_turnover_accumulated_ptr ,'slow soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'deadmic_turnover_accumulated', 'zfull', &
+        call add_tile_data(restart,'deadmic_turnover_accumulated', 'zfull          ', &
                            soil_deadmic_turnover_accumulated_ptr ,'dead microbe soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'fast_protected_turnover_accumulated', 'zfull', &
+        call add_tile_data(restart,'fast_protected_turnover_accumulated', 'zfull          ', &
                            soil_fast_protected_turnover_accumulated_ptr ,'fast protected soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull', &
+        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull          ', &
                            soil_slow_protected_turnover_accumulated_ptr ,'slow protected soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'deadmic_protected_turnover_accumulated', 'zfull', &
+        call add_tile_data(restart,'deadmic_protected_turnover_accumulated', 'zfull          ', &
              soil_deadmic_protected_turnover_accumulated_ptr ,'dead microbe protected soil carbon turnover', 'year-1')
 
         call add_tile_data(restart,'leaflitter_fast_turnover_accumulated',&
