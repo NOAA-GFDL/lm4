@@ -880,7 +880,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   !Read in the field from the file.
   allocate(r(size(restart%tidx),flen(1)))
   call read_data(restart%rhandle, varname, r)
-! call distrib_tile_data_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
+  call distrib_tile_data_r1d_idx_idx2(fptr,idx1,idx2,restart%tidx,r)
   deallocate(r)
   deallocate(flen)
  
@@ -1434,6 +1434,27 @@ subroutine distrib_tile_data_r1d_idx(fptr,n,idx,data)
      enddo
   enddo
 end subroutine distrib_tile_data_r1d_idx
+
+subroutine distrib_tile_data_r1d_idx_idx2(fptr,n,m,idx,data)
+  procedure(fptr_r0ijk) :: fptr ! subroutine returning pointer to the data
+  integer, intent(in) :: n,m ! additional index argument for fptr
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real,    intent(in) :: data(:,:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr ! pointer to the tile data
+  integer :: i,j
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i), tileptr)
+     do j = 1,size(data,2)
+        call fptr(tileptr, j, n, m, ptr)
+        if(associated(ptr)) ptr=data(i,j)
+     enddo
+  enddo
+end subroutine distrib_tile_data_r1d_idx_idx2
 
 subroutine distrib_tile_data_r2d(fptr,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning the pointer to the data to be written

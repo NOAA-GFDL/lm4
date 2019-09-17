@@ -1367,7 +1367,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
         spnames(i+1)(j:j) = spdata(i)%name(j:j)
      enddo
   enddo
-!  call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
+  call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
 
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
