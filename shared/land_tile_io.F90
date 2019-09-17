@@ -314,13 +314,15 @@ subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: dim1, dim2 ! name of the text dimensions
-  character,        intent(in) :: datum(:,:)
+  character(len=*), intent(in) :: datum(:)
   character(len=*), intent(in), optional :: longname
 
-  integer :: id_restart, ierr
-  character(NF90_MAX_NAME)::dimnames(2)
-
-  call error_mesg('add_text_data','does not work with new io yet', FATAL)
+  call register_field(restart%rhandle, varname, "char", (/dim1, dim2/))
+  if (present(longname)) then
+      call register_variable_attribute(restart%rhandle, varname, "long_name", &
+                                       longname)
+  endif
+  call write_data(restart%rhandle, varname, datum)	
 
 end subroutine add_text_data
 
@@ -688,12 +690,14 @@ subroutine get_scalar_data(restart,varname,datum)
   call read_data(restart%rhandle,varname,datum)
 end subroutine get_scalar_data
 
-subroutine get_text_data(restart,varname,text)
+subroutine get_text_data(restart,varname,textlength,text)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
-  character, allocatable, intent(out) :: text(:,:)
+  integer, intent(in) :: textlength
+  character(len=256), allocatable, intent(out) :: text(:)
 
-  call error_mesg('get_text_data','does not work with new io yet', FATAL)
+  allocate(text(1:textlength))
+  call read_data(restart%rhandle,varname,text)
 end subroutine get_text_data
 
 subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)

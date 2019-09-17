@@ -88,7 +88,8 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
+    get_variable_size
 
 implicit none
 private
@@ -1331,7 +1332,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
-  character:: spnames(fm_field_name_len, nspecies) ! names of the species
+  character(len=fm_field_name_len) :: spnames(nspecies) ! names of the species
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
@@ -1359,11 +1360,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)], .false.,"Z")
   call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],.false.,"Z")
   do i = 0, nspecies-1
-     do j = 1,size(spnames,1)
-        spnames(j,i+1) = ' '
+     do j = 1,fm_field_name_len
+        spnames(i+1)(j:j) = ' '
      enddo
-     do j = 1,min(len(spdata(i)%name),size(spnames,1))
-        spnames(j,i+1) = spdata(i)%name(j:j)
+     do j = 1,min(len(spdata(i)%name),fm_field_name_len)
+        spnames(i+1)(j:j) = spdata(i)%name(j:j)
      enddo
   enddo
 !  call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
@@ -1465,7 +1466,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
      call add_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
                         'seed carbon dropped by dying plants', 'kgC/m2')
      call add_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
-                        'seed nirogen dropped by dying plants', 'kgC/m2')
+                        'seed nitrogen dropped by dying plants', 'kgC/m2')
   enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
@@ -3046,8 +3047,8 @@ subroutine read_remap_species(restart)
   ! ---- local vars
   integer :: nsp ! number of input species
   integer :: i, sp
-  character(fm_field_name_len), allocatable :: spnames(:)
-  character, allocatable :: text(:,:)
+  integer :: sp_dims(2)
+  character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
@@ -3059,13 +3060,13 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
-  call get_text_data(restart, 'species_names', text)
-  nsp = size(text,2)
-  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
+  call get_variable_size(restart%rhandle, "species_names", sp_dims)
+  nsp = sp_dims(2)
+  allocate(spnames(1:nsp))
+  allocate(sptable(1:nsp))
+  call get_text_data(restart, 'species_names', nsp, spnames)
   sptable(:) = -1
-  do i = 0, nsp-1
-     ! convert character array to strings
-     call array2str(text(:,i+1),spnames(i))
+  do i = 1, nsp
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then
@@ -3085,14 +3086,14 @@ subroutine read_remap_species(restart)
         sp = tile%vegn%cohorts(i)%species
         if (sp<0.or.sp>=nsp) &
              call error_mesg('vegn_init','species index is outside of the bounds', FATAL)
-        if (sptable(sp)<0) &
-             call error_mesg('vegn_init','species "'//trim(spnames(sp))// &
+        if (sptable(sp+1)<0) &
+             call error_mesg('vegn_init','species "'//trim(spnames(sp+1))// &
                             '" from restart are not found in the model species parameter list',&
                             FATAL)
-        tile%vegn%cohorts(i)%species = sptable(sp)
+        tile%vegn%cohorts(i)%species = sptable(sp+1)
      enddo
   enddo
-  deallocate(text, spnames, sptable)
+  deallocate(spnames, sptable)
 end subroutine read_remap_species
 
 ! =====================================================================================
