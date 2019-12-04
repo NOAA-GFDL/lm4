@@ -9,7 +9,7 @@ use fms_mod, only : error_mesg, FATAL, NOTE
 use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, operator(/=), loop_over_tiles, nitems, max_n_tiles
+     first_elmt, operator(/=), loop_over_tiles, nitems
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
      do_check_conservation, check_conservation, is_watch_cell

@@ -49,7 +49,7 @@ type :: tile_selector_type
 
    integer :: tag = 0 ! tag of the model component
    integer :: idata1=0, idata2=0 ! integer data
-   integer :: rdata1=0, rdata2=0 ! real data
+   real    :: rdata1=0, rdata2=0 ! real data
    integer :: area_id = -1 ! diag manger ID of the area field associated with this filter
 end type tile_selector_type
 
@@ -133,6 +133,12 @@ subroutine register_tile_selector( name, long_name, tag, idata1, idata2, rdata1,
   if (present(rdata2)) selectors(n_selectors)%rdata2 = rdata2
   if (present(area_depends_on_time)) &
           selectors(n_selectors)%area_is_static = .not.area_depends_on_time
+!   write(*,'(a)', advance='NO')'registered diag selector: "'//trim(selectors(n_selectors)%name)//'" '
+!   write(*,'(a,g)', advance='NO')' idata1=',selectors(n_selectors)%idata1
+!   write(*,'(a,g)', advance='NO')' idata2=',selectors(n_selectors)%idata2
+!   write(*,'(a,g)', advance='NO')' rdata1=',selectors(n_selectors)%rdata1
+!   write(*,'(a,g)', advance='NO')' rdata2=',selectors(n_selectors)%rdata2
+!   write(*,*)
 end subroutine register_tile_selector
 
 
