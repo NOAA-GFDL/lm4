@@ -12,9 +12,10 @@ use fms_mod, only: error_mesg, NOTE,FATAL,WARNING, file_exist, &
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, &
+     days_in_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
-use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
+use constants_mod,    only: tfreeze, rdgas, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 
 use vegn_tile_mod, only: vegn_tile_type, &
@@ -42,19 +43,17 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
-use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
-     LEAF_ON, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, N_HARV_POOLS, HARV_POOL_NAMES, &
-     HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     HARV_POOL_PAST, HARV_POOL_CROP, &
+use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
+     LEAF_ON, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     c2n_N_fixer,C2N_SEED, N_limits_live_biomass, &
+     c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
-     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY
+     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -179,6 +178,11 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
    ! evaporation in one time step.
+real    :: min_lai = 0.0 ! minimum allowed LAI. If cohort lai calculated in update_derived_vegn_data
+   ! falls below this limit, then LAI and leafarea are set to zero. This is to avoid
+   ! numerical problems if bl is extremely small, and calculations of intercepted water
+   ! fractions, teir derivatives, and evap_demand give nonsensical values. Note that there
+   ! is also min_lai_pheno in vegn_data_nml, which works only in ppa phenology.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
@@ -207,7 +211,7 @@ namelist /vegn_nml/ &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
-    min_Wl, min_Ws, tau_smooth_ncm, tau_smooth_T_dorm, &
+    min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
     do_peat_redistribution, do_intercept_melt
 
@@ -250,7 +254,8 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
-   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib
+   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
+   id_age_since_disturbance, id_age_since_landuse
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -483,7 +488,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
 
-     call get_tile_data(restart2,'age',vegn_age_ptr)
+     if (field_exists(restart2,'age_since_disturbance')) then
+        call get_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr)
+        call get_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr)
+     endif
 
      call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
      call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
@@ -1053,7 +1061,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
      id_psiph = register_tiled_diag_field ( module_name, 'psi_stress_phen',  &
           (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )
   endif
-     
+
   id_leaf_age = register_cohort_diag_field ( module_name, 'leaf_age',  &
        (/id_ug/), time, 'age of leaves since bud burst', 'days', missing_value=-1.0 )!ens
 
@@ -1187,6 +1195,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_zstar_1 = register_tiled_diag_field (module_name, 'zstar:C',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
+       missing_value=-1.0)
+
+  id_age_since_disturbance = register_tiled_diag_field (module_name, 'age_since_disturbance',(/id_ug/), &
+       time, 'tile age since last disturbance (human or natural)', 'year', &
+       missing_value=-1.0)
+  id_age_since_landuse = register_tiled_diag_field (module_name, 'age_since_landuse',(/id_ug/), &
+       time, 'tile age since last land use event', 'year', &
        missing_value=-1.0)
 
   ! CMOR/CMIP variables
@@ -1470,7 +1485,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
-  call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
+  call add_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr,'time since last disturbance', 'yr')
+  call add_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr,'time since last land use disturbance', 'yr')
 
   ! write carbon pools and rates
   call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for AG fast soil carbon input', 'kg C/m2')
@@ -2198,7 +2214,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   endif
 
   ! Do N deposition first. For now, it all goes to leaf litter
-  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes 
+  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes
   ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
   call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
   call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
@@ -2295,7 +2311,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
 end subroutine vegn_step_3
 
 ! ===========================================================================
-! given soil state and model settings, calculate relative soil moisture for 
+! given soil state and model settings, calculate relative soil moisture for
 ! phenology, with specified depth of averaging
 real function phen_ave_theta(soil,zeta)
   type(soil_tile_type), intent(in) :: soil
@@ -2389,6 +2405,10 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
        cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*layer_area(cc%layer)
+       if(cc%lai<min_lai) then
+          cc%leafarea = 0.0
+          cc%lai      = 0.0
+       endif
        ! calculate the root density as the total biomass below ground, in
        ! biomass (not carbon!) units
        cc%root_density = (cc%br + (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
@@ -2485,6 +2505,7 @@ subroutine update_vegn_slow( )
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
+  real :: age_increment ! slow time step in years, for average year length in our calendar
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -2494,6 +2515,10 @@ subroutine update_vegn_slow( )
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   ! calculate day of year, to avoid re-calculating it in harvesting
   doy = day_of_year(lnd%time)
+  ! calculate age increment, to avoid re-calculating for every tile.
+  ! Trying to avoid ages jumping over the year boundaries within the year, which
+  ! would happen if we used average length of year for given calendar.
+  age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -2506,7 +2531,7 @@ subroutine update_vegn_slow( )
   if (day0/=day1) then
      call crop_seed_transport(doy)
   endif
-  
+
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
      call set_current_point(l,k) ! this is for debug output only
@@ -2718,6 +2743,12 @@ subroutine update_vegn_slow( )
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      endif
+
+     ! ---- increment tile ages
+     call send_tile_data(id_age_since_disturbance,   tile%vegn%age_since_disturbance,   tile%diag)
+     call send_tile_data(id_age_since_landuse,       tile%vegn%age_since_landuse,       tile%diag)
+     tile%vegn%age_since_disturbance = min(tile%vegn%age_since_disturbance + age_increment, MAX_TILE_AGE)
+     tile%vegn%age_since_landuse     = min(tile%vegn%age_since_landuse     + age_increment, MAX_TILE_AGE)
 
      ! ---- diagnostic section
      call send_tile_data(id_t_ann,   tile%vegn%t_ann,   tile%diag)

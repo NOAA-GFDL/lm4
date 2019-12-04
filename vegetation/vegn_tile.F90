@@ -16,8 +16,8 @@ use vegn_data_mod, only : &
      MSPECIES, nspecies, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_SCND, N_HARV_POOLS, &
-     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, FORM_GRASS, &
+     BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
+     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
      do_bl_max_merge
 
@@ -84,7 +84,11 @@ type :: vegn_tile_type
    real, allocatable :: drop_seed_C(:), drop_seed_N(:) ! by species, seeds dropped
                                 ! by dying plants, kgC/m2
 
-   real :: age=0.0 ! tile age
+   real :: age_since_disturbance = 0.0 ! tile age since last disturbance (either human or natural)
+   real :: age_since_landuse     = 0.0 ! tile age since last human disturbance
+   ! it may sound easier to store time of last disturbance and calculate age by subtraction
+   ! when necessary (since disturbance time would not require updating), but such approach
+   ! would cause problems if the model date is changed, or if model calendar is changed
 
    ! fields for smoothing out the contribution of the spike-type processes (e.g.
    ! harvesting) to the soil carbon pools over some period of time
@@ -324,7 +328,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(drop_seed_C)
   __MERGE__(drop_seed_N)
 
-  __MERGE__(age);
+  __MERGE__(age_since_disturbance)
+  __MERGE__(age_since_landuse)
 
   __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
@@ -532,7 +537,7 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
      __DEBUG3__(heat1,heat2,dheat)
       write(*,*)'#### end of vegn_mergecohorts_ppa output ####'
   endif
-!  call check_var_range(dheat,-1.0,1.0,'vegn_mergecohorts_ppa','vegetation heat tendency due to cohort merge',WARNING)
+  call check_var_range(dheat,-1.0,1.0,'vegn_mergecohorts_ppa','vegetation heat tendency due to cohort merge',WARNING)
 
 end subroutine vegn_mergecohorts_ppa
 
@@ -542,9 +547,13 @@ subroutine merge_cohorts(c1,c2)
   type(vegn_cohort_type), intent(in) :: c1
   type(vegn_cohort_type), intent(inout) :: c2
 
+  real, parameter :: T_range_ext = 0.0 ! degree K, allowed temperature departure
+      ! outside [Tv1, Tv2] range.
+
   real :: x1, x2 ! normalized relative weights
   real :: HEAT1, HEAT2 ! heat stored in respective canopies
-  real :: hcap1, hcap2, hcap
+  real :: hcap1, hcap2, hcap ! heat capacities of respective canopies, and of resulting canopy
+  real :: Temp ! intermediate value for merged cohort temperature calculation, degK
 
 !  call check_var_range(c1%nindivs,0.0,HUGE(1.0),'merge_cohorts','c1%nindivs',FATAL)
 !  call check_var_range(c2%nindivs,0.0,HUGE(1.0),'merge_cohorts','c2%nindivs',FATAL)
@@ -629,18 +638,24 @@ subroutine merge_cohorts(c1,c2)
   ! update canopy temperature -- just merge temperatures using nindivs as weights if
   ! the heat capacities are zero, or merge based on the heat content if the heat capacities
   ! are non-zero
-!   call check_var_range(c1%Tv,120.0,373.0,'merge_cohorts before', 'Tv1', FATAL)
-!   call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts before', 'Tv2', FATAL)
   hcap = clw*c2%Wl + csw*c2%Ws + c2%mcv_dry
-  if(hcap1*hcap2>=0.and.abs(hcap)>epsilon(1.0)) then
-     c2%Tv = (HEAT1*x1+HEAT2*x2)/hcap + tfreeze
-  else
-     ! If cohort heat capacities are of different sign, then it does not make sense to
-     ! merge heat content, so we merge temperatures. However, this results in heat
-     ! conservation violation; caller needs to take that into account.
+  if (abs(hcap)<epsilon(1.0)) then
+     ! tiny heat capacities, just merge temperature
      __MERGE__(Tv)
+  else
+     Temp = (HEAT1*x1+HEAT2*x2)/hcap + tfreeze
+     ! If cohort heat capacities are of the same sign, then equation above conserves heat
+     ! and gives temperature within [c1%Tv,c2%Tv] range. For heat capacities of different
+     ! sign (e.g. due to negative intercepted water content) this expression can give
+     ! Tv outside that range, and -- depending on the situation -- it can be wildly outside,
+     ! e.g. when HEAT1 is tiny positive, and HEAT2 is tiny negative. In this case we impose
+     ! limits on the resulting temperatures, so it's not too much out of the range. This
+     ! does not conserve heat, of course, so this heat non-conservation must be taken care
+     ! of in the calling subroutine.
+     Temp = max(Temp, min(c1%Tv,c2%Tv)-T_range_ext)
+     Temp = min(Temp, max(c1%Tv,c2%Tv)+T_range_ext)
+     c2%Tv = Temp
   endif
-!  call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts after', 'Tv2', FATAL)
 #undef  __MERGE__
   ! update number of individuals in merged cohort
   c2%nindivs = c1%nindivs+c2%nindivs
@@ -853,6 +868,8 @@ function vegn_is_selected(vegn, sel)
   case (LU_SEL_TAG)
      if (sel%idata2 == LU_PSL) then
         vegn_is_selected = ((vegn%landuse == LU_NTRL).or.(vegn%landuse == LU_SCND))
+     else if (sel%idata2 == LU_PST) then
+        vegn_is_selected = ((vegn%landuse == LU_PAST).or.(vegn%landuse == LU_RANGE))
      else
         vegn_is_selected = (sel%idata2 == vegn%landuse)
      endif
@@ -871,6 +888,10 @@ function vegn_is_selected(vegn, sel)
              (spdata(sp)%lifeform==FORM_GRASS).and.&
              ((vegn%landuse==LU_NTRL).or.(vegn%landuse==LU_SCND))
      endif
+  case (SCND_AGE_SEL_TAG)
+     vegn_is_selected = (vegn%landuse == LU_SCND              &
+                   .and. vegn%age_since_landuse.ge.sel%rdata1 &
+                   .and. vegn%age_since_landuse.lt.sel%rdata2 )
   case default
      vegn_is_selected = .FALSE.
   end select

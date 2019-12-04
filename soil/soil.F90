@@ -1363,7 +1363,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   call set_default_diag_filter('land')
   id_mrsofc = register_tiled_static_field ( cmor_name, 'mrsofc', axes(1:1),  &
        'Capacity of Soil to Store Water', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content_at_field_capacity', fill_missing=.TRUE.)
+       standard_name='soil_moisture_content_at_field_capacity')
   id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
        lnd%time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
@@ -3251,7 +3251,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! ---- diagnostic section
   call send_tile_data(id_rsoil, vegn%rh, diag)
-  
+
   if (id_decomp_theta>0) call send_tile_data(id_decomp_theta, decomp_theta(:),diag)
   if (id_air_filled>0)   call send_tile_data(id_air_filled, 1.0-(decomp_theta(:)+ice_porosity(:)),diag)
   if (id_theta_func>0) call send_tile_data(id_theta_func, &

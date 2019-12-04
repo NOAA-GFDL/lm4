@@ -103,33 +103,33 @@ character(32), parameter :: opstrings(6) = (/ & ! symbolic names of the aggregat
 
 
 ! How to add new cohort filter or aggregator in few simple steps:
-! 
+!
 ! Let us use aggregation by dbh bins as an example.
 ! (1) add new unique constant to the list of cohort filters (do not forget to
 !     increase the constant for their number), for example:
-! 
+!
 ! integer, parameter :: N_COHORT_FILTERS = 8 ! number of possible distinct cohort filters
 ! ....
 !    CFILTER_BY_DBH = 8
-! 
+!
 ! (2) add unique ID for dbh axis:
 !    CAXES_DBH = 2    ! species axis
-! 
-! (3) make sure dbh axis is registered, see how it is done for species axis in 
+!
+! (3) make sure dbh axis is registered, see how it is done for species axis in
 !     register_cohort_diag_field
-! 
+!
 ! (4) add new entry to the array of cohort filter descriptors, e.g.:
-! 
+!
 ! type(cohort_filter_type), parameter :: cohort_filter(11) = [ &
 !    ....
 !    cohort_filter_type(CFILTER_BY_DBH, CAXES_DBH, '(dbh)', ' by diameter at breast height'), &
 !    ....
-! 
+!
 ! Also add descriptors for canopy and understory trees, if desired
-! 
+!
 ! (5) implement aggregation of cohort data by DBH, see how it is done in
 !     aggregate_by_species
-! 
+!
 ! (6) add aggregation by DBH to the send_cohort_data_with_weight
 
 ! extra axes that some cohort diagnostics need
@@ -873,7 +873,7 @@ subroutine send_tile_data_0d_array(id, x, send_immediately)
   if(present(send_immediately)) then
      ! TODO: perhaps need to add time to the arguments, instead of using lnd%time?
      ! not clear if this will have any effect
-     if(send_immediately) call dump_tile_diag_field(land_tile_map, id, lnd%time)
+     if(send_immediately) call dump_tile_diag_field(id, lnd%time)
   endif
 end subroutine send_tile_data_0d_array
 
@@ -954,8 +954,6 @@ end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
-!pass in land_tile_map into this routine to temporarily solve the crash issue
-!with Intel compiler when running with multiple openmp threads.
 subroutine dump_tile_diag_fields(time)
   type(time_type)          , intent(in) :: time       ! current time
 
@@ -975,7 +973,7 @@ subroutine dump_tile_diag_fields(time)
      ! write(*,*)trim(fields(ifld)%module),'/',trim(fields(ifld)%name)
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel (land_tile_map, fields(ifld)%ids(isel), &
+        call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
      enddo
   enddo
@@ -994,10 +992,7 @@ end subroutine dump_tile_diag_fields
 ! dumps a single field
 ! TODO: perhaps need dump aliases as well
 ! TODO: perhaps total_n_sends check can be removed to avoid communication
-! pass in land_tile_map into this routine to temporarily solve the crash issue
-! with Intel compiler when running with multiple openmp threads.
-subroutine dump_tile_diag_field(land_tile_map, id, time)
-  type(land_tile_list_type), intent(in) :: land_tile_map(:)   ! map of tiles
+subroutine dump_tile_diag_field(id, time)
   integer, intent(in) :: id ! diag id of the field
   type(time_type), intent(in) :: time       ! current time
 
@@ -1021,7 +1016,7 @@ subroutine dump_tile_diag_field(land_tile_map, id, time)
 !$OMP parallel do default(none) shared(land_tile_map,n_selectors,fields,ifld,selectors,time) private(isel)
   do isel = 1, n_selectors
      if (fields(ifld)%ids(isel) <= 0) cycle
-     call dump_diag_field_with_sel (land_tile_map, fields(ifld)%ids(isel), &
+     call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
           fields(ifld), selectors(isel), time )
   enddo
   ! zero out the number of data points sent to the field
@@ -1037,18 +1032,11 @@ subroutine dump_tile_diag_field(land_tile_map, id, time)
 end subroutine dump_tile_diag_field
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
-  type(land_tile_list_type)  , intent(in) :: land_tile_map(:)
+subroutine dump_diag_field_with_sel(id, field, sel, time)
   integer                    , intent(in) :: id
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
-
-! NOTE that passing in land_tile_map (despite the fact that this array is also globally
-! available) is a work around (apparent) compiler issue, when with multiple openmp threads
-! *and* debug flags Intel compilers (15 and 16) report index errors, as if global
-! land_tile_map array started from 1,1 instead of is,js. Passing it in as argument solves
-! this issue.
 
   ! ---- local vars
   integer :: l ! iterators
