@@ -5,14 +5,8 @@ module canopy_air_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
-     close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
+use fms_mod, only : error_mesg, FATAL, NOTE, input_nml_file, &
+     check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use constants_mod, only : VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
@@ -84,21 +78,8 @@ subroutine read_cana_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=cana_nml, iostat=io)
-     ierr = check_nml_error(io, 'cana_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=cana_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'cana_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=cana_nml, iostat=io)
+  ierr = check_nml_error(io, 'cana_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=cana_nml)
@@ -112,7 +93,7 @@ subroutine cana_init()
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: ce   ! tile list enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/cana.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -219,7 +200,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'cana.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'cana.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
   ! write temperature

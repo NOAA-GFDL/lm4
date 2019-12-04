@@ -11,13 +11,15 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_get_ug_compute_domain, mpp_get_ug_domain_grid_index, mpp_pass_sg_to_ug, &
      mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
-     file_exist, error_mesg, FATAL, read_data
+     error_mesg, FATAL
 use fms_io_mod        , only : parse_mask_table
 use time_manager_mod  , only : time_type
 use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp
+
+use fms2_io_mod, only: close_file, file_exists, FmsNetcdfFile_t, open_file, read_data
 
 implicit none
 private
@@ -240,7 +242,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
 
   mask_table_exist = .false.
   outunit = stdout()
-  if(file_exist(mask_table)) then
+  if(file_exists(mask_table)) then
      mask_table_exist = .true.
      write(outunit, *) '==> NOTE from land_data_init:  reading maskmap information from '//trim(mask_table)
      if(layout(1) == 0 .OR. layout(2) == 0 ) call error_mesg('land_model_init', &
@@ -336,18 +338,23 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   real,    allocatable :: lnd_area(:,:,:)
   integer              :: i, j, n, l, nland, ug_io_layout
 
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
+
   ! On root pe reading the land_area to decide number of land points.
   allocate(num_lnd(ntiles))
 
-  if(file_exist('INPUT/land_domain.nc', no_domain=.true.)) then
+  exists = open_file(fileobj, "INPUT/land_domain.nc", "read")
+  if (exists) then
      write(stdout(),*)'set_land_state_ug: reading land information from "INPUT/land_domain.nc" '// &
                       'to use number of land tiles per grid cell for efficient domain decomposition.'
-     call read_data('INPUT/land_domain.nc', 'nland_face', num_lnd, no_domain=.true.)
+     call read_data(fileobj, "nland_face", num_lnd)
      nland = sum(num_lnd)
      allocate(grid_index(nland))
      allocate(ntiles_grid(nland))
-     call read_data('INPUT/land_domain.nc', 'grid_index', grid_index, no_domain=.true.)
-     call read_data('INPUT/land_domain.nc', 'grid_ntile', ntiles_grid, no_domain=.true.)
+     call read_data(fileobj, "grid_index", grid_index)
+     call read_data(fileobj, "grid_ntile", ntiles_grid)
+     call close_file(fileobj)
      grid_index = grid_index + 1
   else
      write(stdout(),*)'set_land_state_ug: read land/sea mask from grid file: '// &
