@@ -12,7 +12,7 @@ use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
       min_cohort_nindivs
 use vegn_tile_mod, only : vegn_tile_type
-use vegn_cohort_mod, only : vegn_cohort_type, plant_C, &
+use vegn_cohort_mod, only : vegn_cohort_type, plant_C, plant_N, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
       init_cohort_allometry_ppa, cohort_can_reproduce
 
@@ -233,7 +233,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
   real, intent(in) :: seed_C(0:nspecies-1), seed_N(0:nspecies-1)
   real, intent(in), optional :: germination_factor ! additional multiplier for
       ! seed germination, use 0.0 to kill weed seeds on cropland
-  real, intent(in), optional :: prob_est, prob_ger ! probabilities of establishment and 
+  real, intent(in), optional :: prob_est, prob_ger ! probabilities of establishment and
       ! germenation, to allow overriding species values in crop seeding
 
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
@@ -247,6 +247,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
   real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
   real, allocatable :: height(:) ! height of tallest vegetation in each layer
   real    :: germ_f, prob_e, prob_g
+  real, parameter :: stored_N_tol = 1e-16 ! acceptable negative value of stored N, relative to total_N
 
   germ_f = 1.0
   if (present(germination_factor)) germ_f = 1.0
@@ -260,8 +261,8 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
   newcohorts = count(seed_C>0)
   if (newcohorts == 0) return ! do nothing if no cohorts are ready for reproduction
 
+  ! increase the size of cohorts array, if necessary
   if (vegn%n_cohorts+newcohorts>size(vegn%cohorts)) then
-     ! increase the size of cohorts array
      ccold => vegn%cohorts
      allocate(vegn%cohorts(vegn%n_cohorts+newcohorts))
      vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts)
@@ -303,25 +304,31 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     prob_e = sp%prob_e; if (present(prob_est)) prob_e = prob_est
     prob_g = sp%prob_g; if (present(prob_ger)) prob_g = prob_ger
     cc%nindivs = seed_C(i) * prob_g * germ_f * prob_e/plant_C(cc)
+    failed_seed_C = (1-prob_g*germ_f*prob_e) * seed_C(i)
+    failed_seed_N = (1-prob_g*germ_f*prob_e) * seed_N(i)
+    if (N_limits_live_biomass.and.cc%nindivs*plant_N(cc) > seed_N(i) * prob_g * germ_f * prob_e) then
+       cc%nindivs = seed_N(i) * prob_g * germ_f * prob_e/plant_N(cc)
+       failed_seed_C = max(0.0,seed_C(i) - cc%nindivs*plant_C(cc))
+       failed_seed_N = max(0.0,seed_N(i) - cc%nindivs*plant_N(cc))
+    endif
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
-    ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N isn't necessarily consistent with initial C vals
-    ! cc%total_N is set in init_cohort_allometry_ppa so it should be correct
+    ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N is
+    ! not necessarily consistent with initial C values. cc%total_N is set in
+    ! init_cohort_allometry_ppa so it should be correct
     if(cc%nindivs>0) &
         cc%stored_N = seed_N(i)*prob_g*prob_e/cc%nindivs - cc%total_N
-    ! If nindivs is zero, seedling should be killed by kill_small_cohorts. Otherwise there could be balance problems
-    if(cc%stored_N<0 .AND. N_limits_live_biomass) then
+    ! If nindivs is zero, seedling should be killed by kill_small_cohorts_ppa. Otherwise there could be balance problems
+    if(N_limits_live_biomass .and. cc%stored_N < -stored_N_tol*cc%total_N) then
        __DEBUG3__(seed_N(i)/cc%nindivs,cc%total_N,cc%stored_N)
        call land_error_message('add_seedlings_ppa: Not enough N in seeds to make seedling',FATAL)
     endif
-    cc%total_N = cc%total_N + cc%stored_N
+    cc%stored_N = max(0.0,cc%stored_N) ! just in case, to get rid of tiny negatives due to numerics
+    cc%total_N  = cc%total_N + cc%stored_N ! adjust total to include new stored_N
 
     ! print *,'Reproduction:'
     ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
     ! __DEBUG4__(cc%nindivs,cc%stored_N,cc%total_N,cc%total_N-cc%stored_N)
-
-    failed_seed_C = (1-prob_g*germ_f*prob_e) * seed_C(i)
-    failed_seed_N = (1-prob_g*germ_f*prob_e) * seed_N(i)
 
     vegn%litter = vegn%litter + failed_seed_C
     litt_C(:) = litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_C
