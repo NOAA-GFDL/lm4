@@ -15,7 +15,7 @@ use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_fi
                        get_valid, is_valid, variable_exists, get_variable_size, &
                        get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
                        get_variable_dimension_names, get_variable_num_dimensions
-use legacy_mod, only: axis_edges
+use axis_utils2_mod, only: axis_edges
 use mpp_domains_mod, only : mpp_pass_SG_to_UG
 use time_interp_external_mod, only : init_external_field, time_interp_external, &
      time_interp_external_init

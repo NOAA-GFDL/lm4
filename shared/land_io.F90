@@ -20,7 +20,7 @@ use mpp_domains_mod, only : domain2d
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
                        get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
                        is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists
-use legacy_mod, only: axis_edges
+use axis_utils2_mod, only: axis_edges
 
 implicit none
 private

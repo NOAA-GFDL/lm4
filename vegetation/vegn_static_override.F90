@@ -407,12 +407,12 @@ subroutine read_static_vegn (time, err_msg)
 
   ! read the data into cohort variables
   if(input_is_multiface) then
-   ndims = get_variable_num_dimensions(fileobj, "cohort_index")
+   ndims = get_variable_num_dimensions(fileobj_domainug, "cohort_index")
    allocate(siz(ndims))
    call get_variable_size(fileobj_domainug, "cohort_index", siz)
    allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
    deallocate(siz)
-   call read_data(fileobj_domainug, "cohort_index", cidx, unlim_dim_level=index1)
+   call read_data(fileobj_domainug, "cohort_index", cidx)
    call read_data(fileobj_domainug, "species", idata, unlim_dim_level=index1)
    call read_remap_cohort_data_i0d_new(fileobj_domainug, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
    call read_data(fileobj_domainug, "bl", rdata, unlim_dim_level=index1)
