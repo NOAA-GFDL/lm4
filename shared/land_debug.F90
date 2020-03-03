@@ -34,6 +34,7 @@ public :: check_conservation
 
 public :: land_error_message
 public :: log_date
+public :: string_from_time
 public :: dpri
 
 interface dpri
@@ -78,11 +79,11 @@ integer              :: mosaic_tile_sg = 0, mosaic_tile_ug = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:), curr_l(:)
 type(time_type)      :: start_watch_time, stop_watch_time
 character(128)       :: fixed_label_format
+integer              :: watch_point_lindex = 0  ! watch point index in unstructured grid.
 
 !---- namelist ---------------------------------------------------------------
 integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
            ! i,j,tile,mosaic_tile
-integer :: watch_point_lindex = 0  ! watch point index in unstructure grid.
 integer :: start_watching(6) = (/    1, 1, 1, 0, 0, 0 /)
 integer :: stop_watching(6)  = (/ 9999, 1, 1, 0, 0, 0 /)
 logical :: watch_conservation = .FALSE. ! if true, conservation check reports are
@@ -166,11 +167,11 @@ subroutine land_debug_init()
   mosaic_tile_ug = lnd%ug_face
   watch_point_lindex = 0
   do l = lnd%ls, lnd%le
-     if(watch_point(1) == lnd%i_index(l) .AND. watch_point(2) == lnd%j_index(l)) then
+     if ( watch_point(1) == lnd%i_index(l) .AND. &
+          watch_point(2) == lnd%j_index(l)       ) then
         watch_point_lindex = l
      endif
   enddo
-  call mpp_max(watch_point_lindex)
 
 end subroutine land_debug_init
 
@@ -215,8 +216,9 @@ subroutine set_current_point_ug(l,k)
   curr_k(thread) = k; curr_l(thread) = l
 
   current_debug_level(thread) = 0
-  if ( watch_point_lindex==l.and. &
-       watch_point(3)==k.and. &
+  if ( watch_point(1)==curr_i(thread).and. &
+       watch_point(2)==curr_j(thread).and. &
+       watch_point(3)==curr_k(thread).and. &
        watch_point(4)==mosaic_tile_ug) then
      current_debug_level(thread) = 1
   endif
@@ -567,6 +569,17 @@ subroutine land_error_message(text,severity)
   call error_mesg(text,message,severity_)
 
 end subroutine land_error_message
+
+! ============================================================================
+function string_from_time(time) result(str)
+  character(19) :: str  ! YYYY-MM-DD HH:MM:YY
+  type(time_type), intent(in) :: time
+
+  integer :: y,mo,d,h,m,s ! components of date for debug printout
+
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(str,'(i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')y,mo,d,h,m,s
+end function string_from_time
 
 ! ============================================================================
 ! print time in the debug output

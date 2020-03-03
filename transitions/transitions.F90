@@ -25,7 +25,8 @@ use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, landuse_name, landuse_longname
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
+     landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
@@ -36,7 +37,7 @@ use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
-     empty, erase, remove, insert, merge_land_tile_into_list, &
+     erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_diag_mod, only : cmor_name
 
@@ -72,9 +73,10 @@ integer, parameter :: &
      DISTR_LM3 = 0, &
      DISTR_MIN = 1
 ! order of transitions (resulting land use types, hight to low priority) for the
-! min-n-tiles transition distribution option
-! integer, parameter :: tran_order(4) = (/LU_URBAN, LU_CROP, LU_PAST, LU_SCND/)
-integer, parameter :: tran_order(3) = (/LU_CROP, LU_PAST, LU_SCND/)
+! min-n-tiles transition distribution option. ALL land use types MUST be present in this
+! array, otherwise some transitions may be missed -- except perhaps LU_NTRL, since we
+! assume there are no transitions to LU_NTRL
+integer, parameter :: tran_order(N_LU_TYPES) = (/LU_URBN, LU_CROP, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
 
 ! TODO: describe differences between data sets
 
@@ -136,7 +138,7 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
 ! variables for LUMIP diagnostics
 integer, parameter :: N_LUMIP_TYPES = 4, &
    LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
-character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','past','crop','urbn']
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst ','crop','urbn']
 integer :: &
    id_frac_in (N_LUMIP_TYPES) = -1, &
    id_frac_out(N_LUMIP_TYPES) = -1
@@ -289,12 +291,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      id_frac_in(k1) = register_diag_field(cmor_name, &
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
-         units='fraction', area = id_cellarea)
+         units='%', standard_name='area_fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
      id_frac_out(k1) = register_diag_field(cmor_name, &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
-         units='fraction', area = id_cellarea)
+         units='%', standard_name='area_fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_out(k1),'ocean_fillvalue',0.0)
   enddo
 
@@ -705,7 +707,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac, time)
+        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac*100.0, time)
      endif
   enddo
   do k1 = 1, N_LUMIP_TYPES
@@ -719,7 +721,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac, time)
+        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac*100.0, time)
      endif
   enddo
 
@@ -832,7 +834,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      ! the transitions. The arrays are of equal size. For each initial and final
      ! LU types src and dst, there is only one element src->dst in these arrays.
      !
-     ! We go in order (U,C,P,S) through the final LU types, and apply all transitions
+     ! We go in order (U,C,P,R,S) through the final LU types, and apply all transitions
      ! that convert land to this type. Since initial type for each of these transitions
      ! are different, there should not be dependence on the order of operations.
      !
@@ -1032,6 +1034,10 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
                 call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
         ! calculate remaining area of transition
@@ -1159,6 +1165,10 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
              call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif

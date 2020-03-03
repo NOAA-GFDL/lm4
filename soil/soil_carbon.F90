@@ -5,15 +5,12 @@ module soil_carbon_mod
 
 #include "../shared/debug.inc"
 
-use constants_mod, only : pi, dens_h2o
-use land_constants_mod, only : Rugas, seconds_per_year
+use land_constants_mod, only : Rugas
 use fms_mod, only: check_nml_error, file_exist, close_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
-use vegn_data_mod, only: K1,K2, N_C_TYPES, C_FAST, C_SLOW, C_MIC
-use land_numerics_mod,only: tridiag
+use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
-use land_debug_mod, only: get_current_point, is_watch_point, check_var_range, &
-     check_conservation, carbon_cons_tol
+use land_debug_mod, only: is_watch_point, check_var_range
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
@@ -22,8 +19,6 @@ use fms_mod, only: open_namelist_file
 #endif
 #endif
 
-
-! End of external model stuff
 
 implicit none
 
@@ -105,11 +100,8 @@ integer, parameter :: RHIZ=1, BULK=2
 integer, parameter :: NLIM_DOWNREGULATE=1, NLIM_OVERFLOW=2
 
 #ifdef STANDALONE_SOIL_CARBON
-real,parameter::pi=3.141592
 real,parameter::Rugas=8.314472
-real,parameter::dens_h2o=1000.
 integer,parameter::FATAL=0,NOTE=1
-real,parameter :: seconds_per_year=86400.0*365.0
 #endif
 
 real, parameter :: zero(N_C_TYPES) = 0.0 ! to avoid dynamically allocated arrays
@@ -1041,16 +1033,16 @@ pure subroutine initializeCohort(cohort,&
 end subroutine initializeCohort
 
 ! note that in resp_denitrif the dependence on soil moisture is subtly different
-elemental real function theta_func(water_filed_porosity,air_filled_porosity)
-  real, intent(in) :: water_filed_porosity ! fraction of pores filled with water
+elemental real function theta_func(water_filled_porosity,air_filled_porosity)
+  real, intent(in) :: water_filled_porosity ! fraction of pores filled with water
   real, intent(in) :: air_filled_porosity ! fraction of pores filled with water
 
   ! Functional dependence on soil moisture, normalized so max is 1
-  theta_func=(water_filed_porosity**substrate_diffusion_exp)*(air_filled_porosity**gas_diffusion_exp)/aerobic_max
+  theta_func=(max(water_filled_porosity,0.0)**substrate_diffusion_exp)*(max(air_filled_porosity,0.0)**gas_diffusion_exp)/aerobic_max
   ! On the wet side of the function, make sure it does not go below min_anaerobic_resp_factor
-  if(water_filed_porosity>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
+  if(water_filled_porosity>theta_resp_max) theta_func=max(theta_func, min_anaerobic_resp_factor)
   ! On the dry side of the function, make sure it does not go below min_dry_resp_factor
-  if(water_filed_porosity<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
+  if(water_filled_porosity<theta_resp_max) theta_func=max(theta_func, min_dry_resp_factor)
 end function theta_func
 
 
@@ -2124,6 +2116,7 @@ end function V_NO3
 
 
 #ifndef STANDALONE_SOIL_CARBON
+
 subroutine adjust_pool_ncohorts(pool)
     type(soil_pool),intent(inout) :: pool
 
@@ -2150,39 +2143,6 @@ subroutine error_mesg(routine,message,level)
     endif
 end subroutine
 
-!Copied from soil_numerics (by sergey malyshev)
-! ============================================================================
-! given values of the triadiagonal matrix coefficients, computes a solution
-subroutine tridiag(a,b,c,r,u)
-  real, intent(in)  :: a(:),b(:),c(:),r(:)
-  real, intent(out) :: u(:)
-
-  integer :: j
-  real :: bet, gam(size(a))
-
-  ! check that the sizes are the same
-  if(size(a)/=size(b).or.size(a)/=size(c).or.size(a)/=size(r)) &
-       call error_mesg('tridiag','sizes of input arrays are not equal',FATAL)
-  if(size(u)<size(a)) &
-       call error_mesg('tridiag','size of the result is insufficient',FATAL)
-  ! check that a(1)==0 and c(N)==0
-  if(a(1)/=0.or.c(size(a))/=0) &
-       call error_mesg('tridiag','a(1) and c(N) must be equal to 0',FATAL)
-  ! decomposition and forward substitution
-  bet = b(1)
-  u(1) = r(1)/bet
-  do j = 2,size(a)
-     gam(j) = c(j-1)/bet
-     bet = b(j)-a(j)*gam(j)
-     if(bet==0) &
-          call error_mesg('tridiag','system is ill-defined',FATAL)
-     u(j) = (r(j)-a(j)*u(j-1))/bet
-  enddo
-  ! backward substitution
-  do j = size(a)-1,1,-1
-     u(j) = u(j)-gam(j+1)*u(j+1)
-  enddo
-end subroutine tridiag
 #endif
 
 ! pgi: does not have bult-in isNaN function
