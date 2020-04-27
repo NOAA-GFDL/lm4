@@ -1,4 +1,3 @@
-module river_mod
 !***********************************************************************
 !*                   GNU Lesser General Public License
 !*
@@ -17,6 +16,7 @@ module river_mod
 !* You should have received a copy of the GNU Lesser General Public
 !* License along with LM4.  If not, see <http://www.gnu.org/licenses/>.
 !***********************************************************************
+module river_mod
 ! <CONTACT EMAIL="Kirsten.Findell@@noaa.gov"> Kirsten Findell </CONTACT>
 ! <CONTACT EMAIL="Zhi.Liang@@noaa.gov"> Zhi Liang </CONTACT>
 ! <NAMELIST NAME="river_nml">
