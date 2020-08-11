@@ -142,7 +142,7 @@ subroutine WRITE_0D(ncid,name,data,long_name,units,record)
      __NF_ASRT__(nfu_put_rec(ncid,name,record_,buffer))
      deallocate(buffer)
   endif
-  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()

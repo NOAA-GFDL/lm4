@@ -41,17 +41,19 @@ use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_en
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart, &
+     lake_area_diag
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
-     soil_cover_cold_start, retrieve_soil_tags
+     soil_cover_cold_start, retrieve_soil_tags, &
+     irrigation_deficit, irrigation_deficit_evap, soil_area_diag
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, sweep_tiny_snow
-use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
+use vegn_data_mod, only : LU_PAST, LU_CROP, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -107,7 +109,10 @@ use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
-     save_land_transitions_restart
+     save_land_transitions_restart, &
+     land_irrigatedareas_init, &
+     lake_transitions_init, lake_transitions_end, lake_transitions, &
+     save_lake_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
@@ -493,6 +498,8 @@ subroutine land_model_init &
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
   call land_transitions_init (id_ug, id_cellarea)
+  call land_irrigatedareas_init (id_ug)
+  call lake_transitions_init (id_ug)
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
@@ -638,6 +645,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! restart anyway
   call land_tracer_driver_end()
   call land_transitions_end()
+  call lake_transitions_end()
   call glac_end ()
   call lake_end ()
   call soil_end ()
@@ -724,6 +732,7 @@ subroutine land_model_restart(timestamp)
 
   ! [6] save component model restarts
   call save_land_transitions_restart(timestamp_)
+  call save_lake_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
@@ -1251,6 +1260,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      enddo
   enddo
 
+  ! output soil and lake area for diagnostic
+  call soil_area_diag()
+  call lake_area_diag()
+  ! Calculate demand of irrigation rate for each gridcell
+  call irrigation_deficit()
+
   !--- pass runoff from unstructured grid to structured grid.
   runoff_sg = 0 ; runoff_c_sg = 0
   call mpp_pass_UG_to_SG(lnd%ug_domain, runoff,   runoff_sg  )
@@ -1514,6 +1529,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
                                            ! heat swept with tiny snow
   integer, parameter :: max_fog_steps = 2
+  real :: irr_flux !actual irrigation flux kg/(m2 s)
+  real :: hirr_flux !heat of irrigated water W/m2
+  real :: hirr_fac
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -1623,6 +1641,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   cana_T   = tile%cana%T
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
+  irr_flux = 0.
+  hirr_flux = 0.
 
   ! calculate conductances between canopy air and underlying surfaces, and between canopy
   ! air and vegetation if vegetation exists
@@ -1640,6 +1660,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! volumetric mixing ratio [mol CO2/mol dry air]
      cana_co2_mol = cana_co2*mol_air/mol_CO2/(1-cana_q)
      if (phot_co2_overridden) cana_co2_mol = phot_co2_data
+
+     irr_flux = tile%soil%irr_rate !kg/(m2 s)
+     hirr_flux = tile%soil%hirr_rate !W/m2
 
      call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
         p_surf, drag_q, &
@@ -1664,7 +1687,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
      ! calculate precipitation intercepted by vegetation; need to be calculated here
      ! since vegn_lprec and vegn_fprec get modified with drip and overflow later
-     prveg = precip_l + precip_s - vegn_lprec - vegn_fprec
+     prveg = precip_l + irr_flux + precip_s - vegn_lprec - vegn_fprec !kg/(m2 s)
   else ! i.e., no vegetation
      swnet    = 0
      con_st_v = 0.0 ! does it matter?
@@ -1728,6 +1751,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     eT = evap_T
     gT = grnd_T
     vT = vegn_T
+    hirr_fac = 1.
   else
     hlv_Tv = hlv    + cpw*(vegn_T-tfreeze)
     hls_Tv = hlf    + hlv_Tv
@@ -1737,6 +1761,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     eT = evap_T-tfreeze
     gT = grnd_T-tfreeze
     vT = vegn_T-tfreeze
+    if(irr_flux.gt.0.)then
+      hirr_fac = (clw*(precip_T-tfreeze)*precip_l + hirr_flux) / (clw*(precip_T-tfreeze)*(precip_l+irr_flux)) ! J/(kg K) * K * kg/(m2 s) = W/m2
+    else
+      hirr_fac = 1.
+    endif
   endif
 
   call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
@@ -1908,7 +1937,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                 +hlv_Tu(k)*DEtDwf(k) + hlv_Tv(k)*DEliDwf(k) + hls_Tv(k)*DEsiDwf(k)
               B0(iTv+k-1) = sum(swnet(k,:)) &
                 + flwv0(k) - Hv0(k) - hlv_Tu(k)*Et0(k) - Hlv_Tv(k)*Eli0(k) - hls_Tv(k)*Esi0(k) &
-                + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
+                + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT*hirr_fac + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
                 - clw*vegn_drip_l(k)*vT(k) - csw*vegn_drip_s(k)*vT(k)
               B1(iTv+k-1) = DflwvDTg(k)
               B2(iTv+k-1) = 0
@@ -2173,7 +2202,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
           vegn_ovfl_l,   vegn_ovfl_s, &
           vegn_ovfl_Hl, vegn_ovfl_Hs )
      ! calculate heat carried by liquid and solid precipitation below the canopy
-     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze) &
+     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze)*hirr_fac &
                       + sum(f(:)*vegn_drip_l(:)*(vegn_T(:)+delta_Tv(:)-tfreeze)) &
                       ) + vegn_ovfl_Hl
      vegn_hfprec = csw*(vegn_fprec*(precip_T-tfreeze) &
@@ -2332,7 +2361,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
 
   call update_cana_tracers(tile, l, tr_flux, dfdtr, &
-           precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
+           precip_l+irr_flux, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
 
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
 
@@ -2360,7 +2389,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (calc_water_cons) then
      call get_tile_water(tile,lmass1,fmass1)
      if (do_check_conservation) call check_conservation (tag,'water', &
-         lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
+         lmass0+fmass0+(precip_l+irr_flux+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
          lmass1+fmass1, water_cons_tol)
      v0=lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time
      call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
@@ -2713,6 +2742,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call vegn_nat_mortality_ppa( )
   call fire_transitions(lnd%time)
   call land_transitions(lnd%time)
+  call lake_transitions(lnd%time)
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
@@ -4492,7 +4522,7 @@ function is_crop(tile) result(answer); logical :: answer
   answer = .FALSE.
   if (.not.associated(tile)) return
   if (.not.associated(tile%vegn)) return
-  answer = (tile%vegn%landuse == LU_CROP)
+  answer = (tile%vegn%landuse == LU_CROP.or.tile%vegn%landuse == LU_IRRIG)
 end function is_crop
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -28,7 +28,7 @@ use land_tile_diag_mod, only : cmor_name, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, set_default_diag_filter, &
      add_tiled_diag_field_alias
 use land_debug_mod, only : is_watch_point
-use vegn_data_mod, only : LU_PAST, LU_CROP
+use vegn_data_mod, only : LU_PAST, LU_CROP, LU_IRRIG
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
 implicit none
@@ -283,7 +283,7 @@ subroutine nitrogen_sources_init(time, id_ug)
 
   ! ---- initialize the diagnostics --------------------------------------------
   axes = [id_ug] ! define array of horizontal axes for diagnostics
-  
+
   call set_default_diag_filter('soil')
 
   id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'Ndep_nit', axes, &
@@ -473,7 +473,7 @@ subroutine nitrogen_sources(time, l, p_ann, precip, lu, input_nit, input_amm, in
 
   ! add fertilization
   select case(lu)
-  case (LU_CROP)
+  case (LU_CROP, LU_IRRIG)
      fert_nit   = nfert_crop(l)   * fert_nit_frac
      fert_amm   = nfert_crop(l)   * fert_amm_frac
      fert_org   = nfert_crop(l)   * fert_org_frac
@@ -546,13 +546,13 @@ subroutine nitrogen_sources(time, l, p_ann, precip, lu, input_nit, input_amm, in
 
   ! CMOR/CMIP output
   select case(lu)
-  case (LU_CROP)
+  case (LU_CROP, LU_IRRIG)
      call send_tile_data(id_fNfert, fert_nit   + fert_amm   + fert_org   + &
                                     manure_nit + manure_amm + manure_org + &
                                     fml_nit    + fml_amm    + fml_org,     diag)
   case default
      call send_tile_data(id_fNfert, 0.0, diag)
-  end select  
+  end select
 end subroutine nitrogen_sources
 
 

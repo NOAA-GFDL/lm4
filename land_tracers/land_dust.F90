@@ -23,7 +23,7 @@ use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
 use snow_tile_mod, only : snow_tile_stock_pe
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
-use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
+use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_IRRIG, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use land_data_mod, only : lnd, log_version
@@ -512,7 +512,7 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
   call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
-  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)  
+  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)
   call send_tile_data(id_cana_dens, rho,       tile%diag)
 
   ! + conservation check, part 2: calculate totals in final state, and compare
@@ -533,7 +533,7 @@ end subroutine update_land_dust
 ! ==============================================================================
 subroutine update_dust_source(tile, l, ustar, wind10, emis)
   type(land_tile_type), intent(inout) :: tile ! it is only "inout" because diagnostics is sent to it
-  integer :: l ! unstructured grid indices 
+  integer :: l ! unstructured grid indices
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(inout) :: emis(:)
@@ -565,12 +565,12 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
        if (tile%vegn%landuse .eq. LU_PAST ) then
           u_thresh = u_min_past
           bareness = frac_bare_past
-       else if (tile%vegn%landuse .eq. LU_CROP ) then
+       else if (tile%vegn%landuse .eq. LU_CROP .or. tile%vegn%landuse .eq. LU_IRRIG ) then
           u_thresh = u_min_crop
           bareness = frac_bare_crop
        else ! NTRL or SCND
           lai = vegn_tile_LAI(tile%vegn)
-          sai = vegn_tile_SAI(tile%vegn)  
+          sai = vegn_tile_SAI(tile%vegn)
           if ((lai<lai_thresh) .and. (sai<sai_thresh)) then
              u_thresh=u_min
              bareness = exp( -2.0*lai/2.0-10.*sai)

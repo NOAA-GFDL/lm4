@@ -315,7 +315,7 @@ function is_watch_cell()
   logical :: is_watch_cell
   is_watch_cell = ( current_i() == watch_point(1) &
               .and. current_j() == watch_point(2) &
-              .and. mosaic_tile_ug == watch_point(4) &
+              .and. mosaic_tile_sg == watch_point(4) &
               .and. is_watch_time()               )
 end function is_watch_cell
 

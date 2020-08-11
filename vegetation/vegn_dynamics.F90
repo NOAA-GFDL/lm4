@@ -29,7 +29,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
-     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
+     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, LU_IRRIG, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
@@ -2514,7 +2514,7 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
            write(*,*)
         enddo
      endif
-     if (tile%vegn%landuse==LU_CROP .and. .not.allow_weeds_on_crops) then
+     if ((tile%vegn%landuse==LU_CROP.or.tile%vegn%landuse==LU_IRRIG) .and. .not.allow_weeds_on_crops) then
         call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
                                                    (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
                                germination_factor = 0.0) ! no seeds germinate

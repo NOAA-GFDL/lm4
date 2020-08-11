@@ -817,6 +817,7 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
   real, allocatable :: lon_in(:), lat_in(:)
 
   ! initialize external field
+  call time_interp_external_init()
   ts%filename = filename
   ts%fieldname = fieldname
   ts%id = init_external_field(filename,fieldname, domain=lnd%sg_domain, &

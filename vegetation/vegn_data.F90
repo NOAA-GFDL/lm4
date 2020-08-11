@@ -99,19 +99,21 @@ integer, public, parameter :: &
 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
+ M_LU_TYPES = 7, & !
  LU_PAST    = 1, & ! pasture
  LU_CROP    = 2, & ! crops
  LU_NTRL    = 3, & ! natural vegetation
  LU_SCND    = 4, & ! secondary vegetation
  LU_URBN    = 5, & ! urban
  LU_RANGE   = 6, & ! rangeland
+ LU_IRRIG   = 7, & ! irrigated cropland
  LU_PSL     = 1001, & ! primary and secondary land, for LUMIP
  LU_PST     = 1002    ! pasture and rangeland, for LUMIP
 
 character(len=5), public, parameter  :: &
-     landuse_name (N_LU_TYPES) = (/ 'past ','crop ','ntrl ','scnd ', 'urbn ', 'range'/)
+     landuse_name (M_LU_TYPES) = (/ 'past ','crop ','ntrl ','scnd ', 'urbn ', 'range',  'irrig'/)
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    ','rangeland'/)
+     landuse_longname (M_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    ','rangeland', 'irrigated'/)
 
 integer, public, parameter :: & ! harvesting pools parameters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -785,7 +787,7 @@ subroutine read_vegn_data_namelist()
   call print_species_data(stdlog(),.TRUE.)
 
   ! register selectors for land use type-specific diagnostics
-  do i=1, N_LU_TYPES
+  do i=1, M_LU_TYPES
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
           tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo

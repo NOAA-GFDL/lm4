@@ -10,7 +10,7 @@ use vegn_data_mod, only : spdata, &
    tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
    phen_ev1, phen_ev2, cmc_eps, sai_cover, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
+   LEAF_OFF, LU_CROP, LU_IRRIG, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
    snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
@@ -210,6 +210,9 @@ type :: vegn_cohort_type
   real :: max_mine_alloc = 0.0
   real :: max_Nfix_alloc = 0.0
   real :: nitrogen_stress_smoothed = 1.0
+
+! ---- irrigation-related variables
+  real :: evap_demand = 0.0 !transpiration water demand, kg/(indiv s) !possible in restart
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -537,7 +540,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   pt    = c3c4(c,t_ann,p_ann)
   phent = phenology_type(c, cm)
 
-  if(landuse == LU_CROP) phent = PHEN_DECIDUOUS ! crops cannot be evergreen
+  if(landuse == LU_CROP .or. landuse == LU_IRRIG) phent = PHEN_DECIDUOUS ! crops cannot be evergreen
 
   if(pt==PT_C4) then
      spp=SP_C4GRASS;  ! c4 grass

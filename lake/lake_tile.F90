@@ -116,6 +116,13 @@ type :: lake_tile_type
    real :: geothermal_heat_flux
    real, allocatable :: e(:),f(:)
    real, allocatable :: heat_capacity_dry(:)
+   real :: Afrac_rsv = 0.
+   real :: Vfrac_rsv = 0. !this must be added to restart file
+   real :: rsv_depth = 0.
+   real :: sub_lmass = 0. !kg/m2
+   real :: sub_fmass = 0. !kg/m2
+   real :: sub_heat = 0. !J/m2
+   real :: sub_cmass = 0. !kgC/m2
 end type lake_tile_type
 
 ! ==== module data ===========================================================
@@ -600,7 +607,7 @@ function lake_tile_heat (lake) result(heat) ; real heat
   do i = 1, num_l
      heat = heat + &
           (lake%heat_capacity_dry(i)*lake%dz(i) + clw*lake%wl(i) &
-	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) + &
+	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) - &
           hlf*lake%ws(i)
   enddo
 end function lake_tile_heat
