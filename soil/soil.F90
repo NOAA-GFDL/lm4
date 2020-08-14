@@ -111,7 +111,6 @@ public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
 
-public :: irrigation_deficit_evap
 public :: irrigation_deficit
 public :: soil_area_diag
 
@@ -4808,87 +4807,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    end if
 end subroutine init_soil_twc
 
-! ============================================================================
-! Calculate irrigation demand for each gridcell
-subroutine irrigation_deficit_evap()
-  ! ---- local vars ----------------------------------------------------------
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
-  type(soil_tile_type), pointer :: soil
-  type(vegn_tile_type), pointer :: vegn
-  real  :: &
-       irr_tot, & ! irrigation deficit
-       irr_demand, & !kg/m2 s
-       irr_area_temp, irr_area_input, &
-       soil_water_supply_irronly, ground_evap_irronly, evap_demand_irronly, vegn_uptk_irronly, &
-       prec_irronly
-  real  :: spr_flux, flood_flux
-  real, dimension(1:num_l) :: lwc_irronly, swc_irronly, temp_irronly
-  integer :: l, j, i, k, s
-  character(len=256)  :: floodirr_ind_file = 'INPUT/floodirr_ind.nc'
-  real, dimension(lnd%ls:lnd%le) :: flood_ind
-  integer :: second, minute, hour, day0, month0, year0
-  integer :: loch
-  integer :: flood_time
-  real :: depth_ave, theta_test
-  integer :: layer
-  real :: percentile = 0.95
-  real :: thres = 0.03
-  real :: w_scale_thres = 0.99
-  integer, save :: n = 0  ! fast time step with each slow time step
-  real,dimension(lnd%ls:lnd%le) :: atots
-!----------------------------------------------------
 
- !if (.not. use_irrigation_routine) return
-
- atots = 0.
- do l=lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile))
-       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac
-     enddo
- enddo
-
- n = n + 1
-
- do l=lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle
-       if (n == 1) soil%irr_demand_ac = 0.
-       soil => tile%soil
-       vegn => tile%vegn
-       if(vegn%landuse == LU_IRRIG) then
-         irr_area_input = tile%frac*lnd%ug_area(l)
-         irr_area_temp = tile%frac*lnd%ug_area(l)
-         irr_demand = 0. !kg/(m2 s)
-         if(use_irrigation_routine)then
-           do i = 1, vegn%n_cohorts
-             if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
-               irr_demand =  irr_demand + max(0.,vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/(m2 s) evap_demand maybe in restart
-             endif
-           enddo
-         else
-           irr_demand = 0.
-         endif
-         if(irr_demand == 0.) irr_area_temp = 0.
-       else        ! if(vegn%landuse /= LU_IRRIG)
-         irr_demand = 0.
-         irr_area_input = 0.
-         irr_area_temp = 0.
-       endif
-       soil%irr_demand_ac = soil%irr_demand_ac + irr_demand*delta_time ! kg/m2, maybe in restart. Demand based on evap could not be accumulated, needs to find other way (e.g., soil water)
-       soil%irr_area2frac_input = irr_area_input / tile%frac !m2
-       soil%irr_area2frac_real = irr_area_temp / tile%frac !m2
-       call send_tile_data(id_irr_demand, irr_demand, tile%diag) !kg/(m2 s)
-       call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
-       call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
-     enddo
- enddo
-
- if(n == num_fast_calls) n = 0
-
- end subroutine irrigation_deficit_evap
 ! ============================================================================
 ! Calculate irrigation demand for each gridcell
 subroutine irrigation_deficit()
