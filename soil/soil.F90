@@ -112,7 +112,6 @@ public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
 
 public :: irrigation_deficit
-public :: soil_area_diag
 
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
@@ -4917,32 +4916,4 @@ subroutine irrigation_deficit()
 
  end subroutine irrigation_deficit
 
-! ============================================================================
-subroutine soil_area_diag()
-
- type(land_tile_enum_type)     :: ce  ! current tile list elements
- type(land_tile_type), pointer :: tile ! pointer to current tile
- type(soil_tile_type), pointer :: soil
- integer :: l
- real,dimension(lnd%ls:lnd%le) :: atots
-
- atots = 0.
- do l=lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile))
-       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac
-     enddo
- enddo
-
- do l=lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile))
-       if(.not.associated(tile%soil)) cycle
-       call send_tile_data(id_soil_area, lnd%ug_area(l) * atots(l), tile%diag)
-       call send_tile_data(id_soil_frac, atots(l), tile%diag)
-     enddo
- enddo
-
-end subroutine soil_area_diag
-! ============================================================================
 end module soil_mod

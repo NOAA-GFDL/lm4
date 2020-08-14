@@ -55,7 +55,6 @@ public :: large_dyn_small_stat
 
 public :: lake_abstraction
 public :: prohibit_shallow_lake
-public :: lake_area_diag
 ! =====end of public interfaces ==============================================
 
 
@@ -1242,34 +1241,6 @@ subroutine prohibit_shallow_lake(lake)
 
 
 end subroutine prohibit_shallow_lake
-! ============================================================================
-
-subroutine lake_area_diag()
-
- type(land_tile_enum_type)     :: ce  ! current tile list elements
- type(land_tile_type), pointer :: tile ! pointer to current tile
- type(lake_tile_type), pointer :: lake
- integer :: l
- real,dimension(lnd%ls:lnd%le) :: atotl
-
- atotl = 0.
- do l=lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile))
-       if (associated(tile%lake)) atotl(l) = atotl(l) + tile%frac
-     enddo
- enddo
-
- do l=lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile))
-       if(.not.associated(tile%lake)) cycle
-       call send_tile_data(id_lake_area, lnd%ug_area(l) * atotl(l), tile%diag)
-       call send_tile_data(id_lake_frac, atotl(l), tile%diag)
-     enddo
- enddo
-
-end subroutine lake_area_diag
 
 ! ============================================================================
 

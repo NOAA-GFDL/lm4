@@ -41,13 +41,11 @@ use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_en
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_step_1, lake_step_2, save_lake_restart, &
-     lake_area_diag
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
-     soil_cover_cold_start, retrieve_soil_tags, &
-     irrigation_deficit, soil_area_diag
+     soil_cover_cold_start, retrieve_soil_tags, irrigation_deficit
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
@@ -1271,9 +1269,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      enddo
   enddo
 
-  ! output soil and lake area for diagnostic
-  call soil_area_diag()
-  call lake_area_diag()
   ! Calculate demand of irrigation rate for each gridcell
   call irrigation_deficit()
 
