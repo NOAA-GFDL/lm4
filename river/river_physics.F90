@@ -421,12 +421,19 @@ contains
                          write(*,*) 'vr1:', vr1
                      endif
                      ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
-                      !h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
-                      !                       -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
-                      h0 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))/DENS_H2O*V2A_l-lake_depth_sill(i,j)
-                      qt = lake_area * h0 * DENS_H2O ! m2 * m * kg/m3 = kg
-                      if(use_reservoir.and.sum(lake_wl(i,j,:)+lake_ws(i,j,:))/DENS_H2O<=ResMin*lake_depth_sill(i,j)) &
-                        qt = 0. !this is for numerical stability
+                     !h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
+                     !                       -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
+                     ! slm: the commented out formulation below looks cleaner, but results
+                     !      in answer changes, because the order of summation changes,
+                     !      and the since lake_depth_sill is pretty close to the sum, the
+                     !      initially tiny relative difference amplifies.
+                     !      See e-mail exchange with Yujin on 2020-08-13
+                     !      For now, use older formulation, revise later.
+                     ! h0 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))/DENS_H2O*V2A_l-lake_depth_sill(i,j)
+                     h0  = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l-lake_depth_sill(i,j)
+                     qt = lake_area * h0 * DENS_H2O ! m2 * m * kg/m3 = kg
+                     if(use_reservoir.and.sum(lake_wl(i,j,:)+lake_ws(i,j,:))/DENS_H2O<=ResMin*lake_depth_sill(i,j)) &
+                       qt = 0. !this is for numerical stability
                      ! qt is mass of water stored transiently above sill
                      ! now reduce it to amount that discharges this time step
                      if (qt.gt.0.) then
