@@ -298,7 +298,7 @@ subroutine hlsp_hydrology_1(num_species)
          do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
             soil => tile%soil
-            call set_current_point(i,j,k,ll)
+            call set_current_point(ll,k)
 
             do l = 1,num_l
                vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
@@ -359,7 +359,7 @@ subroutine hlsp_hydrology_1(num_species)
             soil => tile%soil
 
             ! Debug
-            call set_current_point(i,j,k,ll)
+            call set_current_point(ll,k)
 !            if (is_watch_cell()) then
 !               write(*,*)'In hlsp_hydrology_1. In watch cell. At hidx_k, hidx_j:', soil%hidx_k, soil%hidx_j
 !               write(*,*)'tile=',k

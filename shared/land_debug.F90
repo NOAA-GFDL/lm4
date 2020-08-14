@@ -10,10 +10,9 @@ use fms_mod, only: open_namelist_file
 use mpp_mod, only: mpp_max
 use constants_mod, only: PI
 use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, lowercase, &
-     close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
+     close_file, mpp_pe, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
-use grid_mod, only: get_grid_ntiles
 use land_data_mod, only: lnd, log_version
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP
@@ -27,7 +26,7 @@ private
 public :: land_debug_init
 public :: land_debug_end
 
-public :: set_current_point
+public :: set_current_point, set_current_point_sg
 public :: get_current_point
 public :: current_i, current_j, current_k, current_face
 public :: is_watch_point
@@ -65,11 +64,6 @@ interface check_temp_range
    module procedure check_temp_range_1d
 end interface check_temp_range
 
-interface set_current_point
-   module procedure set_current_point_sg
-   module procedure set_current_point_ug
-end interface set_current_point
-
 ! conservation tolerances for use across the code. This module does not use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
@@ -82,22 +76,20 @@ character(len=*), parameter :: module_name = 'land_debug_mod'
 #include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
-integer, allocatable :: current_debug_level(:)
 integer              :: mosaic_tile_sg = 0, mosaic_tile_ug = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:), curr_l(:)
+logical, allocatable :: watched_tile(:), watched_cell(:)
 type(time_type)      :: start_watch_time, stop_watch_time
 character(128)       :: fixed_label_format
 integer              :: watch_point_lindex = 0  ! watch point index in unstructured grid.
 
 !---- namelist ---------------------------------------------------------------
-integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
-           ! i,j,tile,mosaic_tile
-integer :: start_watching(6) = (/    1, 1, 1, 0, 0, 0 /)
-integer :: stop_watching(6)  = (/ 9999, 1, 1, 0, 0, 0 /)
+integer :: watch_point(4)=[0,0,0,1] ! coordinates of the point of interest,
+           ! i, j, subgrid tile, cubic sphere face
+integer :: start_watching(6) = [    1, 1, 1, 0, 0, 0 ] ! YYYY, MM, DD, HH, MM, SS
+integer :: stop_watching(6)  = [ 9999, 1, 1, 0, 0, 0 ] ! YYYY, MM, DD, HH, MM, SS
 logical :: watch_conservation = .FALSE. ! if true, conservation check reports are
            ! printed for watch_point, in addition to regular debug output
-real    :: temp_lo = 120.0 ! lower limit of "reasonable" temperature range, deg K
-real    :: temp_hi = 373.0 ! upper limit of "reasonable" temperature range, deg K
 logical :: print_hex_debug = .FALSE. ! if TRUE, hex representation of debug
            ! values is also printed
 integer :: label_len = 12  ! minimum length of text labels for debug output
@@ -106,6 +98,9 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
            ! trimming of the labels. Set it to TRUE to match earlier debug
            ! printout
 character(64) :: value_format = 'short'
+
+real    :: temp_lo = 120.0 ! lower limit of "reasonable" temperature range, deg K
+real    :: temp_hi = 373.0 ! upper limit of "reasonable" temperature range, deg K
 
 namelist/land_debug_nml/ watch_point, &
    start_watching, stop_watching, watch_conservation, &
@@ -162,16 +157,12 @@ subroutine land_debug_init()
      write(unit, nml=land_conservation_nml)
   endif
 
-  ! set number of our mosaic tile
-  call get_grid_ntiles('LND',ntiles)
-  mosaic_tile_sg = ntiles*mpp_pe()/mpp_npes() + 1  ! assumption
-
   ! set number of threads and allocate by-thread arrays
   max_threads = 1
 !$  max_threads = OMP_GET_MAX_THREADS()
   allocate(curr_i(max_threads),curr_j(max_threads),curr_k(max_threads),curr_l(max_threads))
-  allocate(current_debug_level(max_threads))
-  current_debug_level(:) = 0
+  allocate(watched_tile(max_threads), watched_cell(max_threads))
+  watched_tile(:) = .FALSE. ; watched_cell(:) = .FALSE.
 
   ! construct the label format string for output
   fixed_label_format = '(a'//trim(string(label_len))//')'
@@ -192,8 +183,7 @@ subroutine land_debug_init()
   stop_watch_time  = set_date( stop_watching(1),  stop_watching(2),  stop_watching(3), &
                                stop_watching(4),  stop_watching(5),  stop_watching(6)  )
 
-  ! Set up the unstructure grid index of the watch point.
-  mosaic_tile_ug = lnd%ug_face
+  ! Set up the unstructured grid index of the watch point.
   watch_point_lindex = 0
   do l = lnd%ls, lnd%le
      if ( watch_point(1) == lnd%i_index(l) .AND. &
@@ -207,116 +197,188 @@ end subroutine land_debug_init
 ! ============================================================================
 subroutine land_debug_end()
   deallocate(curr_i,curr_j,curr_k,curr_l)
-  deallocate(current_debug_level)
+  deallocate(watched_tile, watched_cell)
 end subroutine
 
 ! ============================================================================
-subroutine set_current_point_sg(i,j,k,l)
-  integer, intent(in) :: i,j,k,l
+! The primary purpose of set_current_point and set_current_point_sg is to set the the
+! triggers for debug output on a specific subgrid tile or grid cell, controlled by
+! parameters in land_debug_nml. The coordinates of current point can also be retrieved,
+! which is used in conservation-checking and land error message subroutines
+!
+! Since some parts of the land model work on unstructured grid, and some other parts on
+! structured grid, there are two subroutines, with set_current_point used in unstructured
+! and set_current_point_sg -- in structured grid parts.
+!
+! Typical usage pattern on unstructured grid:
+!
+! do while(loop_over_tiles(ce,tile,l,k))
+!     call set_current_point(l,k)
+!     ...
+!     if (is_watch_point()) then
+!         ... print out debug information for this subgrid tile
+!     endif
+!     if (is_watch_cell()) then
+!         ... print out debug information for the cell, regardless of tile index
+!     endif
+! enddo
+!
+! Typical usage pattern on structured grid (e.g. in river code):
+!
+! do j = jsc, jec
+! do i = isc, iec
+! do k = 1, n_subgrid_tiles
+!     call set_current_point_sg(i,j,k)
+!     if (is_watch_point()) then
+!         ... print out debug information for this subgrid tile
+!     endif
+!     if (is_watch_cell()) then
+!         ... print out debug information for the cell, regardless of tile index
+!     endif
+! enddo
+! enddo
+! enddo
+!
+! Note that the difference in more subtle than just the input parameters: on the same
+! processor, the cubic sphere face number may be different for structured and unstructured
+! grid.
 
-  integer :: thread, my_mosaic_tile
-    thread = 1
-!$  thread = OMP_GET_THREAD_NUM()+1
-
-  curr_i(thread) = i ; curr_j(thread) = j ; curr_k(thread) = k; curr_l(thread) = l
-  if(l==0) then
-     my_mosaic_tile = mosaic_tile_sg
-  else
-     my_mosaic_tile = mosaic_tile_ug
-  endif
-
-  current_debug_level(thread) = 0
-  if ( watch_point(1)==i.and. &
-       watch_point(2)==j.and. &
-       watch_point(3)==k.and. &
-       watch_point(4)==my_mosaic_tile) then
-     current_debug_level(thread) = 1
-  endif
-end subroutine set_current_point_sg
-
-! ============================================================================
-subroutine set_current_point_ug(l,k)
-  integer, intent(in) :: l,k
+subroutine set_current_point(l,k) ! for unstructured grid
+  integer, intent(in) :: l ! grid cell index on unstructured grid
+  integer, intent(in) :: k ! subgrid tile index
 
   integer :: thread
-    thread = 1
+  ! set the coordinates of the current point
+  thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
   curr_i(thread) = lnd%i_index(l) ; curr_j(thread) = lnd%j_index(l)
   curr_k(thread) = k; curr_l(thread) = l
 
-  current_debug_level(thread) = 0
-  if ( watch_point(1)==curr_i(thread).and. &
-       watch_point(2)==curr_j(thread).and. &
-       watch_point(3)==curr_k(thread).and. &
-       watch_point(4)==mosaic_tile_ug) then
-     current_debug_level(thread) = 1
-  endif
-end subroutine set_current_point_ug
+  ! trigger watch tile/cell indicators
+  watched_tile(thread) = .FALSE. ; watched_cell(thread) = .FALSE.
+  if ( watch_point_lindex /= l ) return
+  if ( watch_point(4) /= lnd%ug_face ) return
+  watched_cell(thread) = .TRUE.
+  if ( watch_point(3) /= curr_k(thread) ) return
+  watched_tile(thread) = .TRUE.
+end subroutine set_current_point
+
+
+subroutine set_current_point_sg(i,j,k)  ! for unstructured grid
+  integer, intent(in) :: i,j  ! grid cell horizontal indices
+  integer, intent(in) :: k    ! subgrid tile index
+
+  integer :: thread
+  ! set the coordinates of the current point
+  thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  curr_i(thread) = i ; curr_j(thread) = j ; curr_k(thread) = k; curr_l(thread) = 0
+
+  ! trigger watch tile/cell indicators
+  watched_tile(thread) = .FALSE. ; watched_cell(thread) = .FALSE.
+  if ( watch_point(1)/=i ) return
+  if ( watch_point(2)/=j ) return
+  if ( watch_point(4)/=lnd%sg_face) return
+  watched_cell(thread) = .TRUE.
+  if ( watch_point(3)/=k ) return
+  watched_tile(thread) = .TRUE.
+end subroutine set_current_point_sg
 
 ! ============================================================================
 subroutine get_current_point(i,j,k,face)
-  integer, intent(out), optional :: i,j,k,face
+  integer, intent(out), optional :: i,j  ! grid cell indices
+  integer, intent(out), optional :: k    ! subgrid tile index
+  integer, intent(out), optional :: face ! cubic sphere face; could be unstructured on structured
+    ! grid face, depending on what the current grid is (more specifically, was current
+    ! point set by set_current_point or set_current_point_sg)
 
   integer :: thread
-    thread = 1
+  thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
 
   if (present(i)) i = curr_i(thread)
   if (present(j)) j = curr_j(thread)
   if (present(k)) k = curr_k(thread)
-  if (present(face)) face = mosaic_tile_ug
+  if (present(face)) then
+     ! curr_l used as an indicator of the structured/unstructured grid : set_current_point_sg
+     ! sets it to zero, while the set_current_point (which takes unstructured grid index
+     ! and is supposed to be used on unstructured grid) sets it to a non-zero value.
+     ! Assuming lnd%ls:lnd%le range does not include zero, which is currently always true.
+     if (curr_l(thread) > 0) then
+        face = lnd%ug_face
+     else
+        face = lnd%sg_face
+     endif
+  endif
 end subroutine get_current_point
 
 ! ============================================================================
 integer function current_i()
   integer :: thread
-    thread = 1
+  thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
   current_i = curr_i(thread)
 end function
 
 integer function current_j()
   integer :: thread
-    thread = 1
+  thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
   current_j = curr_j(thread)
 end function
 
 integer function current_k()
   integer :: thread
-    thread = 1
+  thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
   current_k = curr_k(thread)
 end function
 
-integer function current_face() ; current_face = mosaic_tile_ug ; end function
+integer function current_face()
+  integer :: thread
+  thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+
+  ! curr_l used as an indicator of the structured/unstructured grid : set_current_point_sg
+  ! sets it to zero, while the set_current_point (which takes unstructured grid index
+  ! and is supposed to be used on unstructured grid) sets it to non-zero value.
+  ! This assumes that lnd%ls:lnd%le range never includes zero.
+  if (curr_l(thread) > 0) then
+     current_face = lnd%ug_face
+  else
+     current_face = lnd%sg_face
+  endif
+end function
 
 ! ============================================================================
-function is_watch_time()
-   logical :: is_watch_time
+logical function is_watch_time()
    is_watch_time = lnd%time >= start_watch_time &
              .and. lnd%time <= stop_watch_time
 end function is_watch_time
 
 ! ============================================================================
-function is_watch_point()
-  logical :: is_watch_point
-
+logical function is_watch_point()
   integer :: thread
-    thread = 1
+  thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
-  is_watch_point = (current_debug_level(thread) > 0 .and. is_watch_time())
+  is_watch_point=.FALSE.
+  if (.not.watched_tile(thread)) return
+  if (.not.is_watch_time()) return
+  is_watch_point=.TRUE.
 end function is_watch_point
 
 ! ============================================================================
 ! returns true, if the watch point is within the grid cell, regardless of
 ! the tile number
-function is_watch_cell()
-  logical :: is_watch_cell
-  is_watch_cell = ( current_i() == watch_point(1) &
-              .and. current_j() == watch_point(2) &
-              .and. mosaic_tile_sg == watch_point(4) &
-              .and. is_watch_time()               )
+logical function is_watch_cell()
+  integer :: thread
+  thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+
+  is_watch_cell = .FALSE.
+  if (.not.watched_cell(thread)) return
+  if (.not.is_watch_time()) return
+  is_watch_cell = .TRUE.
 end function is_watch_cell
 
 
@@ -560,7 +622,7 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
      write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
           'at lon=',lon, 'lat=',lat, &
-          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile_ug, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',lnd%ug_face, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)
   endif
@@ -575,11 +637,11 @@ subroutine get_current_coordinates(thread, lon, lat, face)
    if(curr_l(thread) == 0) then
       lon = lnd%sg_lon(curr_i(thread),curr_j(thread))*180.0/PI
       lat = lnd%sg_lat(curr_i(thread),curr_j(thread))*180.0/PI
-      face = mosaic_tile_sg
+      face = lnd%sg_face
    else
       lon = lnd%ug_lon(curr_l(thread))*180.0/PI
       lat = lnd%ug_lat(curr_l(thread))*180.0/PI
-      face = mosaic_tile_ug
+      face = lnd%ug_face
    endif
 end subroutine get_current_coordinates
 

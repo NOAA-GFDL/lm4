@@ -101,9 +101,9 @@ use land_tile_diag_mod, only : OP_SUM, cmor_name, tile_diag_init, tile_diag_end,
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
-     get_area_id
+     register_tiled_static_field, get_area_id
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
-     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
+     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
@@ -310,6 +310,7 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
   id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 
+integer :: id_sg_face, id_ug_face, id_ug_pe
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -360,6 +361,7 @@ subroutine land_model_init &
   integer :: n_cohorts  ! number of cohorts in the current tile (1 if no vegetation)
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
+  integer :: pe ! our processor number
 
   type(land_restart_type) :: restart
   character(*), parameter :: restart_file_name='INPUT/land.res.nc'
@@ -548,6 +550,15 @@ subroutine land_model_init &
      call error_mesg('land_model_init','removing non-primary vegetation',NOTE)
      call remove_non_primary()
   endif
+
+  ! send some technical static diag fields to the diagnostics
+  pe = mpp_pe()
+  ce = first_elmt(land_tile_map, ls=lnd%ls )
+  do while(loop_over_tiles(ce,tile, l,k))
+     call send_tile_data(id_sg_face, real(lnd%sg_face), tile%diag)
+     call send_tile_data(id_ug_face, real(lnd%ug_face), tile%diag)
+     call send_tile_data(id_ug_pe,   real(pe),          tile%diag)
+  enddo
 
   call mpp_clock_end(landInitClock)
 
@@ -846,7 +857,7 @@ subroutine land_cover_cold_start()
 !-zero  ! remove any input lake fraction in coastal cells
 !-zero  do j = lnd%js,lnd%je
 !-zero  do i = lnd%is,lnd%ie
-!-zero     call set_current_point(i,j,1)
+!-zero     call set_current_point_sg(i,j,1)
 !-zero     if (lnd%landfrac(i,j) < 1-gfrac_tol) then
 !-zero        lake(i,j,:) = 0.0
 !-zero        if(is_watch_point())then
@@ -1211,7 +1222,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
-        call set_current_point(i,j,k,l)
+        call set_current_point(l,k)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
@@ -3688,7 +3699,7 @@ subroutine update_land_bc_slow (land2cplr)
   call get_watch_point(i,j,k,face,l)
   if ( lnd%ug_face==face.and.                &
        lnd%ls<=l.and.l<=lnd%le.and.          &
-       k<=size(land2cplr%rough_scale,2).and. &
+       0<k.and.k<=size(land2cplr%rough_scale,2).and. &
        is_watch_time()) then
      write(*,*)'#### update_land_bc_slow ### output ####'
      write(*,*)'land2cplr%rough_scale',land2cplr%rough_scale(l,k)
@@ -3951,6 +3962,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   ! set the default filter (for area and subsampling) for consequent calls to
   ! register_tiled_diag_field
   call set_default_diag_filter('land')
+
+  id_sg_face = register_tiled_static_field ( module_name, 'sg_face',  &
+       axes, 'cubic sphere face on structured grid', missing_value=-1.0 )
+  id_ug_face = register_tiled_static_field ( module_name, 'ug_face',  &
+       axes, 'cubic sphere face on unstructured grid', missing_value=-1.0 )
+  id_ug_pe   = register_tiled_static_field ( module_name, 'ug_pe',  &
+       axes, 'processor number on unstructured grid', missing_value=-1.0 )
 
   ! register regular (dynamic) diagnostic fields
 
