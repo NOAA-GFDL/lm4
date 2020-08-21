@@ -1155,7 +1155,7 @@ subroutine land_transitions (time)
   real :: fi1(lnd%ls:lnd%le)
   real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions
   real :: temp_area (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each landuse type before transitions
-  real :: atot (lnd%ls:lnd%le)
+  real :: atot (lnd%ls:lnd%le) ! total fraction of tiles that can be involved in transitions
   real :: check_area
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
@@ -2521,6 +2521,16 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   verbose_ = .FALSE.
   if (present(verbose)) verbose_ = verbose
+
+  if (atot<=0.0) then
+     tran1(:,:) = 0.0
+     do i = 1,N_LU_TYPES
+     do j = 1,N_LU_TYPES
+        tran1(i,j) = tran0(i,j)
+     enddo
+     enddo
+     return
+  endif
 
   do i = 1,N_LU_TYPES
     do j = 1,N_LU_TYPES
