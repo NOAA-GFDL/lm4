@@ -95,6 +95,24 @@ subroutine soil_uptake_T_ptr(t,p)
     endif
 end subroutine
 
+subroutine soil_irr_rate_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%irr_rate
+    endif
+end subroutine
+
+subroutine soil_hirr_rate_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%hirr_rate
+    endif
+end subroutine
+
 subroutine soil_tag_ptr(t,p)
     type(land_tile_type),pointer::t
     integer,pointer::p
