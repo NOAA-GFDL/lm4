@@ -64,6 +64,9 @@ interface check_temp_range
    module procedure check_temp_range_1d
 end interface check_temp_range
 
+! checksum output trigger: if TRUE, checksums of land fields are printed each
+! time step. Useful for reproducibility debugging.
+public :: do_checksums
 ! conservation tolerances for use across the code. This module does not use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
@@ -98,14 +101,16 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
            ! trimming of the labels. Set it to TRUE to match earlier debug
            ! printout
 character(64) :: value_format = 'short'
-
+logical, protected :: do_checksums = .FALSE. ! if TRUE, checksums of land fields are printed each
+           ! time step. Useful for reproducibility debugging.
 real    :: temp_lo = 120.0 ! lower limit of "reasonable" temperature range, deg K
 real    :: temp_hi = 373.0 ! upper limit of "reasonable" temperature range, deg K
 
 namelist/land_debug_nml/ watch_point, &
    start_watching, stop_watching, watch_conservation, &
-   temp_lo, temp_hi, &
-   value_format, print_hex_debug, label_len, trim_labels
+   value_format, print_hex_debug, label_len, trim_labels, &
+   do_checksums, &
+   temp_lo, temp_hi
 
 logical, protected :: do_check_conservation = .FALSE.
 real, protected    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks

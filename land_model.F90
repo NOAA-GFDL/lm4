@@ -1,6 +1,7 @@
 ! ============================================================================
 ! top-level core of the Land Dynamics (LaD) model code
 ! ============================================================================
+#define __CHECK__(x) write(stdout(),'("CHECKSUM:::",A32," = ",Z20)')#x,mpp_chksum(x)
 module land_model_mod
 
 #include "shared/debug.inc"
@@ -101,7 +102,7 @@ use land_tile_diag_mod, only : OP_SUM, cmor_name, tile_diag_init, tile_diag_end,
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
      register_tiled_static_field, get_area_id
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
-     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, &
+     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
@@ -1182,10 +1183,24 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
+  integer :: y,mo,d,h,m,s ! components of date for checksums
+
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
 
+  if (do_checksums) then
+      call get_date(lnd%time,y,mo,d,h,m,s)
+      write(stdout(),'("update_land_model_fast ::: ",i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') y,mo,d,h,m,s
+      __CHECK__(cplr2land%lprec)
+      __CHECK__(cplr2land%fprec)
+      __CHECK__(cplr2land%tprec)
+      __CHECK__(cplr2land%wind)
+      __CHECK__(cplr2land%t_flux)
+      __CHECK__(cplr2land%tr_flux)
+      __CHECK__(cplr2land%lwdn_flux)
+      __CHECK__(cplr2land%ustar)
+  endif
   ! to avoid output of static vegetation after the transitions worked and
   ! changed the tiling structure, static vegetation output is done here.
   call write_static_vegn()
@@ -1365,6 +1380,20 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      endif
   enddo
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
+
+  if (do_checksums) then
+     __CHECK__(land2cplr%t_surf)
+     __CHECK__(land2cplr%t_ca)
+     __CHECK__(land2cplr%tr)
+     __CHECK__(land2cplr%albedo)
+     __CHECK__(land2cplr%rough_mom)
+     __CHECK__(land2cplr%rough_heat)
+     __CHECK__(land2cplr%rough_scale)
+     __CHECK__(land2cplr%discharge)
+     __CHECK__(land2cplr%discharge_heat)
+     __CHECK__(land2cplr%discharge_snow)
+     __CHECK__(land2cplr%discharge_snow_heat)
+  endif
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
