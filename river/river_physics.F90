@@ -343,7 +343,7 @@ contains
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
                          write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
+                         ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
                          write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
                          write(*,*) 'rsv_outflow_s:', rsv_outflow_s
                          write(*,*) 'rsv_outflow_h:', rsv_outflow_h
@@ -414,7 +414,7 @@ contains
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
                          write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
+                         ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
                          write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
                          write(*,*) 'rsv_outflow_s:', rsv_outflow_s
                          write(*,*) 'rsv_outflow_h:', rsv_outflow_h
