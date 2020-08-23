@@ -33,7 +33,7 @@ use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data, field_exists
-use land_debug_mod, only: is_watch_point
+use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_io_mod, only : read_field
 
@@ -110,7 +110,6 @@ real            :: delta_time
 integer         :: num_l              ! # of water layers
 real, allocatable:: zfull (:)    ! diag axis, dimensionless layer number
 real, allocatable:: zhalf (:)
-real, allocatable:: lake_heat_capacity_dry(:)
 real            :: max_rat
 logical, public :: is_rsv_restart = .false. !public for lake transitions
 
@@ -158,7 +157,7 @@ subroutine read_lake_namelist()
   endif
 
   ! ---- set up vertical discretization
-  allocate (zhalf(num_l+1), zfull(num_l), lake_heat_capacity_dry(num_l))
+  allocate (zhalf(num_l+1), zfull(num_l))
   zhalf(1) = 0
   do l = 1, num_l
      zhalf(l+1) = zhalf(l) + 1.
@@ -468,7 +467,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
     endif
   call lake_data_thermodynamics ( lake%pars, lake_depth, lake_rh, &
                                   lake%heat_capacity_dry, thermal_cond )
-  lake_heat_capacity_dry = lake%heat_capacity_dry
 ! Ignore air humidity in converting atmospheric friction velocity to lake value
   rho_a = p_surf/(rdgas*lake_T)
 ! No momentum transfer through ice cover
@@ -1002,14 +1000,15 @@ end subroutine lake_step_2
 
   end subroutine lake_relayer_converge
 ! ============================================================================
-  subroutine remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, rsv_zmin)
+  subroutine remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap, rsv_zmin)
     real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+    real, dimension(num_l), intent(in)    ::  lake_dhcap
     real, intent(in) :: rsv_zmin  !m
 
     integer :: n
     integer :: n_max = 100000
 
-    call melt_negative(lake_wl, lake_ws, lake_T, lake_dz)
+    call melt_negative(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap)
     n = 0
     do while(lake_ws(1)<0.or.lake_wl(1)<0.)
       !if(sum(lake_dz) <= rsv_zmin)then
@@ -1017,24 +1016,25 @@ end subroutine lake_step_2
       !  exit
       !endif
       call lake_relayer2 (lake_wl, lake_ws, lake_T, lake_dz)
-      call melt_negative(lake_wl, lake_ws, lake_T, lake_dz)
+      call melt_negative(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap)
       n = n+1
       if(n>=n_max) &
-        call error_mesg('remove_negative_water', 'relayer too many times', FATAL)
+        call land_error_message('remove_negative_water :: relayer too many times', FATAL)
     enddo
 
   end subroutine remove_negative_water
 
 ! ============================================================================
-  subroutine melt_negative(lake_wl,lake_ws,lake_T, lake_dz)
+  subroutine melt_negative(lake_wl,lake_ws,lake_T, lake_dz, lake_dhcap)
     real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+    real, dimension(num_l), intent(in)    :: lake_dhcap ! dry heat capacity of lakes. Is it another "fictitious heat"?
 
     integer :: l
     real :: hcap, melt
 
     do l = 1, num_l
       if(lake_ws(l)<0.or.lake_wl(l)<0.)then
-        hcap = lake_heat_capacity_dry(l)*lake_dz(l) &
+        hcap = lake_dhcap(l)*lake_dz(l) &
              + clw*lake_wl(l) + csw*lake_ws(l)
         if(lake_ws(l)<0..and.lake_wl(l)>0.)then
           melt = lake_ws(l)
@@ -1048,8 +1048,10 @@ end subroutine lake_step_2
         lake_T(l) = tfreeze &
                    + (hcap*(lake_T(l)-tfreeze) - hlf*melt) &
                             / ( hcap + (clw-csw)*melt )
-        if(l>=2.and.(lake_ws(l)<0.or.lake_wl(l)<0.)) &
-          call error_mesg('remove_negative_water', 'negative mass in l>=2 lake', FATAL)
+        if(l>=2.and.(lake_ws(l)<0.or.lake_wl(l)<0.)) then
+           call check_var_range(lake_wl(l),0.0,HUGE(1.0),'melt_negative','lake_wl',FATAL)
+           call check_var_range(lake_ws(l),0.0,HUGE(1.0),'melt_negative','lake_ws',FATAL)
+        endif
       endif !if(lake_ws(l)<0.or.lake_wl(l)<0.)then
     enddo
 
@@ -1064,7 +1066,7 @@ subroutine lake_abstraction (is_terminal, &
                              irr_demand, Afrac_rsv, Vfrac_rsv, &
                              influx, influx_c, &
                              tot_area, lake_depth_sill, rsv_depth, env_flow, &
-                             lake_T, lake_wl, lake_ws, lake_dz, &
+                             lake_T, lake_wl, lake_ws, lake_dz, lake_dhcap, &
                              lake_abst, lake_habst, &
                              rsv_out, rsv_out_s, rsv_out_h, vr1)
 
@@ -1077,6 +1079,7 @@ subroutine lake_abstraction (is_terminal, &
   real, intent(in)    :: lake_depth_sill, rsv_depth !m
   real, intent(in)    :: env_flow !m3
   real, dimension(num_l), intent(inout) ::  lake_T, lake_wl, lake_ws, lake_dz
+  real, dimension(num_l), intent(in)    ::  lake_dhcap
   real, intent(out)   :: lake_abst !m3
   real, intent(out)   :: lake_habst !J
   real, intent(inout) :: rsv_out !kg
@@ -1123,7 +1126,7 @@ subroutine lake_abstraction (is_terminal, &
   endif
 
   if(use_reservoir.or.do_lake_abstraction)then
-    call remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, ResMin*res_capacity/tot_area)
+    call remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap, ResMin*res_capacity/tot_area)
     !if(sum(lake_dz)<=ResMin*res_capacity/tot_area)then !m
     !  rsv_out = 0. ;  vr1 = 0.
     !  rsv_out_s = 0. ; rsv_out_h = 0.

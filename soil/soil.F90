@@ -645,6 +645,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
           call get_tile_data(restart, 'frozen_freq', 'zfull', soil_frozen_freq_ptr)
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
+     if(field_exists(restart, 'irr_rate')) then
+          call get_tile_data(restart, 'irr_rate',  soil_irr_rate_ptr)
+          call get_tile_data(restart, 'hirr_rate', soil_hirr_rate_ptr)
+     endif
 
      if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
         if(field_exists(restart, 'fsc')) then
@@ -1523,6 +1527,10 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
   call add_tile_data(restart,'frozen_freq'  , 'zfull', soil_frozen_freq_ptr, 'frequency of frozen soil occurence')
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
+  ! irrigation fields
+  call add_tile_data(restart,'irr_rate',  soil_irr_rate_ptr,  'irrigation rate', 'kg/(m2 s)')
+  call add_tile_data(restart,'hirr_rate', soil_hirr_rate_ptr, 'heat carried by irrigation', 'W/m2')
+
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')

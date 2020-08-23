@@ -194,7 +194,7 @@ contains
 
   subroutine river_physics_step(River, cur_travel, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, lake_width_sill, &
-         lake_whole_area, lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
+         lake_whole_area, lake_T, lake_wl, lake_ws, lake_dz, lake_dhcap, irr_demand, &
          rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow )
 
     type(river_type),     intent(inout) :: River
@@ -204,6 +204,7 @@ contains
                              lake_sfc_A, lake_sfc_bot
     real, dimension(isd:ied,jsd:jed,num_lake_lev), intent(inout) :: &
                              lake_wl, lake_ws, lake_dz
+    real, dimension(isd:ied,jsd:jed,num_lake_lev), intent(in) :: lake_dhcap
     real, dimension(isc:iec,jsc:jec), intent(in) :: &
                 lake_depth_sill, lake_width_sill, lake_whole_area
     real, dimension(isc:iec,jsc:jec,num_lake_lev), intent(inout) :: &
@@ -320,7 +321,7 @@ contains
                                        irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                        influx, influx_c(1:2), &
                                        tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
-                                       lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
+                                       lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:),lake_dhcap(i,j,:), &
                                        River%lake_abst(i,j), River%lake_habst(i,j), &
                                        rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)
                 v1 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))*tot_area/DENS_H2O !m3
@@ -343,7 +344,7 @@ contains
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
                          write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
+                         ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
                          write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
                          write(*,*) 'rsv_outflow_s:', rsv_outflow_s
                          write(*,*) 'rsv_outflow_h:', rsv_outflow_h
@@ -402,7 +403,7 @@ contains
                                             irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                             influx, influx_c(1:2), &
                                             tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
-                                            lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
+                                            lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:),lake_dhcap(i,j,:), &
                                             River%lake_abst(i,j), River%lake_habst(i,j), &
                                             rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)
                      if (is_watch_cell()) then
@@ -414,7 +415,7 @@ contains
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
                          write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
+                         ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
                          write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
                          write(*,*) 'rsv_outflow_s:', rsv_outflow_s
                          write(*,*) 'rsv_outflow_h:', rsv_outflow_h

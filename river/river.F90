@@ -751,7 +751,7 @@ end subroutine print_river_tracer_data
                              lake_sfc_A, lake_sfc_bot, lake_conn, &
                              Afrac_rsv, Vfrac_rsv
     real, dimension(isd:ied,jsd:jed,num_lake_lev) :: &
-                             lake_wl, lake_ws, lake_dz
+                             lake_wl, lake_ws, lake_dz, lake_dhcap
     real, dimension(isc:iec,jsc:jec) :: &
                              lake_depth_sill, lake_width_sill, lake_backwater, &
                              lake_backwater_1, &
@@ -769,7 +769,7 @@ end subroutine print_river_tracer_data
     real, dimension(lnd%ls:lnd%le) :: &
                              lake_sfc_A_ug, lake_sfc_bot_ug, lake_conn_ug
     real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
-                             lake_wl_ug, lake_ws_ug, lake_dz_ug
+                             lake_wl_ug, lake_ws_ug, lake_dz_ug, lake_dhcap_ug
     real, dimension(lnd%ls:lnd%le) :: &
                              lake_depth_sill_ug, lake_width_sill_ug, lake_backwater_ug, &
                              lake_backwater_1_ug, &
@@ -849,6 +849,7 @@ end subroutine print_river_tracer_data
     lake_wl_ug = 0
     lake_ws_ug = 0
     lake_dz_ug = 0
+    lake_dhcap_ug = 0
     lake_depth_sill_ug  = 0
     lake_width_sill_ug  = 0
     lake_whole_area_ug  = 0
@@ -877,6 +878,7 @@ end subroutine print_river_tracer_data
          lake_wl_ug(l,lev)   = tile%lake%wl(lev)
          lake_ws_ug(l,lev)   = tile%lake%ws(lev)
          lake_dz_ug(l,lev)   = tile%lake%dz(lev)
+         lake_dhcap_ug(l,lev)= tile%lake%heat_capacity_dry(lev)
        enddo
        if(use_reservoir)then
          rsv_depth_ug(l)       = tile%lake%rsv_depth
@@ -926,6 +928,7 @@ end subroutine print_river_tracer_data
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_wl_ug, lake_wl)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_ws_ug, lake_ws)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_dz_ug, lake_dz)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_dhcap_ug, lake_dhcap)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_sfc_bot_ug, lake_sfc_bot)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_depth_sill_ug, lake_depth_sill)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_width_sill_ug, lake_width_sill)
@@ -943,6 +946,7 @@ end subroutine print_river_tracer_data
     call mpp_update_domains (lake_wl, domain)
     call mpp_update_domains (lake_ws, domain)
     call mpp_update_domains (lake_dz, domain)
+    call mpp_update_domains (lake_dhcap,  domain)
     call mpp_update_domains (lake_conn,   domain)
     call mpp_update_domains (Afrac_rsv,   domain)
     call mpp_update_domains (Vfrac_rsv,   domain)
@@ -1000,7 +1004,7 @@ end subroutine print_river_tracer_data
        call river_physics_step (River, travelnow, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, &
          lake_width_sill, lake_whole_area,         &
-         lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
+         lake_T, lake_wl, lake_ws, lake_dz, lake_dhcap, irr_demand, &
          rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow )
 !***************************************************************
        call mpp_clock_end(physicsclock)
@@ -1010,6 +1014,7 @@ end subroutine print_river_tracer_data
     call mpp_pass_SG_to_UG(lnd%ug_domain, lake_wl, lake_wl_ug)
     call mpp_pass_SG_to_UG(lnd%ug_domain, lake_ws, lake_ws_ug)
     call mpp_pass_SG_to_UG(lnd%ug_domain, lake_dz, lake_dz_ug)
+    call mpp_pass_SG_to_UG(lnd%ug_domain, lake_dhcap, lake_dhcap_ug)
     call mpp_pass_SG_to_UG(lnd%ug_domain, irr_demand, irr_demand_ug) !m3
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%lake_abst, lake_abst_ug) !m3
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%lake_habst, lake_habst_ug) !J
