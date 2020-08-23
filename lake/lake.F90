@@ -1048,7 +1048,7 @@ end subroutine lake_step_2
         lake_T(l) = tfreeze &
                    + (hcap*(lake_T(l)-tfreeze) - hlf*melt) &
                             / ( hcap + (clw-csw)*melt )
-        if(l>=2.and.(lake_ws(l)<0.or.lake_wl(l)<0.)) then
+        if(l>=2) then
            call check_var_range(lake_wl(l),0.0,HUGE(1.0),'melt_negative','lake_wl',FATAL)
            call check_var_range(lake_ws(l),0.0,HUGE(1.0),'melt_negative','lake_ws',FATAL)
         endif

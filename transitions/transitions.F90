@@ -72,7 +72,6 @@ public :: lake_transitions_end
 public :: save_lake_transitions_restart
 
 public :: land_transitions
-public :: land_irrigatedareas_init
 public :: lake_transitions
 ! ==== end of public interface ==============================================
 
@@ -171,11 +170,9 @@ integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, L
 ! variables for irrigation
 integer :: nlon_in_manag, nlat_in_manag
 type(var_set_type) :: input_manag  (1), input_flood(1) ! input management fields
-integer :: diag_area, diag_floodarea
 integer :: manag_ncid = -1
 type(time_type), allocatable :: manag_time_in(:) ! time axis in input data
 type(horiz_interp_type), save :: interp_manag ! interpolator for the input data
-type(time_type) :: time0_manag ! time of previous transition calculations
 character(len=5), public, parameter  :: &
      crop_name (1) = (/'c3ann'/) !,'c4per', 'c3nfx' /)
 real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
@@ -228,7 +225,7 @@ real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 ! for irrigation
-character(len=1024) :: manag_file = '' ! management data file, for input land fraction irrigated area
+character(len=1024) :: management_file = '' ! management data file, for input land fraction irrigated area
 logical :: irrigation_on = .FALSE.
 
 character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
@@ -236,11 +233,11 @@ character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for 
 character(len=1024) :: depth_file_rsv   = '' ! reservoir construction depth
 logical, protected, public :: do_lake_change = .FALSE.
 
-namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
+namelist/landuse_nml/do_landuse_change, irrigation_on, data_type, &
+     input_file, state_file, static_file, management_file,&
      rangeland_is_pasture, distribute_transitions, &
      overshoot_handling, overshoot_tolerance, &
      conservation_handling, &
-     manag_file, irrigation_on, &
      input_file_lake, state_file_lake, depth_file_rsv, do_lake_change
 
 
@@ -572,6 +569,7 @@ l1:do k1 = 1,size(input_tran,1)
   ! get rid of temporary allocated data
   deallocate(buffer_in, mask_in,lon_in,lat_in)
 
+  call land_irrigatedareas_init(id_ug)
 end subroutine land_transitions_init
 
 !===========================================================================
@@ -811,10 +809,8 @@ end subroutine check_rsv_depth
 subroutine land_irrigatedareas_init(id_ug)
   integer, intent(in) :: id_ug ! the IDs of land diagnostic axes
   ! ---- local vars
-  integer        :: unit, ierr, io, ncid1
-  integer        :: year,month,day,hour,min,sec
-  integer        :: k1,k2,k3, id, n1,n2
- ! type(horiz_interp_type) :: interp
+  integer        :: ierr
+  integer        :: k1,k3,id,n2
   real, allocatable :: lon_in(:,:),lat_in(:,:) ! horizontal grid of input data
   real, allocatable :: buffer_in(:,:) ! buffers for input data reading
   real, allocatable :: mask_in  (:,:) ! valid data mask on the input data grid
@@ -823,55 +819,22 @@ subroutine land_irrigatedareas_init(id_ug)
   type(nfu_validtype) :: v ! valid values range
   character(len=12) :: fieldname
 
-! if(module_is_initialized) return
-!  module_is_initialized = .TRUE.
-!  call log_version(version, module_name, __FILE__, tagname)
-
-!  call horiz_interp_init
-
-#ifdef INTERNAL_FILE_NML
-  read (input_nml_file, nml=landuse_nml, iostat=io)
-  ierr = check_nml_error(io, 'landuse_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=landuse_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'landuse_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-
-  if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=landuse_nml)
-  endif
-
-!call error_mesg('land_irrarea_init', 'could not find any land transition fields in the input file', FATAL)
-
-     time0_manag = set_date(0001,01,01);
-
-   diag_area = register_diag_field(diag_mod_name,'irr_area',(/id_ug/), lnd%time, &
-         'fraction irrigated area',units='', missing_value=-1.0)
-
-   !diag_floodarea = register_diag_field(diag_mod_name,'flood_area',(/id_ug/), lnd%time, &
-   !      'flooded fraction of C3 annual crop area',units='', missing_value=-1.0)
-
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
+  if (.not.irrigation_on)     return ! do nothing more if irrigation is off
 
-  ierr=nf_open(manag_file,NF_NOWRITE,manag_ncid)
+  if (trim(management_file)=='') call error_mesg('land_transitions_init', &
+       'irrigation transitions are turned on, but land management input file is not specified', &
+       FATAL)
+
+  ierr=nf_open(management_file,NF_NOWRITE,manag_ncid)
   call get_time_axis(manag_ncid,manag_time_in)
 
 
    do n2 = 1,size(crop_name)
-        call add_var_to_varset(input_manag(n2),manag_ncid,manag_file,'irrig'//'_'//crop_name(n2))
+        call add_var_to_varset(input_manag(n2),manag_ncid,management_file,'irrig'//'_'//crop_name(n2))
         input_manag(n2)%name='irrig'//'_'//crop_name(n2)
-!        print*, input_manag(n2)%id, input_manag(n2)%name, 'test', crop_name(n2), 'irrig'//'_'//crop_name(n2), manag_ncid, size(input_manag)
    enddo
-  !call add_var_to_varset(input_flood(1),manag_ncid,manag_file,'flood')
+  !call add_var_to_varset(input_flood(1),manag_ncid,management_file,'flood')
   !input_flood(1)%name='flood'
 
   ! initialize the input data grid and horizontal interpolator
@@ -886,7 +849,6 @@ subroutine land_irrigatedareas_init(id_ug)
         endif
      enddo
    enddo l1
-! print*, 'id', id
   ! we assume that all transition rate fields are specified on the same grid,
   ! in both horizontal and time "directions". Therefore there is a single grid
   ! for all fields, initialized only once.
@@ -897,8 +859,6 @@ subroutine land_irrigatedareas_init(id_ug)
   allocate(buffer_in(nlon_in_manag,nlat_in_manag), &
            mask_in(nlon_in_manag,nlat_in_manag),   &
            lon_in(nlon_in_manag+1,1), lat_in(1,nlat_in_manag+1) )
-  ! allocate module data
-!  allocate(norm_in(nlon_in,nlat_in))
 
   ! get the boundaries of the horizontal axes and initialize horizontal
   ! interpolator
@@ -920,8 +880,7 @@ subroutine land_irrigatedareas_init(id_ug)
      mask_in = 0
   end where
 
-
-!  ! initialize horizontal interpolator
+  ! initialize horizontal interpolator
   call horiz_interp_new(interp_manag, lon_in*PI/180,lat_in*PI/180, &
        lnd%sg_lonb, lnd%sg_latb, &
        interp_method='conservative',&
@@ -929,7 +888,6 @@ subroutine land_irrigatedareas_init(id_ug)
 
   ! get rid of temporary allocated data
   deallocate(buffer_in, mask_in,lon_in,lat_in)
-!  deallocate(in_lonb, in_latb, in_cover, x)
 
 end subroutine land_irrigatedareas_init
 
@@ -1246,8 +1204,6 @@ if (irrigation_on) then
    do l = lnd%ls,lnd%le
      fi1(l) = irr_frac(l,1)
    enddo
-
-   used = send_data(diag_area,fi1,time)
 
    atot(:) =0.
    area0(:,:) = 0.0
@@ -2522,6 +2478,8 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   verbose_ = .FALSE.
   if (present(verbose)) verbose_ = verbose
 
+  ! check that the area the area involved in transitions is greater then zero,
+  ! and if it is not, return copy of input transitions
   if (atot<=0.0) then
      tran1(:,:) = 0.0
      do i = 1,N_LU_TYPES
