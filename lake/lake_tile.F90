@@ -17,6 +17,7 @@ use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
+use transitions_input_mod, only : do_lake_change
 
 implicit none
 private
@@ -276,7 +277,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_LAKE, idata1 = i, area_depends_on_time=.FALSE. )
+          tag = SEL_LAKE, idata1 = i, area_depends_on_time=do_lake_change )
   enddo
 
   ! set up output arguments
