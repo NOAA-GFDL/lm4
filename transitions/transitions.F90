@@ -5,11 +5,6 @@ module land_transitions_mod
 
 use constants_mod, only : PI
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
@@ -59,6 +54,8 @@ use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
 use land_numerics_mod, only : rank_descending
 use lake_mod, only : prohibit_shallow_lake, is_rsv_restart, use_reservoir
+use transitions_input_mod
+
 
 implicit none
 private
@@ -74,6 +71,8 @@ public :: save_lake_transitions_restart
 
 public :: land_transitions
 public :: lake_transitions
+! TODO: check the role of re-exports for conflicts with the rest of the transitions
+public :: do_landuse_change ! re-exporting from transitions_input_mod
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================
@@ -204,45 +203,6 @@ character(len=1024) :: input_lake_file  = '' ! input data set of lake transition
 character(len=1024) :: state_lake_file  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: depth_rsv_file   = '' ! reservoir construction depth
 
-! ---- namelist variables ---------------------------------------------------
-logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
-character(len=1024) :: input_file  = '' ! input data set of transition dates
-character(len=1024) :: state_file  = '' ! input data set of LU states (for initial transition only)
-character(len=1024) :: static_file = '' ! static data file, for input land fraction
-character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
-! distribute_transitions sets how the land use transitions are distributed among
-! tiles within grid cells. 'lm3' is traditional (transitions applied to every
-! tile in equal measure, except secondary-to-secondary); 'min-tiles' applies
-! transitions to tiles in the order of priority, thereby minimizing the number
-! of resulting tiles
-logical :: rangeland_is_pasture = .FALSE. ! if true, rangeland is combined with pastures.
-! This only applies to luh2 transitions, since there is no rangeland in luh1 anyway.
-character(len=16)  :: distribute_transitions  = 'lm3' ! or 'min-n-tiles'
-! sets how to handle transition overshoot: that is, the situation when transition
-! is larger than available area of the given land use type.
-character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
-real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
-! specifies how to handle non-conservation
-character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
-logical :: luh2_missing_transitions_bug = .FALSE.
-
-! for irrigation
-character(len=1024) :: management_file = '' ! management data file, for input land fraction irrigated area
-logical :: irrigation_on = .FALSE.
-
-character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
-character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
-character(len=1024) :: depth_file_rsv   = '' ! reservoir construction depth
-logical, protected, public :: do_lake_change = .FALSE.
-
-namelist/landuse_nml/do_landuse_change, irrigation_on, data_type, &
-     input_file, state_file, static_file, management_file,&
-     rangeland_is_pasture, distribute_transitions, &
-     overshoot_handling, overshoot_tolerance, &
-     conservation_handling, &
-     input_file_lake, state_file_lake, depth_file_rsv, do_lake_change
-
-
 contains ! ###################################################################
 
 ! ============================================================================
@@ -251,7 +211,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   integer, intent(in) :: id_cellarea !<id of cell area diagnostic fields
 
   ! ---- local vars
-  integer        :: unit, ierr, io, ncid1
+  integer        :: unit, ierr, ncid1
   integer        :: year,month,day,hour,min,sec
   integer        :: k1,k2,k3, id, n1,n2
 
@@ -272,27 +232,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   __FILE__)
 
   call horiz_interp_init
-
-#ifdef INTERNAL_FILE_NML
-  read (input_nml_file, nml=landuse_nml, iostat=io)
-  ierr = check_nml_error(io, 'landuse_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=landuse_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'landuse_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-
-  if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=landuse_nml)
-  endif
 
   ! read restart file, if any
   if (file_exist('INPUT/landuse.res')) then
@@ -579,7 +518,7 @@ subroutine lake_transitions_init(id_ug)
   integer, intent(in) :: id_ug !<Unstructured axis id.  
 
   ! ---- local vars
-  integer        :: unit, ierr, io, ncid1, ncid1_lake, used_id
+  integer        :: unit, ierr, ncid1
   integer        :: year,month,day,hour,mi,sec
   integer        :: k1,k2,k3, id, n1,n2, i1, i2, id_lake, l
   real           :: w

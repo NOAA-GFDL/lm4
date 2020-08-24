@@ -108,6 +108,7 @@ use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
+use transitions_input_mod, only : read_transitions_namelist
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
      save_land_transitions_restart, &
@@ -447,6 +448,7 @@ subroutine land_model_init &
   ! be after land_tile_diag_init
   call read_land_io_namelist()
   call read_predefined_tiles_namelist()
+  call read_transitions_namelist() ! Must be called before soil and lake
   call read_soil_namelist()
   call read_hlsp_namelist() ! Must be called after read_soil_namelist
   call read_vegn_namelist()
