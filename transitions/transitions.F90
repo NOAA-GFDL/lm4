@@ -231,7 +231,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   call log_version(version, module_name, &
   __FILE__)
 
-  call horiz_interp_init
+  call horiz_interp_init()
 
   ! read restart file, if any
   if (file_exist('INPUT/landuse.res')) then
@@ -268,7 +268,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      overshoot_opt = OPT_REPORT
   else
      call error_mesg('land_transitions_init','overshoot_handling value "'//&
-          trim(overshoot_handling)//'" is illegal, use "stop", "report", or "ignore"',&
+          trim(overshoot_handling)//'" is incorrect, use "stop", "report", or "ignore"',&
           FATAL)
   endif
 
@@ -281,7 +281,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      conservation_opt = OPT_REPORT
   else
      call error_mesg('land_transitions_init','conservation_handling value "'//&
-          trim(conservation_handling)//'" is illegal, use "stop", "report", or "ignore"',&
+          trim(conservation_handling)//'" is incorrect, use "stop", "report", or "ignore"',&
           FATAL)
   endif
 
