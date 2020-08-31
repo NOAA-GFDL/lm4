@@ -1,13 +1,13 @@
 module static_vegn_mod
 
 use constants_mod,      only : pi
-use mpp_mod,            only : mpp_max, mpp_sum
+use mpp_mod,            only : mpp_max, mpp_sum, input_nml_file
 use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
 
 use fms_mod,            only : error_mesg, FATAL, NOTE, &
-     mpp_pe, input_nml_file, check_nml_error, stdlog, lowercase, &
+     mpp_pe, check_nml_error, stdlog, lowercase, &
      mpp_root_pe, fms_error_handler
 use time_interp_mod,    only : time_interp
 use diag_manager_mod,   only : get_base_date
@@ -306,55 +306,47 @@ subroutine init_writing_static_veg()
 
   call register_axis(static_veg_file, "time", unlimited)
   call register_field(static_veg_file, "time", "double", (/"time"/))
-  call register_variable_attribute(static_veg_file, "time", "units", units)
-  call register_variable_attribute(static_veg_file, "time", "calendar", &
-                                   valid_calendar_types(get_calendar_type()))
+  call register_variable_attribute(static_veg_file, "time", "units", units, str_len=trim(units))
+  call register_variable_attribute(static_veg_file, "time", "calendar", valid_calendar_types(get_calendar_type()), &
+                                   str_len=trim(valid_calendar_types(get_calendar_type())))
 
   call register_restart_field(static_veg_file, "species", species, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "species", "long_name", &
-                                   "vegetation species")
+  call register_variable_attribute(static_veg_file, "species", "long_name", "vegetation species", &
+                str_len=trim("vegetation species"))
 
   call register_restart_field(static_veg_file, "bl", bl, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "bl", "long_name", &
-                                   "biomass of leaves per individual")
-  call register_variable_attribute(static_veg_file, "bl", "units", &
-                                   "kg C/m2")
+  call register_variable_attribute(static_veg_file, "bl", "long_name", "biomass of leaves per individual", &
+                str_len=trim("biomass of leaves per individual"))
+  call register_variable_attribute(static_veg_file, "bl", "units", "kg C/m2", str_len=trim("kg C/m2"))
 
   call register_restart_field(static_veg_file, "blv", blv, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "blv", "long_name", &
-                                   "biomass of virtual leaves (labile store) per individual")
-  call register_variable_attribute(static_veg_file, "blv", "units", &
-                                   "kg C/m2")
+  call register_variable_attribute(static_veg_file, "blv", "long_name", "biomass of virtual leaves (labile store) per individual", &
+                str_len=trim("biomass of virtual leaves (labile store) per individual"))
+  call register_variable_attribute(static_veg_file, "blv", "units", "kg C/m2", str_len=trim("kg C/m2"))
 
   call register_restart_field(static_veg_file, "br", br, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "br", "long_name", &
-                                   "biomass of fine roots per individual")
-  call register_variable_attribute(static_veg_file, "br", "units", &
-                                   "kg C/m2")
+  call register_variable_attribute(static_veg_file, "br", "long_name", "biomass of fine roots per individual", &
+                            str_len=trim("biomass of fine roots per individual"))
+  call register_variable_attribute(static_veg_file, "br", "units", "kg C/m2", str_len=trim("kg C/m2"))
 
   call register_restart_field(static_veg_file, "bsw", bsw, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "bsw", "long_name", &
-                                   "biomass of sapwood per individual")
-  call register_variable_attribute(static_veg_file, "bsw", "units", &
-                                   "kg C/m2")
+  call register_variable_attribute(static_veg_file, "bsw", "long_name", "biomass of sapwood per individual", &
+                            str_len=trim("biomass of sapwood per individual"))
+  call register_variable_attribute(static_veg_file, "bsw", "units", "kg C/m2", str_len=trim("kg C/m2"))
 
   call register_restart_field(static_veg_file, "bwood", bwood, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "bwood", "long_name", &
-                                   "biomass of heartwood per individual")
-  call register_variable_attribute(static_veg_file, "bwood", "units", &
-                                   "kg C/m2")
+  call register_variable_attribute(static_veg_file, "bwood", "long_name", "biomass of heartwood per individual", &
+                            str_len=trim("biomass of heartwood per individual"))
+  call register_variable_attribute(static_veg_file, "bwood", "units", "kg C/m2", str_len=trim("kg C/m2"))
 
   call register_restart_field(static_veg_file, "bliving", bliving, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "bliving", "long_name", &
-                                   "total living biomass per individual")
-  call register_variable_attribute(static_veg_file, "bliving", "units", &
-                                   "")
+  call register_variable_attribute(static_veg_file, "bliving", "long_name", "total living biomass per individual", &
+                            str_len=trim("total living biomass per individual"))
+  call register_variable_attribute(static_veg_file, "bliving", "units", "", str_len=trim(""))
 
   call register_restart_field(static_veg_file, "status", status, (/"cohort_index"/))
-  call register_variable_attribute(static_veg_file, "status", "long_name", &
-                                   "leaf status")
-  call register_variable_attribute(static_veg_file, "status", "units", &
-                                   "")
+  call register_variable_attribute(static_veg_file, "status", "long_name", "leaf status", str_len=trim("leaf status"))
+  call register_variable_attribute(static_veg_file, "status", "units", "", str_len=trim(""))
 
 11 format('days since ', i4.4, '-', i2.2, '-', i2.2, ' ', i2.2, ':', i2.2, ':', i2.2)
 end subroutine init_writing_static_veg

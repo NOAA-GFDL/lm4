@@ -1,7 +1,8 @@
 module glac_tile_mod
 #include <fms_platform.h>
 
-use fms_mod, only : input_nml_file, check_nml_error, stdlog
+use fms_mod, only : check_nml_error, stdlog
+use mpp_mod, only : input_nml_file
 use constants_mod, only : pi, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_io_mod, only : init_cover_field

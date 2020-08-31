@@ -5,7 +5,8 @@ use mpp_domains_mod, only : mpp_pass_sg_to_ug
 
 use constants_mod,     only : PI
 use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, string, check_nml_error, input_nml_file
+     mpp_root_pe, string, check_nml_error
+use mpp_mod, only: input_nml_file
 use mpp_io_mod, only: axistype, mpp_get_axis_data
 use axis_utils_mod, only : get_axis_bounds
 use horiz_interp_mod,  only : horiz_interp_type, &

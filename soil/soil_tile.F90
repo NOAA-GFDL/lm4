@@ -1,7 +1,8 @@
 module soil_tile_mod
 #include <fms_platform.h>
 
-use fms_mod, only : input_nml_file, check_nml_error, &
+use mpp_mod, only : input_nml_file
+use fms_mod, only : check_nml_error, &
      stdlog, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln

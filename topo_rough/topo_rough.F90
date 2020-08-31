@@ -7,9 +7,10 @@ module topo_rough_mod
   use mpp_domains_mod,    only : domain2d, domainUG, mpp_pass_SG_to_UG, mpp_get_ug_compute_domain, &
                                  mpp_get_compute_domain
 
+  use mpp_mod,            only : input_nml_file
   use fms_mod,            only : error_mesg, FATAL, NOTE, &
        open_restart_file, read_data, &
-       write_data, input_nml_file, file_exist, check_nml_error, mpp_pe, &
+       write_data, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev

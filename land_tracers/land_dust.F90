@@ -5,7 +5,8 @@ module land_dust_mod
 use constants_mod, only: PI, rdgas, GRAV, PSTD_MKS, DENS_H2O
 use land_constants_mod, only : d608, kBoltz
 
-use fms_mod, only : error_mesg, FATAL, NOTE, input_nml_file, &
+use mpp_mod, only : input_nml_file
+use fms_mod, only : error_mesg, FATAL, NOTE, &
      check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
 use time_manager_mod, only: time_type, time_type_to_real
 use diag_manager_mod, only : register_static_field, &

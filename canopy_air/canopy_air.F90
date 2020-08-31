@@ -5,7 +5,8 @@ module canopy_air_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : error_mesg, FATAL, NOTE, input_nml_file, &
+use mpp_mod, only: input_nml_file
+use fms_mod, only : error_mesg, FATAL, NOTE, &
      check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use constants_mod, only : VONKARM
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND

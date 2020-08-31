@@ -4,9 +4,9 @@ module vegn_harvesting_mod
 
 use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, WARNING, &
-     mpp_pe, input_nml_file, &
+     mpp_pe, &
      check_nml_error, stdlog, mpp_root_pe, lowercase
-use mpp_mod, only: mpp_sum
+use mpp_mod, only: mpp_sum, input_nml_file
 use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year

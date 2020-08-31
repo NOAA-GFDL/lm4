@@ -1,9 +1,9 @@
 module land_debug_mod
 
-use mpp_mod, only: mpp_max
+use mpp_mod, only: mpp_max, input_nml_file
 use constants_mod, only: PI
 use fms_mod, only: error_mesg, check_nml_error, stdlog, lowercase, &
-     input_nml_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
+     mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: get_grid_ntiles
