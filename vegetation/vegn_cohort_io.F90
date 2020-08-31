@@ -231,7 +231,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   call register_field(rhandle, trim(cohort_index_name), "int", (/trim(cohort_index_name)/))
   call register_variable_attribute(rhandle, trim(cohort_index_name), "compress", "cohort tile lat lon", &
                             str_len=len(trim("cohort tile lat lon")))
-  call register_variable_attribute(rhandle, len(trim(cohort_index_name), "units", "none", str_len=trim("none")))
+  call register_variable_attribute(rhandle, trim(cohort_index_name), "units", "none", str_len=len(trim("none")))
   call register_variable_attribute(rhandle, trim(cohort_index_name), "long_name", "compressed vegetation cohort index", &
                             str_len=len(trim("compressed vegetation cohort index")))
   call register_variable_attribute(rhandle, trim(cohort_index_name), "valid_min", 0)
