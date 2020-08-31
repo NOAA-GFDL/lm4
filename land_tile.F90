@@ -51,6 +51,7 @@ public :: max_n_tiles
 public :: new_land_tile, delete_land_tile
 public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 
+public :: get_tile_tags ! returns the tags of the sub-model tiles
 public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
 public :: land_tile_nitrogen ! returns total nitrogen in the tile
@@ -156,6 +157,11 @@ type :: land_tile_type
            ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
    real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
    real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
+   real :: runon_l  = 0.0 ! water discharged by rivers into the tile, kg/(m2 s)
+   real :: runon_s  = 0.0 ! snow discharged by rivers into the tile, kg/(m2 s)
+   real :: runon_H  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
+   real :: runon_Hl  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
+   real :: runon_Hs  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
 end type land_tile_type
 
 ! tile_list_type provides a container for the tiles
@@ -383,6 +389,40 @@ end subroutine delete_land_tile
 
 
 ! ============================================================================
+! returns tags of the component model tiles
+subroutine get_tile_tags(tile,land,glac,lake,soil,snow,cana,vegn)
+   type(land_tile_type), intent(in)  :: tile
+   integer, optional,    intent(out) :: land,glac,lake,soil,snow,cana,vegn
+
+   if(present(land)) land=tile%tag
+   if(present(glac)) then
+      glac=-HUGE(glac)
+      if (associated(tile%glac)) glac=get_glac_tile_tag(tile%glac)
+   endif
+   if(present(lake)) then
+      lake=-HUGE(lake)
+      if (associated(tile%lake)) lake=get_lake_tile_tag(tile%lake)
+   endif
+   if(present(soil)) then
+      soil=-HUGE(soil)
+      if (associated(tile%soil)) soil=get_soil_tile_tag(tile%soil)
+   endif
+   if(present(snow)) then
+      snow=-HUGE(snow)
+      if (associated(tile%snow)) snow=get_snow_tile_tag(tile%snow)
+   endif
+   if(present(cana)) then
+      cana=-HUGE(cana)
+      if (associated(tile%cana)) cana=get_cana_tile_tag(tile%cana)
+   endif
+   if(present(vegn)) then
+      vegn=-HUGE(vegn)
+      if (associated(tile%vegn)) vegn=vegn_tile_tag(tile%vegn)
+   endif
+end subroutine get_tile_tags
+
+
+! ============================================================================
 ! returns totals water and ice masses associated with tile
 subroutine get_tile_water(tile, lmass, fmass)
   type(land_tile_type), intent(in) :: tile
@@ -555,6 +595,11 @@ subroutine merge_land_tiles(tile1,tile2)
   __MERGE__(lwup)
   __MERGE__(e_res_1)
   __MERGE__(e_res_2)
+  __MERGE__(runon_l)
+  __MERGE__(runon_s)
+  __MERGE__(runon_H)
+  __MERGE__(runon_Hl)
+  __MERGE__(runon_Hs)
 #undef __MERGE__
 
   tile2%e_res_2 = tile2%e_res_2 - dheat

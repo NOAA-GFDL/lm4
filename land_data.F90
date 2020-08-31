@@ -325,7 +325,7 @@ end subroutine land_data_init
 
 
 ! ============================================================================
-!   set up for unstructured domain and land state data
+!   set up for unstructure domain and land state data
 subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   integer, intent(in) :: npes_io_group, ntiles, nlon, nlat
 
@@ -334,7 +334,7 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   integer :: n_io_pes ! number of PEs in our io_domain
   integer :: outunit
 
-  !--- variables for unstructured grid domain.
+  !--- variables for unstructure grid domain.
   integer, allocatable :: num_lnd(:), grid_index(:), ntiles_grid(:)
   real,    allocatable :: lnd_area(:,:,:)
   integer              :: i, j, n, l, nland, ug_io_layout
@@ -405,24 +405,16 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   ug_io_layout = mpp_get_io_domain_UG_layout(lnd%ug_domain)
   lnd%append_io_id = (ug_io_layout>1)
 
-  ! get the domain information for unstructured domain.
-  ! NOTE that lnd%ls is always set to 1. This a work around (apparent) compiler issue,
-  ! when with multiple openmp threads *and* debug flags Intel compilers (15 and 16) report
-  ! index errors, as if global land_tile_map array started from 1 instead of lnd%ls
-  !
-  ! This problem does not occur with other compilation flags (e.g. prod, or prod-openmp are
-  ! both fine). Nevertheless, to address this issue we now start all our lnd%ls:lnd%le
-  ! arrays at index 1.
-  lnd%ls = 1
-  call mpp_get_UG_compute_domain(lnd%ug_domain, size=lnd%le)
+  ! get the domain information for unstructure domain
+  call mpp_get_UG_compute_domain(lnd%ug_domain, lnd%ls,lnd%le)
 
-  !--- get the i,j index of each unstructured grid.
+  !--- get the i,j index of each unstructure grid.
   allocate(grid_index(lnd%ls:lnd%le))
   call mpp_get_UG_domain_grid_index(lnd%ug_domain, grid_index)
-  !--- make sure grid_index is monotonically increasing.
+  !--- make sure grid_index is monotone increasing.
   do l = lnd%ls+1,lnd%le
      if(grid_index(l) .LE. grid_index(l-1)) call error_mesg('land_model_init', &
-         'grid_index is not in increasing order', FATAL)
+         'grid_index is not monotone increasing', FATAL)
   enddo
   lnd%gs = grid_index(lnd%ls)
   lnd%ge = grid_index(lnd%le)

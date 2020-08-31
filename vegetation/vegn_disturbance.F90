@@ -664,8 +664,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) 'Splitting a disturbed tile'
         __DEBUG3__(f0,t0%frac,t1%frac)
      endif
-     ! reset time elapsed since last disturbance in the new tile; do not change age_since_landuse
-     t1%vegn%age_since_disturbance = 0.0
+
      ! change the density of individuals in the cohorts that we split
      do i = 1,t0%vegn%n_cohorts
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i),sp0=>spdata(t0%vegn%cohorts(i)%species))

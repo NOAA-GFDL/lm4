@@ -15,7 +15,7 @@ use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL
 use constants_mod, only: PI
 
-use soil_tile_mod, only : soil_tile_type, max_lev, psi_wilt
+use soil_tile_mod, only : soil_tile_type, soil_pars_type, max_lev, psi_wilt
 use land_debug_mod, only : is_watch_point
 use land_data_mod, only : log_version
 

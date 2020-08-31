@@ -615,7 +615,6 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   !!! dsward_kop end
 
   ! get fire data for current date
-  call error_mesg('vegn_fire_init','Updating fire data.',NOTE)
   call update_fire_data(time)
 
   ! ---- initialize the diagnostics --------------------------------------------
@@ -2689,7 +2688,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      killed_wood_C = fireMort_stem*(bc%bwood+bc%bsw)
      killed_wood_N = fireMort_stem*(bc%wood_N+bc%sapwood_N)
      killed_root_C = fireMort_root*bc%br
-     killed_root_N = fireMort_root*bc%root_N
+     killed_root_N = fireMort_root*bc%wood_N
 
      bc%bl    = (1-fireMort_leaf) * bc%bl    ; bc%leaf_N    = (1-fireMort_leaf) * bc%leaf_N
      bc%br    = (1-fireMort_root) * bc%br    ; bc%root_N    = (1-fireMort_root) * bc%root_N
@@ -3499,8 +3498,6 @@ subroutine fire_transitions_0D(tiles, land_area, l)
         ! reset fire values for the next period
         tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
         temp%vegn%burned_frac = 0.0 ; temp%vegn%fire_rad_power = 0.0
-        ! reset time elapsed since last disturbance in the new tile; do not change age_since_landuse
-        temp%vegn%age_since_disturbance = 0.0
         ! add disturbed part to the output list
         call insert(temp, burned)
      else

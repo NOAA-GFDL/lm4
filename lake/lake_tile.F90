@@ -22,6 +22,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: lake_pars_type
 public :: lake_tile_type
 
 public :: new_lake_tile, delete_lake_tile

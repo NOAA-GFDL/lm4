@@ -1089,7 +1089,6 @@ subroutine get_tile_by_idx(idx,ptr)
    ! ---- local vars
    integer :: g,k,npts,l
    type(land_tile_enum_type) :: ce
-   character(512) :: str
 
    ptr=>null()
 
@@ -1103,13 +1102,9 @@ subroutine get_tile_by_idx(idx,ptr)
    if (g<lnd%gs.or.g>lnd%ge) return ! skip points outside of domain
    ! loop through the list of tiles at the given point to find k+1st tile
    l = lnd%l_index(g)
-   if (l<lnd%ls .or. l>lnd%le) then
-      write (str,'("l=",i4.4," is out of bounds:",4(x,a,"=",i4.4))') &
-         "l_index",lnd%l_index(g), "lnd%ls",lnd%ls,"lnd%le",lnd%le,&
-         "l",l,&
-         "lbound(land_tile_map)",lbound(land_tile_map),&
-         "ubound(land_tile_map)",ubound(land_tile_map)
-      call error_mesg('get_tile_by_idx',trim(str),FATAL)
+   if(l < lnd%ls .OR. l > lnd%le) then
+      print*, " l= ", l, g, lnd%ls, lnd%le, mpp_pe()
+      call error_mesg("land_tile_io", "l < lnd%ls .OR. l > lnd%le", FATAL)
    endif
    ce = first_elmt(land_tile_map(l))
    do while(loop_over_tiles(ce, ptr))

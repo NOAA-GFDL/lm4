@@ -13,6 +13,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: glac_pars_type
 public :: glac_tile_type
 
 public :: new_glac_tile, delete_glac_tile

@@ -71,8 +71,7 @@ type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=
 type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%component%x;end subroutine
 
 DEFINE_VEGN_ACCESSOR_0D(integer,landuse)
-DEFINE_VEGN_ACCESSOR_0D(real,age_since_disturbance)
-DEFINE_VEGN_ACCESSOR_0D(real,age_since_landuse)
+DEFINE_VEGN_ACCESSOR_0D(real,age)
 DEFINE_VEGN_ACCESSOR_0D(real,fsc_pool_ag)
 DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_ag)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_ag)

@@ -943,7 +943,7 @@ subroutine lake_diag_init(id_ug)
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   id_K_z  = register_tiled_diag_field ( module_name, 'lake_K_z', axes,         &
        lnd%time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
-  id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:1),  &
+  id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
        lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &

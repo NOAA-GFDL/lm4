@@ -17,11 +17,12 @@ use time_manager_mod, only: time_type
 use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
 use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
-use constants_mod, only : PI
+use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
 use land_data_mod, only : lnd,log_version
 use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, &
-     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, set_current_point
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, set_current_point, &
+     land_error_message
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_carbon, land_tile_nitrogen
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
@@ -32,21 +33,23 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
+     agf_bs, min_lai, nsc_starv_frac, nsc_target_option, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
      mycorrhizal_turnover_time, N_fixer_turnover_time
-use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
+use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_tile_nitrogen, &
+     vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS
-use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_species, &
+use vegn_cohort_mod, only : vegn_cohort_type, &
+     update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-    add_litter, deadmic_slow_frac
+    add_litter, debug_pool, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
 use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
@@ -621,7 +624,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   mine_N_alloc = mine_C_alloc*sp%root_exudate_N_frac
   scav_N_alloc = scav_C_alloc*sp%root_exudate_N_frac
 
-  ! Make sure N allocation does not completely deplete stored N
+  ! Make sure N allocation doesn't completely deplete stored N
   if (cc%stored_N<=0.0 .and. N_limits_live_biomass) then
      nfix_N_alloc=0.0
      mine_N_alloc=0.0
@@ -913,6 +916,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
+  vegn%age = vegn%age + dt_fast_yr;
 
 
   ! ---- diagnostic section
@@ -1139,7 +1143,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*sp%fract_froot(:)*deltaNR*(1.0-sp%root_N_retrans_frac)
      enddo
 
-     ! resg(i) = 0 ! slm: that does not make much sense to me... why?
+     ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
 ! 20170617:
      ! Mycorrhizal N uptake
 
@@ -1236,6 +1240,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   vegn%nep = sum((gpp(1:M)-resp(1:M))*c(1:M)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
+  vegn%age = vegn%age + dt_fast_yr
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'
@@ -1598,7 +1603,7 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
      endif
      ! update targets based on the nitrogen stress
      ! N_stress_root_factor is something like 0.05 so br_max increases 25% when N stress is 0.5, i.e. stored N is half of target value
-     ! N stress or this root factor should not go above some max value, so all biomass does not end up in roots in some weird situation
+     ! N stress or this root factor should not go above some max value, so all biomass doesn't end up in roots in some weird situation
      ! This assumes carbon to build more roots comes from sapwood growth, not leaf growth. But we can make this flexible or have different options
      br_max_Nstress = cc%br_max * (1+cc%nitrogen_stress*sp%N_stress_root_factor)
 
@@ -2185,7 +2190,7 @@ subroutine vegn_phenology_ppa(tile)
             endif
          endif
          ! drop all leaves if LAI is below certain small minimum
-         if (cc%lai<min_lai_pheno) then
+         if (cc%lai<min_lai) then
             dead_leaves_C = cc%bl
             dead_leaves_N = cc%leaf_N
          endif
@@ -2371,7 +2376,7 @@ subroutine update_soil_pools(vegn, soil)
      endif
 
      ! vertical profile of litter is proportional to the average of liiter profiles
-     ! of all cohorts, weighted with biomasses of fine roots. This does not seem to
+     ! of all cohorts, weighted with biomasses of fine roots. This doesn't seem to
      ! be a very good assumption, since fine roots sometimes die (mass is zero),
      ! but profile should not be zero in this case.
      profile(:) = 0.0

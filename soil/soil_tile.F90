@@ -22,6 +22,7 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 ! ==== public interfaces =====================================================
+public :: soil_pars_type
 public :: soil_tile_type
 
 public :: new_soil_tile, delete_soil_tile
