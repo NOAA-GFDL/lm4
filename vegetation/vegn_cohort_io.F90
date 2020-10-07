@@ -216,7 +216,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   call register_axis(rhandle, "cohort", cohorts_dim_length)
   call register_field(rhandle, "cohort", "int", (/"cohort"/))
   call register_variable_attribute(rhandle, "cohort", "long_name", "cohort number within tile", &
-                                   str_len=trim("cohort number within tile"))
+                                   str_len=len(trim("cohort number within tile")))
   do i = 1, cohorts_dim_length
     buffer(i) = i
   enddo
@@ -229,10 +229,10 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   deallocate(npes_cidx)
   call register_field(rhandle, cohort_index_name, "int", (/cohort_index_name/))
   call register_variable_attribute(rhandle, cohort_index_name, "compress", "cohort tile lat lon", &
-                                   str_len=trim("cohort tile lat lon"))
-  call register_variable_attribute(rhandle, cohort_index_name, "units", "none", str_len=trim("none"))
+                                   str_len=len(trim("cohort tile lat lon")))
+  call register_variable_attribute(rhandle, cohort_index_name, "units", "none", str_len=len(trim("none")))
   call register_variable_attribute(rhandle, cohort_index_name, "long_name", "compressed vegetation cohort index", &
-                                   str_len=trim("compressed vegetation cohort index"))
+                                   str_len=len(trim("compressed vegetation cohort index")))
   call register_variable_attribute(rhandle, cohort_index_name, "valid_min", 0)
   call write_data(rhandle, cohort_index_name, cidx)
 end subroutine create_cohort_out_file_idx
@@ -387,14 +387,14 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   call register_field(restart%rhandle, varname, "double", (/cohort_index_name, "Time"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(units)) then
-    call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=trim(units))
+    call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
   if (present(longname)) then
-    call register_variable_attribute(restart%rhandle, varname, "long_name", trim(longname), str_len=trim(longname))
+    call register_variable_attribute(restart%rhandle, varname, "long_name", trim(longname), str_len=len(trim(longname)))
   endif
 
   call get_land_chksum_r0d(r,chksum)
-  call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=trim(chksum))
+  call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, r)
   deallocate(r)
 end subroutine add_cohort_data
@@ -415,14 +415,14 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   call register_field(restart%rhandle, varname, "int", (/cohort_index_name, "Time"/))
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(units)) then
-    call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=trim(units))
+    call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
   if (present(longname)) then
-    call register_variable_attribute(restart%rhandle, varname, "long_name", trim(longname), str_len=trim(longname))
+    call register_variable_attribute(restart%rhandle, varname, "long_name", trim(longname), str_len=len(trim(longname)))
   endif
   
   call get_land_chksum_i0d(r,chksum)
-  call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=trim(chksum))
+  call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, r)
   deallocate(r)
 end subroutine add_int_cohort_data
