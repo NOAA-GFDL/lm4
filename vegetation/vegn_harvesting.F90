@@ -1,8 +1,9 @@
 module vegn_harvesting_mod
 
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
-     mpp_pe, input_nml_file, &
+     mpp_pe, &
      check_nml_error, stdlog, mpp_root_pe
+use mpp_mod, only: input_nml_file
 use vegn_data_mod, only : N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &

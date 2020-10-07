@@ -4,7 +4,8 @@ use netcdf, only: nf90_max_name
 use mpp_domains_mod, only : mpp_pass_sg_to_ug
 use constants_mod,     only : PI
 use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, string, check_nml_error, input_nml_file
+     mpp_root_pe, string, check_nml_error
+use mpp_mod, only: input_nml_file
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
 use land_numerics_mod, only : nearest, bisect
@@ -12,7 +13,7 @@ use land_data_mod, only : log_version, lnd, horiz_interp_ug
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
                        get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
                        is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists
-use legacy_mod, only: axis_edges
+use axis_utils2_mod, only: axis_edges
 
 implicit none
 private

@@ -10,14 +10,15 @@ use constants_mod, only : PI
 use mpp_domains_mod, only : mpp_pass_ug_to_sg
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, input_nml_file, get_unit, &
+     mpp_pe, lowercase, get_unit, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 
+use mpp_mod, only: input_nml_file
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
                        get_valid, is_valid, variable_exists, get_variable_size, &
                        get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
                        get_variable_dimension_names, get_variable_num_dimensions
-use legacy_mod, only: axis_edges
+use axis_utils2_mod, only: axis_edges
 
 
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &

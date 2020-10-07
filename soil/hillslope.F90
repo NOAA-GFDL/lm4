@@ -5,8 +5,8 @@ module hillslope_mod
 
 #include "../shared/debug.inc"
 
-use mpp_mod, only: mpp_pe, mpp_root_pe
-use fms_mod, only: error_mesg, input_nml_file, check_nml_error, &
+use mpp_mod, only: mpp_pe, mpp_root_pe, input_nml_file
+use fms_mod, only: error_mesg, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &

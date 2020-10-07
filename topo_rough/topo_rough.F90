@@ -8,8 +8,9 @@ module topo_rough_mod
                                  mpp_get_compute_domain
   use fms_mod,            only : error_mesg, FATAL, NOTE, &
        open_restart_file, read_data, &
-       write_data, input_nml_file, file_exist, check_nml_error, mpp_pe, &
+       write_data, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
+  use mpp_mod, only: input_nml_file
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev
   use land_data_mod,      only : log_version
