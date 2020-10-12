@@ -13,7 +13,8 @@ use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, &
+     days_in_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -53,7 +54,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
-     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY
+     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -252,7 +253,8 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
-   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib
+   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
+   id_age_since_disturbance, id_age_since_landuse
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -494,7 +496,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
 
-     call get_tile_data(restart2,'age',vegn_age_ptr)
+     if (field_exists(restart2,'age_since_disturbance')) then
+        call get_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr)
+        call get_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr)
+     endif
 
      call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
      call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
@@ -1198,6 +1203,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
 
+  id_age_since_disturbance = register_tiled_diag_field (module_name, 'age_since_disturbance',(/id_ug/), &
+       time, 'tile age since last disturbance (human or natural)', 'year', &
+       missing_value=-1.0)
+  id_age_since_landuse = register_tiled_diag_field (module_name, 'age_since_landuse',(/id_ug/), &
+       time, 'tile age since last land use event', 'year', &
+       missing_value=-1.0)
+
   ! CMOR/CMIP variables
   call set_default_diag_filter('land')
 
@@ -1475,11 +1487,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
      call add_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
                         'seed carbon dropped by dying plants', 'kgC/m2')
      call add_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
-                        'seed nirogen dropped by dying plants', 'kgC/m2')
+                        'seed nitrogen dropped by dying plants', 'kgC/m2')
   enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
-  call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
+  call add_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr,'time since last disturbance', 'yr')
+  call add_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr,'time since last land use disturbance', 'yr')
 
   ! write carbon pools and rates
   call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for AG fast soil carbon input', 'kg C/m2')
@@ -2498,6 +2511,7 @@ subroutine update_vegn_slow( )
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
+  real :: age_increment ! slow time step in years, for average year length in our calendar
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -2507,6 +2521,10 @@ subroutine update_vegn_slow( )
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   ! calculate day of year, to avoid re-calculating it in harvesting
   doy = day_of_year(lnd%time)
+  ! calculate age increment, to avoid re-calculating for every tile.
+  ! Trying to avoid ages jumping over the year boundaries within the year, which
+  ! would happen if we used average length of year for given calendar.
+  age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -2731,6 +2749,12 @@ subroutine update_vegn_slow( )
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      endif
+
+     ! ---- increment tile ages
+     call send_tile_data(id_age_since_disturbance,   tile%vegn%age_since_disturbance,   tile%diag)
+     call send_tile_data(id_age_since_landuse,       tile%vegn%age_since_landuse,       tile%diag)
+     tile%vegn%age_since_disturbance = min(tile%vegn%age_since_disturbance + age_increment, MAX_TILE_AGE)
+     tile%vegn%age_since_landuse     = min(tile%vegn%age_since_landuse     + age_increment, MAX_TILE_AGE)
 
      ! ---- diagnostic section
      call send_tile_data(id_t_ann,   tile%vegn%t_ann,   tile%diag)

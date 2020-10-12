@@ -73,7 +73,7 @@ use vegn_tile_mod, only : vegn_cover_cold_start, &
                           vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
-use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
+use glac_tile_mod, only : glac_cover_cold_start, &
                           glac_tile_stock_pe, glac_tile_heat, glac_roughness
 use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, snow_radiation
 use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
@@ -83,7 +83,7 @@ use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
      first_elmt, tail_elmt, next_elmt, operator(==), current_tile, &
-     get_tile_tags, get_tile_water, land_tile_heat, land_tile_nitrogen, &
+     get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
      merge_land_tile_into_list, tile_test_func
@@ -1041,10 +1041,10 @@ subroutine land_cover_warm_start_new (restart)
      if (k<0) cycle ! skip negative indices
      g = modulo(k,npts)+1
      if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-     l = lnd%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
      tile=>new_land_tile(frac=frac(it),&
               glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
+     l = lnd%l_index(g)
      call insert(tile,land_tile_map(l))
   enddo
   deallocate(glac, lake, soil, vegn, frac)
@@ -1106,10 +1106,10 @@ subroutine land_cover_warm_start_orig (restart)
        if (k<0) cycle ! skip negative indices
        g = modulo(k,npts)+1
        if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-       l = lnd%l_index(g)
        ! the size of the tile set at the point (i,j) must be equal to k
        tile=>new_land_tile(frac=frac(it),&
                 glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
+       l = lnd%l_index(g)
        call insert(tile,land_tile_map(l))
     enddo
   enddo
@@ -1196,7 +1196,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
-!     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output

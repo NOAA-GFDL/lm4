@@ -42,7 +42,7 @@ use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
-     empty, erase, remove, insert, merge_land_tile_into_list, &
+     erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 use land_tile_diag_mod, only : cmor_name
@@ -1056,6 +1056,10 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
                 call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
         ! calculate remaining area of transition
@@ -1183,6 +1187,10 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
              call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif
