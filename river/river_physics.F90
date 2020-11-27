@@ -559,7 +559,7 @@ contains
     integer, allocatable, dimension(:,:) :: is2_send, ie2_send, js2_send, je2_send
     integer, allocatable, dimension(:,:) :: rot_send, rot_recv, dir_send, dir_recv
     integer, allocatable, dimension(:)   :: send_pelist, recv_pelist, pelist_r, pelist_s
-    integer, allocatable, dimension(:)   :: send_count, recv_count, recv_size2
+    integer, allocatable, dimension(:)   :: send_count, recv_count, recv_size2, send_arr
     integer, allocatable, dimension(:)   :: isl, iel, jsl, jel
     integer, allocatable, dimension(:)   :: sbuf, rbuf
     type(comm_type), pointer             :: send => NULL()
@@ -1125,12 +1125,14 @@ contains
        call mpp_recv(recv_size2(p), glen = 1, from_pe = recv_pelist(p), block=.FALSE., tag=COMM_TAG_2 )
     enddo
 
+    if(nsend_update>0) allocate(send_arr(nsend_update))
     do p= 1, nsend_update
        msgsize = 0
        do m = 1, maxtravel
           msgsize = msgsize + 2*halo_update(m)%send(p)%count
        enddo
-       call mpp_send(msgsize, plen = 1, to_pe = send_pelist(p), tag=COMM_TAG_2)
+       send_arr(p) = msgsize
+       call mpp_send(send_arr(p), plen = 1, to_pe = send_pelist(p), tag=COMM_TAG_2)
     enddo
 
     call mpp_sync_self(check=EVENT_RECV)
@@ -1232,6 +1234,7 @@ contains
     if(allocated(send_buffer)) deallocate(send_buffer)
     if(allocated(recv_buffer)) deallocate(recv_buffer)
     if(allocated(recv_size2 )) deallocate(recv_size2 )
+    if(allocated(send_arr   )) deallocate(send_arr   )
 
     !--- set up buffer for send and recv.
     send_size = 0
