@@ -50,7 +50,7 @@ public :: send_cohort_data
 
 public :: dump_tile_diag_fields
 
-public :: get_area_id
+public :: get_area_id, get_field_id
 
 public :: send_global_land_diag
 
@@ -270,6 +270,26 @@ function get_area_id(name); integer get_area_id
    call error_mesg(mod_name,&
       'diag filter "'//trim(name)//'" was not found among registered diag filters', FATAL)
 end function get_area_id
+
+
+! ============================================================================
+! given a module name and field name, returns ID of the diagnostic field, or -1
+! if the field has not been registered
+integer function get_field_id(mname,fname)
+   character(*), intent(in) :: mname ! name of the module
+   character(*), intent(in) :: fname ! name of the field
+
+   integer :: i
+
+   do i = 1, n_fields
+      if (trim(fname)==trim(fields(i)%name).and.&
+          trim(mname)==trim(fields(i)%module)) then
+         get_field_id = i + BASE_TILED_FIELD_ID
+         return
+      endif
+   enddo
+   get_field_id = -1
+end function get_field_id
 
 ! ============================================================================
 ! sets the default tile diagnostic selector: all tiled diag fields registered

@@ -232,7 +232,7 @@ subroutine vegn_harvesting_init(id_ug)
      call error_mesg('vegn_harvesting_init','crop_distribution must be "lm3" or "luh2-dominant"',FATAL)
   end select
 
-  ! find crop species; it's OK if it is not found, perhaps we do not need it -- e.g.
+  ! find crop species; it is OK if it is not found, perhaps we do not need it -- e.g.
   ! we are running potential vegetation, or in LM3 mode where it is not used (yet)
   ! For now, use single species for crop everywhere. This will obviously need to be changed
   ! when we switch to more sophisticated treatment of agriculture.
@@ -388,7 +388,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
      associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
 
      ! This makes sure biomass pools are correct before calculating changes
-     ! in leaf biomass and such, just in case it wasn't called before
+     ! in leaf biomass and such, just in case it was not called before
      call update_biomass_pools(cc)
 
      ! In multiple-cohort scenario, should we be adding over all cohorts?
@@ -452,7 +452,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
         bglitter_C=(/(sp%fsc_froot*(delta_root) +(1-agf_bs)*sp%fsc_wood*(delta_wood)),&
                       (1.0-sp%fsc_froot)*(delta_root) +(1-agf_bs)*(1.0-sp%fsc_wood)*(delta_wood),0.0/)*grazing_residue
 
-        ! We're not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
+        ! We are not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
         vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
@@ -572,7 +572,7 @@ subroutine vegn_harvest_crop_lm3(tile)
               cc%stored_N = cc%stored_N - &
                  (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
            else
-              ! In this case stored N can just be lost because it doesn't contain N from harvested potential leaves and roots
+              ! In this case stored N can just be lost because it does not contain N from harvested potential leaves and roots
               vegn%harv_pool_N(HARV_POOL_CROP) = vegn%harv_pool_N(HARV_POOL_CROP) + max(cc%stored_N,0.0)*fraction_harvested
               cc%stored_N = max(cc%stored_N,0.0)*(1-fraction_harvested)
            endif
@@ -1146,13 +1146,23 @@ subroutine crop_seed_transport(day_of_year)
 
   ! calculate the fraction of the supply that is going to be used
   f_supply_C = MIN(total_seed_demand_C/total_seed_supply_C, 1.0)
-  f_supply_N = MIN(total_seed_demand_N/total_seed_supply_N, 1.0)
+  if (total_seed_supply_N > 0) then
+     f_supply_N = MIN(total_seed_demand_N/total_seed_supply_N, 1.0)
+  else
+     total_seed_supply_N = 0.0
+     f_supply_N          = 1.0
+  endif
   ! calculate the fraction of the demand that is going to be satisfied
   f_demand_C = MIN(total_seed_supply_C/total_seed_demand_C, 1.0)
-  f_demand_N = MIN(total_seed_supply_N/total_seed_demand_N, 1.0)
+  if (total_seed_demand_N > 0) then
+     f_demand_N = MIN(total_seed_supply_N/total_seed_demand_N, 1.0)
+  else
+     total_seed_demand_N = 0.0
+     f_demand_N          = 1.0
+  endif
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
-  ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
+  ! f_demand*total_seed_demand == f_supply*total_seed_supply
   call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
      'fraction of C demand satisfied='//string(f_demand_C)//' fraction of C supply used ='//string(f_supply_C), NOTE)
   call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
