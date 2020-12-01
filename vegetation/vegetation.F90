@@ -652,7 +652,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%bseed   = init_cohort_bseed(n)
         cc%scav_C_reservoir = 0.0 ; cc%scav_N_reservoir = 0.0
         cc%mine_C_reservoir = 0.0 ; cc%mine_N_reservoir = 0.0
-        cc%nfix_C_reservoir = 0.0 ; cc%nfix_C_reservoir = 0.0
+        cc%nfix_C_reservoir = 0.0 ; cc%nfix_N_reservoir = 0.0
 
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
@@ -1472,7 +1472,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   do i = 0,nspecies-1
      call add_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
                         'seed carbon dropped by dying plants', 'kgC/m2')
-     call add_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
+     call add_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_N_ptr,i,&
                         'seed nitrogen dropped by dying plants', 'kgC/m2')
   enddo
 
