@@ -986,14 +986,8 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
 end subroutine land_cover_cold_start_0d
 
 ! ============================================================================
-subroutine land_cover_warm_start(restart)
-  type(land_restart_type), intent(in) :: restart
-  call land_cover_warm_start_new(restart)
-end subroutine land_cover_warm_start
-
-! ============================================================================
 ! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start_new (restart)
+subroutine land_cover_warm_start (restart)
   type(land_restart_type), intent(in) :: restart
 
   ! ---- local vars
@@ -1027,7 +1021,7 @@ subroutine land_cover_warm_start_new (restart)
      call insert(tile,land_tile_map(l))
   enddo
   deallocate(glac, lake, soil, vegn, frac)
-end subroutine land_cover_warm_start_new
+end subroutine land_cover_warm_start
 
 
 ! ============================================================================

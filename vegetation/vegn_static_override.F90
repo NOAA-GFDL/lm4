@@ -18,7 +18,7 @@ use land_tile_io_mod,   only : create_tile_out_file, gather_tile_index
 use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, &
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use vegn_cohort_mod,    only : vegn_cohort_type
-use cohort_io_mod,      only : create_cohort_dimension_new, gather_cohort_data, &
+use cohort_io_mod,      only : create_cohort_dimension, gather_cohort_data, &
      gather_cohort_index
 
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
@@ -302,7 +302,7 @@ subroutine init_writing_static_veg()
   write(units, 11) year, month, day, hour, minute, sec
 
     call create_tile_out_file(static_veg_file, 'static_veg_out.nc', tidx, tile_dim_length)
-  call create_cohort_dimension_new(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
+  call create_cohort_dimension(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
 
   call register_axis(static_veg_file, "time", unlimited)
   call register_field(static_veg_file, "time", "double", (/"time"/))
@@ -406,21 +406,21 @@ subroutine read_static_vegn (time, err_msg)
    deallocate(siz)
    call read_data(fileobj_domainug, "cohort_index", cidx)
    call read_data(fileobj_domainug, "species", idata, unlim_dim_level=index1)
-   call read_remap_cohort_data_i0d_new(fileobj_domainug, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
+   call read_remap_cohort_data_i0d(fileobj_domainug, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
    call read_data(fileobj_domainug, "bl", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bl", cohort_bl_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj_domainug, "bl", cohort_bl_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj_domainug, "blv", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj_domainug, "blv", cohort_blv_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj_domainug, "blv", cohort_blv_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj_domainug, "br", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj_domainug, "br", cohort_br_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj_domainug, "br", cohort_br_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj_domainug, "bsw", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bsw", cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj_domainug, "bsw", cohort_bsw_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj_domainug, "bwood", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bwood", cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj_domainug, "bwood", cohort_bwood_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj_domainug, "bliving", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj_domainug, "bliving", cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj_domainug, "bliving", cohort_bliving_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj_domainug, "status", idata, unlim_dim_level=index1)
-   call read_remap_cohort_data_i0d_new(fileobj_domainug, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
+   call read_remap_cohort_data_i0d(fileobj_domainug, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
    deallocate(cidx, idata, rdata)
   else
    ndims = get_variable_num_dimensions(fileobj, "cohort_index")
@@ -430,21 +430,21 @@ subroutine read_static_vegn (time, err_msg)
    deallocate(siz)
    call read_data(fileobj, "cohort_index", cidx)
    call read_data(fileobj, "species", idata, unlim_dim_level=index1)
-   call read_remap_cohort_data_i0d_new(fileobj, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
+   call read_remap_cohort_data_i0d(fileobj, "species", cohort_species_ptr, map_i, map_j, cidx, idata)
    call read_data(fileobj, "bl", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj, "bl", cohort_bl_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj, "bl", cohort_bl_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj, "blv", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj, "blv", cohort_blv_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj, "blv", cohort_blv_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj, "br", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj, "br", cohort_br_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj, "br", cohort_br_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj, "bsw", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj, "bsw", cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj, "bsw", cohort_bsw_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj, "bwood", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj, "bwood", cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj, "bwood", cohort_bwood_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj, "bliving", rdata, unlim_dim_level=index1)
-   call read_remap_cohort_data_r0d_new(fileobj, "bliving", cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+   call read_remap_cohort_data_r0d(fileobj, "bliving", cohort_bliving_ptr, map_i, map_j, cidx, rdata)
    call read_data(fileobj, "status", idata, unlim_dim_level=index1)
-   call read_remap_cohort_data_i0d_new(fileobj, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
+   call read_remap_cohort_data_i0d(fileobj, "status", cohort_status_ptr, map_i, map_j, cidx, idata)
    deallocate(cidx, idata, rdata)
   endif
 
@@ -487,12 +487,12 @@ end subroutine write_static_vegn
 
 ! ============================================================================
 #define F90_TYPE       integer
-#define READ_REMAP_SUB read_remap_cohort_data_i0d_new
-#include "read_remap_cohort_data_new.inc"
+#define READ_REMAP_SUB read_remap_cohort_data_i0d
+#include "read_remap_cohort_data.inc"
 
 #define F90_TYPE       real
-#define READ_REMAP_SUB read_remap_cohort_data_r0d_new
-#include "read_remap_cohort_data_new.inc"
+#define READ_REMAP_SUB read_remap_cohort_data_r0d
+#include "read_remap_cohort_data.inc"
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component
 ! model tile exists or not

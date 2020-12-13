@@ -32,8 +32,12 @@ public :: add_cohort_data, add_int_cohort_data
 public :: get_cohort_data, get_int_cohort_data
 ! remove when cleaning up:
 public :: gather_cohort_index, gather_cohort_data
-public :: create_cohort_dimension_new
 ! ==== end of public interfaces ==============================================
+
+interface create_cohort_dimension
+   module procedure create_cohort_dimension1
+   module procedure create_cohort_dimension2
+end interface create_cohort_dimension
 
 interface gather_cohort_data
    module procedure gather_cohort_data_r0d
@@ -96,18 +100,8 @@ end subroutine get_cohort_by_idx
 subroutine read_create_cohorts(restart)
   type(land_restart_type), intent(inout) :: restart
 
-  if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
-      'cohort index not found in file "'//restart%filename//'"',FATAL)
-  call read_create_cohorts_new(restart%cidx,restart%tile_dim_length)
-
-end subroutine
-
-! ============================================================================
-subroutine read_create_cohorts_new(idx,ntiles)
-  integer, intent(in) :: idx(:)
-  integer, intent(in) :: ntiles
-
   integer :: ncohorts ! total number of cohorts in restart file
+  integer :: ntiles   ! total number of tiles in restart file
   integer :: nlon, nlat ! size of respective dimensions
 
   integer :: i,j,t,k,m, n, npts, g, l
@@ -115,15 +109,19 @@ subroutine read_create_cohorts_new(idx,ntiles)
   type(land_tile_type), pointer :: tile
   character(len=64) :: info ! for error message
 
+  if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+      'cohort index not found in file "'//restart%filename//'"',FATAL)
+
   ! get the size of dimensions
   nlon = lnd%nlon
   nlat = lnd%nlat
-  ncohorts = size(idx)
+  ntiles   = restart%tile_dim_length
+  ncohorts = size(restart%cidx)
   npts = nlon*nlat
 
   do n = 1,ncohorts
-     if(idx(n)<0) cycle ! skip illegal indices
-     k = idx(n)
+     if(restart%cidx(n)<0) cycle ! skip illegal indices
+     k = restart%cidx(n)
      g = modulo(k,npts)+1
      if(g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
      l = lnd%l_index(g)
@@ -138,7 +136,7 @@ subroutine read_create_cohorts_new(idx,ntiles)
      tile=>current_tile(ce)
 
      if (.not. associated(tile)) then
-         call error_mesg("read_create_cohorts_new", &
+         call error_mesg("read_create_cohorts", &
                          "current tile returned null pointer", &
                          FATAL)
      endif
@@ -161,16 +159,14 @@ subroutine read_create_cohorts_new(idx,ntiles)
      if(.not.associated(tile%vegn))cycle
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
   enddo
-end subroutine read_create_cohorts_new
+end subroutine read_create_cohorts
 
 ! ============================================================================
-! creates cohort dimension, if necessary, in the output restart file. NOTE
-subroutine create_cohort_dimension(restart)
+! creates cohort dimension, if necessary, in the output restart file.
+subroutine create_cohort_dimension1(restart)
   type(land_restart_type), intent(inout) :: restart
-
-   call create_cohort_dimension_new(restart%rhandle,restart%cidx,restart%basename,restart%tile_dim_length)
-
-end subroutine create_cohort_dimension
+  call create_cohort_dimension2(restart%rhandle,restart%cidx,restart%basename,restart%tile_dim_length)
+end subroutine create_cohort_dimension1
 
 ! ============================================================================
 ! creates cohort dimension, if necessary, in the output restart file. NOTE
@@ -178,8 +174,7 @@ end subroutine create_cohort_dimension
 ! (because, for example, there happen to be no vegetation in a certain domain),
 ! for the reason that it calls mpp_max, and that should be called for each
 ! processor to work.
-
-subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
+subroutine create_cohort_dimension2(rhandle,cidx,name,tile_dim_length)
   type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: rhandle ! fms_io restart file data type
   integer, allocatable,    intent(out)   :: cidx(:) ! rank local tile index vector
   character(len=*),        intent(in)    :: name    ! name of the restart file
@@ -191,7 +186,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
   max_cohorts = global_max_cohorts()
 
   call create_cohort_out_file_idx(rhandle,name,cidx,max(max_cohorts,1))
-end subroutine create_cohort_dimension_new
+end subroutine create_cohort_dimension2
 
 subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   type(FmsNetcdfUnstructuredDomainFile_t),intent(inout) :: rhandle ! fms_io restart file data type
@@ -447,7 +442,7 @@ subroutine get_int_cohort_data(restart,varname,fptr)
   procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
 
   integer, allocatable :: r(:)
- 
+
   if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
       'cohort index not found in file "'//restart%filename//'"',FATAL)
   allocate(r(size(restart%cidx)))

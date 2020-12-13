@@ -46,9 +46,6 @@ public :: create_tile_out_file
 public :: get_tile_by_idx
 
 ! ==== end of public interfaces ==============================================
-interface create_tile_out_file
-   module procedure create_tile_out_file_idx_new
-end interface
 
 interface add_tile_data
    module procedure add_tile_data_r0d_fptr_r0
@@ -131,7 +128,7 @@ subroutine init_land_restart(restart,filename,tile_exists,tile_dim_length)
   ! allocate and fill tile compression index
   call gather_tile_index(tile_exists,restart%tidx)
 
-  call create_tile_out_file_idx_new(restart%rhandle,restart%basename,restart%tidx, &
+  call create_tile_out_file(restart%rhandle,restart%basename,restart%tidx, &
                                     restart%tile_dim_length)
   restart%should_free_rhandle = .TRUE.
 
@@ -954,7 +951,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   deallocate(r)
 end subroutine get_tile_data_r2d_fptr_r0ijk
 
-subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_data,soilCCohort_data)
+subroutine create_tile_out_file(rhandle,name,tidx,tile_dim_length,zaxis_data,soilCCohort_data)
   type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: rhandle     ! restart file handle
   character(len=*),      intent(in)  :: name                ! name of the file to create
   integer              , intent(in)  :: tidx(:)             ! integer compressed index of tiles (local)
@@ -1024,7 +1021,7 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
                                 str_len=len(trim("Soil carbon cohort")))
       call write_data(rhandle,"soilCCohort",soilCCohort_data)
   endif
-end subroutine create_tile_out_file_idx_new
+end subroutine create_tile_out_file
 
 ! ============================================================================
 ! given a tile existence detection function, allocates and fills the tile index vector
