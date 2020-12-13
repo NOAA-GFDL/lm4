@@ -2,17 +2,13 @@ module land_dust_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use constants_mod, only: PI, rdgas, GRAV, PSTD_MKS, DENS_H2O
 use land_constants_mod, only : d608, kBoltz
 
-use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
-     close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
+use mpp_mod, only : input_nml_file
+use fms_mod, only : error_mesg, FATAL, NOTE, &
+     check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use time_manager_mod, only: time_type, time_type_to_real
 use diag_manager_mod, only : register_static_field, &
      send_data
@@ -118,12 +114,14 @@ subroutine land_dust_init (id_ug, mask)
   ! ---- local vars
   logical :: used ! return value from send_data
   integer :: i, tr
-  integer :: logunit, outunit, unit, io, ierr
+  integer :: logunit, outunit, io, ierr
   character(32)  :: name ! tracer name
   character(32)  :: method
   character(1024) :: parameters
   real    :: value ! temporary storage for parsing input
   type(table_printer_type) :: table
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   ! log module version
   call log_version(version, module_name, &
@@ -132,25 +130,9 @@ subroutine land_dust_init (id_ug, mask)
   outunit = stdout()
 
   ! read namelist
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=land_dust_nml, iostat=io)
-     ierr = check_nml_error(io, 'land_dust_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=land_dust_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'land_dust_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-  if (mpp_pe() == mpp_root_pe()) then
-     unit = stdlog()
-     write (unit, nml=land_dust_nml)
-  endif
+  read (input_nml_file, nml=land_dust_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_dust_nml')
+  if (mpp_pe() == mpp_root_pe()) write (logunit, nml=land_dust_nml)
 
   ! calculate time step
   dt  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
@@ -236,7 +218,12 @@ subroutine land_dust_init (id_ug, mask)
 
   ! read dust source field
   allocate(dust_source(lnd%ls:lnd%le))
-  call read_field( input_file_name, input_field_name, dust_source, interp='bilinear' )
+  exists = open_file(fileobj, input_file_name, "read")
+  if (.not. exists) then
+    call error_mesg("land_dust_init", trim(input_file_name)//" does not exist.", fatal)
+  endif
+  call read_field( fileobj, input_field_name, dust_source, interp='bilinear' )
+  call close_file(fileobj)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
@@ -512,7 +499,7 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
   call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
-  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)  
+  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)
   call send_tile_data(id_cana_dens, rho,       tile%diag)
 
   ! + conservation check, part 2: calculate totals in final state, and compare
@@ -533,7 +520,7 @@ end subroutine update_land_dust
 ! ==============================================================================
 subroutine update_dust_source(tile, l, ustar, wind10, emis)
   type(land_tile_type), intent(inout) :: tile ! it is only "inout" because diagnostics is sent to it
-  integer :: l ! unstructured grid indices 
+  integer :: l ! unstructured grid indices
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(inout) :: emis(:)
@@ -570,7 +557,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
           bareness = frac_bare_crop
        else ! NTRL or SCND
           lai = vegn_tile_LAI(tile%vegn)
-          sai = vegn_tile_SAI(tile%vegn)  
+          sai = vegn_tile_SAI(tile%vegn)
           if ((lai<lai_thresh) .and. (sai<sai_thresh)) then
              u_thresh=u_min
              bareness = exp( -2.0*lai/2.0-10.*sai)

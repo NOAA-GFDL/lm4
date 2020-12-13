@@ -12,24 +12,17 @@ use mpp_domains_mod, only : domain2d, domainUG, mpp_get_ntile_count, &
      mpp_pass_SG_to_UG, mpp_pass_UG_to_SG, &
      mpp_get_UG_domain_tile_pe_inf, mpp_get_UG_domain_ntiles, &
      mpp_get_UG_compute_domain, mpp_get_UG_domain_grid_index
-
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, mpp_send, mpp_recv, mpp_broadcast, &
-     mpp_sync, mpp_error, COMM_TAG_1, COMM_TAG_2
-use fms_io_mod, only : read_compressed, fms_io_unstructured_read
-use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_npes, mpp_pe, &
-     mpp_root_pe, file_exist, check_nml_error, close_file, &
+use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, input_nml_file, mpp_npes, &
+     mpp_send, mpp_recv, mpp_broadcast, mpp_sync, mpp_error, COMM_TAG_1, COMM_TAG_2
+use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
+     mpp_root_pe, file_exist, check_nml_error, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
 use data_override_mod, only : data_override_ug
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
      register_diag_field, send_data, diag_field_add_attribute
 use diag_axis_mod, only: diag_axis_add_attribute
+use fms2_io_mod, only: read_data
 use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
      stefan
 use astronomy_mod, only : astronomy_init, diurnal_solar
@@ -81,7 +74,7 @@ use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, sn
 use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
-use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
+use land_io_mod, only : read_land_io_namelist, input_buf_size
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
      first_elmt, tail_elmt, next_elmt, operator(==), current_tile, &
@@ -91,12 +84,11 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      merge_land_tile_into_list, tile_test_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
-use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
-     field_exists, print_netcdf_error
+     field_exists
 use land_tile_diag_mod, only : OP_SUM, cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
@@ -319,11 +311,6 @@ real, parameter :: init_value = 0.0
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
 
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
-
 contains
 
 
@@ -361,7 +348,7 @@ subroutine land_model_init &
   integer :: pe ! our processor number
 
   type(land_restart_type) :: restart
-  character(*), parameter :: restart_file_name='INPUT/land.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/land.nc'
   logical :: restart_exists
 
   ! IDs of local clocks
@@ -382,25 +369,11 @@ subroutine land_model_init &
   call mpp_clock_begin(landInitClock)
 
   ! [2] read land model namelist
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=land_model_nml, iostat=io)
-     ierr = check_nml_error(io, 'land_model_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=land_model_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'land_model_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=land_model_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_model_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=land_model_nml)
-     call close_file (unit)
   endif
   ! initialize astronomy, in case it is not initialized, e.g. when using atmos_null
   call astronomy_init()
@@ -706,7 +679,7 @@ subroutine land_model_restart(timestamp)
      if(trim(timestamp)/='') timestamp_=trim(timestamp)//'.'
   endif
   ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'land.res.nc'
+  filename = 'RESTART/'//trim(timestamp_)//'land.nc'
   call init_land_restart(restart, filename, land_tile_exists, tile_dim_length)
 
   ! [4] write data fields
@@ -1015,11 +988,7 @@ end subroutine land_cover_cold_start_0d
 ! ============================================================================
 subroutine land_cover_warm_start(restart)
   type(land_restart_type), intent(in) :: restart
-  if (new_land_io) then
-     call land_cover_warm_start_new(restart)
-  else
-     call land_cover_warm_start_orig(restart)
-  endif
+  call land_cover_warm_start_new(restart)
 end subroutine land_cover_warm_start
 
 ! ============================================================================
@@ -1038,11 +1007,11 @@ subroutine land_cover_warm_start_new (restart)
   call check_mask_match(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "glac", glac, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "lake", lake, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "soil", soil, lnd%ug_domain, timelevel=1)
-  call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
+  call read_data(restart%rhandle, "frac", frac)
+  call read_data(restart%rhandle, "glac", glac)
+  call read_data(restart%rhandle, "lake", lake)
+  call read_data(restart%rhandle, "soil", soil)
+  call read_data(restart%rhandle, "vegn", vegn)
 
   npts = lnd%nlon*lnd%nlat
   ! create tiles
@@ -1060,59 +1029,6 @@ subroutine land_cover_warm_start_new (restart)
   deallocate(glac, lake, soil, vegn, frac)
 end subroutine land_cover_warm_start_new
 
-
-! ============================================================================
-! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start_orig (restart)
-  type(land_restart_type), intent(in) :: restart
-
-  ! ---- local vars
-  integer, allocatable :: idx(:) ! compressed tile index
-  integer, allocatable :: glac(:), lake(:), soil(:), snow(:), cana(:), vegn(:) ! tile tags
-  real,    allocatable :: frac(:) ! fraction of land covered by tile
-  integer :: ncid ! unit number of the input file
-  integer :: ntiles    ! total number of land tiles in the input file
-  integer :: dimids(1) ! id of tile dimension
-  character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
-  integer :: k,it,npts,g,l
-  type(land_tile_type), pointer :: tile
-
-  __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
-  ! allocate the input data
-  __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
-   ! allocate input buffers for compression index and the variable
-  allocate(idx (ntiles), glac(ntiles), lake(ntiles), soil(ntiles), &
-           snow(ntiles), cana(ntiles), vegn(ntiles), frac(ntiles)  )
-  ! get the name of the fist (and only) dimension of the variable 'frac' -- this
-  ! is supposed to be the compressed dimension, and associated variable will
-  ! hold the compressed indices
-  __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),name=tile_dim_name))
-  ! read the compressed tile indices
-  __NF_ASRT__(nfu_get_var(ncid,tile_dim_name,idx))
-  call check_mask_match(idx)
-  ! read input data -- fractions and tags
-  __NF_ASRT__(nfu_get_var(ncid,'frac',frac))
-  __NF_ASRT__(nfu_get_var(ncid,'glac',glac))
-  __NF_ASRT__(nfu_get_var(ncid,'lake',lake))
-  __NF_ASRT__(nfu_get_var(ncid,'soil',soil))
-  __NF_ASRT__(nfu_get_var(ncid,'vegn',vegn))
-
-  ! create tiles
-  npts = lnd%nlon*lnd%nlat
-  do it = 1,ntiles
-     k = idx(it)
-     if (k<0) cycle ! skip negative indices
-     g = modulo(k,npts)+1
-     if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-     ! the size of the tile set at the point (i,j) must be equal to k
-     tile=>new_land_tile(frac=frac(it),&
-              glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
-     l = lnd%l_index(g)
-     call insert(tile,land_tile_map(l))
-  enddo
-  deallocate(idx, glac, lake, soil, snow, cana, vegn, frac)
-  __NF_ASRT__(nf_close(ncid))
-end subroutine land_cover_warm_start_orig
 
 ! ============================================================================
 ! given tile index from land restart, checks that mask in the restart matches

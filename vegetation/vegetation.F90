@@ -9,7 +9,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
-     close_file, check_nml_error, stdlog, string, lowercase
+     check_nml_error, stdlog, string, lowercase
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
@@ -87,6 +87,8 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
+    get_variable_size
 
 implicit none
 private
@@ -271,21 +273,8 @@ subroutine read_vegn_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-    read (input_nml_file, nml=vegn_nml, iostat=io)
-    ierr = check_nml_error(io, 'vegn_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=vegn_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_nml')
 
   unit=stdlog()
 
@@ -347,6 +336,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
   integer :: i,j,l,n ! indices of current tile
+  logical :: exists
+  type(FmsNetcdfFile_t) :: fileobj
+
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
 
   module_is_initialized = .TRUE.
@@ -362,8 +354,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
-  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
+  call open_land_restart(restart1,'INPUT/vegn1.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.nc',restart_2_exists)
+
   if (restart_1_exists) then
      call error_mesg('vegn_init',&
           'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
@@ -377,8 +370,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
 
      ! read global variables
-     call get_scalar_data(restart2,'n_accum',n_accum)
-     call get_scalar_data(restart2,'nmn_acm',nmn_acm)
+     call read_data(restart2%rhandle, "n_accum", n_accum)
+     call read_data(restart2%rhandle, "nmn_acm", nmn_acm)
 
      ! read cohort data
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
@@ -594,21 +587,23 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   call free_land_restart(restart2)
 
   ! read climatological fields for initialization of species distribution
-  if (file_exist('INPUT/biodata.nc'))then
+  exists = open_file(fileobj, "INPUT/biodata.nc", mode="read")
+  if (exists) then
      allocate(&
           t_ann (lnd%ls:lnd%le),&
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
+     call read_field(fileobj, 'T_ANN', t_ann, interp='nearest')
+     call read_field(fileobj, 'T_COLD', t_cold, interp='nearest')
+     call read_field(fileobj, 'P_ANN', p_ann, interp='nearest')
+     call read_field(fileobj, 'NCM', ncm, interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
      did_read_biodata = .FALSE.
      call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
+     call close_file(fileobj)
   endif
 
   ! create a list of species indices for initialization
@@ -1339,12 +1334,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
-  character:: spnames(fm_field_name_len, nspecies) ! names of the species
+  character(len=fm_field_name_len) :: spnames(nspecies) ! names of the species
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
   ! create output file, including internal structure necessary for tile output
-  filename = trim(timestamp)//'vegn1.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn1.nc'
   call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
 
   ! create compressed dimension for vegetation cohorts -- must be called even
@@ -1359,19 +1354,19 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call free_land_restart(restart1)
 
 
-  filename = trim(timestamp)//'vegn2.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn2.nc'
   call init_land_restart(restart2, filename, vegn_tile_exists, tile_dim_length)
   ! create compressed dimension for vegetation cohorts -- see note above
   call create_cohort_dimension(restart2)
   ! store table of species names
-  call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)],'Z')
-  call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],'Z')
+  call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)], .false.,"Z")
+  call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],.false.,"Z")
   do i = 0, nspecies-1
-     do j = 1,size(spnames,1)
-        spnames(j,i+1) = ' '
+     do j = 1,fm_field_name_len
+        spnames(i+1)(j:j) = ' '
      enddo
-     do j = 1,min(len(spdata(i)%name),size(spnames,1))
-        spnames(j,i+1) = spdata(i)%name(j:j)
+     do j = 1,min(len(spdata(i)%name),fm_field_name_len)
+        spnames(i+1)(j:j) = spdata(i)%name(j:j)
      enddo
   enddo
   call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
@@ -3051,8 +3046,8 @@ subroutine read_remap_species(restart)
   ! ---- local vars
   integer :: nsp ! number of input species
   integer :: i, sp
-  character(fm_field_name_len), allocatable :: spnames(:)
-  character, allocatable :: text(:,:)
+  integer :: sp_dims(2)
+  character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
@@ -3064,13 +3059,13 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
-  call get_text_data(restart, 'species_names', text)
-  nsp = size(text,2)
-  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
+  call get_variable_size(restart%rhandle, "species_names", sp_dims)
+  nsp = sp_dims(2)
+  allocate(spnames(1:nsp))
+  allocate(sptable(1:nsp))
+  call get_text_data(restart, 'species_names', nsp, spnames)
   sptable(:) = -1
-  do i = 0, nsp-1
-     ! convert character array to strings
-     call array2str(text(:,i+1),spnames(i))
+  do i = 1, nsp
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then
@@ -3090,14 +3085,14 @@ subroutine read_remap_species(restart)
         sp = tile%vegn%cohorts(i)%species
         if (sp<0.or.sp>=nsp) &
              call error_mesg('vegn_init','species index is outside of the bounds', FATAL)
-        if (sptable(sp)<0) &
-             call error_mesg('vegn_init','species "'//trim(spnames(sp))// &
+        if (sptable(sp+1)<0) &
+             call error_mesg('vegn_init','species "'//trim(spnames(sp+1))// &
                             '" from restart are not found in the model species parameter list',&
                             FATAL)
-        tile%vegn%cohorts(i)%species = sptable(sp)
+        tile%vegn%cohorts(i)%species = sptable(sp+1)
      enddo
   enddo
-  deallocate(text, spnames, sptable)
+  deallocate(spnames, sptable)
 end subroutine read_remap_species
 
 ! =====================================================================================
