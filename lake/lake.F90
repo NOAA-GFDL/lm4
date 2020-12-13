@@ -323,10 +323,10 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
   ! write out fields
-  call add_tile_data(restart,'dz',   'zfull          ', lake_dz_ptr,   'layer thickness','m')
-  call add_tile_data(restart,'temp', 'zfull          ', lake_temp_ptr, 'lake temperature','degrees_K')
-  call add_tile_data(restart,'wl',   'zfull          ', lake_wl_ptr,   'liquid water content','kg/m2')
-  call add_tile_data(restart,'ws',   'zfull          ', lake_ws_ptr,   'solid water content','kg/m2')
+  call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
+  call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
@@ -475,7 +475,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
                   lake%K_z(l) = K_z_large
                 endif
               if (lake%pars%depth_sill.gt.2.01) &
-              lake%K_z(l) = K_z_factor * max(lake%K_z(l) + K_z_background, K_z_min)
+                     lake%K_z(l) = K_z_factor * max(lake%K_z(l) + K_z_background, K_z_min)
               aaa(l+1) = - lake%K_z(l) * delta_time / (dz_alt(l+1)*dz_mid)
               ccc(l)   = - lake%K_z(l) * delta_time / (dz_alt(l  )*dz_mid)
             else

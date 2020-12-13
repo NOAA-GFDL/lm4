@@ -447,6 +447,7 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
 
   integer, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,nlev
+  character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_i1d_fptr_i0i', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -455,7 +456,8 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   allocate(data(size(restart%tidx),nlev))
   call gather_tile_data_i1d(fptr,restart%tidx,data)
 
-  call register_field(restart%rhandle, varname, "int", (/"tile_index     ",zdim/))
+  dims(1) = 'tile_index'; dims(2) = zdim
+  call register_field(restart%rhandle, varname, "int", dims)
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
@@ -465,7 +467,6 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
    endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_i1d_fptr_i0i
 
 subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
@@ -477,14 +478,17 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
 
   real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,nlev
+  character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
 
-  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0i', &
+  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r1d_fptr_r0i', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
 
   nlev = dimlen(restart,zdim)
   allocate(data(size(restart%tidx),nlev))
   call gather_tile_data_r1d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",zdim/))
+
+  dims(1) = 'tile_index'; dims(2) = zdim
+  call register_field(restart%rhandle, varname, "double", dims)
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
@@ -494,13 +498,12 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
    endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_r1d_fptr_r0i
 
 subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
-  character(len=*), intent(in) :: zdim      ! name of the z-dimension
+  character(len=*), intent(in) :: zdim    ! name of the z-dimension
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   integer         , intent(in) :: index   ! index of the array element to write
   character(len=*), intent(in), optional :: units, longname
@@ -509,6 +512,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
   real, pointer :: ptr ! pointer to the tile data
   integer :: i,n,nlev
+  character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0i', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -529,7 +533,8 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
      enddo
   enddo
 
-  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",zdim/))
+  dims(1) = 'tile_index'; dims(2) = zdim
+  call register_field(restart%rhandle, varname, "double", dims)
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
@@ -539,7 +544,6 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
    endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_r1d_fptr_r0ij
 
 subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,longname,units)
@@ -550,11 +554,11 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
   integer         , intent(in) :: idx1,idx2  ! indices of the array element to write
   character(len=*), intent(in), optional :: units, longname
 
-  integer :: id_restart
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
   real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
   real, pointer :: ptr ! pointer to the tile data
   integer :: i,n,nlev
+  character(len=NF90_MAX_NAME) :: dims(2)  ! array of dimension names
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0i', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -580,7 +584,8 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
      enddo
   enddo
 
-  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",zdim/))
+  dims(1) = 'tile_index'; dims(2) = zdim
+  call register_field(restart%rhandle, varname, "double", dims)
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
@@ -590,7 +595,6 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
    endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_r1d_fptr_r0ijk
 
 subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,units)
@@ -600,9 +604,9 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
-  integer :: id_restart
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,dim1len,dim2len
+  character(len=NF90_MAX_NAME) :: dims(3) ! array of dimension names
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ij', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -611,7 +615,8 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   dim2len = dimlen(restart,dim2)
   allocate(data(size(restart%tidx),dim1len,dim2len))
   call gather_tile_data_r2d(fptr,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",dim1,dim2/))
+  dims(1) = 'tile_index'; dims(2) = dim1; dims(3) = dim2
+  call register_field(restart%rhandle, varname, "double", dims)
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
@@ -633,6 +638,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
 
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,dim1len,dim2len
+  character(len=NF90_MAX_NAME) :: dims(3) ! array of dimension names
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ijk', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -641,7 +647,8 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   dim2len = dimlen(restart,dim2)
   allocate(data(size(restart%tidx),dim1len,dim2len))
   call gather_tile_data_r2d_idx(fptr,index,restart%tidx,data)
-  call register_field(restart%rhandle, varname, "double", (/"tile_index     ",dim1,dim2/))
+  dims(1) = 'tile_index'; dims(2) = dim1; dims(3) = dim2
+  call register_field(restart%rhandle, varname, "double", dims)
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_DOUBLE)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
@@ -651,7 +658,6 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_r2d_fptr_r0ijk
 
 ! =============================================================================
