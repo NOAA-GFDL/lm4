@@ -241,10 +241,7 @@ subroutine add_restart_axis(restart,name,data,is_unstructured,cartesian,units,lo
   integer,          optional, intent(in)    :: sense
 
   integer :: n
-  real, pointer :: data_(:)
 
-  allocate(data_(size(data)))
-  data_(:) = data(:)
   if (is_unstructured) then
     call register_axis(restart%rhandle, name)
   else
@@ -268,8 +265,7 @@ subroutine add_restart_axis(restart,name,data,is_unstructured,cartesian,units,lo
           call register_variable_attribute(restart%rhandle, name, "positive", "up", str_len=len(trim("up")))
       endif
   endif
-  call write_data(restart%rhandle,name,data_)
-  deallocate(data_)
+  call write_data(restart%rhandle,name,data)
 
   ! record dimension information for future use
   n = restart%nax+1; restart%nax = n
@@ -325,7 +321,7 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
   procedure(fptr_i0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
-  integer, pointer :: data(:)
+  integer, allocatable :: data(:)
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -341,7 +337,6 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
    endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_i0d_fptr_i0
 
 subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
@@ -350,7 +345,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
   procedure(fptr_r0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
-  real, pointer :: data(:)
+  real, allocatable :: data(:)
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -366,7 +361,6 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
    endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_r0d_fptr_r0
 
 subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
@@ -376,7 +370,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   integer ,         intent(in) :: index ! index of the fptr array element to write
   character(len=*), intent(in), optional :: units, longname
 
-  real, pointer :: data(:)
+  real, allocatable :: data(:)
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -392,7 +386,6 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   endif
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
-
 end subroutine add_tile_data_r0d_fptr_r0i
 
 subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,units)
@@ -402,7 +395,7 @@ subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,u
   integer ,         intent(in) :: idx1,idx2 ! indices of the fptr array element to write
   character(len=*), intent(in), optional :: units, longname
 
-  real, pointer :: data(:)
+  real, allocatable :: data(:)
 
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0ij', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
@@ -445,7 +438,7 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   procedure(fptr_i0i)          :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
-  integer, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
+  integer, allocatable :: data(:,:)
   integer :: i,nlev
   character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
 
@@ -476,7 +469,7 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   procedure(fptr_r0i)          :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
-  real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
+  real, allocatable :: data(:,:)
   integer :: i,nlev
   character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
 
@@ -509,7 +502,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   character(len=*), intent(in), optional :: units, longname
 
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
+  real, allocatable :: data(:,:)
   real, pointer :: ptr ! pointer to the tile data
   integer :: i,n,nlev
   character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
@@ -555,7 +548,7 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
   character(len=*), intent(in), optional :: units, longname
 
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
+  real, allocatable :: data(:,:)
   real, pointer :: ptr ! pointer to the tile data
   integer :: i,n,nlev
   character(len=NF90_MAX_NAME) :: dims(2)  ! array of dimension names
@@ -604,7 +597,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
-  real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
+  real, allocatable :: data(:,:,:)
   integer :: i,dim1len,dim2len
   character(len=NF90_MAX_NAME) :: dims(3) ! array of dimension names
 
@@ -636,7 +629,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   integer         , intent(in) :: index   ! index of the array element to write
   character(len=*), intent(in), optional :: units, longname
 
-  real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
+  real, allocatable :: data(:,:,:)
   integer :: i,dim1len,dim2len
   character(len=NF90_MAX_NAME) :: dims(3) ! array of dimension names
 
