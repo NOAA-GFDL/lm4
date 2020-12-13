@@ -1156,7 +1156,7 @@ end subroutine print_river_tracer_data
     if (.not. exists) then
       call error_mesg("get_river_data", &
                       "file "//trim(river_src_file)//" does not exist.", &
-                      fatal)
+                      FATAL)
     endif
     ndims = get_variable_num_dimensions(fileobj, "basin")
     allocate(siz(ndims))

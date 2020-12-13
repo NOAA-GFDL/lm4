@@ -572,7 +572,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
      allocate(lightning_in_v2(lnd%ls:lnd%le,12))
      exists = open_file(fileobj, 'INPUT/lightning.nc' , "read")
      if (.not. exists) then
-        call error_mesg("vegn_fire_init", "INPUT/lightning.nc does not exist.", fatal)
+        call error_mesg("vegn_fire_init", "INPUT/lightning.nc does not exist.", FATAL)
      endif
      do i = 1, 12
         call read_field( fileobj, 'LRMTS_COM_FR_'//month_name(i), &
@@ -583,7 +583,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
 
   exists = open_file(fileobj, 'INPUT/Fk.nc' , "read")
   if (.not. exists) then
-     call error_mesg("vegn_fire_init", "INPUT/Fk.nc does not exist.", fatal)
+     call error_mesg("vegn_fire_init", "INPUT/Fk.nc does not exist.", FATAL)
   endif
   do i = 1,12
      call read_field( fileobj, 'Fcrop_'//month_name(i), crop_burn_rate_in(:,i), &

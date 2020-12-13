@@ -220,7 +220,7 @@ subroutine land_dust_init (id_ug, mask)
   allocate(dust_source(lnd%ls:lnd%le))
   exists = open_file(fileobj, input_file_name, "read")
   if (.not. exists) then
-    call error_mesg("land_dust_init", trim(input_file_name)//" does not exist.", fatal)
+    call error_mesg("land_dust_init", trim(input_file_name)//" does not exist.", FATAL)
   endif
   call read_field( fileobj, input_field_name, dust_source, interp='bilinear' )
   call close_file(fileobj)

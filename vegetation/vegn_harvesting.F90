@@ -189,7 +189,7 @@ subroutine vegn_harvesting_init(id_ug)
      ! read input data
      exists = open_file(fileobj, crop_schedule_file, "read")
      if (.not. exists) then
-        call error_mesg("vegn_harvesting_init", trim(crop_schedule_file)//" does not exist.", fatal)
+        call error_mesg("vegn_harvesting_init", trim(crop_schedule_file)//" does not exist.", FATAL)
      endif
      call read_field( fileobj, 'plantingdy', crop_planting_day, interp='nearest' )
      call read_field( fileobj, 'harvestdy',  crop_harvest_day,  interp='nearest' )

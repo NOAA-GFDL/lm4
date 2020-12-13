@@ -590,7 +590,7 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
      if (.not. exists) then
        call error_mesg("read_soil_data_namelist", &
                        "file INPUT/geohydrology_table.nc does not exist.", &
-                       fatal)
+                       FATAL)
      endif
      call read_data(fileobj, "gw_flux_norm", gw_flux_table)
      call read_data(fileobj, "gw_area_norm", gw_area_table)
@@ -600,7 +600,7 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
      if (.not. exists) then
        call error_mesg("read_soil_data_namelist", &
                        "file INPUT/geohydrology_table_2a2n.nc does not exist.", &
-                       fatal)
+                       FATAL)
      endif
      ndims = get_variable_num_dimensions(fileobj, "log_rho_a0n1")
      allocate(dimlens(ndims))

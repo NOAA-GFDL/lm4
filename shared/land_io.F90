@@ -166,13 +166,13 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
   exists = open_file(fileobj, trim(file), "read")
   if (.not. exists) then
     call error_mesg(module_name, 'input file "'//trim(file)//'" does not exist', &
-                    fatal)
+                    FATAL)
   endif
 
 ! If field named 'cover' does not exist in file then read field named 'frac'
 ! 'cover' does not exist in either ground_type.nc or cover_type.nc
 ! The extent of the third dimension is 10 in ground_type.nc and 11 in cover_type.nc
- 
+
   if (variable_exists(fileobj, cover_field_name)) then
     call do_read_cover_field(fileobj, cover_field_name, lonb, latb, input_cover_types, frac)
   elseif (variable_exists(fileobj, frac_field_name)) then
@@ -181,7 +181,7 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
     call error_mesg(module_name, &
                     'neither "'//trim(cover_field_name)//'" nor "'//&
                     frac_field_name//'" is present in input file "'//trim(file)//'"' , &
-                    fatal)
+                    FATAL)
   endif
   call close_file(fileobj)
 
@@ -215,7 +215,7 @@ subroutine do_read_cover_field(fileobj, name, lonb, latb, input_cover_types, fra
   if (ndims .ne. 2) then
     call error_mesg('do_read_cover_field', &
                     'cover field "'//trim(name)//'" in file "'//trim(fileobj%path)// &
-                    '" must be two-dimensional (lon,lat)', fatal)
+                    '" must be two-dimensional (lon,lat)', FATAL)
   endif
   allocate(dimlens(ndims))
   allocate(dimnames(ndims))
@@ -324,7 +324,7 @@ end subroutine do_read_cover_field
   if (ndims .ne. 3) then
     call error_mesg('do_read_cover_field', &
                     'cover field "'//trim(name)//'" in file "'//trim(fileobj%path)// &
-                    '" must be two-dimensional (lon,lat,_)', fatal)
+                    '" must be two-dimensional (lon,lat,_)', FATAL)
   endif
   allocate(dimlens(ndims))
   allocate(dimnames(ndims))

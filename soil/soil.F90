@@ -393,7 +393,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         exists = open_file(fileobj, "INPUT/groundwater_residence.nc", "read")
         if (.not. exists) then
           call error_mesg("soil_init", "INPUT/groundwater_residence.nc does not exist", &
-                          fatal)
+                          FATAL)
         endif
         call read_field( fileobj, 'tau', gw_param, interp='bilinear' )
         call close_file(fileobj)
@@ -406,7 +406,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         exists = open_file(fileobj, "INPUT/geohydrology.nc", "read")
         if (.not. exists) then
           call error_mesg("soil_init", "INPUT/geohydrology.nc does not exist", &
-                          fatal)
+                          FATAL)
         endif
         call read_field( fileobj, 'hillslope_length', gw_param, interp='bilinear' )
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
@@ -461,7 +461,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            exists = open_file(fileobj, "INPUT/geohydrology.nc", "read")
            if (.not. exists) then
              call error_mesg("soil_init", "INPUT/geohydrology.nc does not exist", &
-                             fatal)
+                             FATAL)
            endif
            allocate(gw_param (lnd%ls:lnd%le), gw_param2(lnd%ls:lnd%le))
            call read_field( fileobj, 'hillslope_length', gw_param, interp='bilinear' )
@@ -513,7 +513,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      exists = open_file(fileobj, "INPUT/soil_albedo.nc", "read")
      if (.not. exists) then
        call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", &
-                       fatal)
+                       FATAL)
      endif
      call read_field( fileobj, 'SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
      call read_field( fileobj, 'SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
@@ -534,7 +534,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      exists = open_file(fileobj, "INPUT/soil_brdf.nc", "read")
      if (.not. exists) then
        call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", &
-                       fatal)
+                       FATAL)
      endif
      call read_field( fileobj, 'f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
      call read_field( fileobj, 'f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
@@ -581,7 +581,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      exists = open_file(fileobj, coldstart_datafile, "read")
      if (.not. exists) then
        call error_mesg("soil_init", trim(coldstart_datafile)//" does not exist.", &
-                       fatal)
+                       FATAL)
      endif
      call read_field( fileobj, 'REFSOILT', ref_soil_t, interp='bilinear' )
      call read_field( fileobj, 'WETMASK', wetmask, interp='bilinear' )

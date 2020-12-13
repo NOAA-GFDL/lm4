@@ -241,14 +241,14 @@ subroutine nitrogen_sources_init(time, id_ug)
 
        exists = open_file(fileobj, 'INPUT/nbiodata_nat.nc', "read")
        if (.not. exists) then
-          call error_mesg(" nitrogen_sources_init", "INPUT/nbiodata_nat.nc does not exist.", fatal)
+          call error_mesg(" nitrogen_sources_init", "INPUT/nbiodata_nat.nc does not exist.", FATAL)
        endif
        call read_field( fileobj,'ndep', ndep_nat, interp='nearest')
        call close_file(fileobj)
 
        exists = open_file(fileobj, 'INPUT/nbiodata_ant.nc', "read")
        if (.not. exists) then
-          call error_mesg(" nitrogen_sources_init", "INPUT/nbiodata_ant.nc does not exist.", fatal)
+          call error_mesg(" nitrogen_sources_init", "INPUT/nbiodata_ant.nc does not exist.", FATAL)
        endif
        call read_field( fileobj,'ndep', ndep_ant, interp='nearest')
        call close_file(fileobj)
