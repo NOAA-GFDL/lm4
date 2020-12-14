@@ -7,7 +7,7 @@ use fms_io_mod, only : get_instance_filename
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, &
                        register_variable_attribute, write_restart, &
-                       close_file, variable_exists, get_variable_size, &
+                       close_file, variable_exists, &
                        read_data, write_data, open_file, get_dimension_size, &
                        get_variable_num_dimensions, compressed_start_and_count
 
@@ -141,8 +141,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
   logical,                 intent(out) :: restart_exists
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! length of the index
-  integer :: ndims
+  integer :: n
 
   restart%basename = filename
   restart_exists = open_file(restart%rhandle, restart%basename, "read", &
@@ -153,53 +152,20 @@ subroutine open_land_restart(restart,filename,restart_exists)
   if (.not. field_exists(restart, "tile")) then
       call error_mesg("open_land_restart", "dimension 'tile' not found in file '" &
                       //trim(filename)//"'.", FATAL)
-  ! Checks if the file has a variable called "tile"
-  if (.not. field_exists(restart, "tile")) then
-     ! If there isn't a variable called "tile", read a dimension called "tile"
-     allocate(flen(1))
-     call get_dimension_size(restart%rhandle, "tile", flen(1))
-     restart%tile_dim_length = flen(1)
-     deallocate(flen)
-  else
-     ! If there is a varaible called "tile" read it and assign the tile_dim_length
-     ndims = get_variable_num_dimensions(restart%rhandle, "tile")
-     allocate(flen(ndims))
-     call get_variable_size(restart%rhandle, "tile", flen)
-     restart%tile_dim_length = flen(1)
-     deallocate(flen)
   endif
 
-
-  endif
-  ndims = get_variable_num_dimensions(restart%rhandle, "tile")
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, "tile", flen)
-  restart%tile_dim_length = flen(1)
-  deallocate(flen)
-
-  !Get the size of the tile index dimension from the file.
-  if (.not. field_exists(restart, "tile_index")) then
-      call error_mesg("open_land_restart", "'tile_index' not found in file '" &
-                      //trim(filename)//"'.", FATAL)
-  endif
-  ndims = get_variable_num_dimensions(restart%rhandle, "tile_index")
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, "tile_index", flen)
-  allocate(restart%tidx(flen(1)))
-  deallocate(flen)
+  call get_dimension_size(restart%rhandle, "tile", restart%tile_dim_length)
 
   !Read in the tile_index field from the file.
+  call get_dimension_size(restart%rhandle, "tile_index", n)
+  allocate(restart%tidx(n))
   call read_data(restart%rhandle, "tile_index", restart%tidx)
 
   !Get the size of the cohort_index dimension from the file.
   if (field_exists(restart, "cohort_index")) then
-      ndims = get_variable_num_dimensions(restart%rhandle, "cohort_index")
-      allocate(flen(ndims))
-      call get_variable_size(restart%rhandle, "cohort_index", flen)
-
+      call get_dimension_size(restart%rhandle, "cohort_index", n)
       !Read in the cohort_index field from the file.
-      allocate(restart%cidx(flen(1)))
-      deallocate(flen)
+      allocate(restart%cidx(n))
       call read_data(restart%rhandle, "cohort_index", restart%cidx)
    endif
   ! TODO: possibly make tile index and cohort index names parameters in this module
@@ -737,10 +703,8 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   procedure(fptr_r0i)          :: fptr    ! subroutine returning pointer to the data
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
-  logical :: found
-  integer :: ndims
+  integer :: ndims, n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -750,16 +714,13 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
 
   !Get the size of z-dimension from the file.
   ndims = get_variable_num_dimensions(restart%rhandle, zdim)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, zdim, flen)
+  call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
-  allocate(r(size(restart%tidx),flen(1)))
+  allocate(r(size(restart%tidx),n))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r1d(fptr,restart%tidx,r)
   deallocate(r)
-  deallocate(flen)
-
 end subroutine get_tile_data_r1d_fptr_r0i
 
 subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
@@ -769,9 +730,8 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
   procedure(fptr_i0i)          :: fptr    ! subroutine returning pointer to the data
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! size of the input field
   integer, allocatable :: r(:,:) ! input data buffer
-  integer :: ndims
+  integer :: ndims, n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_i1d_fptr_i0i", &
@@ -781,16 +741,13 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
 
   !Get the size of z-dimension from the file.
   ndims = get_variable_num_dimensions(restart%rhandle, zdim)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, zdim, flen)
+  call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
-  allocate(r(size(restart%tidx),flen(1)))
+  allocate(r(size(restart%tidx),n))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_i1d(fptr,restart%tidx,r)
   deallocate(r)
-  deallocate(flen)
-
 end subroutine get_tile_data_i1d_fptr_i0i
 
 subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
@@ -801,9 +758,8 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   integer ,         intent(in) :: index
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
-  integer :: ndims
+  integer :: ndims, n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ij", &
@@ -813,16 +769,13 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
 
   !Get the size of z-dimension from the file.
   ndims = get_variable_num_dimensions(restart%rhandle, zdim)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, zdim, flen)
+  call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
-  allocate(r(size(restart%tidx),flen(1)))
+  allocate(r(size(restart%tidx),n))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r1d_idx(fptr,index,restart%tidx,r)
   deallocate(r)
-  deallocate(flen)
-
 end subroutine get_tile_data_r1d_fptr_r0ij
 
 subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
@@ -833,10 +786,8 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
   integer ,         intent(in) :: idx1,idx2
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! size of the input field
   real, allocatable :: r(:,:) ! input data buffer
-  logical :: found
-  integer :: ndims
+  integer :: ndims, n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ijk", &
@@ -846,16 +797,13 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
 
   !Get the size of z-dimension from the file.
   ndims = get_variable_num_dimensions(restart%rhandle, zdim)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, zdim, flen)
+  call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
-  allocate(r(size(restart%tidx),flen(1)))
+  allocate(r(size(restart%tidx),n))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r1d_idx_idx2(fptr,idx1,idx2,restart%tidx,r)
   deallocate(r)
-  deallocate(flen)
-
 end subroutine get_tile_data_r1d_fptr_r0ijk
 
 subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
@@ -865,7 +813,6 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! size of the input field
   integer :: n,m
   real, allocatable :: r(:,:,:) ! input data buffer
   integer :: ndims
@@ -876,32 +823,16 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
            FATAL)
   endif
 
-  !Get the size of the first dimension of the field.
+  !Get the sizes of the dimensions
   ndims = get_variable_num_dimensions(restart%rhandle, dim1)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, dim1, flen)
-  n = flen(1)
-  deallocate(flen)
-
-  if (.not. field_exists(restart, dim2)) then
-      call error_mesg("get_tile_data_r2d_fptr_r0ij", &
-           "axis '"//trim(dim2)//"' was not found in file '"//trim(restart%basename)//"'.", &
-           FATAL)
-   endif
-
-  !Get the size of the second dimension of the field.
-  ndims = get_variable_num_dimensions(restart%rhandle, dim2)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, dim2, flen)
-  m = flen(1)
-  deallocate(flen)
+  call get_dimension_size(restart%rhandle, dim1, n)
+  call get_dimension_size(restart%rhandle, dim2, m)
 
   !Read in the field data from the file.
   allocate(r(size(restart%tidx),n,m))
   call read_data(restart%rhandle, varname, r)
   call distrib_tile_data_r2d(fptr,restart%tidx,r)
   deallocate(r)
-
 end subroutine get_tile_data_r2d_fptr_r0ij
 
 subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
@@ -912,36 +843,14 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   integer,          intent(in) :: index   ! index where to read the data
 
   ! ---- local vars
-  integer,dimension(:),allocatable :: flen ! size of the input field
   integer ::  m,n
   real, allocatable :: r(:,:,:) ! input data buffer
   integer :: ndims
 
-  if (.not. field_exists(restart, dim1)) then
-      call error_mesg("get_tile_data_r2d_fptr_r0ijk", &
-           "axis '"//trim(dim1)//"' was not found in file '"//trim(restart%basename)//"'.", &
-           FATAL)
-  endif
-
-  !Get the size of the first dimension of the field.
+  !Get the sizes of the dimensions
   ndims = get_variable_num_dimensions(restart%rhandle, dim1)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, dim1, flen)
-  n = flen(1)
-  deallocate(flen)
-
-  if (.not. field_exists(restart, dim2)) then
-      call error_mesg("get_tile_data_r2d_fptr_r0ijk", &
-           "axis '"//trim(dim2)//"' was not found in file '"//trim(restart%basename)//"'.", &
-           FATAL)
-  endif
-
-  !Get the size of the second dimension of the field.
-  ndims = get_variable_num_dimensions(restart%rhandle, dim2)
-  allocate(flen(ndims))
-  call get_variable_size(restart%rhandle, dim2, flen)
-  m = flen(1)
-  deallocate(flen)
+  call get_dimension_size(restart%rhandle, dim1, n)
+  call get_dimension_size(restart%rhandle, dim2, m)
 
   !Read in the field from the file.
   allocate(r(size(restart%tidx),n,m))
