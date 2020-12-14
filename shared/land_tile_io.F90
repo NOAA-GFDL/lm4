@@ -9,7 +9,7 @@ use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, &
                        read_data, write_data, open_file, get_dimension_size, &
-                       get_variable_num_dimensions, compressed_start_and_count
+                       compressed_start_and_count
 
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
@@ -704,7 +704,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
 
   ! ---- local vars
   real, allocatable :: r(:,:) ! input data buffer
-  integer :: ndims, n
+  integer :: n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -713,7 +713,6 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
    endif
 
   !Get the size of z-dimension from the file.
-  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
   call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
@@ -731,7 +730,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
 
   ! ---- local vars
   integer, allocatable :: r(:,:) ! input data buffer
-  integer :: ndims, n
+  integer :: n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_i1d_fptr_i0i", &
@@ -740,7 +739,6 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
    endif
 
   !Get the size of z-dimension from the file.
-  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
   call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
@@ -759,7 +757,7 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
 
   ! ---- local vars
   real, allocatable :: r(:,:) ! input data buffer
-  integer :: ndims, n
+  integer :: n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ij", &
@@ -768,7 +766,6 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   endif
 
   !Get the size of z-dimension from the file.
-  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
   call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
@@ -787,7 +784,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
 
   ! ---- local vars
   real, allocatable :: r(:,:) ! input data buffer
-  integer :: ndims, n
+  integer :: n
 
   if (.not. field_exists(restart, zdim)) then
       call error_mesg("get_tile_data_r1d_fptr_r0ijk", &
@@ -796,7 +793,6 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
    endif
 
   !Get the size of z-dimension from the file.
-  ndims = get_variable_num_dimensions(restart%rhandle, zdim)
   call get_dimension_size(restart%rhandle, zdim, n)
 
   !Read in the field from the file.
@@ -815,7 +811,6 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   ! ---- local vars
   integer :: n,m
   real, allocatable :: r(:,:,:) ! input data buffer
-  integer :: ndims
 
   if (.not. field_exists(restart, dim1)) then
       call error_mesg("get_tile_data_r2d_fptr_r0ij", &
@@ -824,7 +819,6 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   endif
 
   !Get the sizes of the dimensions
-  ndims = get_variable_num_dimensions(restart%rhandle, dim1)
   call get_dimension_size(restart%rhandle, dim1, n)
   call get_dimension_size(restart%rhandle, dim2, m)
 
@@ -845,10 +839,8 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   ! ---- local vars
   integer ::  m,n
   real, allocatable :: r(:,:,:) ! input data buffer
-  integer :: ndims
 
   !Get the sizes of the dimensions
-  ndims = get_variable_num_dimensions(restart%rhandle, dim1)
   call get_dimension_size(restart%rhandle, dim1, n)
   call get_dimension_size(restart%rhandle, dim2, m)
 
