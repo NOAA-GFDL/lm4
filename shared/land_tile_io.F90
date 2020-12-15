@@ -273,7 +273,11 @@ subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
   character(len=*), intent(in) :: datum(:)
   character(len=*), intent(in), optional :: longname
 
-  call register_field(restart%rhandle, varname, "char", (/dim1, dim2/))
+
+  character(len=NF90_MAX_NAME) :: dims(2) ! array of dimension names
+  dims(1) = dim1; dims(2) = dim2
+
+  call register_field(restart%rhandle, varname, "char", dims)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
   endif
