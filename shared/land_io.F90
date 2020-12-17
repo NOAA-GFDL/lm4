@@ -20,7 +20,8 @@ use mpp_domains_mod, only : domain2d
 
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
                        get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
-                       is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists
+                       is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists, &
+                       register_variable_attribute
 use axis_utils2_mod, only: axis_edges
 
 implicit none
@@ -34,7 +35,7 @@ public :: external_ts_type
 public :: init_external_ts, del_external_ts
 public :: read_external_ts
 public :: input_buf_size
-
+public :: register_variable_string_attribute
 ! ==== end of public interface ===============================================
 
 interface read_field
@@ -719,5 +720,20 @@ subroutine read_external_ts(ts,time,data_ug)
   call time_interp_external(ts%id, time, data_sg, horz_interp=ts%interp)
   call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_ug)
 end subroutine read_external_ts
+
+! ==============================================================================
+! wrapper around fms_io2 register_variable_attribute function: needed because due
+! to PGI compiler peculatities (read:bugs) for string attributes length of string
+! has to be passed as an extra parameter. This wrapper makes sure the length is
+! always consistent with the string.
+subroutine register_variable_string_attribute(fileobj, variable_name, attribute_name, attribute_value)
+  class(FmsNetcdfFile_t), intent(in) :: fileobj   !< File object.
+  character(len=*), intent(in) :: variable_name   !< Variable name.
+  character(len=*), intent(in) :: attribute_name  !< Attribute name.
+  character(len=*), intent(in) :: attribute_value !< Attribute value
+
+  call register_variable_attribute(fileobj, variable_name, attribute_name, attribute_value, &
+           str_len = len(attribute_value))
+end subroutine register_variable_string_attribute
 
 end module
