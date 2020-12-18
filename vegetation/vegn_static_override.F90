@@ -1,33 +1,28 @@
 module static_vegn_mod
 
-use constants_mod,      only : pi
+use constants_mod,      only : PI
 use mpp_mod,            only : mpp_max, mpp_sum, input_nml_file
 use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
-
 use fms_mod,            only : error_mesg, FATAL, NOTE, &
-     mpp_pe, check_nml_error, stdlog, lowercase, &
-     mpp_root_pe, fms_error_handler
+     mpp_pe, check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+use fms2_io_mod, only: FmsNetcdfFile_t, FmsNetcdfUnstructuredDomainFile_t, &
+     open_file, close_file, read_data, register_axis, register_field, unlimited, &
+     register_restart_field, write_restart, get_dimension_size, get_variable_size, &
+     variable_exists, variable_att_exists, &
+     get_variable_attribute, get_variable_num_dimensions, get_unlimited_dimension_name
 use time_interp_mod,    only : time_interp
 use diag_manager_mod,   only : get_base_date
 
 use land_data_mod,      only : log_version, lnd
-use land_numerics_mod,  only : nearest
 use land_io_mod,        only : register_variable_string_attribute
 use land_tile_io_mod,   only : create_tile_out_file, gather_tile_index
-use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, &
-     tail_elmt, next_elmt, current_tile, operator(/=), nitems
+use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, nitems, &
+     land_tile_enum_type, first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension, gather_cohort_data, &
      gather_cohort_index
-
-use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, register_axis, &
-                       register_field, register_variable_attribute, unlimited, &
-                       register_restart_field, write_restart, get_dimension_size, &
-                       get_variable_size, read_data, FmsNetcdfFile_t, open_file, &
-                       close_file, variable_exists, variable_att_exists, &
-                       get_variable_attribute, get_variable_num_dimensions, get_unlimited_dimension_name
 
 implicit none
 private
@@ -302,7 +297,7 @@ subroutine init_writing_static_veg()
   base_time = set_date(year, month, day, hour, minute, sec)
   write(units, 11) year, month, day, hour, minute, sec
 
-    call create_tile_out_file(static_veg_file, 'static_veg_out.nc', tidx, tile_dim_length)
+  call create_tile_out_file(static_veg_file, 'static_veg_out.nc', tidx, tile_dim_length)
   call create_cohort_dimension(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
 
   call register_axis(static_veg_file, "time", unlimited)

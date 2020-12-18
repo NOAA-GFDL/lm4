@@ -3,26 +3,25 @@ module land_io_mod
 use netcdf, only: nf90_max_name
 use mpp_domains_mod, only : mpp_pass_sg_to_ug
 
-use constants_mod,     only : PI
+use constants_mod, only : PI
 use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
      mpp_root_pe, string, check_nml_error
 use mpp_mod, only: input_nml_file
 use mpp_io_mod, only: axistype, mpp_get_axis_data
 use axis_utils_mod, only : get_axis_bounds
+use fms2_io_mod, only: open_file, close_file, read_data, FmsNetcdfFile_t, get_valid, &
+     get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
+     Valid_t, is_valid, variable_exists, register_variable_attribute
+use axis_utils2_mod, only: axis_edges
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
-use land_numerics_mod, only : nearest, bisect
-use land_data_mod, only : log_version, lnd, horiz_interp_ug
 use time_interp_external_mod, only: time_interp_external_init, &
      time_interp_external, init_external_field
 use time_manager_mod, only: time_type
 use mpp_domains_mod, only : domain2d
+use land_numerics_mod, only : nearest, bisect
+use land_data_mod, only : log_version, lnd, horiz_interp_ug
 
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_valid, get_variable_attribute, &
-                       get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
-                       is_valid, open_file, read_data, Valid_t, variable_att_exists, variable_exists, &
-                       register_variable_attribute
-use axis_utils2_mod, only: axis_edges
 
 implicit none
 private

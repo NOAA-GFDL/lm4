@@ -3,23 +3,15 @@ module land_tile_io_mod
 use netcdf, only: NF90_MAX_NAME, NF90_FILL_DOUBLE, NF90_FILL_INT
 use fms_mod, only : error_mesg, FATAL, mpp_pe
 use fms_io_mod, only : get_instance_filename
-
-use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
-                       register_axis, register_field, &
-                       register_variable_attribute, write_restart, &
-                       close_file, variable_exists, &
-                       read_data, write_data, open_file, get_dimension_size, &
-                       compressed_start_and_count
-
+use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, open_file, close_file, &
+     read_data, write_data, register_axis, register_field, register_variable_attribute, &
+     write_restart, variable_exists, get_dimension_size, compressed_start_and_count
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
-use mpp_domains_mod,   only : mpp_pass_SG_to_UG
-use land_io_mod, only : read_field, input_buf_size, register_variable_string_attribute
-use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles, &
-     tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
-     land_tile_map
-
+use land_io_mod, only : register_variable_string_attribute
+use land_tile_mod, only : land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
+     fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
+     land_tile_map, tile_test_func
 use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
@@ -37,8 +29,6 @@ public :: add_tile_data, add_int_tile_data, add_scalar_data, add_text_data
 public :: get_tile_data, get_int_tile_data, get_scalar_data, get_text_data
 public :: field_exists
 public :: gather_tile_index
-
-public :: read_field
 
 public :: create_tile_out_file
 

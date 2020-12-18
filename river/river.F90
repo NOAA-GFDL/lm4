@@ -53,7 +53,7 @@ module river_mod
   use fms_io_mod,          only : get_instance_filename
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
-                         read_restart, write_restart, close_file, register_variable_attribute, write_data, &
+                         read_restart, close_file, write_data, &
                          get_global_io_domain_indices, FmsNetcdfFile_t, &
                          get_variable_size, read_data, get_variable_num_dimensions, unlimited
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute

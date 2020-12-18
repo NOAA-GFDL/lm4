@@ -4,22 +4,16 @@ use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
 
 use fms_mod,          only : error_mesg, FATAL, WARNING
 use fms_io_mod,       only : get_instance_filename
+use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, compressed_start_and_count, &
+     register_axis, register_field, register_variable_attribute, read_data, write_data
 use mpp_mod,          only : mpp_max
-use land_io_mod,      only : input_buf_size, register_variable_string_attribute
-use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
+use land_data_mod, only    : lnd
+use land_io_mod,      only : register_variable_string_attribute
+use land_tile_io_mod, only : land_restart_type, get_tile_by_idx
+use land_tile_mod,    only : land_tile_map, land_tile_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
-     current_tile, operator(/=), nitems, loop_over_tiles
-
-use land_tile_io_mod, only: land_restart_type, &
-     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_tile_data, get_tile_data, &
-     get_tile_by_idx
-
-use vegn_cohort_mod, only: vegn_cohort_type
-use land_data_mod, only : lnd
-use fms2_io_mod, only: compressed_start_and_count, FmsNetcdfUnstructuredDomainFile_t, &
-                       register_axis, register_field, register_variable_attribute, &
-                       read_data, write_data
+     current_tile, operator(/=), loop_over_tiles
+use vegn_cohort_mod, only  : vegn_cohort_type
 
 
 implicit none
@@ -209,7 +203,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
 
-   call register_axis(rhandle, "cohort", cohorts_dim_length)
+  call register_axis(rhandle, "cohort", cohorts_dim_length)
   call register_field(rhandle, "cohort", "int", (/"cohort"/))
   call register_variable_string_attribute(rhandle, "cohort", "long_name", "cohort number within tile")
   do i = 1, cohorts_dim_length
