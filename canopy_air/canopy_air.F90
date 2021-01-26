@@ -58,6 +58,8 @@ character(len=*), parameter :: diag_mod_name = 'cana'
 
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
+! options for roughness parameter calculations
+integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2
 
 ! options of soil surface resistance calculations
 integer, parameter :: &
@@ -71,7 +73,8 @@ real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
-character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
+character(len=32) :: roughness_to_use  = '' ! lm3w or lm3v
+character(len=32) :: turbulence_to_use = '' ! lm3w or lm3v
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
@@ -95,7 +98,7 @@ real,    protected, public :: fog_diss_time = 0.0   ! e-folding time of fog evap
                                                     ! 0 or below means instant dissipation
 
 namelist /cana_nml/ &
-  init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
+  init_T, init_T_cold, init_q, init_co2, roughness_to_use, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
   k_over_B, &
   ! soil resistance parameters
@@ -108,8 +111,8 @@ namelist /cana_nml/ &
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
-integer :: turbulence_option ! selected option of turbulence parameters
-     ! calculations
+integer :: roughness_option  ! selected option of roughness parameters calculations
+integer :: turbulence_option ! selected option of turbulence parameters calculations
 integer :: soil_resistance_option = -1 ! option of soil resistance parameterization
 
 ! ---- diag field IDs
@@ -150,13 +153,22 @@ subroutine read_cana_namelist()
 
   ! initialize options, to avoid expensive string comparisons during
   ! run-time
-  if (trim(turbulence_to_use)=='lm3v') then
+  if (trim(lowercase(turbulence_to_use))=='lm3v') then
      turbulence_option = TURB_LM3V
-  else if (trim(turbulence_to_use)=='lm3w') then
+  else if (trim(lowercase(turbulence_to_use))=='lm3w') then
      turbulence_option = TURB_LM3W
   else
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
+  endif
+
+  if (trim(lowercase(roughness_to_use))=='lm3v') then
+     roughness_option = ROUGH_LM3V
+  else if (trim(lowercase(roughness_to_use))=='lm3w') then
+     roughness_option = ROUGH_LM3W
+  else
+     call error_mesg('cana_init', 'canopy air roughness option roughness_to_use="'// &
+          trim(roughness_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
   endif
 
   ! convert symbolic names of surface resistance options into numeric IDs to
@@ -490,8 +502,8 @@ subroutine cana_roughness(lm2, &
   grnd_z0m = exp( (1-snow_area)*log(subs_z0m) + snow_area*log(snow_z0m))
   grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
 
-  select case(turbulence_option)
-  case(TURB_LM3W)
+  select case(roughness_option)
+  case(ROUGH_LM3W)
      if(vegn_cover > 0) then
         z0s_h_max = z0m_h_max*grnd_z0s/grnd_z0m ! to ensure cover->0 limit works
         d_h = vegn_cover*d_h_max
@@ -516,7 +528,7 @@ subroutine cana_roughness(lm2, &
         land_z0s = grnd_z0s
      endif
 
-  case(TURB_LM3V)
+  case(ROUGH_LM3V)
      height = max(vegn_height,0.1) ! effective height of the vegetation
      vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
      if(vegn_idx>1e-4) then
