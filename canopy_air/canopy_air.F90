@@ -59,7 +59,7 @@ character(len=*), parameter :: diag_mod_name = 'cana'
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
 ! options for roughness parameter calculations
-integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2
+integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2, ROUGH_R1994 = 3
 
 ! options of soil surface resistance calculations
 integer, parameter :: &
@@ -78,6 +78,13 @@ character(len=32) :: turbulence_to_use = '' ! lm3w or lm3v
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
+! Raupach (1994) parameters
+real :: c_r = 0.3, c_s = 0.003  ! slope and intercept of LAI+SAI dependence in u*/U(h) ratio
+                                ! i.e. roughness-element and surface drag coefficients
+real :: max_u_ratio = 0.3       ! imposed maximum value of u*/U(h) ratio
+real :: c_d1 = 7.5              ! LAI+SAI scale parameter in displacement height expression
+real :: rsl_factor = 2.0        ! ratio of roughness sublayer depth to vegetation height
+                                ! above displacement height (vegn_height - land_d)
 ! resistance-related namelist variables
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
 real :: bare_rah_sca      = 0.01 ! bare-ground resistance between ground and canopy air, s/m
@@ -101,6 +108,8 @@ namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, roughness_to_use, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
   k_over_B, &
+  ! Raupach (1994) parameters
+  c_d1, c_s, c_r, max_u_ratio, rsl_factor, &
   ! soil resistance parameters
   soil_resistance_to_use, &
   d_visc_max, &
@@ -114,6 +123,7 @@ logical :: module_is_initialized =.FALSE.
 integer :: roughness_option  ! selected option of roughness parameters calculations
 integer :: turbulence_option ! selected option of turbulence parameters calculations
 integer :: soil_resistance_option = -1 ! option of soil resistance parameterization
+real    :: rsl_corr ! value of roughness sublayer correction, pre-calculated in initialization
 
 ! ---- diag field IDs
 integer :: id_r_litt_evap, id_r_bl_sens, id_r_bl_evap, id_r_sv_evap, &
@@ -166,10 +176,15 @@ subroutine read_cana_namelist()
      roughness_option = ROUGH_LM3V
   else if (trim(lowercase(roughness_to_use))=='lm3w') then
      roughness_option = ROUGH_LM3W
+  else if (trim(lowercase(roughness_to_use))=='raupach') then
+     roughness_option = ROUGH_R1994
   else
      call error_mesg('cana_init', 'canopy air roughness option roughness_to_use="'// &
-          trim(roughness_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
+          trim(roughness_to_use)//'" is invalid, use "lm3w", "lm3v", or "Raupach"', FATAL)
   endif
+
+  ! pre-calculate RSL correction
+  rsl_corr = log(rsl_factor)-1+1.0/rsl_factor
 
   ! convert symbolic names of surface resistance options into numeric IDs to
   ! avoid expensive string comparisons run-time
@@ -458,7 +473,7 @@ end subroutine cana_turbulence
 ! and conductances for canopy-to-CAS and ground-to-CAS fluxes
 !
 ! Strategy: Always define a canopy present. Non-vegetated situation is simply
-! a limit as vegetation density approaches (but isn't allowed to reach) zero.
+! a limit as vegetation density approaches (but is not allowed to reach) zero.
 ! Create expressions for the outputs that reduce to the special
 ! cases of full canopy cover and no canopy. Full canopy solution is that
 ! from Bonan (NCAR/TN-417+STR, 1996, p. 63). Thus, setting cover=1 in
@@ -498,6 +513,8 @@ subroutine cana_roughness(lm2, &
   real :: z0s_h, z0s_h_max
   real :: vegn_idx ! total vegetation index = LAI+SAI
   real :: height   ! effective vegetation height
+  real :: u_ratio  ! ratio u_*/U(h)
+  real :: x
 
   grnd_z0m = exp( (1-snow_area)*log(subs_z0m) + snow_area*log(snow_z0m))
   grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
@@ -542,6 +559,24 @@ subroutine cana_roughness(lm2, &
         land_d   = 0
         land_z0m = grnd_z0m
      endif
+     land_z0s = land_z0m*exp(-k_over_B)
+
+  case(ROUGH_R1994)
+     ! following M. R. Raupach (1994): Simplified expression for vegetation roughness
+     ! length and zero-plane displacement as function of canopy height and area index.
+     ! Boundary Layer Meteorology, 71, No.1-2, 211–216, doi:10.1007/BF00709229.
+     vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
+     x = sqrt(c_d1*vegn_idx)
+     if (x>1e-4) then
+        land_d = vegn_height*(1-(1-exp(-x))/x)
+     else
+        ! in limiting case of very low LAI+SAI limiting case, use Taylor expansion
+        ! exp(-x) = 1-x+x^2/2+O(x^3) to avoid loss of precision and division by 0
+        land_d = x/2
+     endif
+     u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
+     land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
+     land_z0m = max(land_z0m,grnd_z0m)
      land_z0s = land_z0m*exp(-k_over_B)
 
   end select
