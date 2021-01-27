@@ -63,7 +63,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, save_cana_restart, &
-     cana_roughness, cana_turbulence, surface_resistances, &
+     cana_roughness, cana_v_turb, cana_g_turb, surface_resistances, &
      do_fog, fog_form_rate, fog_diss_time
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
@@ -2768,7 +2768,6 @@ subroutine land_turbulence(tile, &
   if(associated(tile%vegn)) then
      cc => tile%vegn%cohorts(1:tile%vegn%n_cohorts) ! note that the size of cc is always N
      gaps = 1.0 ; current_layer = cc(1)%layer ; layer_gaps = 1.0
-     ! check the range of input temperature
      do i = 1,tile%vegn%n_cohorts
         ! calculate total cover
         if (cc(i)%layer/=current_layer) then
@@ -2778,31 +2777,42 @@ subroutine land_turbulence(tile, &
      enddo
      gaps = gaps*layer_gaps ! take the last layer into account
 
-     ! calculate aerodynamic conductance coefficients
-     call cana_turbulence(ustar, 1-gaps, &
+     ! calculate aerodynamic conductance coefficients between canopy air and vegetation
+     call cana_v_turb(ustar, 1-gaps, &
         cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
-        tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, &
+        tile%land_d, tile%land_z0m, &
         ! output:
-        con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
+        con_v_h, con_v_v, u_sfc, ustar_sfc)
+
+     ! calculate surface resistances to evaporation and sensible heat
+     call surface_resistances(tile, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
+        ! output:
+        r_evap, r_sens)
+
+     ! calculate aerodynamic conductance coefficients between canopy air and ground
+     call cana_g_turb (ustar, 1-gaps, &
+       cc(:)%layerfrac, cc(:)%height, cc(:)%lai, cc(:)%sai, &
+       tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, &
+       con_g_h, con_g_v)
 
      if(is_watch_point()) then
+        __DEBUG1__(con_g_h)
+        __DEBUG1__(con_g_v)
         __DEBUG4__(tile%land_d, tile%land_z0s, tile%land_z0m, tile%grnd_z0s)
         __DEBUG1__(con_v_h)
         __DEBUG1__(con_v_v)
-        __DEBUG1__(con_g_h)
-        __DEBUG1__(con_g_v)
      endif
   else
-     con_g_h = con_fac_large ; con_g_v = con_fac_large
      con_v_h = 0.0           ; con_v_v = 0.0
      ustar_sfc = ustar
      u_sfc     = atmos_wind
+     ! calculate surface resistances to evaporation and sensible heat
+     call surface_resistances(tile, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
+        ! output:
+        r_evap, r_sens)
+     con_g_h = con_fac_large ; con_g_v = con_fac_large
   endif
-  ! calculate surface resistances to evaporation and sensible heat
-  call surface_resistances(tile, &
-     grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
-     ! output:
-     r_evap, r_sens)
+
   con_g_h = con_g_h/(1.0+r_sens*con_g_h)
   con_g_v = con_g_v/(1.0+r_evap*con_g_v)
   if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &

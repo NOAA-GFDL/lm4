@@ -44,7 +44,7 @@ public :: read_cana_namelist
 public :: cana_init
 public :: cana_end
 public :: save_cana_restart
-public :: cana_turbulence
+public :: cana_v_turb, cana_g_turb
 public :: cana_roughness
 public :: surface_resistances
 
@@ -353,20 +353,22 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 end subroutine save_cana_restart
 
+
 ! ============================================================================
-subroutine cana_turbulence (u_star, &
+! given vegetation properties, calculate aerodynamic conductances coefficients
+! between canopy air and ground
+subroutine cana_v_turb (u_star, &
      vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
-     land_d, land_z0m, land_z0s, grnd_z0s, &
-     con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc )
+     land_d, land_z0m, &
+     con_v_h, con_v_v, u_sfc, ustar_sfc )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
-       land_d, land_z0m, land_z0s, grnd_z0s, &
+       land_d, land_z0m, &
        vegn_cover, vegn_height(:), vegn_layerfrac(:), &
        vegn_bottom(:), & ! height of the bottom of the canopy, m
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
-       con_g_h   , con_g_v,    & ! ground-CAS turbulent conductance per unit ground area
        u_sfc, &                  ! near-surface wind speed, m/s
        ustar_sfc                 ! near-surface friction velocity, m/s
 
@@ -382,9 +384,7 @@ subroutine cana_turbulence (u_star, &
   real :: height   ! height of the current vegetation cohort, m
   real :: ztop     ! height of the tallest vegetation, m
   real :: wind     ! normalized wind on top of canopy, m/s
-  real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
-  real :: rah_sca  ! ground-SCA resistance
   real :: h0       ! height of the canopy bottom, m
   real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
 
@@ -413,11 +413,8 @@ subroutine cana_turbulence (u_star, &
                  *exp(-a/2*(ztop-height)/ztop)
            endif
         enddo
-        con_g_h = u_star*a*VONKARM*(1-land_d/ztop) &
-             / (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0s+land_d)/ztop)))
      else
         con_v_h = 0
-        con_g_h = 0
      endif
      con_v_v = con_v_h
   case(TURB_LM3V)
@@ -445,6 +442,62 @@ subroutine cana_turbulence (u_star, &
         endif
      enddo
 
+  end select
+
+! u_sfc     = wind * exp(-a)
+! ustar_sfc = u_star * exp(-a)
+  u_sfc     = wind
+  ustar_sfc = u_star/sqrt(2*vegn_idx + 1)
+
+  if (is_watch_point()) then
+     __DEBUG2__(vegn_idx,land_d)
+     __DEBUG3__(ztop,u_star,wind)
+  endif
+end subroutine cana_v_turb
+
+! ============================================================================
+! given vegetation properties, calculate aerodynamic conductances coefficients
+! between canopy air and ground
+subroutine cana_g_turb (u_star, &
+       vegn_cover, vegn_layerfrac, vegn_height, vegn_lai, vegn_sai, &
+       land_d, land_z0m, land_z0s, grnd_z0s, &
+       con_g_h, con_g_v)
+  real, intent(in) :: &
+       u_star, & ! friction velocity, m/s
+       land_d, land_z0m, land_z0s, grnd_z0s, &
+       vegn_cover, vegn_height(:), vegn_layerfrac(:), &
+       vegn_lai(:), vegn_sai(:)
+  real, intent(out) :: &
+       con_g_h, con_g_v  ! ground-CAS turbulent conductance per unit ground area
+
+  !---- local constants
+  real, parameter :: a_max = 3
+  real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
+  ! ---- local vars
+  real :: a        ! parameter of exponential wind profile within canopy:
+                   ! u = u(ztop)*exp(-a*(1-z/ztop))
+  real :: ztop     ! height of the tallest vegetation, m
+  real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
+  real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
+  real :: rah_sca  ! ground-SCA resistance
+
+  vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
+
+  select case(turbulence_option)
+  case(TURB_LM3W)
+     a  = max(vegn_cover,0.0)*a_max
+     if(vegn_cover > 0) then
+        ztop   = maxval(vegn_height(:))
+        con_g_h = u_star*a*VONKARM*(1-land_d/ztop) &
+             / (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0s+land_d)/ztop)))
+     else
+        con_g_h = 0
+     endif
+
+  case(TURB_LM3V)
+     ztop = max(maxval(vegn_height(:)),min_height)
+     a = a_max
+
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
         Kh_top = VONKARM*u_star*(ztop-land_d)
         rah_sca = ztop/a/Kh_top * &
@@ -455,18 +508,14 @@ subroutine cana_turbulence (u_star, &
      endif
      con_g_h = 1.0/rah_sca
   end select
-  con_g_v = con_g_h
 
-! u_sfc     = wind * exp(-a)
-! ustar_sfc = u_star * exp(-a)
-  u_sfc     = wind
-  ustar_sfc = u_star/sqrt(2*vegn_idx + 1)
+  con_g_v = con_g_h
 
   if (is_watch_point()) then
      __DEBUG3__(vegn_idx,land_d,Kh_top)
-     __DEBUG4__(ztop,u_star,wind,rah_sca)
+     __DEBUG3__(ztop,u_star,rah_sca)
   endif
-end subroutine cana_turbulence
+end subroutine cana_g_turb
 
 ! ============================================================================
 ! update effective surface roughness lengths for CAS-to-atmosphere fluxes
