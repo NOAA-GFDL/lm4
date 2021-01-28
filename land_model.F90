@@ -2762,6 +2762,8 @@ subroutine land_turbulence(tile, &
        layer_gaps, & ! fraction of gaps in the canopy in a single layer, accumulator value
        u_sfc, & ! near-surface wind speed, m/s
        ustar_sfc, & ! near-surface friction velocity, m/s
+       a,      & ! parameter of exponential wind profile within canopy
+       d_visc, & ! depth of viscous sublayer, m
        r_evap, & ! surface resistance for evaporation, s/m
        r_sens    ! surface resistance for sensible heat, s/m
 
@@ -2782,17 +2784,17 @@ subroutine land_turbulence(tile, &
         cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
         tile%land_d, tile%land_z0m, &
         ! output:
-        con_v_h, con_v_v, u_sfc, ustar_sfc)
+        con_v_h, con_v_v, a, u_sfc, ustar_sfc)
 
      ! calculate surface resistances to evaporation and sensible heat
      call surface_resistances(tile, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
         ! output:
-        r_evap, r_sens)
+        r_evap, r_sens, d_visc)
 
      ! calculate aerodynamic conductance coefficients between canopy air and ground
-     call cana_g_turb (ustar, 1-gaps, &
+     call cana_g_turb (ustar, a, 1-gaps, &
        cc(:)%layerfrac, cc(:)%height, cc(:)%lai, cc(:)%sai, &
-       tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, &
+       tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, d_visc, &
        con_g_h, con_g_v)
 
      if(is_watch_point()) then
@@ -2803,13 +2805,13 @@ subroutine land_turbulence(tile, &
         __DEBUG1__(con_v_v)
      endif
   else
-     con_v_h = 0.0           ; con_v_v = 0.0
+     con_v_h = 0.0 ; con_v_v = 0.0
      ustar_sfc = ustar
      u_sfc     = atmos_wind
      ! calculate surface resistances to evaporation and sensible heat
      call surface_resistances(tile, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
         ! output:
-        r_evap, r_sens)
+        r_evap, r_sens, d_visc)
      con_g_h = con_fac_large ; con_g_v = con_fac_large
   endif
 

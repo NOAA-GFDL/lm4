@@ -57,7 +57,7 @@ character(len=*), parameter :: diag_mod_name = 'cana'
 #include "../shared/version_variable.inc"
 
 ! options for turbulence parameter calculations
-integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
+integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2, TURB_R1996 = 3
 ! options for roughness parameter calculations
 integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2, ROUGH_R1994 = 3
 
@@ -66,6 +66,8 @@ integer, parameter :: &
    RESIST_NONE   = 0, & ! no extra soil resistance
    RESIST_HO2013 = 1    ! soil resistance based on Haghighi and Or (2013) and related papers
 
+real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
+
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
@@ -73,7 +75,7 @@ real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
-character(len=32) :: roughness_to_use  = '' ! lm3w or lm3v
+character(len=32) :: roughness_to_use  = '' ! lm3w or lm3v or Raupach
 character(len=32) :: turbulence_to_use = '' ! lm3w or lm3v
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
@@ -167,9 +169,11 @@ subroutine read_cana_namelist()
      turbulence_option = TURB_LM3V
   else if (trim(lowercase(turbulence_to_use))=='lm3w') then
      turbulence_option = TURB_LM3W
+  else if (trim(lowercase(turbulence_to_use))=='raupach') then
+     turbulence_option = TURB_R1996
   else
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
-          trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
+          trim(turbulence_to_use)//'" is invalid, use "lm3w", "lm3v", or "Raupach"', FATAL)
   endif
 
   if (trim(lowercase(roughness_to_use))=='lm3v') then
@@ -357,19 +361,21 @@ end subroutine save_cana_restart
 ! ============================================================================
 ! given vegetation properties, calculate aerodynamic conductances coefficients
 ! between canopy air and ground
-subroutine cana_v_turb (u_star, &
+subroutine cana_v_turb (ustar, &
      vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, &
-     con_v_h, con_v_v, u_sfc, ustar_sfc )
+     con_v_h, con_v_v, a, u_sfc, ustar_sfc )
   real, intent(in) :: &
-       u_star, & ! friction velocity, m/s
+       ustar, & ! friction velocity, m/s
        land_d, land_z0m, &
        vegn_cover, vegn_height(:), vegn_layerfrac(:), &
        vegn_bottom(:), & ! height of the bottom of the canopy, m
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
-       u_sfc, &                  ! near-surface wind speed, m/s
+       a,                      & ! parameter of exponential wind profile within canopy:
+                                 ! u = u(ztop)*exp(-a*(1-z/ztop))
+       u_sfc,                  & ! near-surface wind speed, m/s
        ustar_sfc                 ! near-surface friction velocity, m/s
 
   !---- local constants
@@ -377,16 +383,14 @@ subroutine cana_v_turb (u_star, &
   real, parameter :: leaf_co = 0.01 ! meters per second^(1/2)
                                     ! leaf_co = g_b(z)/sqrt(wind(z)/d_leaf)
   real, parameter :: min_thickness = 0.01 ! thickness for switching to thin-canopy approximation, m
-  real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
   ! ---- local vars
-  real :: a        ! parameter of exponential wind profile within canopy:
-                   ! u = u(ztop)*exp(-a*(1-z/ztop))
   real :: height   ! height of the current vegetation cohort, m
   real :: ztop     ! height of the tallest vegetation, m
-  real :: wind     ! normalized wind on top of canopy, m/s
+  real :: utop     ! normalized wind on top of canopy, m/s
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: h0       ! height of the canopy bottom, m
   real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
+  real :: u_ratio  ! ratio u*/U(h)
 
   integer :: i
 
@@ -400,16 +404,16 @@ subroutine cana_v_turb (u_star, &
      if(vegn_cover > 0) then
         ztop   = maxval(vegn_height(:))
 
-        wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
+        utop  = ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
         do i = 1,size(vegn_lai)
            height = vegn_height(i) ! effective height of the vegetation
            h0     = vegn_bottom(i) ! height of the bottom of the canopy
            if(height-h0>min_thickness) then
-              con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+              con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(utop/vegn_d_leaf(i))*ztop/(height-h0)&
                  *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
            else
               ! thin cohort canopy limit
-              con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
+              con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(utop/vegn_d_leaf(i))&
                  *exp(-a/2*(ztop-height)/ztop)
            endif
         enddo
@@ -421,17 +425,17 @@ subroutine cana_v_turb (u_star, &
      ztop = max(maxval(vegn_height(:)),min_height)
 
      a = a_max
-     wind=u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
+     utop=ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
 
      do i = 1,size(vegn_lai)
         height = max(vegn_height(i),min_height) ! effective height of the vegetation
         h0     = vegn_bottom(i) ! height of the canopy bottom above ground
         if(height-h0>min_thickness) then
-           gb = 2*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+           gb = 2*leaf_co*sqrt(utop/vegn_d_leaf(i))*ztop/(height-h0)&
               *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
         else
            ! thin cohort canopy limit
-           gb = leaf_co*sqrt(wind/vegn_d_leaf(i))&
+           gb = leaf_co*sqrt(utop/vegn_d_leaf(i))&
               *exp(-a/2*(ztop-height)/ztop)
         endif
         con_v_v(i) = vegn_lai(i)*gb
@@ -442,64 +446,85 @@ subroutine cana_v_turb (u_star, &
         endif
      enddo
 
+  case(TURB_R1996)
+     ztop    = max(maxval(vegn_height(:)),min_height)
+     u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
+     utop    = ustar/u_ratio
+     ! exponent of wind profile within canopy
+     a       = u_ratio/(vonkarm*rsl_factor)*ztop/(ztop - land_d)
+
+     do i = 1,size(vegn_lai)
+        height = vegn_height(i) ! effective height of the cohort canopy top above ground
+        h0     = vegn_bottom(i) ! height of the cohort canopy bottom above ground
+        if(height-h0>min_thickness) then
+           gb = 2*leaf_co*sqrt(utop/vegn_d_leaf(i))*ztop/(height-h0)&
+              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
+        else
+           ! thin cohort canopy limit
+           gb = leaf_co*sqrt(utop/vegn_d_leaf(i)) * exp(-a/2*(ztop-height)/ztop)
+        endif
+        con_v_v(i) = vegn_lai(i)*gb
+        ! should we use 2*LAI+SAI for heat, since leaves are two-sided?
+        if (use_SAI_for_heat_exchange) then
+           con_v_h(i) = (vegn_lai(i)+vegn_sai(i))*gb
+        else
+           con_v_h(i) = vegn_lai(i)*gb
+        endif
+     enddo
+
   end select
 
 ! u_sfc     = wind * exp(-a)
-! ustar_sfc = u_star * exp(-a)
-  u_sfc     = wind
-  ustar_sfc = u_star/sqrt(2*vegn_idx + 1)
+! ustar_sfc = ustar * exp(-a)
+  u_sfc     = utop
+  ustar_sfc = ustar/sqrt(2*vegn_idx + 1)
 
   if (is_watch_point()) then
      __DEBUG2__(vegn_idx,land_d)
-     __DEBUG3__(ztop,u_star,wind)
+     __DEBUG3__(ztop,ustar,utop)
   endif
 end subroutine cana_v_turb
 
 ! ============================================================================
 ! given vegetation properties, calculate aerodynamic conductances coefficients
 ! between canopy air and ground
-subroutine cana_g_turb (u_star, &
+subroutine cana_g_turb (ustar, a, &
        vegn_cover, vegn_layerfrac, vegn_height, vegn_lai, vegn_sai, &
-       land_d, land_z0m, land_z0s, grnd_z0s, &
+       land_d, land_z0m, land_z0s, grnd_z0s, d_visc, &
        con_g_h, con_g_v)
   real, intent(in) :: &
-       u_star, & ! friction velocity, m/s
-       land_d, land_z0m, land_z0s, grnd_z0s, &
-       vegn_cover, vegn_height(:), vegn_layerfrac(:), &
-       vegn_lai(:), vegn_sai(:)
+       ustar,  & ! friction velocity in the atm surface layer, m/s
+       a,      & ! parameter of exponential wind profile within canopy:
+                 ! u = u(ztop)*exp(-a*(1-z/ztop))
+       land_d, & ! displacement height , m
+       land_z0m, land_z0s, & ! roughness for momentum and scalars, m
+       grnd_z0s, & ! ground surface roughness for scalars, m
+       d_visc, & ! depth of viscous sublayer, m
+       vegn_cover, vegn_height(:), vegn_layerfrac(:), vegn_lai(:), vegn_sai(:)
   real, intent(out) :: &
        con_g_h, con_g_v  ! ground-CAS turbulent conductance per unit ground area
 
-  !---- local constants
-  real, parameter :: a_max = 3
-  real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
   ! ---- local vars
-  real :: a        ! parameter of exponential wind profile within canopy:
-                   ! u = u(ztop)*exp(-a*(1-z/ztop))
   real :: ztop     ! height of the tallest vegetation, m
   real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: rah_sca  ! ground-SCA resistance
 
-  vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
-
   select case(turbulence_option)
   case(TURB_LM3W)
-     a  = max(vegn_cover,0.0)*a_max
      if(vegn_cover > 0) then
         ztop   = maxval(vegn_height(:))
-        con_g_h = u_star*a*VONKARM*(1-land_d/ztop) &
+        con_g_h = ustar*a*VONKARM*(1-land_d/ztop) &
              / (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0s+land_d)/ztop)))
      else
         con_g_h = 0
      endif
 
   case(TURB_LM3V)
-     ztop = max(maxval(vegn_height(:)),min_height)
-     a = a_max
-
+     vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
-        Kh_top = VONKARM*u_star*(ztop-land_d)
+        ztop = max(maxval(vegn_height(:)),min_height)
+        Kh_top = VONKARM*ustar*(ztop-land_d)
         rah_sca = ztop/a/Kh_top * &
              (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
         rah_sca = min(rah_sca,1250.0)
@@ -507,14 +532,21 @@ subroutine cana_g_turb (u_star, &
         rah_sca = bare_rah_sca
      endif
      con_g_h = 1.0/rah_sca
+
+  case(TURB_R1996)
+     ztop = maxval(vegn_height(:))
+     Kh_top = VONKARM*ustar*(ztop-land_d)
+     rah_sca = ztop/a/Kh_top * &
+          (exp(a*(1-d_visc/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
+     ! rah_sca can be very small or even negative depending on the vegetation
+     ! roughness properties and d_visc; for example for very small vegetation
+     ! and little wind. Therefore we need to impose some minimum value that would
+     ! limit conductance to reasonable range
+     rah_sca = max(rah_sca,bare_rah_sca)
+     con_g_h = 1.0/rah_sca
   end select
 
   con_g_v = con_g_h
-
-  if (is_watch_point()) then
-     __DEBUG3__(vegn_idx,land_d,Kh_top)
-     __DEBUG3__(ztop,u_star,rah_sca)
-  endif
 end subroutine cana_g_turb
 
 ! ============================================================================
@@ -562,7 +594,7 @@ subroutine cana_roughness(lm2, &
   real :: z0s_h, z0s_h_max
   real :: vegn_idx ! total vegetation index = LAI+SAI
   real :: height   ! effective vegetation height
-  real :: u_ratio  ! ratio u_*/U(h)
+  real :: u_ratio  ! ratio u*/U(h)
   real :: x
 
   grnd_z0m = exp( (1-snow_area)*log(subs_z0m) + snow_area*log(snow_z0m))
@@ -635,7 +667,7 @@ end subroutine cana_roughness
 ! ============================================================================
 ! calculate soil surface (laminar) resistances to evaporation and sensible heat
 subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
-       r_evap, r_sens)
+       r_evap, r_sens, d_visc)
   type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: T_sfc     ! surface temperature, K
   real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
@@ -645,13 +677,13 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
   ! output
   real, intent(out) :: r_evap ! surface resistance for evaporation, s/m
   real, intent(out) :: r_sens ! surface resistance for sensible heat, s/m
+  real, intent(out) :: d_visc ! thickness of viscous sublayer, m
 
   real :: theta_sfc   ! relative soil wetness at the surface, unitless
   real :: r_litt_evap ! litter resistance, s/m
   real :: r_sv_evap   ! soil surface resistance to evaporation, s/m
   real :: r_bl_evap   ! viscous sublayer resistance to evaporation, s/m
   real :: r_bl_sens   ! viscous sublayer resistance to heat flux, s/m
-  real :: d_visc      ! thickness of viscous sublayer, m
   real :: diff_air    ! thermal diffusivity of air, m/s
 
   r_litt_evap = evap_resistance_litter(tile, snow_active)
