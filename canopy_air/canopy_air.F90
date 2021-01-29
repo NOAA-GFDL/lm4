@@ -11,7 +11,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
+use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string, lowercase
 use constants_mod, only : VONKARM, dens_h2o, pi, grav
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
@@ -19,9 +19,9 @@ use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
 
 use land_constants_mod, only : mol_CO2, mol_air, diffusivity_h2o, kin_visc_air, thermal_diff_air
-use land_numerics_mod, only : gamma
+use land_numerics_mod, only : gamma, gammaln
 use land_tracers_mod, only : ntcana, isphum, ico2
-use land_debug_mod, only : is_watch_point
+use land_debug_mod, only : is_watch_point, check_var_range
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -65,6 +65,9 @@ integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2, ROUGH_R1994 = 3
 integer, parameter :: &
    RESIST_NONE   = 0, & ! no extra soil resistance
    RESIST_HO2013 = 1    ! soil resistance based on Haghighi and Or (2013) and related papers
+integer, parameter :: &
+   USFC_AREA     = 0, & ! based on roughness element area
+   USFC_LOUBET   = 1    ! Loubet (1996) formulation
 
 real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
 
@@ -75,8 +78,8 @@ real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
-character(len=32) :: roughness_to_use  = '' ! lm3w or lm3v or Raupach
-character(len=32) :: turbulence_to_use = '' ! lm3w or lm3v
+character(32) :: roughness_to_use  = '' ! "lm3w" or "lm3v" or "Raupach"
+character(32) :: turbulence_to_use = '' ! "lm3w" or "lm3v" or "Raupach"
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
@@ -89,6 +92,7 @@ real :: rsl_factor = 2.0        ! ratio of roughness sublayer depth to vegetatio
                                 ! above displacement height (vegn_height - land_d)
 ! resistance-related namelist variables
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
+character(32) :: usfc_to_use = 'area-based' ! or 'Loubet'
 real :: bare_rah_sca      = 0.01 ! bare-ground resistance between ground and canopy air, s/m
   ! resistances in soil upper layer and viscous sublayer
 real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
@@ -113,7 +117,7 @@ namelist /cana_nml/ &
   ! Raupach (1994) parameters
   c_d1, c_s, c_r, max_u_ratio, rsl_factor, &
   ! soil resistance parameters
-  soil_resistance_to_use, &
+  soil_resistance_to_use, usfc_to_use, &
   d_visc_max, &
   rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
   ! fog-related namelists
@@ -122,9 +126,10 @@ namelist /cana_nml/ &
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
-integer :: roughness_option  ! selected option of roughness parameters calculations
-integer :: turbulence_option ! selected option of turbulence parameters calculations
-integer :: soil_resistance_option = -1 ! option of soil resistance parameterization
+integer :: roughness_option  = -1 ! selected option of roughness parameters calculations
+integer :: turbulence_option = -1 ! selected option of turbulence parameters calculations
+integer :: soil_resistance_option = -1 ! selected option of soil resistance parameterization
+integer :: usfc_option = -1 ! selected option for calculation of ustar at the ground surface
 real    :: rsl_corr ! value of roughness sublayer correction, pre-calculated in initialization
 
 ! ---- diag field IDs
@@ -202,6 +207,18 @@ subroutine read_cana_namelist()
           trim(soil_resistance_to_use)//'" is invalid, use "none" or "HO"',&
           FATAL)
   endif
+
+  if (trim(lowercase(usfc_to_use))=='area-based') then
+     usfc_option = USFC_AREA
+  else if (trim(lowercase(usfc_to_use))=='loubet') then
+     usfc_option = USFC_LOUBET
+  else
+     call error_mesg('surface_resistance_init',&
+          'soil resistance option usfc_to_use="'//&
+          trim(soil_resistance_to_use)//'" is invalid, use "area-based" or "Loubet"',&
+          FATAL)
+  endif
+
 end subroutine read_cana_namelist
 
 ! ============================================================================
@@ -447,6 +464,10 @@ subroutine cana_v_turb (ustar, &
      enddo
 
   case(TURB_R1996)
+     ! Raupach, M. R., J. J. Finnigan, and Y. Brunet, 1996: Coherent Eddies and
+     ! Turbulence in Vegetation Canopies: The Mixing-Layer Analogy. Boundary- Layer
+     ! Meteorology 25th Anniversary Volume, 1970–1995, J. R. Garratt and P. A. Taylor,
+     ! eds., Springer Netherlands, 351–382, doi: 10.1007/978-94-017-0944- 6 15.
      ztop    = max(maxval(vegn_height(:)),min_height)
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
      utop    = ustar/u_ratio
@@ -476,12 +497,23 @@ subroutine cana_v_turb (ustar, &
 
 ! u_sfc     = wind * exp(-a)
 ! ustar_sfc = ustar * exp(-a)
-  u_sfc     = utop
-  ustar_sfc = ustar/sqrt(2*vegn_idx + 1)
+  select case(usfc_option)
+  case (USFC_AREA)
+     ! simple treatment assuming the loss of momentum is equally distributed
+     ! across the area of roughness elements (2*(LAI+SAI)+surface)
+     u_sfc     = utop
+     ustar_sfc = ustar/sqrt(2*vegn_idx + 1)
+  case (USFC_LOUBET)
+     ! Loubet, B., P. Cellier, C. Milford, and M. A. Sutton, 2006: A coupled dispersion
+     ! and exchange model for short-range dry deposition of atmospheric ammonia. Quarterly
+     ! Journal of the Royal Meteorological Society, 132, 1733–1763, doi:10.1256/qj.05.73.
+     u_sfc     = utop
+     ustar_sfc = ustar*exp(-0.6*vegn_idx)
+  end select
 
   if (is_watch_point()) then
      __DEBUG2__(vegn_idx,land_d)
-     __DEBUG3__(ztop,ustar,utop)
+     __DEBUG4__(ztop,ustar,utop,ustar_sfc)
   endif
 end subroutine cana_v_turb
 
@@ -534,6 +566,7 @@ subroutine cana_g_turb (ustar, a, &
      con_g_h = 1.0/rah_sca
 
   case(TURB_R1996)
+     ! see also cana_g_turb
      ztop = maxval(vegn_height(:))
      Kh_top = VONKARM*ustar*(ztop-land_d)
      rah_sca = ztop/a/Kh_top * &
@@ -882,7 +915,11 @@ real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_visc)
   alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
   ! kinematic viscosity of air
   visc = kin_visc_air(T,p)
-  d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  if (alpha<100) then
+     d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  else
+     d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * exp(gammaln(alpha+1.5)-gammaln(alpha+1))
+  endif
   if (is_watch_point()) then
   __DEBUG5__(u_sfc, ustar_sfc, alpha, visc, d_visc)
   endif
