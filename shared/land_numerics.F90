@@ -1553,27 +1553,26 @@ function gammaU ( x, p )
 end function gammaU
 
 ! ==============================================================================
-! Returns the value Gamma(xx) for xx > 0.
+! Returns the value of Gamma(xx) for xx > 0.
 real function gamma(xx)
   real, intent(in) :: xx
   integer :: ierr
 
   gamma = exp(alngam(xx,ierr))
-  if (ierr.ne.0) call error_mesg('land_niumerics', 'argument of gamma function ('&
-                                //trim(string(xx))//') is out of accepted range',&
+  if (ierr.ne.0) call error_mesg('land_numerics', 'argument of gamma function ('&
+                                //trim(string(xx))//') is outside of accepted range',&
                                 FATAL)
-
 end function gamma
 
 ! ==============================================================================
-! Returns the value Gamma(xx) for xx > 0.
+! Returns the value of ln(Gamma(xx)) for xx > 0.
 real function gammaln(xx)
   real, intent(in) :: xx
   integer :: ierr
 
   gammaln = alngam(xx,ierr)
-  if (ierr.ne.0) call error_mesg('land_niumerics', 'argument of gamma function ('&
-                                //trim(string(xx))//') is out of accepted range',&
+  if (ierr.ne.0) call error_mesg('land_numerics', 'argument of gamma function ('&
+                                //trim(string(xx))//') is outside of accepted range',&
                                 FATAL)
 end function gammaln
 

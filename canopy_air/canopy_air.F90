@@ -921,11 +921,11 @@ real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_visc)
   alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
   ! kinematic viscosity of air
   visc = kin_visc_air(T,p)
-  if (alpha<100) then
-     d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
-  else
-     d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * exp(gammaln(alpha+1.5)-gammaln(alpha+1))
-  endif
+  ! it is more robust (and efficient) to calculate the ratio of gamma-functions as the
+  ! exponent of logarithm differences: computing gamma function for large arguments can
+  ! lead to overflow.
+  ! d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * exp(gammaln(alpha+1.5)-gammaln(alpha+1))
   if (is_watch_point()) then
   __DEBUG5__(u_sfc, ustar_sfc, alpha, visc, d_visc)
   endif
