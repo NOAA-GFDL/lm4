@@ -2784,7 +2784,9 @@ subroutine land_turbulence(tile, &
         cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
         tile%land_d, tile%land_z0m, &
         ! output:
-        con_v_h, con_v_v, a, u_sfc, ustar_sfc)
+        con_v_h, con_v_v, a, u_sfc, ustar_sfc, &
+        ! for diagnostic output
+        tile%diag)
 
      ! calculate surface resistances to evaporation and sensible heat
      call surface_resistances(tile, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &

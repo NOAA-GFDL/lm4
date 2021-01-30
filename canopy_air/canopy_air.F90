@@ -135,7 +135,7 @@ real    :: rsl_corr ! value of roughness sublayer correction, pre-calculated in 
 ! ---- diag field IDs
 integer :: id_r_litt_evap, id_r_bl_sens, id_r_bl_evap, id_r_sv_evap, &
            id_c_litt_evap, id_c_bl_sens, id_c_bl_evap, id_c_sv_evap, &
-           id_d_visc, id_ustar_sfc, id_u_sfc, id_theta_sfc
+           id_d_visc, id_ustar_sfc, id_u_sfc, id_theta_sfc, id_wind_decay
 
 contains
 
@@ -335,6 +335,9 @@ subroutine cana_init (id_ug)
        (/id_ug/), lnd%time, 'conductance of near-surface soil for water flux', 'm/s', missing_value=-1.0 )
   id_theta_sfc = register_tiled_diag_field( diag_mod_name, 'theta_sfc', &
        (/id_ug/), lnd%time, 'relative soil wetness', 'unitless', missing_value=-1.0 )
+
+  id_wind_decay = register_tiled_diag_field( diag_mod_name, 'wind_decay', &
+       (/id_ug/), lnd%time, 'rate of wind speed decay with canopy depth', '1/m', missing_value=-9999.0 )
 end subroutine cana_init
 
 
@@ -381,7 +384,7 @@ end subroutine save_cana_restart
 subroutine cana_v_turb (ustar, &
      vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, &
-     con_v_h, con_v_v, a, u_sfc, ustar_sfc )
+     con_v_h, con_v_v, a, u_sfc, ustar_sfc, diag )
   real, intent(in) :: &
        ustar, & ! friction velocity, m/s
        land_d, land_z0m, &
@@ -394,6 +397,7 @@ subroutine cana_v_turb (ustar, &
                                  ! u = u(ztop)*exp(-a*(1-z/ztop))
        u_sfc,                  & ! near-surface wind speed, m/s
        ustar_sfc                 ! near-surface friction velocity, m/s
+  type(diag_buff_type), intent(inout) :: diag
 
   !---- local constants
   real, parameter :: a_max = 3
@@ -515,6 +519,8 @@ subroutine cana_v_turb (ustar, &
      __DEBUG2__(vegn_idx,land_d)
      __DEBUG4__(ztop,ustar,utop,ustar_sfc)
   endif
+
+  call send_tile_data(id_wind_decay, a, diag)
 end subroutine cana_v_turb
 
 ! ============================================================================
