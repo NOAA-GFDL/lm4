@@ -274,7 +274,7 @@ integer :: &
   id_cellarea, id_landfrac,                                                &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
-  id_z0m,      id_z0s,      id_con_g_h,  id_con_g_v,                       &
+  id_z0m,      id_z0s,      id_displ,    id_con_g_h,  id_con_g_v,          &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
@@ -3769,6 +3769,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call send_tile_data(id_subs_refl_dir, subs_refl_dir, tile%diag)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
   call send_tile_data(id_grnd_T,     grnd_T,     tile%diag)
+  call send_tile_data(id_displ,      tile%land_d,      tile%diag)
 
   ! CMOR variables
   call send_tile_data(id_snd, max(snow_depth,0.0),     tile%diag)
@@ -4292,9 +4293,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_e_res_2 = register_tiled_diag_field ( module_name, 'e_res_2', axes, time, &
        'canopy energy residual due to nonlinearities', 'W/m2', missing_value=-1e20)
   id_z0m     = register_tiled_diag_field ( module_name, 'z0m', axes, time, &
-             'momentum roughness of land', 'm', missing_value=-1.0e+20 )
+             'momentum roughness', 'm', missing_value=-1.0e+20 )
   id_z0s     = register_tiled_diag_field ( module_name, 'z0s', axes, time, &
-             'scalar roughness of land', 'm', missing_value=-1.0e+20 )
+             'scalar roughness', 'm', missing_value=-1.0e+20 )
+  id_displ   = register_tiled_diag_field ( module_name, 'displ', axes, time, &
+             'displacement height', 'm', missing_value=-1.0e+20 )
   id_con_g_h = register_tiled_diag_field ( module_name, 'con_g_h', axes, time, &
        'conductance for sensible heat between ground surface and canopy air', &
        'm/s', missing_value=-1.0 )
