@@ -1712,7 +1712,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      __DEBUG1__(cc%leaf_size)
      __DEBUG1__(cc%Tv)
      __DEBUG1__(cc%Wl)
+     __DEBUG1__(cc%Ws)
      __DEBUG1__(cc%Wl_max)
+     __DEBUG1__(cc%Ws_max)
   endif
   ! TODO: check array sizes
 
@@ -2042,7 +2044,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      endif
      ! vegn_melt is per individual here
 
-     if(is_watch_point()) then
+     if(is_watch_point(2)) then
         write (*,*)'#### vegn_step_2 #### 1'
         write(*,'("cohort ",i2.2)',advance='NO') i
         __DEBUG4__(cc%Tv, cc%Wl, cc%Ws, vegn_melt)
@@ -2060,7 +2062,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      cc%Wl = cc%Wl - vegn_ovfl_l*delta_time
      cc%Ws = cc%Ws - vegn_ovfl_s*delta_time
 
-     if(is_watch_point()) then
+     if(is_watch_point(2)) then
         write(*,*)'#### vegn_step_2 output #####'
         __DEBUG3__(vegn_melt, vegn_ovfl_l, vegn_ovfl_s)
         __DEBUG2__(vegn_ovfl_Hl,vegn_ovfl_Hs)

@@ -1668,6 +1668,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   i = lnd%i_index(l); j = lnd%j_index(l)
   if(is_watch_point()) then
      write(*,*)
+     write(*,*)
+     write(*,*)
      call log_date('#### update_land_model_fast_0d begins:',lnd%time)
   endif
   ! send residuals to diag at the beginning of the time step so that the diagnostics captures
@@ -2121,7 +2123,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
               endif
            enddo
 
-           if(is_watch_point()) then
+           if(is_watch_point(2)) then
               write(*,*)'#### A ####'
               do ii = 1, size(A,1)
       !           write(*,'(99g23.16)')(A(ii,jj),jj=1,size(A,2))
@@ -2136,10 +2138,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                   enddo
                   write(*,*)
               enddo
-           write(*,*)'#### A ####'
-           do ii = 1, size(A,1)
-               write(*,'(99g13.6)')(A(ii,jj),jj=1,size(A,2))
-           enddo
+              write(*,*)'#### A ####'
+              do ii = 1, size(A,1)
+                  write(*,'(99g13.6)')(A(ii,jj),jj=1,size(A,2))
+              enddo
               write(*,*)'#### B0, B1, B2 ####'
               do ii = 1, size(A,1)
               write(*,'(i3.3)',advance='NO')ii
@@ -2164,7 +2166,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
               call lubksb(ALUD,indx,X2)
            endif
 
-           if(is_watch_point()) then
+           if(is_watch_point(2)) then
               write(*,*)'#### solution: X0, X1, X2 ####'
               do ii = 1, size(A,1)
                   write(*,'(i3.3)',advance='NO')ii
