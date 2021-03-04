@@ -2,10 +2,9 @@ module land_tile_io_mod
 
 use netcdf, only: NF90_MAX_NAME, NF90_FILL_DOUBLE, NF90_FILL_INT
 use fms_mod, only : error_mesg, FATAL, mpp_pe
-use fms_io_mod, only : get_instance_filename
 
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, &
-                       register_axis, register_field, &
+                       get_instance_filename, register_axis, register_field, &
                        register_variable_attribute, write_restart, &
                        close_file, variable_exists, get_variable_size, &
                        read_data, write_data, open_file, get_dimension_size, &
@@ -98,7 +97,7 @@ type axis
 end type axis
 ! land restart type encapsulates the data needed for the land restarts
 type land_restart_type
-   type(FmsNetcdfUnstructuredDomainFile_t) :: rhandle ! fms_io restart file data type
+   type(FmsNetcdfUnstructuredDomainFile_t) :: rhandle ! fms2_io restart file data type
    logical :: should_free_rhandle = .FALSE.
 
    character(267) :: basename ='' ! name of the restart file

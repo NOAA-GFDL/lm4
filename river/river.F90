@@ -50,14 +50,13 @@ module river_mod
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
   use fms_mod,             only : check_nml_error, string, get_unit
   use fms_mod,             only : CLOCK_FLAG_DEFAULT, error_mesg
-  use fms_io_mod,          only : get_instance_filename
 
 
 !New imports ---
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
-                         get_global_io_domain_indices, FmsNetcdfFile_t, &
+                         get_instance_filename, get_global_io_domain_indices, FmsNetcdfFile_t, &
                          get_variable_size, read_data, get_variable_num_dimensions, unlimited
 !------- 
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
@@ -1719,7 +1718,6 @@ program river_solo
   use mpp_domains_mod,          only : mpp_get_current_ntile, mpp_get_tile_id
   use fms_mod,                  only : fms_init, fms_end, stdlog
   use fms_mod,                  only : check_nml_error, stdout, input_nml_file, get_unit
-  use fms_io_mod,               only : fms_io_exit
   use time_manager_mod,         only : time_type, increment_time, set_date, increment_date, set_time
   use time_manager_mod,         only : set_calendar_type, JULIAN, NOLEAP, THIRTY_DAY_MONTHS, NO_CALENDAR
   use time_manager_mod,         only : operator(/), operator(-), operator( + ), month_name, get_date
@@ -1797,7 +1795,6 @@ program river_solo
       close(unit)
   endif
 
-  call fms_io_exit
   call fms_end
 
 

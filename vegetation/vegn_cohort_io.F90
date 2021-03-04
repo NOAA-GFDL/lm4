@@ -3,7 +3,6 @@ module cohort_io_mod
 use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
 
 use fms_mod,          only : error_mesg, FATAL, WARNING
-use fms_io_mod,       only : get_instance_filename
 use mpp_mod,          only : mpp_max
 use land_io_mod,      only : input_buf_size
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
@@ -19,7 +18,7 @@ use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd
 use fms2_io_mod, only: compressed_start_and_count, FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, register_variable_attribute, &
-                       read_data, write_data
+                       read_data, write_data, get_instance_filename
 
 
 implicit none
@@ -180,7 +179,7 @@ end subroutine create_cohort_dimension
 ! processor to work.
 
 subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
-  type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: rhandle ! fms_io restart file data type
+  type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: rhandle ! fms2_io restart file data type
   integer, allocatable,    intent(out)   :: cidx(:) ! rank local tile index vector
   character(len=*),        intent(in)    :: name    ! name of the restart file
   integer,                 intent(in)    :: tile_dim_length ! length of tile axis
@@ -194,7 +193,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
 end subroutine create_cohort_dimension_new
 
 subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
-  type(FmsNetcdfUnstructuredDomainFile_t),intent(inout) :: rhandle ! fms_io restart file data type
+  type(FmsNetcdfUnstructuredDomainFile_t),intent(inout) :: rhandle ! fms2_io restart file data type
   character(len=*),      intent(in)  :: name                ! name of the file to create
   integer              , intent(in)  :: cidx(:)             ! integer compressed index of tiles (local)
   integer              , intent(in)  :: cohorts_dim_length  ! length of cohorts axis
