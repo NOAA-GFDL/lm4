@@ -2,9 +2,9 @@ module land_tracer_driver_mod
 
 #include "../shared/debug.inc"
 
-  use constants_mod, only : rdgas,wtmair
+  use constants_mod, only : rdgas,wtmair,epsln
   use time_manager_mod, only : time_type, time_type_to_real
-  use fms_mod, only : lowercase, stdout, stdlog
+  use fms_mod, only : lowercase, stdout, stdlog, mpp_pe, mpp_root_pe
   use field_manager_mod , only : MODEL_ATMOS, MODEL_LAND, parse
   use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names, query_method
   use table_printer_mod
@@ -85,7 +85,7 @@ module land_tracer_driver_mod
      character(32) :: name = ''  ! tracer name                                                                                
      integer :: tr_atm  = NO_TRACER ! index of this tracer in atmos tracer array                                              
      logical :: is_generic    = .TRUE. ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
-     logical :: do_deposition = .TRUE. ! if true, generic dry deposition is used                                              
+     logical :: do_deposition = .FALSE. ! if true, generic dry deposition is used                                              
      ! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)                             
      real    :: reactivity    = 1.0    ! normalized reactivity factor                                                         
      real    :: alpha         = -1     ! scaling factor relative to SO2                                                       
@@ -103,11 +103,17 @@ module land_tracer_driver_mod
      integer :: & ! diag field IDs
           id_emis,      id_ddep,  &
           id_flux_atm,  id_dfdtr, &
-          id_con_v_lam, id_con_g_lam, &
           id_con_v,     id_con_g, &
-          id_conc
+          id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
+          id_conc,      id_tcond, &
+          id_econ_v,    id_econ_g, &
+          id_ddep_v,    id_ddep_g, &
+          id_econ_stem, id_econ_stom, id_econ_cu, &
+          id_ddep_stem, id_ddep_stom, id_ddep_cu
   end type tracer_data_type
 
+  integer :: id_con_atm
+  
   ! ---- private module variables ----------------------------------------------
   logical :: module_is_initialized = .FALSE.
   real, save :: dt ! fast time step, s
@@ -121,8 +127,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     integer :: tr ! tracer index
     real    :: value ! temporary storage for parsing input
-    character(32)  :: name, units, funits ! name and units of the tracer and flux
-    character(128) :: longname ! long name of the tracer
+    character(32)  :: value_str
+    character(32)  :: name, units, funits ! name and units of the tracer and flux                                   
+    character(128) :: longname ! long name of the tracer                                                            
     character(32)  :: method
     character(1024) :: parameters
     type(table_printer_type) :: table
@@ -147,32 +154,46 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     ! initialize generic tracer parameters
     do tr = 1, ntcana
+       call get_tracer_names(MODEL_LAND, tr, trdata(tr)%name)       
        if (.not.trdata(tr)%is_generic) cycle ! skip all non-generic tracers
-
-       call get_tracer_names(MODEL_LAND, tr, trdata(tr)%name)
        trdata(tr)%tr_atm = get_tracer_index (MODEL_ATMOS, trdata(tr)%name)
-
        ! set up deposition flag
        trdata(tr)%do_deposition = .FALSE.
        method = ''; parameters = ''
        if (trdata(tr)%tr_atm >0) then
-          if (query_method('dry_deposition', MODEL_ATMOS, trdata(tr)%tr_atm, method)) then
-             trdata(tr)%do_deposition = (index(lowercase(method),'land:lm3')>0)
+          if (query_method('dry_deposition', MODEL_ATMOS, trdata(tr)%tr_atm, method,parameters)) then
+             if (parse(parameters,'land', value_str)>0) then
+                if (trim(value_str)=="interactive") trdata(tr)%do_deposition=.TRUE.
+             end if
           endif
        endif
        ! set up deposition parameters
        if(query_method('dry_deposition', MODEL_LAND, tr, method, parameters)) then
+
+          if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
+          if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
+          if ( parse(parameters, 'mw',  value) > 0 ) trdata(tr)%mw  = value          
+          
           !ratio of tracer diffusivity to h2o diffusivity
           if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
              trdata(tr)%diff_ratio  = value
           else
              if (trdata(tr)%mw.gt.0.) then
-                !graham law                                                                    
+                !graham law                                                
                 trdata(tr)%diff_ratio  = sqrt(trdata(tr)%mw/18e-3)
              end if
           end if
-          if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
-          if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value        
+          
+          if ( parse(parameters, 'r_mx',  value) > 0 )   trdata(tr)%r_mx  = max(value,epsln)
+          if ( parse(parameters, 'radius', value) > 0 )  trdata(tr)%radius  = value
+          if ( parse(parameters, 'density', value) > 0 ) trdata(tr)%density = value
+
+          if ( trdata(tr)%radius .gt. 0 .and. trdata(tr)%density .gt. 0 ) then
+             trdata(tr)%is_aerosol = .true.
+          else
+             trdata(tr)%is_aerosol = .false.
+          end if
+          
        endif
     enddo
 
@@ -205,16 +226,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
           trdata(tr)%id_ddep = &
                register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-               (/id_ug/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+               (/id_ug/),  lnd%time, trim(name)//' dry deposition', trim(funits), &
                missing_value=-1.0)
-          trdata(tr)%id_con_v_lam = &
-               register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-               (/id_ug/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
-               'm/s', missing_value=-1.0)
-          trdata(tr)%id_con_g_lam = &
-               register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-               (/id_ug/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
-               'm/s', missing_value=-1.0)
           trdata(tr)%id_con_v = &
                register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
                (/id_ug/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
@@ -227,8 +240,77 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                register_tiled_diag_field(diag_name, trim(name), &
                (/id_ug/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
                units, missing_value=-1.0)
+          trdata(tr)%id_tcond = &
+               register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_tot_con', &
+               (/id_ug/),  lnd%time,'total conductance of '//trim(trdata(tr)%name), &
+               "m/s", missing_value=-1.0)
+          trdata(tr)%id_con_mx_st = &
+               register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_con_mx_st', &
+               (/id_ug/),  lnd%time, 'mesophyl + stomatal conductance for '//trim(trdata(tr)%name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_con_cu = &
+               register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_con_cu', &
+               (/id_ug/),  lnd%time, 'cuticular conductance for '//trim(trdata(tr)%name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_con_stem = &
+               register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_con_stem', &
+               (/id_ug/),  lnd%time, 'stem conductance for '//trim(trdata(tr)%name), &
+               'm/s', missing_value=-1.0)
+
+
+          trdata(tr)%id_econ_v = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_v', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the vegetation/stem for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_g = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_g', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the ground for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_stom = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_stom', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the stomata for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_stem = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_stem', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the stem for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_cu = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_cu', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          
+
+          trdata(tr)%id_ddep_v = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_v', &
+               (/id_ug/),  lnd%time, 'deposition to the vegetation/stem for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_g = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_g', &
+               (/id_ug/),  lnd%time, 'deposition to the ground for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_stom = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_stom', &
+               (/id_ug/),  lnd%time, 'deposition to the stomata for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_stem = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_stem', &
+               (/id_ug/),  lnd%time, 'deposition to the stem for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_cu = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_cu', &
+               (/id_ug/),  lnd%time, 'deposition to the cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          
+          
+          
        endif
     enddo
+
+    id_con_atm = &
+         register_tiled_diag_field(diag_name, 'con_atm', &
+         (/id_ug/),  lnd%time,'1/Ra', &
+         "m/s", missing_value=-1.0)    
+    
     module_is_initialized = .TRUE.
   end subroutine land_tracer_driver_init
 
@@ -269,19 +351,16 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: rho     ! density of canopy air
     real    :: dq      ! canopy air tracer tendency per time step
     real    :: con_v   ! laminar conductance to leaves
-    real    :: con_st  ! total stomatal conductance, scaled by dry leaf area, m/s
-    real    :: con_stem ! laminar conductance to stem
+    real    :: con_st_tr ! total stomatal conductance, scaled by dry leaf area, m/s
     real    :: con_mx  ! "mesophyll conductance", m/s
     real    :: con_mx_st !mesophyll+stomatal
     real    :: con_cu  ! total cuticular conductance, including dry and wet areas, m/s
     real    :: con_gr  ! "ground conductance", m/s
-    real    :: cv0, cv1, cv2, cg0 ! intermediate values for total conductance calculations, m/s
     real    :: cv, cg  ! total conductances for vegetation and ground surface, m/s
     real    :: f_atm   ! flux of the tracer to the atmosphere, kg/(m2 s)
     real    :: ddep    ! dry deposition of the tracer, kg/(m2 s)
     real    :: LAI     ! leaf area index, m2/m2
     real    :: SAI     ! stem area index, m2/m2
-    real    :: kvis,dvis
     real    :: emis(ntcana) ! tracer sources
     real    ::  ft, & ! fraction of canopy not covered by intercepted water/snow
          fw, & ! fraction of canopy covered by intercepted water
@@ -290,10 +369,14 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     !fraction of ground that is frozen, wet, dry
     real    :: gfrac_frz,gfrac_wet,gfrac_dry
 
-    real    :: con_cu_dry, con_cu_wet, con_cu_frz, con_bk                                           
+    real    :: con_cu_dry, con_cu_wet, con_cu_frz, con_stem                                           
     real    :: con_gr_dry, con_gr_wet, con_gr_frz
     real    :: r_gs, frac_desert
     real    :: con_v_v_tr, con_v_stem_tr, con_bl_tr, con_g_tr
+
+    real    :: con_cu_diag, con_mx_st_diag, con_stem_diag, fdiag
+    real    :: econ_cu, econ_stem, econ_mx_st
+    real    :: dvel
 
     if (is_watch_point()) then
        write(*,*) 'update_cana_tracers input'
@@ -329,10 +412,22 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     ! loop for generic tracers only
     do tr = 1, ntcana
 
+       cv             = 0.
+       cg             = 0.          
+       
        if (.not.trdata(tr)%is_generic) cycle
 
        if (trdata(tr)%do_deposition) then
 
+          con_cu_diag    = 0.
+          con_stem_diag  = 0.
+          con_mx_st_diag = 0.
+          con_gr         = 0.
+          
+          econ_cu        = 0.
+          econ_stem      = 0.
+          econ_mx_st     = 0.             
+          
           if (.not. trdata(tr)%is_aerosol) then
 
              !conductance to the vegetation
@@ -358,11 +453,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                           + fw * con_cu_wet &
                           + fs * con_cu_frz )
 
-                     con_bk = c%sai * get_conductance_tracer(trdata(tr),sp%r_bks,sp%r_bko)
+                     con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo)
 
-                     if (frac_desert.gt.0.) then
-                        r_gs = r_gs_desert*frac_desert+sp%r_gs*(1.-frac_desert)
-                     end if
+                     r_gs = r_gs_desert*frac_desert+sp%r_gs*(1.-frac_desert)
 
                      con_gr_dry  = get_conductance_tracer(trdata(tr),r_gs,sp%r_go)
                      con_gr_wet  = get_conductance_tracer(trdata(tr),r_gs_swamp,r_go_swamp)
@@ -375,7 +468,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                           + gfrac_wet  * con_gr_wet       &
                           + gfrac_frz  * con_gr_frz )
 
-                     con_st      = stomatal_cond(k) / trdata(tr)%diff_ratio
+                     con_st_tr    = stomatal_cond(k) / trdata(tr)%diff_ratio
 
                      if (trdata(tr)%r_mx > 0) then
                         con_mx    = 1./trdata(tr)%r_mx
@@ -383,20 +476,26 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                         con_mx    = get_conductance_tracer(trdata(tr),1.,100.)
                      end if
 
-                     ! combined mesophyll + stomatal conductance
-                     con_mx_st = con_mx*con_st/(con_mx+con_st)
+                     con_mx_st = conductance_series(con_mx,con_st_tr)
 
-                     ! calculate contribution of this cohort to the overall vegetation conductance
-                     !con_v_v and con_bk are for H2O, we need to scale by (Di/Dw)**(2./3.)
+                     !calculate contribution of this cohort to the overall vegetation conductance
+                     !con_v_v and con_stem are for H2O, we need to scale by (Di/Dw)**(2./3.)
 
-                     con_v_v_tr = con_v_v(k)*1./trdata(tr)%diff_ratio**(2./3.)
+                     con_v_v_tr     = con_v_v(k)*1./trdata(tr)%diff_ratio**(2./3.)
                      con_v_stem_tr  = con_v_stem(k)*1./trdata(tr)%diff_ratio**(2./3.)
 
-                     cv = cv &
-                          + c%layerfrac*(con_v_v_tr*(con_mx_st+con_cu)/(con_v_v_tr+con_mx_st+con_cu) &
-                          + con_v_stem_tr*con_bk/(con_bk+con_v_stem_tr))
+                     econ_mx_st       = econ_mx_st + c%layerfrac*con_mx_st/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
+                     econ_cu          = econ_cu    + c%layerfrac*con_cu/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
+                     econ_stem        = econ_stem  + c%layerfrac*conductance_series(con_v_stem_tr,con_stem)
+                     
+                     !for diagnostics
+                     con_mx_st_diag   = con_mx_st_diag+c%layerfrac*con_mx_st
+                     con_cu_diag      = con_cu_diag+c%layerfrac*con_cu
+                     con_stem_diag    = con_stem_diag+c%layerfrac*con_stem
 
                    end associate
+
+                   cv = econ_mx_st + econ_cu + econ_stem
 
                 end do
 
@@ -404,20 +503,24 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 con_gr = trdata(tr)%alpha/r_gs_lake + trdata(tr)%reactivity/r_go_lake
                 !f1p need to deal with frozen lake
              elseif (associated(tile%glac)) then
-                con_gr = trdata(tr)%alpha/r_gs_glac + trdata(tr)%reactivity/r_go_glac
+                con_gr = trdata(tr)%alpha/r_gs_glac + trdata(tr)%reactivity/r_go_glac                
              endif
 
-             con_bl_tr  = 1./r_bl_h2o   * 1./trdata(tr)%diff_ratio**(2./3.)
-             con_g_tr   = con_g*con_bl_tr/(con_g+con_bl_tr)
+             con_bl_tr  = 1./(r_bl_h2o+epsln)   * 1./trdata(tr)%diff_ratio**(2./3.)
 
-             cg = con_gr*con_g_tr/(con_g_tr+con_gr)
+             con_g_tr = conductance_series(con_g,con_bl_tr)
+             cg       = conductance_series(con_gr,con_g_tr)
 
+             call send_tile_data(trdata(tr)%id_con_mx_st,con_mx_st_diag, tile%diag)
+             call send_tile_data(trdata(tr)%id_con_cu,con_cu_diag, tile%diag)
+             call send_tile_data(trdata(tr)%id_con_stem,con_stem_diag, tile%diag)
+             call send_tile_data(trdata(tr)%id_con_gr,con_gr, tile%diag)                  
+             
+          else
+             !aerosol
+             
           endif
-       else
-          cv=0.
-          cg=0.
        end if
-
 
        rho = pressure/(rdgas*tile%cana%T *(1+d608*tile%cana%tr(isphum)))
 
@@ -433,22 +536,41 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        endif
        tile%cana%tr(tr) = tile%cana%tr(tr) + dq
        ! ---- final values of the fluxes, for diagnostics
-       ddep  = rho*(cv+cg)*tile%cana%tr(tr)
-       f_atm = tr_flux(tr)+dfdtr(tr)*dq
-       ! ---- diagnostic section
-       !call send_tile_data(trdata(tr)%id_con_v_lam,  con_v_lam,  tile%diag)
-       !call send_tile_data(trdata(tr)%id_con_g_lam,  con_g_lam,  tile%diag)
+       ddep  = rho*(cv+cg)*tile%cana%tr(tr)*trdata(tr)%conv_flux
+       f_atm = tr_flux(tr)+dfdtr(tr)*dq*trdata(tr)%conv_flux 
+       ! ---- diagnostic section       
+       dvel = con_atm*(cv+cg)/(con_atm+cv+cg)       
        call send_tile_data(trdata(tr)%id_con_v,      cv,         tile%diag)
        call send_tile_data(trdata(tr)%id_con_g,      cg,         tile%diag)
        call send_tile_data(trdata(tr)%id_emis,       emis(tr),   tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep,       ddep*trdata(tr)%conv_flux,       tile%diag)
-       call send_tile_data(trdata(tr)%id_flux_atm,   ddep*trdata(tr)%conv_flux,       tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep,       ddep,       tile%diag)
+       call send_tile_data(trdata(tr)%id_flux_atm,   f_atm,      tile%diag)
+       call send_tile_data(trdata(tr)%id_tcond,dvel, tile%diag)
+
+       !save deposition to the vegetation and ground
+       fdiag = min(max(cv/(cv+cg+epsln),0.),1.)
+       call send_tile_data(trdata(tr)%id_econ_g, (1.-fdiag)*dvel,tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_v, fdiag*dvel,     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_g, (1.-fdiag)*ddep,tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_v, fdiag*ddep,     tile%diag)
+
+       call send_tile_data(trdata(tr)%id_econ_cu,   fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_stem, fdiag*dvel*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_stom, fdiag*dvel*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)                     
+
+       call send_tile_data(trdata(tr)%id_ddep_cu,   fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)                     
+       
+              
     enddo
     ! send concentrations for all tracers, generic or not
     do tr = 1, ntcana
        call send_tile_data(trdata(tr)%id_conc,       tile%cana%tr(tr), tile%diag)
        call send_tile_data(trdata(tr)%id_dfdtr,      dfdtr(tr),  tile%diag)
     enddo
+
+    call send_tile_data(id_con_atm, con_atm,   tile%diag)    
 
   end subroutine update_cana_tracers
 
@@ -537,8 +659,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
   end function get_conductance_tracer
 
-
-
   ! ============================================================================
   subroutine flux_units(tracer_units,units,conv)
     character(*), intent(in)   :: tracer_units
@@ -566,5 +686,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        conv = 1.
     end select
   end subroutine flux_units
+
+  elemental real function conductance_series(con1,con2) result(con)
+    real, intent(in) :: con1, con2
+
+    con = (con1*con2)/(con1+con2+epsln)
+
+  end function conductance_series
 
 end module land_tracer_driver_mod

@@ -420,8 +420,8 @@ type spec_data_type
   !based on deciduous by default                                                                                               
   real    :: r_cus = 2500. 
   real    :: r_cuo = 6000.
-  real    :: r_bks = 1000.
-  real    :: r_bko = 4000.
+  real    :: r_stems = 1000.
+  real    :: r_stemo = 4000.
   real    :: r_cus_wet = 100.
   real    :: r_cuo_wet = 400.
   real    :: r_gs      = 200.
@@ -1149,8 +1149,8 @@ subroutine read_species_data(name, sp, errors_found)
   !dry deposition parameters    
   __GET_SPDATA_REAL__(r_cus)
   __GET_SPDATA_REAL__(r_cuo)
-  __GET_SPDATA_REAL__(r_bks)
-  __GET_SPDATA_REAL__(r_bko)
+  __GET_SPDATA_REAL__(r_stems)
+  __GET_SPDATA_REAL__(r_stemo)
   __GET_SPDATA_REAL__(r_cus_wet)
   __GET_SPDATA_REAL__(r_cuo_wet)
   __GET_SPDATA_REAL__(r_gs)
@@ -1546,8 +1546,8 @@ subroutine print_species_data(unit, skip_default)
   !dry deposition parameters                                                                                        
   call add_row(table, 'r_cus',spdata(idx)%r_cus)
   call add_row(table, 'r_cuo',spdata(idx)%r_cuo)
-  call add_row(table, 'r_bks',spdata(idx)%r_bks)
-  call add_row(table, 'r_bko',spdata(idx)%r_bko)
+  call add_row(table, 'r_stems',spdata(idx)%r_stems)
+  call add_row(table, 'r_stemo',spdata(idx)%r_stemo)
   call add_row(table, 'r_cus_wet',spdata(idx)%r_cus_wet)
   call add_row(table, 'r_cuo_wet',spdata(idx)%r_cuo_wet)
   call add_row(table, 'r_gs',spdata(idx)%r_gs)
