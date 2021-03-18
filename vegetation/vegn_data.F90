@@ -416,6 +416,20 @@ type spec_data_type
   real    :: alloc_allowed_over_limit = 10.0
   real    :: tau_smooth_Nstress       = 0.0
 
+  ! dry deposition related parameters                                                                                          
+  !based on deciduous by default                                                                                               
+  real    :: r_cus = 2500. 
+  real    :: r_cuo = 6000.
+  real    :: r_bks = 1000.
+  real    :: r_bko = 4000.
+  real    :: r_cus_wet = 100.
+  real    :: r_cuo_wet = 400.
+  real    :: r_gs      = 200.
+  real    :: r_go      = 200.
+  real    :: A_aer     = 6.25e-3
+  real    :: gamma_aer = 0.56
+  real    :: alpha_aer = 0.8 
+
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22
   real    :: fire_duration = 86400.0 ! average fire duration, s
@@ -1131,6 +1145,19 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tau_smooth_alloc)
   __GET_SPDATA_REAL__(alloc_allowed_over_limit)
   __GET_SPDATA_REAL__(tau_smooth_Nstress)
+  ! dry deposition
+  !dry deposition parameters    
+  __GET_SPDATA_REAL__(r_cus)
+  __GET_SPDATA_REAL__(r_cuo)
+  __GET_SPDATA_REAL__(r_bks)
+  __GET_SPDATA_REAL__(r_bko)
+  __GET_SPDATA_REAL__(r_cus_wet)
+  __GET_SPDATA_REAL__(r_cuo_wet)
+  __GET_SPDATA_REAL__(r_gs)
+  __GET_SPDATA_REAL__(r_go)
+  __GET_SPDATA_REAL__(A_aer)
+  __GET_SPDATA_REAL__(gamma_aer)
+  __GET_SPDATA_REAL__(alpha_aer)  
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
   __GET_SPDATA_REAL__(fire_duration)
@@ -1515,7 +1542,20 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'alloc_allowed_over_limit', spdata(idx)%alloc_allowed_over_limit)
   call add_row(table, 'tau_smooth_Nstress', spdata(idx)%tau_smooth_Nstress)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(idx)%max_n_stress_for_seed_production)
-
+  
+  !dry deposition parameters                                                                                        
+  call add_row(table, 'r_cus',spdata(idx)%r_cus)
+  call add_row(table, 'r_cuo',spdata(idx)%r_cuo)
+  call add_row(table, 'r_bks',spdata(idx)%r_bks)
+  call add_row(table, 'r_bko',spdata(idx)%r_bko)
+  call add_row(table, 'r_cus_wet',spdata(idx)%r_cus_wet)
+  call add_row(table, 'r_cuo_wet',spdata(idx)%r_cuo_wet)
+  call add_row(table, 'r_gs',spdata(idx)%r_gs)
+  call add_row(table, 'r_go',spdata(idx)%r_go)
+  call add_row(table, 'A_aer',spdata(idx)%A_aer)
+  call add_row(table, 'gamma_aer',spdata(idx)%gamma_aer)
+  call add_row(table, 'alpha_aer',spdata(idx)%alpha_aer)
+  
   call add_row(table, 'dat_height',       spdata(idx)%dat_height)
   call add_row(table, 'dat_lai',          spdata(idx)%dat_lai)
   call add_row(table, 'dat_root_density', spdata(idx)%dat_root_density)

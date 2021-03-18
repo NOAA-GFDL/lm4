@@ -384,7 +384,7 @@ end subroutine save_cana_restart
 subroutine cana_v_turb (ustar, &
      vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, &
-     con_v_h, con_v_v, a, u_sfc, ustar_sfc, diag )
+     con_v_h, con_v_v, con_v_stem, a, u_sfc, ustar_sfc, diag )
   real, intent(in) :: &
        ustar, & ! friction velocity, m/s
        land_d, land_z0m, &
@@ -392,11 +392,12 @@ subroutine cana_v_turb (ustar, &
        vegn_bottom(:), & ! height of the bottom of the canopy, m
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
-       con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
+       con_v_h(:), con_v_v(:), con_v_stem(:), & ! one-sided foliage-CAS conductance per unit ground area
        a,                      & ! parameter of exponential wind profile within canopy:
                                  ! u = u(ztop)*exp(-a*(1-z/ztop))
        u_sfc,                  & ! near-surface wind speed, m/s
        ustar_sfc                 ! near-surface friction velocity, m/s
+ 
   type(diag_buff_type), intent(inout) :: diag
 
   !---- local constants
@@ -442,6 +443,7 @@ subroutine cana_v_turb (ustar, &
         con_v_h = 0
      endif
      con_v_v = con_v_h
+     con_v_stem = con_v_h
   case(TURB_LM3V)
      ztop = max(maxval(vegn_height(:)),min_height)
 
@@ -465,6 +467,7 @@ subroutine cana_v_turb (ustar, &
         else
            con_v_h(i) = vegn_lai(i)*gb
         endif
+        con_v_stem = vegn_sai(i)*gb
      enddo
 
   case(TURB_R1996)
@@ -495,9 +498,12 @@ subroutine cana_v_turb (ustar, &
         else
            con_v_h(i) = vegn_lai(i)*gb
         endif
+        con_v_stem(i) = vegn_sai(i)*gb
      enddo
 
   end select
+
+  !for now
 
 ! u_sfc     = wind * exp(-a)
 ! ustar_sfc = ustar * exp(-a)
@@ -706,7 +712,7 @@ end subroutine cana_roughness
 ! ============================================================================
 ! calculate soil surface (laminar) resistances to evaporation and sensible heat
 subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
-       r_evap, r_sens, d_visc)
+       r_evap, r_sens, d_visc, r_bl_h2o)
   type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: T_sfc     ! surface temperature, K
   real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
@@ -717,7 +723,8 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
   real, intent(out) :: r_evap ! surface resistance for evaporation, s/m
   real, intent(out) :: r_sens ! surface resistance for sensible heat, s/m
   real, intent(out) :: d_visc ! thickness of viscous sublayer, m
-
+  real, intent(out) :: r_bl_h2o    ! surface laminar resistance for h2o, used in land_tracer_driver
+  
   real :: theta_sfc   ! relative soil wetness at the surface, unitless
   real :: r_litt_evap ! litter resistance, s/m
   real :: r_sv_evap   ! soil surface resistance to evaporation, s/m
@@ -739,6 +746,7 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
       r_sv_evap = 0
       r_bl_evap = 0
       r_bl_sens = 0
+      r_bl_h2o  = 0
       d_visc    = 0
   case(RESIST_HO2013)
       d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
@@ -748,6 +756,8 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
 
       r_sv_evap = 0.0
       r_bl_evap = d_visc/diffusivity_h2o(T_sfc,p)
+      r_bl_h2o  = r_bl_evap
+
       if (associated(tile%soil).and..not.snow_active) then
          r_sv_evap = soil_evap_sv_resistance(tile%soil)
          theta_sfc = max(0.0, tile%soil%wl(1) / (dens_h2o * dz(1)))/tile%soil%pars%vwc_sat
