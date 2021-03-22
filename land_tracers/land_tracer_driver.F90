@@ -107,9 +107,13 @@ module land_tracer_driver_mod
           id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
           id_conc,      id_tcond, &
           id_econ_v,    id_econ_g, &
-          id_ddep_v,    id_ddep_g, &
+          id_ddep_v,    id_ddep_g, &          
+          id_econ_g_dry,id_econ_g_wet, id_econ_g_frz, &
+          id_ddep_g_dry,id_ddep_g_wet, id_ddep_g_frz, &          
           id_econ_stem, id_econ_stom, id_econ_cu, &
-          id_ddep_stem, id_ddep_stom, id_ddep_cu
+          id_ddep_stem, id_ddep_stom, id_ddep_cu, &
+          id_econ_cu_dry,id_econ_cu_wet, id_econ_cu_frz, &
+          id_ddep_cu_dry,id_ddep_cu_wet, id_ddep_cu_frz     
   end type tracer_data_type
 
   integer :: id_con_atm
@@ -278,6 +282,32 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                register_tiled_diag_field(diag_name, trim(name)//'_econ_cu', &
                (/id_ug/),  lnd%time, 'effective deposition velocity to the cuticles for '//trim(name), &
                'm/s', missing_value=-1.0)
+
+          trdata(tr)%id_econ_cu_dry = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_cu_dry', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the dry cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_cu_wet = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_cu_wet', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the wet cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_cu_frz = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_cu_frz', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the frozen cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
+
+          trdata(tr)%id_econ_g_dry = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_g_dry', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the dry cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_g_wet = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_g_wet', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the wet cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
+          trdata(tr)%id_econ_g_frz = &
+               register_tiled_diag_field(diag_name, trim(name)//'_econ_g_frz', &
+               (/id_ug/),  lnd%time, 'effective deposition velocity to the frozen cuticles for '//trim(name), &
+               'm/s', missing_value=-1.0)
           
 
           trdata(tr)%id_ddep_v = &
@@ -300,8 +330,32 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                register_tiled_diag_field(diag_name, trim(name)//'_ddep_cu', &
                (/id_ug/),  lnd%time, 'deposition to the cuticles for '//trim(name), &
                trim(funits), missing_value=-1.0)
-          
-          
+          trdata(tr)%id_ddep_cu_wet = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_cu_wet', &
+               (/id_ug/),  lnd%time, 'deposition to the dry cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_cu_dry = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_cu_dry', &
+               (/id_ug/),  lnd%time, 'deposition to the wet cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_cu_frz = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_cu_frz', &
+               (/id_ug/),  lnd%time, 'deposition to the frozen cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+
+          trdata(tr)%id_ddep_g_wet = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_g_wet', &
+               (/id_ug/),  lnd%time, 'deposition to the dry cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_g_dry = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_g_dry', &
+               (/id_ug/),  lnd%time, 'deposition to the wet cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+          trdata(tr)%id_ddep_g_frz = &
+               register_tiled_diag_field(diag_name, trim(name)//'_ddep_g_frz', &
+               (/id_ug/),  lnd%time, 'deposition to the frozen cuticles for '//trim(name), &
+               trim(funits), missing_value=-1.0)
+                    
           
        endif
     enddo
@@ -376,6 +430,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     real    :: con_cu_diag, con_mx_st_diag, con_stem_diag, fdiag
     real    :: econ_cu, econ_stem, econ_mx_st
+    real    :: econ_cu_dry, econ_cu_wet, econ_cu_frz
     real    :: dvel
 
     if (is_watch_point()) then
@@ -422,9 +477,14 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           con_cu_diag    = 0.
           con_stem_diag  = 0.
           con_mx_st_diag = 0.
-          con_gr         = 0.
+          con_gr_dry     = 0.
+          con_gr_wet     = 0.
+          con_gr_frz     = 0.
           
           econ_cu        = 0.
+          econ_cu_dry    = 0.
+          econ_cu_wet    = 0.
+          econ_cu_frz    = 0.
           econ_stem      = 0.
           econ_mx_st     = 0.             
           
@@ -442,32 +502,21 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                      !need to implement rh dependence for con_cu_dry (f1p)
                      !need to implement rt dependence
                      !need to implement snow modulation
-                     con_cu_dry  = get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo)
-                     con_cu_wet  = get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet)
-                     con_cu_frz  = get_conductance_tracer(trdata(tr),r_snows,r_snowo)                   
+                     con_cu_dry  = ft * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo)
+                     con_cu_wet  = fw * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet)
+                     con_cu_frz  = fs * c%lai * get_conductance_tracer(trdata(tr),r_snows,r_snowo)                   
 
                      !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
 
-                     con_cu = c%lai * &
-                          ( ft * con_cu_dry &
-                          + fw * con_cu_wet &
-                          + fs * con_cu_frz )
-
+                     con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
                      con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo)
 
-                     r_gs = r_gs_desert*frac_desert+sp%r_gs*(1.-frac_desert)
-
-                     con_gr_dry  = get_conductance_tracer(trdata(tr),r_gs,sp%r_go)
-                     con_gr_wet  = get_conductance_tracer(trdata(tr),r_gs_swamp,r_go_swamp)
-                     con_gr_frz  = get_conductance_tracer(trdata(tr),r_snows,r_snowo)
-
                      !note that for the ground we are calculating the tile average
-                     con_gr      = con_gr +               &
-                          c%layerfrac  *                  &
-                          ( gfrac_dry  * con_gr_dry       &
-                          + gfrac_wet  * con_gr_wet       &
-                          + gfrac_frz  * con_gr_frz )
-
+                     r_gs = r_gs_desert*frac_desert+sp%r_gs*(1.-frac_desert)                     
+                     con_gr_dry = con_gr_dry + c%layerfrac *  gfrac_dry  * get_conductance_tracer(trdata(tr),r_gs,sp%r_go)
+                     con_gr_wet = con_gr_wet + c%layerfrac *  gfrac_wet  * get_conductance_tracer(trdata(tr),r_gs_swamp,r_go_swamp)
+                     con_gr_frz = con_gr_frz + c%layerfrac *  gfrac_frz  * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
+                     
                      con_st_tr    = stomatal_cond(k) / trdata(tr)%diff_ratio
 
                      if (trdata(tr)%r_mx > 0) then
@@ -485,13 +534,20 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                      con_v_stem_tr  = con_v_stem(k)*1./trdata(tr)%diff_ratio**(2./3.)
 
                      econ_mx_st       = econ_mx_st + c%layerfrac*con_mx_st/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
-                     econ_cu          = econ_cu    + c%layerfrac*con_cu/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
-                     econ_stem        = econ_stem  + c%layerfrac*conductance_series(con_v_stem_tr,con_stem)
+
+                     tmp              = c%layerfrac * con_cu/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
+                     
+                     econ_cu          = econ_cu     + tmp
+                     econ_cu_wet      = econ_cu_wet + tmp * con_cu_dry/(con_cu+epsln)
+                     econ_cu_frz      = econ_cu_frz + tmp * con_cu_frz/(con_cu+epsln)                    
+                     econ_cu_dry      = econ_cu_dry + tmp * con_cu_dry/(con_cu+epsln)
+                     
+                     econ_stem        = econ_stem   + c%layerfrac*conductance_series(con_v_stem_tr,con_stem)
                      
                      !for diagnostics
-                     con_mx_st_diag   = con_mx_st_diag+c%layerfrac*con_mx_st
-                     con_cu_diag      = con_cu_diag+c%layerfrac*con_cu
-                     con_stem_diag    = con_stem_diag+c%layerfrac*con_stem
+                     con_mx_st_diag   = con_mx_st_diag + c%layerfrac*con_mx_st
+                     con_cu_diag      = con_cu_diag    + c%layerfrac*con_cu
+                     con_stem_diag    = con_stem_diag  + c%layerfrac*con_stem
 
                    end associate
 
@@ -500,15 +556,21 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 end do
 
              elseif (associated(tile%lake)) then
-                con_gr = trdata(tr)%alpha/r_gs_lake + trdata(tr)%reactivity/r_go_lake
-                !f1p need to deal with frozen lake
+                if (tile%lake%ws(1).gt.ws_min) then 
+                   !lake is assumed to be frozen
+                   con_gr_frz = trdata(tr)%alpha/r_gs_glac + trdata(tr)%reactivity/r_go_glac                                   
+                else
+                   con_gr_wet = trdata(tr)%alpha/r_gs_lake + trdata(tr)%reactivity/r_go_lake
+                end if
              elseif (associated(tile%glac)) then
-                con_gr = trdata(tr)%alpha/r_gs_glac + trdata(tr)%reactivity/r_go_glac                
+                con_gr_frz = trdata(tr)%alpha/r_gs_glac + trdata(tr)%reactivity/r_go_glac                
              endif
 
              con_bl_tr  = 1./(r_bl_h2o+epsln)   * 1./trdata(tr)%diff_ratio**(2./3.)
 
              con_g_tr = conductance_series(con_g,con_bl_tr)
+             
+             con_gr   = con_gr_dry+con_gr_wet+con_gr_frz
              cg       = conductance_series(con_gr,con_g_tr)
 
              call send_tile_data(trdata(tr)%id_con_mx_st,con_mx_st_diag, tile%diag)
@@ -554,11 +616,28 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        call send_tile_data(trdata(tr)%id_ddep_g, (1.-fdiag)*ddep,tile%diag)
        call send_tile_data(trdata(tr)%id_ddep_v, fdiag*ddep,     tile%diag)
 
-       call send_tile_data(trdata(tr)%id_econ_cu,   fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+
+       call send_tile_data(trdata(tr)%id_ddep_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+       
+
+       call send_tile_data(trdata(tr)%id_econ_cu,       fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_cu_wet,   fdiag*dvel*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_cu_dry,   fdiag*dvel*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_econ_cu_frz,   fdiag*dvel*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+
        call send_tile_data(trdata(tr)%id_econ_stem, fdiag*dvel*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
        call send_tile_data(trdata(tr)%id_econ_stom, fdiag*dvel*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)                     
 
-       call send_tile_data(trdata(tr)%id_ddep_cu,   fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_cu,       fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_cu_wet,   fdiag*ddep*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_cu_dry,   fdiag*ddep*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+       call send_tile_data(trdata(tr)%id_ddep_cu_frz,   fdiag*ddep*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)       
+       
        call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
        call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)                     
        
@@ -595,24 +674,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        gfrac_frz = snow_area
     end if
 
-    if (associated(tile%glac)) then
-       gfrac_frz = 1.
-    end if
-
-    if (associated(tile%lake)) then
-       gfrac_wet = 1.
-       if ( tile%lake%ws(1) .gt. ws_min ) then
-          gfrac_frz  = 1.
-          gfrac_wet  = 0.
-       end if
-    end if
-
     if (associated(tile%vegn)) then
        theta = soil_theta(tile%soil) !top layer
        if ( theta(1) .gt. theta_wetland_thr ) then
-          gfrac_wet = 1.
+          gfrac_wet = max(1. - gfrac_frz,0.)
        else
-          gfrac_wet = 0.
+          gfrac_wet = 0. 
        end if
 
        biomass = 0.
@@ -625,7 +692,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                  cc(k)%nsc 
          end do
        end associate
-
 
        if ( biomass .lt. desert_biomass ) then
           frac_desert = min(max(1.-biomass/desert_biomass,0.),1.)
