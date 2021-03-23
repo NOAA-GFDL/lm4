@@ -424,8 +424,6 @@ type spec_data_type
   real    :: r_stemo = 4000.
   real    :: r_cus_wet = 100.
   real    :: r_cuo_wet = 400.
-  real    :: r_gs      = 200.
-  real    :: r_go      = 200.
   real    :: A_aer     = 6.25e-3
   real    :: gamma_aer = 0.56
   real    :: alpha_aer = 0.8 
@@ -1153,8 +1151,6 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(r_stemo)
   __GET_SPDATA_REAL__(r_cus_wet)
   __GET_SPDATA_REAL__(r_cuo_wet)
-  __GET_SPDATA_REAL__(r_gs)
-  __GET_SPDATA_REAL__(r_go)
   __GET_SPDATA_REAL__(A_aer)
   __GET_SPDATA_REAL__(gamma_aer)
   __GET_SPDATA_REAL__(alpha_aer)  
@@ -1550,8 +1546,6 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'r_stemo',spdata(idx)%r_stemo)
   call add_row(table, 'r_cus_wet',spdata(idx)%r_cus_wet)
   call add_row(table, 'r_cuo_wet',spdata(idx)%r_cuo_wet)
-  call add_row(table, 'r_gs',spdata(idx)%r_gs)
-  call add_row(table, 'r_go',spdata(idx)%r_go)
   call add_row(table, 'A_aer',spdata(idx)%A_aer)
   call add_row(table, 'gamma_aer',spdata(idx)%gamma_aer)
   call add_row(table, 'alpha_aer',spdata(idx)%alpha_aer)
