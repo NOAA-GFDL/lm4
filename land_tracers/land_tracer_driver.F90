@@ -90,10 +90,10 @@ module land_tracer_driver_mod
   
   
   real :: h2_b(n_dim_soil_types)     = (/  4.05, 10.40, 11.40, 7.75, 8.52, 5.3, 5.3, 10.4, 5.4, 7.12, 4.9, 4.38, 4.05,  4.05/),    &
-       h2_st(n_dim_soil_types)    = (/  0.11, 0.480, 0.530, 0.37, 0.45, 0.31, 0.31, 0.44, 0.24, 0.32, 0.18, 0.11, 0.11,  0.11/),    &
-       h2_N(n_dim_soil_types)     = (/0.1452, 0.131, 0.118,  0.152, 0.163, 0.215, 0.215, 0.112, 0.180, 0.147, 0.170, 0.145, 0.157,0.157/),    &
-       h2_betab(n_dim_soil_types) = (/5.3693, 2.293, 2.232, 2.541, 2.152, 2.270, 2.270, 2.641, 2.942, 2.85, 3.596, 5.3693, 4.977, 4.977/),        &
-          h2_a  = 1.4 
+          h2_st(n_dim_soil_types)    = (/  0.11, 0.480, 0.530, 0.37, 0.45, 0.31, 0.31, 0.44, 0.24, 0.32, 0.18, 0.11, 0.11,  0.11/),    &
+          h2_N(n_dim_soil_types)     = (/0.1452, 0.131, 0.118,  0.152, 0.163, 0.215, 0.215, 0.112, 0.180, 0.147, 0.170, 0.145, 0.157,0.157/),    &
+          h2_betab(n_dim_soil_types) = (/5.3693, 2.293, 2.232, 2.541, 2.152, 2.270, 2.270, 2.641, 2.942, 2.85, 3.596, 5.3693, 4.977, 4.977/),        &
+          h2_a   = 1.4 
 
   
   namelist /land_tracer_nml/ &
@@ -119,18 +119,18 @@ module land_tracer_driver_mod
 
   ! ---- data types -----------------------------------------------------------
   type :: tracer_data_type
-     character(32) :: name = ''  ! tracer name                                                                                
-     integer :: tr_atm  = NO_TRACER ! index of this tracer in atmos tracer array                                              
-     logical :: is_generic    = .TRUE. ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
-     logical :: do_deposition = .FALSE. ! if true, generic dry deposition is used                                              
+     character(32) :: name = ''          ! tracer name
+     integer :: tr_atm  = NO_TRACER      ! index of this tracer in atmos tracer array                                        
+     logical :: is_generic    = .TRUE.   ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
+     logical :: do_deposition = .FALSE.  ! if true, generic dry deposition is used                                              
      ! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)                             
-     real    :: reactivity    = 1.0    ! normalized reactivity factor                                                         
-     real    :: alpha         = -1     ! scaling factor relative to SO2                                                       
-     real    :: r_mx          = 1e-5    ! negligible resistance
+     real    :: reactivity    = 1.0      ! normalized reactivity factor                                                         
+     real    :: alpha         = -1       ! scaling factor relative to SO2                                                       
+     real    :: r_mx          = 1e-5     ! negligible resistance
      real    :: mw            = -9999.9  ! kg/mol                                                                             
-     logical :: coldTc        = .false. ! cold t increases resistance                                                         
-     real    :: diff_ratio    = 1.6    ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
-
+     logical :: coldTc        = .false.  ! cold t increases resistance                                                         
+     real    :: diff_ratio    = 1.6      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
+     real    :: scale_stom    = 1.       ! additional 
      !for aerosol
      real           :: radius = 0.25e-6, rho = 1500.
      logical        :: is_aerosol = .false.
@@ -161,7 +161,8 @@ module land_tracer_driver_mod
 
   integer :: id_con_atm
   integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert  
-
+  integer :: id_h2_fm, id_h2_ft, id_h2_diff_soil
+  
   ! ---- private module variables ----------------------------------------------
   logical :: module_is_initialized = .FALSE.
   real, save :: dt ! fast time step, s
@@ -260,7 +261,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           if ( parse(parameters, 'km',  value) > 0 )    trdata(tr)%km  = value
           if ( parse(parameters, 'con_gr',  value) > 0 )    trdata(tr)%con_gr  = value        
           
-          !ratio of tracer diffusivity to h2o diffusivity
+          !ratio of h2o to tracer diffusivity
           if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
              trdata(tr)%diff_ratio  = value
           else
@@ -270,6 +271,11 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
              end if
           end if
 
+          if (parse(parameters, 'scale_stom', value) > 0) then
+             trdata(tr)%scale_stom = value
+          else
+             trdata(tr)%scale_stom = 1./trdata(tr)%diff_ratio
+          end if
           if ( parse(parameters, 'r_mx',  value) > 0 )   trdata(tr)%r_mx  = max(value,epsln)
           if ( parse(parameters, 'radius', value) > 0 )  trdata(tr)%radius  = value
           if ( parse(parameters, 'rho', value) > 0 ) trdata(tr)%rho = value
@@ -283,9 +289,10 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     call add_row(table, 'diff_ratio',       trdata(:)%diff_ratio)
     call add_row(table, 'alpha',            trdata(:)%alpha)    
     call add_row(table, 'reactivity',       trdata(:)%reactivity)
+    call add_row(table, 'scale_stom',       trdata(:)%scale_stom)        
     call add_row(table, 'is_aerosol',       trdata(:)%is_aerosol)
-    call add_row(table, 'radius',       trdata(:)%radius)
-    call add_row(table, 'rho',       trdata(:)%rho)            
+    call add_row(table, 'radius',           trdata(:)%radius)
+    call add_row(table, 'rho',              trdata(:)%rho)            
 
     call print(table,stdlog())
     call print(table,stdout())
@@ -487,6 +494,17 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time, 'ground desert fraction', &
          'unitless', missing_value=-1.0)
 
+    id_h2_fm  = register_tiled_diag_field(diag_name, 'h2_fm', &
+         (/id_ug/),  lnd%time, 'h2_fm', &
+         'unitless', missing_value=-1.0)
+    id_h2_ft  = register_tiled_diag_field(diag_name, 'h2_ft', &
+         (/id_ug/),  lnd%time, 'h2_ft', &
+         'unitless', missing_value=-1.0)
+    id_h2_diff_soil = register_tiled_diag_field(diag_name, 'h2_diff_soil', &
+         (/id_ug/),  lnd%time, 'h2_diff_soil', &
+         'm2/s', missing_value=-1.0)
+
+
     module_is_initialized = .TRUE.
   end subroutine land_tracer_driver_init
 
@@ -641,7 +659,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                      con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
                      con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo) / scale_r_T(c%Tv)
 
-                     con_st_tr    = stomatal_cond(k) / trdata(tr)%diff_ratio
+                     con_st_tr    = stomatal_cond(k) * trdata(tr)%scale_stom
 
                      if (trdata(tr)%r_mx .gt. 0) then
                         con_mx    = 1./trdata(tr)%r_mx
@@ -1049,7 +1067,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
   real function con_h2(tr_data,tile,p) result(con)
 
     type(tracer_data_type), intent(in) :: tr_data
-    type(land_tile_type),   intent(in) :: tile
+    type(land_tile_type),   intent(inout) :: tile
     real,                   intent(in) :: p
 
     real    :: delta !inactive layer
@@ -1103,18 +1121,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           frac_ice_pores_avg    = max(frac_ice_pores_avg/(h2_depth-delta),0.)
           frac_air_pores_avg    = max(1.-frac_water_pores_avg-frac_ice_pores_avg,0.)
 
-          diff_h2_air    = 0.668*(101325./p)*(T_avg/273)**1.75
+          diff_h2_air    = 0.668e-4*(101325./p)*(T_avg/273)**1.75
           diff_h2_soil   = diff_h2_air * porosity**2.*frac_air_pores_avg**(2+3./h2_b(soil_tag))
-          if ((ieee_is_finite(diff_h2_soil)==.false.).or.abs(diff_h2_soil).gt.HUGE(1.0)) then
-             write(*,*) 'con h2'
-             __DEBUG1__(diff_h2_air)
-             __DEBUG1__(porosity)
-             __DEBUG1__(frac_air_pores_avg)
-             __DEBUG1__(h2_b(soil_tag))
-          endif
-
-
-          call check_var_range(diff_h2_soil,0.0,HUGE(1.0),'diff_h2_soil','diff_h2_soil',FATAL)
           
           f_T = 1/(1+exp(-(T_avgC-3.8)/6.7)) + 1./(1.+exp((T_avgC - 62.2)/7.7)) - 1.
 
@@ -1137,10 +1145,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 con = (1.-snow_area)*con + snow_area*(con*gdelta)/(con+gdelta)
              end if
           end if
-
-          call check_var_range(con,0.0,HUGE(1.0),'con_h2','con_h2',FATAL)
-
        end if
+
+       call send_tile_data(id_h2_fm,f_M, tile%diag)
+       call send_tile_data(id_h2_ft,f_T, tile%diag)
+       call send_tile_data(id_h2_diff_soil,diff_h2_soil, tile%diag)
+       
     end if
     
   end function con_h2
