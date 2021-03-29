@@ -83,11 +83,9 @@ module land_tracer_driver_mod
 
   real :: h2_depth               = 0.1 !in m
 
-  !1: ?
-  !2: silty clay
-  !3: clay light
-  !13: sand
   
+  !in LM4p1, the following soil categories are used
+  !'clay(heavy)', 'silty clay', 'clay (light)', 'silty clay loam', 'clay loam', 'silt', 'silt loam', 'sandy clay', 'loam', 'sandy clay loam', 'sandy loam', 'loamy sand', 'sand', 'undefined'  
   
   real :: h2_b(n_dim_soil_types)     = (/  4.05, 10.40, 11.40, 7.75, 8.52, 5.3, 5.3, 10.4, 5.4, 7.12, 4.9, 4.38, 4.05,  4.05/),    &
           h2_st(n_dim_soil_types)    = (/  0.11, 0.480, 0.530, 0.37, 0.45, 0.31, 0.31, 0.44, 0.24, 0.32, 0.18, 0.11, 0.11,  0.11/),    &
