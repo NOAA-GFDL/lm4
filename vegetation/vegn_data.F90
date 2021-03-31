@@ -418,15 +418,15 @@ type spec_data_type
 
   ! dry deposition related parameters                                                                                          
   !based on deciduous by default                                                                                               
-  real    :: r_cus = 2500. 
-  real    :: r_cuo = 6000.
-  real    :: r_stems = 1000.
-  real    :: r_stemo = 4000.
-  real    :: r_cus_wet = 100.
-  real    :: r_cuo_wet = 400.
-  real    :: A_aer     = 6.25e-3
-  real    :: gamma_aer = 0.56
-  real    :: alpha_aer = 0.8 
+  real    :: r_cus = 2500.        !dry cuticle resistance, SO2, s/m
+  real    :: r_cuo = 6000.        !dry cuticle resistance, O3, s/m
+  real    :: r_stems = 1000.      !dry stem resistance, SO2, s/m
+  real    :: r_stemo = 4000.      !dry stem resistance, O3, s/m
+  real    :: r_cus_wet = 100.     !wet cuticle resistance, SO2, s/m
+  real    :: r_cuo_wet = 400.     !wet cuticle resistance, O3, s/m
+  real    :: A_aer     = 6.25e-3  !characteristic aerosol radius for deposition, m
+  real    :: gamma_aer = 0.56     !Sc power for aerosol deposition, unitless
+  real    :: alpha_aer = 0.8      !parameter for Eim (aerosol deposition), unitless
 
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22

@@ -70,9 +70,8 @@ type :: atmos_land_boundary_type
         z_bot     => NULL(), &   ! height of the bottom atmospheric layer above the surface, m
         drag_q    => NULL(), &   ! product of cd_q by wind
         p_surf    => NULL(), &   ! surface pressure, Pa
-        con_atm   => NULL()      ! con_atm
+        con_atm   => NULL()      ! conductance between atmosphere and canopy, m/s
    
-!  real, dimension(:,:), pointer ::  con_atm   => NULL()
 
    real, dimension(:,:,:), pointer :: & ! (grid index, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux

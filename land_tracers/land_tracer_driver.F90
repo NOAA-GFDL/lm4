@@ -51,39 +51,37 @@ module land_tracer_driver_mod
   real :: max_scale_cold_T=2.
   !maximum increase associated with low biomass
   real :: max_scale_desert=2.5
-  !from fisher (2011) vd(aer) = 0.03 cm/s
-  real :: cg_aer_frz = 0.03e-2
+  real :: cg_aer_frz = 0.03e-2   !from fisher (2011) vd(aer) = 0.03 cm/s, conductance of aerosol over snow.
 
   real   :: desert_biomass    = 0.25 !kg/m2
   real   :: ws_min            = 1. !1mm  (threshold to decide whether lake is frozen)
   real   :: theta_wetland_thr = 0.9 !above this call it wetland                                        
 
-  real :: r_gs_lake         = 20.    
-  real :: r_gs_wet          = 100.
-  real :: r_gs_dry          = 200.
-  real :: r_snows           = 70.
+  real :: r_gs_lake         = 20.     !ground resistance, lake, SO2 (s/m)
+  real :: r_gs_wet          = 100.    !ground resistance, wet surface, SO2 (s/m)
+  real :: r_gs_dry          = 200.    !ground reistance, dry surface, SO2 (s/m)
+  real :: r_snows           = 70.     !ground resitance, snow surface, SO2 (s/m)
 
-  real :: r_go_lake         = 500.   
-  real :: r_go_wet          = 500.   
-  real :: r_go_dry          = 200.   
-  real :: r_snowo           = 2000.
+  real :: r_go_lake         = 500.    !ground resistance, lake, O3 (s/m)
+  real :: r_go_wet          = 500.    !ground resistance, wet surface, O3 (s/m) 
+  real :: r_go_dry          = 200.    !ground resistance, dry surface, O3 (s/m) 
+  real :: r_snowo           = 2000.   !ground resistance, snow surface, O3 (s/m) 
 
-  real :: A_aer_lake         = -999    
-  real :: A_aer_swamp        = 10.e-3
+  real :: A_aer_lake         = -999   !characteristic aerosol radius for deposition, lake, m
+  real :: A_aer_swamp        = 10.e-3 !characteristic aerosol radius for deposition, wet, m   
 
+  !Sc power for aerosol deposition, unitless
   real :: gamma_aer_lake         = 0.50    
   real :: gamma_aer_swamp        = 0.54       
   real :: gamma_aer_desert       = 0.54
   real :: gamma_aer_frz          = 0.54
-
+  
+  !alpha is used for E_im in aerosol deposition
   real :: alpha_aer_lake         = 100.    
   real :: alpha_aer_swamp        = 50.        
   real :: alpha_aer_desert       = 50.
   real :: alpha_aer_frz          = 50.
 
-  real :: h2_depth               = 0.1 !in m
-
-  
   !in LM4p1, the following soil categories are used
   !'clay(heavy)', 'silty clay', 'clay (light)', 'silty clay loam', 'clay loam', 'silt', 'silt loam', 'sandy clay', 'loam', 'sandy clay loam', 'sandy loam', 'loamy sand', 'sand', 'undefined'  
   
@@ -137,7 +135,7 @@ module land_tracer_driver_mod
 
      logical        :: is_h2=.FALSE.
 
-     real           :: gamma=1., km=0.03, con_gr = -999  !for h2
+     real           :: gamma=1., km=0.03, depth=0.1, con_gr = -999  !for h2
 
      integer :: & ! diag field IDs
           id_emis,      id_ddep,  &
@@ -160,6 +158,7 @@ module land_tracer_driver_mod
   integer :: id_con_atm
   integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert  
   integer :: id_h2_fm, id_h2_ft, id_h2_diff_soil
+  integer :: id_h2_n, id_h2_st, id_h2_betab, id_h2_b
   
   ! ---- private module variables ----------------------------------------------
   logical :: module_is_initialized = .FALSE.
@@ -253,11 +252,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
           if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
           if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
-          if ( parse(parameters, 'mw',  value) > 0 ) trdata(tr)%mw  = value
+          if ( parse(parameters, 'mw',  value) > 0 )         trdata(tr)%mw          = value
 
-          if ( parse(parameters, 'gamma',  value) > 0 ) trdata(tr)%gamma  = value
-          if ( parse(parameters, 'km',  value) > 0 )    trdata(tr)%km  = value
-          if ( parse(parameters, 'con_gr',  value) > 0 )    trdata(tr)%con_gr  = value        
+          if ( parse(parameters, 'gamma',  value) > 0 )    trdata(tr)%gamma  = value
+          if ( parse(parameters, 'km',  value) > 0 )       trdata(tr)%km     = value
+          if ( parse(parameters, 'depth',  value) > 0 )    trdata(tr)%depth  = value          
+          if ( parse(parameters, 'con_gr',  value) > 0 )   trdata(tr)%con_gr = value        
           
           !ratio of h2o to tracer diffusivity
           if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
@@ -338,13 +338,13 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
           trdata(tr)%id_Eb =                register_tiled_diag_field(diag_name, trim(name)//'_Eb', &
-               (/id_ug/),  lnd%time, 'Eb for '//trim(name), &
+               (/id_ug/),  lnd%time, 'Eb collection efficiency from Brownian diffusion for '//trim(name), &
                'm/s', missing_value=-1.0)
           trdata(tr)%id_Ein =                register_tiled_diag_field(diag_name, trim(name)//'_Ein', &
-               (/id_ug/),  lnd%time, 'Ein for '//trim(name), &
+               (/id_ug/),  lnd%time, 'Ein collection efficiency from interception for '//trim(name), &
                'm/s', missing_value=-1.0)
           trdata(tr)%id_Eim =                register_tiled_diag_field(diag_name, trim(name)//'_Eim', &
-               (/id_ug/),  lnd%time, 'Eim for '//trim(name), &
+               (/id_ug/),  lnd%time, 'Eim collection efficiency from impaction for '//trim(name), &
                'm/s', missing_value=-1.0)
 
 
@@ -502,6 +502,20 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time, 'h2_diff_soil', &
          'm2/s', missing_value=-1.0)
 
+    id_h2_n = register_tiled_diag_field(diag_name, 'h2_n', &
+         (/id_ug/),  lnd%time, 'normalization constant for the modified beta distribution of the biological sink', &
+         'unitless', missing_value=-1.0)
+    id_h2_st = register_tiled_diag_field(diag_name, 'h2_st', &
+         (/id_ug/),  lnd%time, 'soil moisture threshold for bacterial activity', &
+         'unitless', missing_value=-1.0)
+    id_h2_betab = register_tiled_diag_field(diag_name, 'h2_betab', &
+         (/id_ug/),  lnd%time, 'second exponent of the beta distribution', &
+         'unitless', missing_value=-1.0)
+    id_h2_b = register_tiled_diag_field(diag_name, 'h2_b', &
+         (/id_ug/),  lnd%time, 'Cambpell exponent', &
+         'unitless', missing_value=-1.0)
+    
+    
 
     module_is_initialized = .TRUE.
   end subroutine land_tracer_driver_init
@@ -574,7 +588,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: tmp
 
     real    :: alpha_aere, gamma_aere, A_aere
-    real    :: Eb, Ein, Eim
+    real    :: Eb, Eim, Ein
 
     if (is_watch_point()) then
        write(*,*) 'update_cana_tracers input'
@@ -1013,9 +1027,13 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real, intent(in) :: frac_wet, frac_desert
 
     real, intent(out):: con, Eb, Eim, Ein
-
+    !Eb:  collection efficiency from Brownian motion
+    !Eim: collection efficiency from impaction
+    !Ein: collection efficiency from interception
+    
     real             :: Sc, diff_aer
     real             :: R1, St
+    !R1: correction factor representing the fractionof particles that stick to the surface
     real             :: free_path, C_c
     real             :: kvis,dvis
     real             :: rwet, ratio_r, rho_wet, vts
@@ -1075,7 +1093,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: dz, T_avg, T_avgC
     real    :: diff_h2_air, diff_h2_soil
     real    :: f_T, f_M
-    real    :: h2_gamma, h2_km
+    real    :: h2_gamma, h2_km, h2_depth
     real    :: gdelta, snow_depth, snow_area
     real, parameter :: snow_porosity = 0.64
 
@@ -1091,6 +1109,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
           h2_gamma = tr_data%gamma
           h2_km    = tr_data%km
+          h2_depth = tr_data%depth
 
           soil_tag = tile%soil%tag
 
@@ -1148,6 +1167,11 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        call send_tile_data(id_h2_fm,f_M, tile%diag)
        call send_tile_data(id_h2_ft,f_T, tile%diag)
        call send_tile_data(id_h2_diff_soil,diff_h2_soil, tile%diag)
+
+       call send_tile_data(id_h2_n,    h2_N(soil_tag),     tile%diag)
+       call send_tile_data(id_h2_st,   h2_st(soil_tag),    tile%diag)
+       call send_tile_data(id_h2_betab,h2_betab(soil_tag), tile%diag)
+       call send_tile_data(id_h2_b,    h2_b(soil_tag),     tile%diag)                            
        
     end if
     

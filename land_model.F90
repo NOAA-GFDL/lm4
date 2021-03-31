@@ -2762,7 +2762,8 @@ subroutine land_turbulence(tile, &
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), con_v_stem(:),  & ! one-sided foliage-CAS conductance per unit ground area
        con_g_h   , con_g_v, &       ! ground-CAS turbulent conductance per unit ground area
-       con_g_turb, r_bl_h2o  ! surface resistance for sensible heat, s/m
+       con_g_turb,  &     ! turbulent conductance per unit ground area (does not iinclude ground laminar conductance), m/s
+       r_bl_h2o           ! ground laminar resistance for h2o, s/m
   
 
   type(vegn_cohort_type), pointer :: cc(:)
