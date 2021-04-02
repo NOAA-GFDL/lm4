@@ -1711,13 +1711,13 @@ end module river_mod
 #ifdef test_river_solo
 
 program river_solo
-  use mpp_mod,                  only : mpp_error, mpp_pe, mpp_root_pe, mpp_npes, FATAL
+  use mpp_mod,                  only : mpp_error, mpp_pe, mpp_root_pe, mpp_npes, FATAL, input_nml_file
   use mpp_mod,                  only : mpp_clock_id, mpp_clock_begin, mpp_clock_end
   use mpp_domains_mod,          only : mpp_define_layout, mpp_define_domains
   use mpp_domains_mod,          only : mpp_get_compute_domain, domain2d, CYCLIC_GLOBAL_DOMAIN
   use mpp_domains_mod,          only : mpp_get_current_ntile, mpp_get_tile_id
   use fms_mod,                  only : fms_init, fms_end, stdlog
-  use fms_mod,                  only : check_nml_error, stdout, input_nml_file, get_unit
+  use fms_mod,                  only : check_nml_error, stdout, get_unit
   use time_manager_mod,         only : time_type, increment_time, set_date, increment_date, set_time
   use time_manager_mod,         only : set_calendar_type, JULIAN, NOLEAP, THIRTY_DAY_MONTHS, NO_CALENDAR
   use time_manager_mod,         only : operator(/), operator(-), operator( + ), month_name, get_date
