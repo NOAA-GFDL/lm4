@@ -13,7 +13,7 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      error_mesg, FATAL
 use time_manager_mod  , only : time_type
-use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
+use grid2_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp

@@ -1724,9 +1724,9 @@ program river_solo
   use diag_manager_mod,         only : diag_manager_init, diag_manager_end
   use river_mod,                only : river_init, river_end, update_river
   use constants_mod,            only : constants_init, PI, radius
-  use grid_mod,                 only : get_grid_size, get_grid_cell_vertices
-  use grid_mod,                 only : get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area
-  use grid_mod,                 only : define_cube_mosaic, get_grid_ntiles
+  use grid2_mod,                 only : get_grid_size, get_grid_cell_vertices
+  use grid2_mod,                 only : get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area
+  use grid2_mod,                 only : define_cube_mosaic, get_grid_ntiles
   use river_mod,                only : num_species
   use fms2_io_mod, only: close_file, file_exists, FmsNetcdfFile_t, open_file
 

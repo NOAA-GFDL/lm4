@@ -6,7 +6,7 @@ use fms_mod, only: error_mesg, check_nml_error, stdlog, lowercase, &
      mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
-use grid_mod, only: get_grid_ntiles
+use grid2_mod, only: get_grid_ntiles
 use land_data_mod, only: lnd, log_version
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP
