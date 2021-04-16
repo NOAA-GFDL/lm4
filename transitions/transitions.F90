@@ -341,7 +341,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
        FATAL)
 
   ! initialize data structure representing input file and horizontal interpolator
-  allocate(ftran)
+  allocate(ftran, fstate)
   call ftran%init(input_file,static_file,data_type)
 
   ! initialize arrays of input fields
@@ -384,7 +384,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
             'starting land use transitions, but land use state file is not specified',FATAL)
 
         ! open state file
-        allocate(fstate)
         call fstate%init(state_file,static_file,data_type)
 
         ! initialize state variable array
