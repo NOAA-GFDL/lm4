@@ -310,7 +310,7 @@ end subroutine setup_hgrid
 !> add variable to a variable set
 subroutine varset_add_var(this,infile,varname)
    class(varset_T), intent(inout) :: this
-   class(infile_T), pointer       :: infile   !< input file
+   class(infile_T), target        :: infile   !< input file
    character(*),    intent(in)    :: varname  !< name of the variable in input file
 
    character(NF_MAX_NAME), allocatable :: varname_(:)

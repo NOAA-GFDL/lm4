@@ -105,7 +105,7 @@ logical :: module_is_initialized = .FALSE.
 
 integer :: nlon_in, nlat_in
 
-class(infile_T), pointer :: ftran=>NULL(), fstate=>NULL()
+type(infile_T), target :: ftran, fstate
 type(varset_T) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
 type(varset_T) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
 
@@ -341,7 +341,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
        FATAL)
 
   ! initialize data structure representing input file and horizontal interpolator
-  allocate(ftran, fstate)
   call ftran%init(input_file,static_file,data_type)
 
   ! initialize arrays of input fields
@@ -414,10 +413,8 @@ end subroutine land_transitions_init
 subroutine land_transitions_end()
   module_is_initialized=.FALSE.
   ! close files and deallocate associated memory
-  call ftran%destroy();  deallocate(ftran)
-  if (associated(fstate)) then
-     call fstate%destroy(); deallocate(fstate)
-  endif
+  call ftran%destroy();
+  call fstate%destroy();
 end subroutine land_transitions_end
 
 ! ============================================================================
