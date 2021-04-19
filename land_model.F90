@@ -1200,7 +1200,7 @@ subroutine check_mask_match(idx)
             enddo
             write(*,*)
          enddo
-         write(*,'(a,": ",i," mask mismatches ",i," grid points")') trim(tag), k, count(map_g>0)
+         write(*,'(a,": ",i6," mask mismatches ",i6," grid points")') trim(tag), k, count(map_g>0)
          write(*,'(a,": ",a)')trim(tag), 'Legend: G - point in gridSpec but not in restart, R - in restart but not in gridSpec.'
          call mpp_error(FATAL,'land_model_init :: land masks from gridSpec and restart do not match, grep "^'//trim(tag)//'" stdout to see map.')
      endif
