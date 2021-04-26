@@ -432,6 +432,7 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
   integer :: thread, face
   real    :: lon, lat ! current coordinates, degree
   character(512) :: message
+  character :: ew,ns  ! hemisphere indicators
 
   if (severity<0) return
 
@@ -443,12 +444,13 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
 !$   thread = OMP_GET_THREAD_NUM()+1
   call get_date(lnd%time,y,mo,d,h,m,s)
   call get_current_coordinates(thread, lon, lat, face)
-
-  write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-       trim(varname)//' out of range: value=', value, 'at lon=',lon, 'lat=',lat, &
-       'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
-       'time=',y,mo,d,h,m,s
-  call error_mesg(trim(tag),message,severity)
+  ew = 'E'; if (lon<0) ew = 'W'
+  ns = 'N'; if (lat<0) ns = 'S'
+  write(message,'(a,g23.16,a,2(f7.2,a),a,3(i4,",")i4,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+       trim(varname)//' out of range: value=', value, ' at', abs(lon),ew,abs(lat),ns, &
+       '  (i,j,tile,face) = (',curr_i(thread),curr_j(thread),curr_k(thread),face, &
+       ') time=',y,mo,d,h,m,s
+  call error_mesg(trim(tag),trim(message),severity)
 end subroutine check_var_range_0d
 
 
@@ -466,6 +468,7 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
   integer :: y,mo,d,h,m,s ! components of date
   integer :: thread, face
   real    :: lon, lat ! current coordinates, degree
+  character :: ew,ns  ! hemisphere indicators
   character(512) :: message
 
   if (severity<0) return
@@ -478,12 +481,14 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
 !$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(lnd%time,y,mo,d,h,m,s)
      call get_current_coordinates(thread, lon, lat, face)
-     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     ew = 'E'; if (lon<0) ew = 'W'
+     ns = 'N'; if (lat<0) ns = 'S'
+     write(message,'(a,g23.16,a,2(f7.2,a),a,3(i4,",")i4,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
-          'at lon=',lon, 'lat=',lat, &
-          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
-          'time=',y,mo,d,h,m,s
-     call error_mesg(trim(tag),message,severity)
+          ' at', abs(lon),ew,abs(lat),ns, &
+          '  (i,j,tile,face) = (',curr_i(thread),curr_j(thread),curr_k(thread),face, &
+          ') time=',y,mo,d,h,m,s
+     call error_mesg(trim(tag),trim(message),severity)
   enddo
 end subroutine check_var_range_1d
 
@@ -648,6 +653,12 @@ subroutine get_current_coordinates(thread, lon, lat, face)
       lat = lnd%ug_lat(curr_l(thread))*180.0/PI
       face = lnd%ug_face
    endif
+   do while (lon > 180.0)
+      lon = lon - 360.0
+   enddo
+   do while (lon < -180.0)
+      lon = lon + 360.0
+   enddo
 end subroutine get_current_coordinates
 
 ! ============================================================================

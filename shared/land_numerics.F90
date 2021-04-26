@@ -41,6 +41,7 @@ public :: horiz_remap
 
 public :: gammaL, gammaU ! incomplete gamma
 public :: gamma ! because ifort 11 does not have built-in gamma
+public :: gammaln ! ln(gamma); useful for ratio of gamma functions
 
 public :: rank_descending ! rank the input array in descending order
 
@@ -1552,18 +1553,28 @@ function gammaU ( x, p )
 end function gammaU
 
 ! ==============================================================================
-! Returns the value Gamma(xx) for xx > 0.
-function gamma(xx)
-  real :: gamma
+! Returns the value of Gamma(xx) for xx > 0.
+real function gamma(xx)
   real, intent(in) :: xx
   integer :: ierr
 
   gamma = exp(alngam(xx,ierr))
-  if (ierr.ne.0) call error_mesg('land_niumerics', 'argument of gamma function ('&
-                                //trim(string(xx))//') is out of accepted range',&
+  if (ierr.ne.0) call error_mesg('land_numerics', 'argument of gamma function ('&
+                                //trim(string(xx))//') is outside of accepted range',&
                                 FATAL)
-
 end function gamma
+
+! ==============================================================================
+! Returns the value of ln(Gamma(xx)) for xx > 0.
+real function gammaln(xx)
+  real, intent(in) :: xx
+  integer :: ierr
+
+  gammaln = alngam(xx,ierr)
+  if (ierr.ne.0) call error_mesg('land_numerics', 'argument of gamma function ('&
+                                //trim(string(xx))//') is outside of accepted range',&
+                                FATAL)
+end function gammaln
 
 ! ==============================================================================
 ! Reports error, including file name and line.

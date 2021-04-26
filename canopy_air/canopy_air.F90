@@ -19,7 +19,7 @@ use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
 
 use land_constants_mod, only : mol_CO2, mol_air, diffusivity_h2o, kin_visc_air, thermal_diff_air
-use land_numerics_mod, only : gamma
+use land_numerics_mod, only : gamma, gammaln
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_debug_mod, only : is_watch_point
 use cana_tile_mod, only : cana_tile_type, &
@@ -754,7 +754,11 @@ real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_visc)
   alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
   ! kinematic viscosity of air
   visc = kin_visc_air(T,p)
-  d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  ! it is more robust (and efficient) to calculate the ratio of gamma-functions as the
+  ! exponent of logarithm differences: computing gamma function for large arguments can
+  ! lead to overflow.
+  ! d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * exp(gammaln(alpha+1.5)-gammaln(alpha+1))
   if (is_watch_point()) then
   __DEBUG5__(u_sfc, ustar_sfc, alpha, visc, d_visc)
   endif

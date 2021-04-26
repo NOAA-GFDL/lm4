@@ -23,7 +23,7 @@ use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
 use snow_tile_mod, only : snow_tile_stock_pe
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
-use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_IRRIG, LU_SCND, LU_NTRL
+use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_IRRIG, LU_SCND, LU_NTRL, LU_RANGE
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use land_data_mod, only : lnd, log_version
@@ -79,8 +79,12 @@ real :: snow_thresh= 1.0  ! snow threshold, kg/m2
 real :: u_min      = 2.0  ! units m/s
 real :: u_min_crop = 2.0  ! units m/s
 real :: u_min_past = 4.0  ! units m/s
+real :: u_min_range = 4.0  ! units m/s
 real :: frac_bare_crop = 0.25 ! fraction of bare surface for cropfields
 real :: frac_bare_past = 0.25 ! fraction of bare surface for pasture
+real :: frac_bare_range = 0.25 ! fraction of bare surface for pasture
+logical :: range_as_ntrl = .TRUE. ! if TRUE, rangeland is teated the same way as NTRL
+                              ! or SCND, as it was in LM4.1
 real :: ch         = 3.5e-10 ! dimensional factor [kg s2/m5]
 logical :: dependency_soil_moisture = .false.
 character(len=256) :: input_file_name = 'INPUT/dust_source.nc'
@@ -88,8 +92,8 @@ character(len=64)  :: input_field_name = 'source'
 namelist /land_dust_nml/ &
    soil_depth, c1, lai_thresh, sai_thresh, &
    sliq_thresh, sice_thresh, snow_thresh, dependency_soil_moisture, &
-   u_min, u_min_crop, u_min_past, frac_bare_crop, frac_bare_past, &
-   ch, input_file_name, input_field_name
+   u_min, u_min_crop, u_min_past, u_min_range, frac_bare_crop, frac_bare_past, frac_bare_range, &
+   range_as_ntrl, ch, input_file_name, input_field_name
 !---- end of namelist ----------------------------------------------------------
 
 
@@ -565,6 +569,9 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
        if (tile%vegn%landuse .eq. LU_PAST ) then
           u_thresh = u_min_past
           bareness = frac_bare_past
+       else if ((tile%vegn%landuse .eq. LU_RANGE).and..not.range_as_ntrl ) then
+          u_thresh = u_min_range
+          bareness = frac_bare_range
        else if (tile%vegn%landuse .eq. LU_CROP .or. tile%vegn%landuse .eq. LU_IRRIG ) then
           u_thresh = u_min_crop
           bareness = frac_bare_crop
