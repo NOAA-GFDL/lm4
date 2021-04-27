@@ -218,7 +218,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   end select
 
   ! get the snow radiative properties for current canopy temperature
-  call snow_radiation ( cohort%Tv, cosz, .FALSE., snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  call snow_radiation ( cohort%Tv, cosz, .FALSE., -1, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
 
   sp = cohort%species
   do i = 1, NBANDS
