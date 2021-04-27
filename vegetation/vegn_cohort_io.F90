@@ -393,7 +393,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
     call register_variable_attribute(restart%rhandle, varname, "long_name", trim(longname), str_len=len(trim(longname)))
   endif
 
-  call get_land_chksum_r0d(r,chksum)
+  call get_land_chksum(r,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, r)
   deallocate(r)
@@ -421,7 +421,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
     call register_variable_attribute(restart%rhandle, varname, "long_name", trim(longname), str_len=len(trim(longname)))
   endif
   
-  call get_land_chksum_i0d(r,chksum)
+  call get_land_chksum(r,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, r)
   deallocate(r)

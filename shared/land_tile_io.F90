@@ -279,7 +279,7 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   integer,          intent(in) :: datum
   character(len=*), intent(in), optional :: units, longname
   character(len=32) :: chksum
-  
+
   call register_field(restart%rhandle, varname, "int")
   call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
   if (present(longname)) then
@@ -289,9 +289,8 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
 
-  call get_land_chksum_is(datum,chksum)
+  call get_land_chksum(datum,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
-                                   
   call write_data(restart%rhandle, varname, datum)
 end subroutine add_scalar_data
 
@@ -330,7 +329,7 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
 
-  call get_land_chksum_i0d(data,chksum)
+  call get_land_chksum(data,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
@@ -358,7 +357,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
 
-  call get_land_chksum_r0d(data,chksum)
+  call get_land_chksum(data,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
 
@@ -388,7 +387,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
   
-  call get_land_chksum_r0d(data,chksum)
+  call get_land_chksum(data,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
@@ -416,7 +415,7 @@ subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,u
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_r0d(data,chksum)
+  call get_land_chksum(data,chksum)
 
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
@@ -464,7 +463,7 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_i1d(data,chksum)
+  call get_land_chksum(data,chksum)
 
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
@@ -496,7 +495,7 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_r1d(data,chksum)
+  call get_land_chksum(data,chksum)
 
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
@@ -543,7 +542,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_r1d(data,chksum)
+  call get_land_chksum(data,chksum)
 
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
@@ -596,7 +595,7 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_r1d(data,chksum)
+  call get_land_chksum(data,chksum)
 
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
@@ -630,7 +629,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_r2d(data,chksum)
+  call get_land_chksum(data,chksum)
 
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
@@ -665,7 +664,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   if (present(units)) then
       call register_variable_attribute(restart%rhandle, varname, "units", trim(units), str_len=len(trim(units)))
   endif
-  call get_land_chksum_r2d(data,chksum)
+  call get_land_chksum(data,chksum)
   call register_variable_attribute(restart%rhandle, varname, "checksum", trim(chksum), str_len=len(trim(chksum)))
   call write_data(restart%rhandle, varname, data)
   deallocate(data)
