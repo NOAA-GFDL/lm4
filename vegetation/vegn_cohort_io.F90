@@ -3,7 +3,6 @@ module cohort_io_mod
 use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
 
 use fms_mod,          only : error_mesg, FATAL, WARNING
-use fms_io_mod,       only : get_instance_filename
 use mpp_mod,          only : mpp_max
 use land_io_mod,      only : input_buf_size
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
@@ -21,7 +20,7 @@ use land_data_mod, only : lnd
 
 use fms2_io_mod, only: compressed_start_and_count, FmsNetcdfUnstructuredDomainFile_t, &
                        register_axis, register_field, register_variable_attribute, &
-                       read_data, write_data
+                       read_data, write_data, get_instance_filename
 use mpp_mod, only : mpp_chksum                       
 use land_chksum_mod 
 
