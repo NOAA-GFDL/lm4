@@ -56,7 +56,7 @@ module river_mod
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
                          read_restart, write_restart, close_file, register_variable_attribute, write_data, &
-                         get_global_io_domain_indices, get_instance_filename, FmsNetcdfFile_t, &
+                         get_global_io_domain_indices, FmsNetcdfFile_t, &
                          get_variable_size, read_data, get_variable_num_dimensions, unlimited
 !-------
 
@@ -348,7 +348,7 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file
-    call get_instance_filename('INPUT/river.nc', filename)
+    filename = 'INPUT/river.nc'
     exists = open_file(river_restart, filename, "read", domain, &
                        is_restart=.true.)
     if (exists) then
