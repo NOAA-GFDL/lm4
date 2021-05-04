@@ -313,8 +313,12 @@ subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
   character(len=*), intent(in) :: dim1, dim2 ! name of the text dimensions
   character(len=*), intent(in) :: datum(:)
   character(len=*), intent(in), optional :: longname
+  character(len=16), dimension(2)       :: dim_names
 
-  call register_field(restart%rhandle, varname, "char", (/dim1, dim2/))
+  dim_names(1) = trim(dim1)
+  dim_names(2) = trim(dim2)
+
+  call register_field(restart%rhandle, varname, "char", dim_names)
   if (present(longname)) then
       call register_variable_attribute(restart%rhandle, varname, "long_name", longname, str_len=len(trim(longname)))
   endif
