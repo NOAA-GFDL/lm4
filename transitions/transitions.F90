@@ -54,6 +54,8 @@ use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
 use land_numerics_mod, only : rank_descending
 
+use transition_io_mod, only : transition_io_init, infile_T, varset_T
+
 implicit none
 private
 
@@ -91,13 +93,6 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 ! ==== data types ===========================================================
-! set of variables that are summed up on input
-type :: var_set_type
-   character(64) :: name  = '' ! internal lm3 name of the field
-   integer       :: nvars = 0  ! number of variable ids
-   integer, allocatable :: id(:)    ! ids of the input fields
-end type
-
 ! a description of single transition
 type :: tran_type
    integer :: donor    = 0  ! kind of donor tile
@@ -108,19 +103,15 @@ end type tran_type
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
 
-integer :: tran_ncid  = -1 ! netcdf id of the input file
-integer :: state_ncid = -1 ! netcdf id of the input file, if any
 integer :: nlon_in, nlat_in
 
-type(var_set_type) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
-type(var_set_type) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
+type(infile_T), target :: ftran, fstate
+type(varset_T) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
+type(varset_T) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
 
 integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
 real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data to
         ! units of [fractions of vegetated area per year]
-type(time_type), allocatable :: time_in(:) ! time axis in input data
-type(time_type), allocatable :: state_time_in(:) ! time axis in input data
-type(horiz_interp_type), save :: interp ! interpolator for the input data
 type(time_type) :: time0 ! time of previous transition calculations
 
 integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
@@ -193,15 +184,8 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1
   integer        :: year,month,day,hour,min,sec
-  integer        :: k1,k2,k3, id, n1,n2
-
-  real, allocatable :: lon_in(:,:),lat_in(:,:) ! horizontal grid of input data
-  real, allocatable :: buffer_in(:,:) ! buffers for input data reading
-  real, allocatable :: mask_in  (:,:) ! valid data mask on the input data grid
-
-  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
-  type(nfu_validtype) :: v ! valid values range
-  character(len=12) :: fieldname
+  integer        :: k1,k2,k3, n1,n2
+  character(12)  :: fieldname
 
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
@@ -211,7 +195,8 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   call log_version(version, module_name, &
   __FILE__)
 
-  call horiz_interp_init
+  call horiz_interp_init()
+  call transition_io_init()
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=landuse_nml, iostat=io)
@@ -355,11 +340,8 @@ subroutine land_transitions_init(id_ug, id_cellarea)
        'do_landuse_change is requested, but landuse transition file is not specified', &
        FATAL)
 
-  ierr=nf_open(input_file,NF_NOWRITE,tran_ncid)
-  if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
-       'do_landuse_change is requested, but landuse transition file "'// &
-       trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-  call get_time_axis(tran_ncid,time_in)
+  ! initialize data structure representing input file and horizontal interpolator
+  call ftran%init(input_file,static_file,data_type)
 
   ! initialize arrays of input fields
   select case (trim(lowercase(data_type)))
@@ -370,7 +352,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if(trim(fieldname)=='2') cycle ! skip unspecified tiles
         input_tran(k1,k2)%name=fieldname
-        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,fieldname)
+        call input_tran(k1,k2)%addvar(ftran,fieldname)
      enddo
      enddo
 
@@ -384,15 +366,15 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         k2 = luh2type(n2)
         input_tran(k1,k2)%name=trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
-        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
+        call input_tran(k1,k2)%addvar(ftran,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
      enddo
      enddo
      ! add transitions that are not part "state1_to_state2" variable set
-     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
-     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
+     call input_tran(LU_NTRL,LU_SCND)%addvar(ftran,'primf_harv')
+     call input_tran(LU_NTRL,LU_SCND)%addvar(ftran,'primn_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secmf_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secyf_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secnf_harv')
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
@@ -401,16 +383,14 @@ subroutine land_transitions_init(id_ug, id_cellarea)
             'starting land use transitions, but land use state file is not specified',FATAL)
 
         ! open state file
-        ierr=nf_open(state_file,NF_NOWRITE,state_ncid)
-        if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'landuse state file "'// &
-             trim(state_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-        call get_time_axis(state_ncid, state_time_in)
+        call fstate%init(state_file,static_file,data_type)
+
         ! initialize state variable array
         do n2 = 1,size(luh2type)
            k2 = luh2type(n2)
            if (k2==LU_NTRL) cycle
            input_state(LU_NTRL,k2)%name='initial '//trim(landuse_name(LU_NTRL))//'2'//trim(landuse_name(k2))
-           call add_var_to_varset(input_state(LU_NTRL,k2),state_ncid,state_file,luh2name(n2))
+           call input_state(LU_NTRL,k2)%addvar(fstate,luh2name(n2))
         enddo
      endif
   case default
@@ -422,234 +402,20 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      do k1 = 1,size(input_tran,1)
      do k2 = 1,size(input_tran,2)
         if(input_tran(k1,k2)%name/='') &
-             write(*,'(a)') varset_descr(tran_ncid,input_tran(k1,k2))
+             write(*,'(a)') input_tran(k1,k2)%descr()
      enddo
      enddo
   endif
-  ! initialize the input data grid and horizontal interpolator
-  ! find any field that is defined in input data
-  id = -1
-l1:do k1 = 1,size(input_tran,1)
-  do k2 = 1,size(input_tran,2)
-     if (.not.allocated(input_tran(k1,k2)%id)) cycle
-     do k3 = 1,size(input_tran(k1,k2)%id(:))
-        if (input_tran(k1,k2)%id(k3)>0) then
-           id = input_tran(k1,k2)%id(k3)
-           exit l1 ! from all loops
-        endif
-     enddo
-  enddo
-  enddo l1
-
-  if (id<=0) call error_mesg('land_transitions_init',&
-         'could not find any land transition fields in the input file', FATAL)
-
-  ! we assume that all transition rate fields are specified on the same grid,
-  ! in both horizontal and time "directions". Therefore there is a single grid
-  ! for all fields, initialized only once.
-
-  __NF_ASRT__(nfu_inq_var(tran_ncid,id,dimids=dimids,dimlens=dimlens))
-  nlon_in = dimlens(1); nlat_in=dimlens(2)
-  ! allocate temporary variables
-  allocate(buffer_in(nlon_in,nlat_in), &
-           mask_in(nlon_in,nlat_in),   &
-           lon_in(nlon_in+1,1), lat_in(1,nlat_in+1) )
-  ! allocate module data
-  allocate(norm_in(nlon_in,nlat_in))
-
-  ! get the boundaries of the horizontal axes and initialize horizontal
-  ! interpolator
-  __NF_ASRT__(nfu_get_dim_bounds(tran_ncid, dimids(1), lon_in(:,1)))
-  __NF_ASRT__(nfu_get_dim_bounds(tran_ncid, dimids(2), lat_in(1,:)))
-
-  ! get the first record from variable and obtain the mask of valid data
-  ! assume that valid mask does not change with time
-  __NF_ASRT__(nfu_get_rec(tran_ncid,id,1,buffer_in))
-  ! get the valid range for the variable
-  __NF_ASRT__(nfu_get_valid_range(tran_ncid,id,v))
-  ! get the mask
-  where (nfu_is_valid(buffer_in,v))
-     mask_in = 1
-  elsewhere
-     mask_in = 0
-  end where
-
-  ! calculate the normalizing factor to convert input data to units of
-  ! [fraction of vegetated area per year]
-  select case (trim(lowercase(data_type)))
-  case ('luh1')
-     ! LUH1 (CMIP5) data were converted on pre-processing
-     norm_in = 1.0
-  case ('luh2')
-     ! read static file and calculate normalizing factor
-     ! LUH2 data are in [fraction of cell area per year]
-     if (trim(static_file)=='') call error_mesg('land_transitions_init', &
-          'using LUH2 data set, but static data file is not specified', FATAL)
-     ierr=nf_open(static_file,NF_NOWRITE,ncid1)
-     if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
-          'using LUH2 data set, but static data file "'// &
-          trim(static_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-     __NF_ASRT__(nfu_get_var(ncid1,'landfrac',buffer_in))
-     where (buffer_in > 0.0)
-        norm_in = 1.0/buffer_in
-     elsewhere
-        norm_in = 0.0
-        mask_in = 0
-     end where
-     ierr = nf_close(ncid1)
-  case default
-     call error_mesg('land_transitions_init','unknown data_type "'&
-                    //trim(data_type)//'", use "luh1" or "luh2"', FATAL)
-  end select
-
-  ! initialize horizontal interpolator
-  call horiz_interp_new(interp, lon_in*PI/180,lat_in*PI/180, &
-       lnd%sg_lonb, lnd%sg_latb, &
-       interp_method='conservative',&
-       mask_in=mask_in, is_latlon_in=.TRUE. )
-
-  ! get rid of temporary allocated data
-  deallocate(buffer_in, mask_in,lon_in,lat_in)
 
 end subroutine land_transitions_init
 
 ! ============================================================================
-subroutine get_time_axis(ncid, time_in)
-  integer, intent(in) :: ncid
-  type(time_type), allocatable :: time_in(:)
-
-  integer :: timedim ! id of the record (time) dimension
-  integer :: timevar ! id of the time variable
-  character(len=NF_MAX_NAME) :: timename  ! name of the time variable
-  character(len=256)         :: timeunits ! units ot time in the file
-  character(len=24) :: calendar ! model calendar
-  real, allocatable :: time(:)  ! real values of time coordinate
-  integer :: i, nrec
-
-  ! get the time axis
-  __NF_ASRT__(nf_inq_unlimdim(ncid, timedim))
-  __NF_ASRT__(nf_inq_dimlen(ncid, timedim, nrec))
-  allocate(time(nrec), time_in(nrec))
-  __NF_ASRT__(nfu_get_dim(ncid, timedim, time))
-  ! get units of time
-  __NF_ASRT__(nf_inq_dimname(ncid, timedim, timename))
-  __NF_ASRT__(nf_inq_varid(ncid, timename, timevar))
-  timeunits = ' '
-  __NF_ASRT__(nf_get_att_text(ncid,timevar,'units',timeunits))
-  ! get model calendar
-  calendar=valid_calendar_types(get_calendar_type())
-
-  ! loop through the time axis and get time_type values in time_in
-  if (index(lowercase(timeunits),'calendar_year')>0) then
-     do i = 1,size(time)
-        time_in(i) = set_date(nint(time(i)),1,1,0,0,0) ! uses model calendar
-     end do
-  else
-     do i = 1,size(time)
-        time_in(i) = get_cal_time(time(i),timeunits,calendar)
-     end do
-  endif
-  deallocate(time)
-end subroutine get_time_axis
-
-! ============================================================================
 subroutine land_transitions_end()
-
   module_is_initialized=.FALSE.
-  if (do_landuse_change) call horiz_interp_del(interp)
-  if(allocated(time_in)) deallocate(time_in)
-
+  ! close files and deallocate associated memory
+  call ftran%destroy();
+  call fstate%destroy();
 end subroutine land_transitions_end
-
-! ============================================================================
-subroutine add_var_to_varset(varset,ncid,filename,varname)
-   type(var_set_type), intent(inout) :: varset
-   integer     , intent(in) :: ncid     ! id of netcdf file
-   character(*), intent(in) :: filename ! name of the file (for reporting problems only)
-   character(*), intent(in) :: varname  ! name of the variable
-
-   integer, allocatable :: id(:)
-   integer :: varid, ierr
-
-   if (.not.allocated(varset%id)) then
-      allocate(varset%id(10))
-      varset%id(:) = -1
-   endif
-   if (varset%nvars >= size(varset%id)) then
-      ! make space for new variables
-      allocate(id(size(varset%id)+10))
-      id(:) = -1
-      id(1:varset%nvars) = varset%id(1:varset%nvars)
-      call move_alloc(id,varset%id)
-   endif
-
-   ierr = nfu_inq_var(ncid, trim(varname), id=varid)
-   select case(ierr)
-   case (NF_NOERR)
-      call error_mesg('land_transitions_init',&
-           'adding field "'//trim(varname)//'" from file "'//trim(filename)//'"'//&
-           ' to transition "'//trim(varset%name)//'"',&
-           NOTE)
-      varset%nvars = varset%nvars+1
-      varset%id(varset%nvars) = varid
-   case (NF_ENOTVAR)
-!       call error_mesg('land_transitions_init',&
-!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
-!            NOTE)
-   case default
-      call error_mesg('land_transitions_init',&
-           'error initializing field "'//varname//&
-           '" from file "'//trim(filename)//'" : '//nf_strerror(ierr), FATAL)
-   end select
-end subroutine add_var_to_varset
-
-! ============================================================================
-! read, aggregate, and interpolate set of transitions
-subroutine get_varset_data(ncid,varset,rec,frac)
-   integer, intent(in) :: ncid
-   type(var_set_type), intent(in) :: varset
-   integer, intent(in) :: rec
-   real, intent(out) :: frac(:)
-
-   real :: buff0(nlon_in,nlat_in)
-   real :: buff1(nlon_in,nlat_in)
-   integer :: i
-
-   frac = 0.0
-   buff1 = 0.0
-   do i = 1,varset%nvars
-     if (varset%id(i)>0) then
-        __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
-        buff1 = buff1 + buff0
-     endif
-   enddo
-   call horiz_interp_ug(interp,buff1*norm_in,frac)
-end subroutine get_varset_data
-
-! ============================================================================
-! returns a string representing the parts of the transition
-function varset_descr(ncid,varset) result(str)
-  character(:), allocatable :: str
-  integer, intent(in) :: ncid
-  type(var_set_type), intent(in) :: varset
-
-  character(NF_MAX_NAME) :: varname
-  integer :: i
-
-  str = trim(varset%name)//' = '
-  if (varset%nvars == 0) then
-     str = str//'0'
-  else
-     do i = 1, varset%nvars
-        __NF_ASRT__(nf_inq_varname(ncid,varset%id(i),varname))
-        if (i==1) then
-           str = str//trim(varname)
-        else
-           str = str//' + '//trim(varname)
-        endif
-     enddo
-  endif
-end function varset_descr
 
 ! ============================================================================
 subroutine save_land_transitions_restart(timestamp)
@@ -704,12 +470,12 @@ subroutine land_transitions (time)
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (time0==set_date(0001,01,01).and.state_ncid>0) then
+     if (time0==set_date(0001,01,01).and.fstate%ncid>0) then
         ! read initial transition from state file
-        call time_interp(time, state_time_in, w, i1,i2)
-        call get_varset_data(state_ncid,input_state(k1,k2),i1,frac)
+        call time_interp(time, fstate%time_in, w, i1,i2)
+        call input_state(k1,k2)%get_data(i1,frac)
      else
-        if (any(input_tran(k1,k2)%id(:)>0)) then
+        if (input_tran(k1,k2)%nvars>0) then
            call integral_transition(time0,time,input_tran(k1,k2),frac)
         endif
      endif
@@ -1314,7 +1080,7 @@ end subroutine add_to_transitions
 ! integral of transition rates) over the specified interval
 subroutine integral_transition(t1, t2, tran, frac, err_msg)
   type(time_type), intent(in)  :: t1,t2 ! time boundaries
-  type(var_set_type), intent(in)  :: tran ! id of the field
+  type(varset_T),  intent(in)  :: tran ! id of the field
   real           , intent(out) :: frac(:)
   character(len=*),intent(out), optional :: err_msg
 
@@ -1330,6 +1096,7 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
 
   msg = ''
   ! adjust the integration limits, in case they are out of range
+  associate(time_in => tran%file%time_in)
   n = size(time_in)
   ts = t1;
   if (ts<time_in(1)) ts = time_in(1)
@@ -1342,12 +1109,12 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
   endif
-  call get_varset_data(tran_ncid,tran,i1,frac)
+  call tran%get_data(i1,frac)
 
   dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
   sum = -frac*w*dt
   do while(time_in(i2)<=te)
-     call get_varset_data(tran_ncid,tran,i1,frac)
+     call tran%get_data(i1,frac)
      dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
      sum = sum+frac*dt
      i2 = i2+1
@@ -1359,9 +1126,10 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
   endif
-  call get_varset_data(tran_ncid,tran,i1,frac)
+  call tran%get_data(i1,frac)
   dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
   frac = sum+frac*w*dt
+  end associate
   ! check the transition rate validity
   do l = 1,size(frac(:))
      call set_current_point(l+lnd%ls-1,1)
