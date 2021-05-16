@@ -413,8 +413,8 @@ end subroutine land_transitions_init
 subroutine land_transitions_end()
   module_is_initialized=.FALSE.
   ! close files and deallocate associated memory
-  call ftran%destroy();
-  call fstate%destroy();
+  call ftran%destroy()
+  call fstate%destroy()
 end subroutine land_transitions_end
 
 ! ============================================================================

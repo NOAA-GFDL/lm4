@@ -13,11 +13,13 @@ use land_constants_mod, only : d608, kBoltz
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
-use time_manager_mod, only: time_type, time_type_to_real
-use diag_manager_mod, only : register_static_field, &
+use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
+use time_interp_mod, only : time_interp
+use diag_manager_mod, only : register_static_field, register_diag_field, &
      send_data
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, query_method, NO_TRACER
+use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
 use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
@@ -39,6 +41,7 @@ implicit none ; private
 public :: land_dust_init
 public :: land_dust_end
 public :: update_land_dust
+public :: update_dust_slow
 ! ==== end of public interfaces ================================================
 
 ! ==== module constants ========================================================
@@ -90,11 +93,25 @@ real :: ch         = 3.5e-10 ! dimensional factor [kg s2/m5]
 logical :: dependency_soil_moisture = .false.
 character(len=256) :: input_file_name = 'INPUT/dust_source.nc'
 character(len=64)  :: input_field_name = 'source'
+
+! irrigation-related settings
+logical             :: use_irrigation_frac = .FALSE. ! if true, irrigation fraction affects emissions
+character(len=1024) :: lu_state_file  = '' ! name of the land use state file (fractions of land use types)
+character(len=1024) :: lu_irrig_file  = '' ! name of the irrigation fraction file.
+! irrigation fractions must be in the same unis as the land use fraction, i.e. fractions of
+! *grid cell* area.
+! NOTE that in original LUH2 data set irrigation fractions are specified as fractions of
+! *crop area*, which would make consistent interpolation to coarser grids very challenging;
+! instead a simple pre-processing is used to convert those to the fractions of grid cell
+! area
+character(len=1024) :: lu_static_file = '' ! static data file, for input land fraction
+
 namelist /land_dust_nml/ &
    soil_depth, c1, lai_thresh, sai_thresh, &
    sliq_thresh, sice_thresh, snow_thresh, dependency_soil_moisture, &
    u_min, u_min_crop, u_min_past, u_min_range, frac_bare_crop, frac_bare_past, frac_bare_range, &
-   past_as_ntrl, crop_as_ntrl, range_as_ntrl, ch, input_file_name, input_field_name
+   past_as_ntrl, crop_as_ntrl, range_as_ntrl, ch, input_file_name, input_field_name, &
+   use_irrigation_frac, lu_state_file, lu_irrig_file, lu_static_file
 !---- end of namelist ----------------------------------------------------------
 
 
@@ -105,11 +122,15 @@ type(dust_data_type), allocatable :: trdata(:) ! data for specific dust tracers
 
 real, allocatable :: dust_source(:) ! geographically-dependent dust source
 
+real, allocatable :: irrigation_fraction(:) ! fraction of crop area that is irrigated
+character(len=5), parameter  :: cropName(5) = (/'c3ann', 'c4ann', 'c3per', 'c4per', 'c3nfx'/)
+type(infile_T), target :: fstate, firrig ! files for irrigation fraction input
+type(varset_T) :: vstate, virrig ! variables for irrigation input
 
-real, save    :: dt     ! fast time step, s
+real, save :: dt     ! fast time step, s
 
 !---- diag field IDs -----------------------------------------------------------
-integer :: id_soil_wetness, id_soil_iceness, id_dust_source, &
+integer :: id_soil_wetness, id_soil_iceness, id_dust_source, id_irrig_frac, &
            id_ddep_tot, id_wdep_tot, id_fatm_tot, id_emis_tot, &
            id_cana_dens, id_u_ts, id_bareness, id_w10m, id_snow_f
 
@@ -243,6 +264,25 @@ subroutine land_dust_init (id_ug, mask)
   allocate(dust_source(lnd%ls:lnd%le))
   call read_field( input_file_name, input_field_name, dust_source, interp='bilinear' )
 
+  ! initialize irrigation fraction field
+  call transition_io_init()
+  allocate(irrigation_fraction(lnd%ls:lnd%le))
+  irrigation_fraction(:) = 0.0
+  if (use_irrigation_frac) then
+     ! open state and irrigation files
+     call fstate%init(lu_state_file,lu_static_file,'LUH2')
+     call firrig%init(lu_irrig_file,lu_static_file,'LUH2')
+
+     vstate%name='land fraction occupied by crops'
+     virrig%name='land fraction occupied by irrigated crops'
+     do i=1,size(cropName)
+        call vstate%addvar(fstate,cropName(i))
+        call virrig%addvar(firrig,cropName(i)//'_irrig')
+     enddo
+
+     call read_irrigation_fraction(lnd%time,irrigation_fraction)
+  endif
+
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
   id_soil_wetness = register_tiled_diag_field(diag_name, 'soil_wetness', (/id_ug/),  &
@@ -276,6 +316,8 @@ subroutine land_dust_init (id_ug, mask)
   id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_ug/), &
        'topographical dust source', missing_value = -1.0 )
   if (id_dust_source > 0 ) used = send_data( id_dust_source, dust_source, lnd%time )
+  id_irrig_frac = register_diag_field ( diag_name, 'irrig_frac', (/id_ug/), lnd%time, &
+       'fraction of cropland that is irrigated', missing_value = -1.0 )
 
   do i = 1,n_dust_tracers
      name = trdata(i)%name
@@ -327,6 +369,10 @@ end subroutine land_dust_init
 subroutine land_dust_end()
   if (allocated(dust_source))   deallocate(dust_source)
   if (allocated(trdata))     deallocate(trdata)
+  ! deallocate irrigation-related data
+  if (allocated(irrigation_fraction)) deallocate(irrigation_fraction)
+  call fstate%destroy()
+  call firrig%destroy()
   module_is_initialized = .FALSE.
 end subroutine land_dust_end
 
@@ -634,5 +680,45 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   call send_tile_data(id_snow_f,       snow_fmass,   tile%diag)
 
 end subroutine update_dust_source
+
+! ==============================================================================
+subroutine update_dust_slow (time)
+  type(time_type), intent(in) :: time
+
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
+  logical :: used
+
+  call get_date(time,             year0,month0,day0,hour,minute,second)
+  call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  if(year0 /= year1) then
+     if (use_irrigation_frac) &
+        call read_irrigation_fraction(time,irrigation_fraction)
+  endif
+  if (id_irrig_frac > 0 ) used = send_data(id_irrig_frac, irrigation_fraction, time)
+end subroutine update_dust_slow
+
+! ==============================================================================
+! read irrigation fraction
+subroutine read_irrigation_fraction(time,irrigation_fraction)
+  type(time_type), intent(in) :: time
+  real, intent(out) :: irrigation_fraction(:)
+
+  real :: frac_crop (lnd%ls:lnd%le) ! fraction of land occupied cy crops
+  real :: frac_irr  (lnd%ls:lnd%le) ! fraction of land occupied by irrigated crops
+  integer :: i1,i2 ! time interpolation interval indices
+  real :: w ! time interpolation weight (unused)
+
+  call time_interp(time, fstate%time_in, w, i1,i2)
+  call vstate%get_data(i1,frac_crop)
+  call time_interp(time, firrig%time_in, w, i1,i2)
+  call vstate%get_data(i1,frac_irr)
+
+  where (frac_crop>0)
+     irrigation_fraction = frac_irr/frac_crop
+     irrigation_fraction = min(1.0,max(0.0,irrigation_fraction))
+  elsewhere
+     irrigation_fraction = 0.0
+  end where
+end subroutine read_irrigation_fraction
 
 end module land_dust_mod

@@ -116,6 +116,7 @@ use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
+use land_dust_mod, only : update_dust_slow
 
 implicit none
 private
@@ -2887,6 +2888,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   endif
 
   call update_vegn_slow( )
+  call update_dust_slow(lnd%time)
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%time)
 
