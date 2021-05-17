@@ -13,7 +13,7 @@ use land_constants_mod, only : d608, kBoltz
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
-use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, set_date, operator(-)
 use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_static_field, register_diag_field, &
      send_data
@@ -105,13 +105,14 @@ character(len=1024) :: lu_irrig_file  = '' ! name of the irrigation fraction fil
 ! instead a simple pre-processing is used to convert those to the fractions of grid cell
 ! area
 character(len=1024) :: lu_static_file = '' ! static data file, for input land fraction
+integer :: irrigation_year  = -1 ! if positive, the year of irrigation data that is used
 
 namelist /land_dust_nml/ &
    soil_depth, c1, lai_thresh, sai_thresh, &
    sliq_thresh, sice_thresh, snow_thresh, dependency_soil_moisture, &
    u_min, u_min_crop, u_min_past, u_min_range, frac_bare_crop, frac_bare_past, frac_bare_range, &
    past_as_ntrl, crop_as_ntrl, range_as_ntrl, ch, input_file_name, input_field_name, &
-   use_irrigation_frac, lu_state_file, lu_irrig_file, lu_static_file
+   use_irrigation_frac, lu_state_file, lu_irrig_file, lu_static_file, irrigation_year
 !---- end of namelist ----------------------------------------------------------
 
 
@@ -277,7 +278,7 @@ subroutine land_dust_init (id_ug, mask)
      virrig%name='land fraction occupied by irrigated crops'
      do i=1,size(cropName)
         call vstate%addvar(fstate,cropName(i))
-        call virrig%addvar(firrig,cropName(i)//'_irrig')
+        call virrig%addvar(firrig,trim(cropName(i))//'_irrig')
      enddo
 
      call read_irrigation_fraction(lnd%time,irrigation_fraction)
@@ -312,12 +313,12 @@ subroutine land_dust_init (id_ug, mask)
        lnd%time, 'dust emission', 'kg/(m2 s)', missing_value=-1.0)
   id_cana_dens = register_tiled_diag_field(diag_name, 'cana_dens', (/id_ug/),  &
        lnd%time, 'density of canopy air', 'kg/m3', missing_value=-1.0)
+  id_irrig_frac = register_tiled_diag_field (diag_name, 'irrig_frac', (/id_ug/), &
+       lnd%time, 'irrigated area fraction', missing_value = -1.0 )
 
   id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_ug/), &
        'topographical dust source', missing_value = -1.0 )
   if (id_dust_source > 0 ) used = send_data( id_dust_source, dust_source, lnd%time )
-  id_irrig_frac = register_diag_field ( diag_name, 'irrig_frac', (/id_ug/), lnd%time, &
-       'fraction of cropland that is irrigated', missing_value = -1.0 )
 
   do i = 1,n_dust_tracers
      name = trdata(i)%name
@@ -610,12 +611,16 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real :: sai, lai ! values of stem an leaf area indices, respectively
   integer :: tr ! tracer index
   logical :: treat_as_ntrl
+  real :: irr_frac ! irrigated fraction of tile
 
   u_ts     = 100.0 ! unrealistically big value guaranteed to be above ustar
   bareness = 1.0  ! value for bare ground
   soil_wetness = 0.0 ; soil_iceness = 0.0 ! for glaciers and lakes
   dust_emis = 0.0 ! default value
   u_thresh = u_min
+
+  irr_frac = 0.0
+
   call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
   if (associated(tile%soil)) then
     ! calculate soil average wetness and "iceness"
@@ -636,6 +641,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
           u_thresh      = u_min_crop
           bareness      = frac_bare_crop
           treat_as_ntrl = crop_as_ntrl
+          irr_frac      = irrigation_fraction(l)
        else ! NTRL or SCND
           u_thresh      = u_min
           treat_as_ntrl = .TRUE.
@@ -678,6 +684,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   call send_tile_data(id_bareness,     bareness,     tile%diag)
   call send_tile_data(id_w10m,         wind10,       tile%diag)
   call send_tile_data(id_snow_f,       snow_fmass,   tile%diag)
+  call send_tile_data(id_irrig_frac,   irr_frac,     tile%diag)
 
 end subroutine update_dust_source
 
@@ -694,7 +701,6 @@ subroutine update_dust_slow (time)
      if (use_irrigation_frac) &
         call read_irrigation_fraction(time,irrigation_fraction)
   endif
-  if (id_irrig_frac > 0 ) used = send_data(id_irrig_frac, irrigation_fraction, time)
 end subroutine update_dust_slow
 
 ! ==============================================================================
@@ -703,15 +709,22 @@ subroutine read_irrigation_fraction(time,irrigation_fraction)
   type(time_type), intent(in) :: time
   real, intent(out) :: irrigation_fraction(:)
 
+  type(time_type) :: irrig_time
   real :: frac_crop (lnd%ls:lnd%le) ! fraction of land occupied cy crops
   real :: frac_irr  (lnd%ls:lnd%le) ! fraction of land occupied by irrigated crops
   integer :: i1,i2 ! time interpolation interval indices
   real :: w ! time interpolation weight (unused)
 
-  call time_interp(time, fstate%time_in, w, i1,i2)
+  if (irrigation_year > 0) then
+     irrig_time = set_date(irrigation_year,1,1,0,0)
+  else
+     irrig_time = time
+  endif
+
+  call time_interp(irrig_time, fstate%time_in, w, i1,i2)
   call vstate%get_data(i1,frac_crop)
-  call time_interp(time, firrig%time_in, w, i1,i2)
-  call vstate%get_data(i1,frac_irr)
+  call time_interp(irrig_time, firrig%time_in, w, i1,i2)
+  call virrig%get_data(i1,frac_irr)
 
   where (frac_crop>0)
      irrigation_fraction = frac_irr/frac_crop
