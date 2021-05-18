@@ -98,10 +98,6 @@ integer, parameter :: tran_order(M_LU_TYPES) = (/LU_URBN, LU_CROP, LU_IRRIG, LU_
 
 ! TODO: describe differences between data sets
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 ! ==== data types ===========================================================
 ! a description of single transition
 type :: tran_type
@@ -113,17 +109,12 @@ end type tran_type
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
 
-integer :: nlon_in, nlat_in
-
 class(infile_T), pointer :: ftran=>NULL(), fstate=>NULL(), fmanag=>NULL()
 type(varset_T) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
 type(varset_T) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
 
 integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
-real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data to
-        ! units of [fractions of vegetated area per year]
 type(time_type) :: time0 ! time of previous transition calculations
-type(time_type) :: timel0 ! time of previous lake transition calculations
 
 integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
 integer :: overshoot_opt = -1 ! selector for overshoot handling options, for efficiency
@@ -159,9 +150,7 @@ integer :: &
 integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB, LUMIP_PST]
 
 ! variables for irrigation
-type(varset_T) :: input_manag  (1), input_flood(1) ! input management fields
-integer :: manag_ncid = -1
-type(time_type), allocatable :: manag_time_in(:) ! time axis in input data
+type(varset_T) :: input_manag  (1)!, input_flood(1) ! input management fields
 character(len=5), public, parameter  :: &
      crop_name (1) = (/'c3ann'/) !,'c4per', 'c3nfx' /)
 real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
@@ -173,6 +162,7 @@ real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0
                                                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))
 ! variables for reservoir
 logical :: module_is_initialized_lake = .FALSE.
+type(time_type) :: timel0 ! time of previous lake transition calculations
 class(infile_T), pointer :: infile_lake_tran  => NULL()
 class(infile_T), pointer :: infile_lake_state => NULL()
 class(infile_T), pointer :: infile_depth_rsv  => NULL()
@@ -181,9 +171,6 @@ type(varset_T) :: input_state_lake (2,2) ! input state field (for initial transi
 type(varset_T) :: input_depth_rsv
 character(len=5), parameter  :: &
      landuse_name_lake (2) = (/ 'lake','soil'/)
-!type(horiz_interp_type), save :: interp_lake ! interpolator for the input data
-real, allocatable :: norm_in_lake  (:,:) ! normalizing factor to convert input data to
-integer :: nlon_in_lake, nlat_in_lake
 real :: rsv_depth_min = 2.
 character(len=1024) :: input_lake_file  = '' ! input data set of lake transition dates
 character(len=1024) :: state_lake_file  = '' ! input data set of LU states (for initial transition only)
@@ -197,7 +184,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   integer, intent(in) :: id_cellarea !<id of cell area diagnostic fields
 
   ! ---- local vars
-  integer        :: unit, ierr, ncid1
+  integer        :: unit
   integer        :: year,month,day,hour,min,sec
   integer        :: k1,k2,k3, n1,n2
   character(12)  :: fieldname
@@ -407,18 +394,12 @@ subroutine lake_transitions_init(id_ug)
   integer, intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
-  integer        :: unit, ierr, ncid1
+  integer        :: unit
   integer        :: year,month,day,hour,mi,sec
   integer        :: k1,k2,k3, id, n1,n2, i1, i2, id_lake, l
   real           :: w
   real           :: frac(lnd%ls:lnd%le)
 
-  real, allocatable :: lon_in_lake(:,:),lat_in_lake(:,:) ! horizontal grid of input data
-  real, allocatable :: buffer_in_lake(:,:) ! buffers for input data reading
-  real, allocatable :: mask_in_lake(:,:) ! valid data mask on the input data grid
-
-  integer :: dimids_lake(NF_MAX_VAR_DIMS), dimlens_lake(NF_MAX_VAR_DIMS)
-  type(nfu_validtype) :: v_lake ! valid values range
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   real :: frac2land, whole_lake_area, Afrac_rsv_bak
@@ -481,8 +462,6 @@ subroutine lake_transitions_init(id_ug)
     if(timel0==set_date(0001,01,01).and.(.not.file_exist(state_lake_file))) &
       call error_mesg('lake_transitions_init','state_lake_file must exist when do_lake_change start', FATAL)
   endif
-
-! interp_lake
 
 ! initialize reservoir (rsv_depth, Afrac_rsv, Vfrac_rsv)
   if(.not.timel0==set_date(0001,01,01).and.is_rsv_restart)then
@@ -655,7 +634,6 @@ subroutine land_transitions_end()
 end subroutine land_transitions_end
 
 ! ============================================================================
-! <<<<<<< HEAD
 subroutine lake_transitions_end()
 
   module_is_initialized_lake=.FALSE.
@@ -665,33 +643,7 @@ subroutine lake_transitions_end()
 
 end subroutine lake_transitions_end
 
-subroutine get_varset_data_lake(filename,varset,rec,frac)
-   character(len=*), intent(in) :: filename
-   type(varset_T), intent(in) :: varset
-   integer, intent(in) :: rec
-   real, intent(out) :: frac(:)
-
-   !real :: buff0(nlon_in_lake,nlat_in_lake)
-   !real :: buff1(nlon_in_lake,nlat_in_lake)
-   !integer :: i
-
-   frac = 0.0
-   call read_data(filename, trim(varset%name), frac, lnd%sg_domain, lnd%ug_domain, timelevel=rec)
-   !buff1 = 0.0
-   !do i = 1,varset%nvars
-   !  if (varset%id(i)>0) then
-   !     __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
-   !     buff1 = buff1 + buff0
-   !  endif
-   !enddo
-   !call horiz_interp_ug(interp_lake,buff1*norm_in_lake,frac)
-
-end subroutine get_varset_data_lake
-
-
 ! ============================================================================
-! =======
-! >>>>>>> user/slm/transition-io
 subroutine save_land_transitions_restart(timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
@@ -758,7 +710,6 @@ subroutine land_transitions (time)
   call get_date(time,             year0,month0,day0,hour,minute,second)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
   if(year0 == year1) &
-!!$  if(day0 == day1) &
        return ! do nothing during a year
 
   if (mpp_pe()==mpp_root_pe()) &
