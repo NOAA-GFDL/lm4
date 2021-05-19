@@ -667,6 +667,9 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
     if ((snow_fmass < snow_thresh).and.(wind10 > u_ts)) then
       dust_emis = ch*bareness*dust_source(l)*(wind10-u_ts)*wind10**2
     endif
+    ! scale down dust emission with irrigated fraction, regardless of whether
+    ! irrigation is actually applied or not
+    dust_emis = dust_emis*(1.0-irr_frac)
   endif
 
   if (lnd%ug_landfrac(l)<0.9) dust_emis = 0
@@ -707,7 +710,7 @@ end subroutine update_dust_slow
 ! read irrigation fraction
 subroutine read_irrigation_fraction(time,irrigation_fraction)
   type(time_type), intent(in) :: time
-  real, intent(out) :: irrigation_fraction(:)
+  real, intent(out) :: irrigation_fraction(:) ! fraction of crop that is irriated
 
   type(time_type) :: irrig_time
   real :: frac_crop (lnd%ls:lnd%le) ! fraction of land occupied cy crops
