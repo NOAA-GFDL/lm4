@@ -8,7 +8,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only: error_mesg, NOTE,FATAL, file_exist, &
+use fms_mod, only: error_mesg, NOTE,FATAL, &
       check_nml_error, stdlog
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe, mpp_sync, stdout
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)

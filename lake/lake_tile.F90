@@ -4,13 +4,10 @@ module lake_tile_mod
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, read_data, close_file, stdlog
+use fms_mod, only: check_nml_error, stdlog
+use fms2_io_mod, only: open_file, close_file, read_data, register_axis, register_field, FmsNetcdfDomainFile_t, &
+                       & get_variable_num_dimensions, get_variable_dimension_names
 use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version
@@ -241,31 +238,19 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine read_lake_data_namelist(lake_n_lev)
   integer, intent(out) :: lake_n_lev
   ! ---- local vars
-  integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: i
   real    :: z
+  integer :: logunit
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=lake_data_nml, iostat=io)
-     ierr = check_nml_error(io, 'lake_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=lake_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'lake_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-  unit=stdlog()
-  write(unit, nml=lake_data_nml)
+  read (input_nml_file, nml=lake_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'lake_data_nml')
+
+  logunit=stdlog()
+  write(logunit, nml=lake_data_nml)
 
   ! initialize global module data here
 
@@ -523,14 +508,24 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
   real,    pointer    :: lake_frac (:,:) ! output: map of lake fractional coverage
   type(domain2d), intent(in) :: domain
   real :: lake_frac_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  character(len=30), allocatable :: dimnames(:)  !< Array of dimension names
+  type(FmsNetcdfDomainFile_t) :: fileobj  !< Domain decomposed fileobj
+  integer :: ndims  !< Number of dimensions
+
   allocate( lake_frac(size(land_mask(:)),n_dim_lake_types))
 
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
-     if (file_exist('INPUT/river_data.nc', domain)) then
-         call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, &
-                        domain=domain)
+     if (open_file(fileobj, 'INPUT/river_data.nc', 'read', domain)) then
+         ndims = get_variable_num_dimensions(fileobj, "lake_frac")
+         allocate(dimnames(ndims))
+         call get_variable_dimension_names(fileobj,"lake_frac" , dimnames)
+         call register_axis(fileobj, dimnames(1), "x")
+         call register_axis(fileobj, dimnames(2), "y")
+         call read_data(fileobj, 'lake_frac', lake_frac_sg)
          call mpp_pass_sg_to_ug(lnd%ug_domain, lake_frac_sg, lake_frac(:,1))
+         call close_file(fileobj)
      endif
      ! make sure 'missing values' don't get into the result
      where (lake_frac < 0) lake_frac = 0

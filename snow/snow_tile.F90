@@ -1,13 +1,8 @@
 module snow_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
+use fms_mod, only : check_nml_error, stdlog
 use constants_mod,only: PI,tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
@@ -171,21 +166,9 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   ! set default values for the first box: it covers the whole Earth unless
   ! set otherwise in the namelist.
   box_W(1)=-180.0; box_E(1)=180.0; box_S(1)=-90.0; box_N(1)=90.0
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snow_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snow_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   unit=stdlog()
   write(unit, nml=snow_data_nml)
 

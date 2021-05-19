@@ -3,7 +3,7 @@
 ! ============================================================================
 module glacier_mod
 
-use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, &
+use fms_mod, only : error_mesg, check_nml_error, stdlog, &
      mpp_pe, mpp_root_pe, FATAL, NOTE
 use mpp_mod, only: input_nml_file
 use time_manager_mod,   only: time_type_to_real

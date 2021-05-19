@@ -7,14 +7,14 @@ module topo_rough_mod
   use mpp_domains_mod,    only : domain2d, domainUG, mpp_pass_SG_to_UG, mpp_get_ug_compute_domain, &
                                  mpp_get_compute_domain
   use fms_mod,            only : error_mesg, FATAL, NOTE, &
-       open_restart_file, read_data, &
-       write_data, file_exist, check_nml_error, mpp_pe, &
+       check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
   use mpp_mod, only: input_nml_file
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev
   use land_data_mod,      only : log_version
-
+  use fms2_io_mod,        only : open_file, close_file, register_axis, register_field, FmsNetcdfDomainFile_t, read_data
+  use fms2_io_mod,        only : get_variable_num_dimensions, get_variable_dimension_names
 implicit none
 private
 ! ==== public interface ======================================================
@@ -96,6 +96,10 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
   real, allocatable :: topo_stdev_SG(:,:)
   logical :: used, got_stdev
 
+  type(FmsNetcdfDomainFile_t) :: topo_rough_fileobj
+  integer :: ndims
+  character(len=20), allocatable :: dimnames(:)
+
   call log_version(version, module_name, &
   __FILE__)
 
@@ -124,12 +128,19 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
      else if (trim(topo_rough_source)=='input') then
         call error_mesg('topo_rough_init','reading topography standard deviation from "'&
              //trim(topo_rough_file)//'"',NOTE)
-        if(.not.file_exist(topo_rough_file,SG_domain))&
+        if (.not. open_file(topo_rough_fileobj, topo_rough_file, "read", SG_domain)) &
              call error_mesg('topo_rough_init',            &
              'input file for topography standard deviation "'// &
              trim(topo_rough_file)//'" does not exist', FATAL)
-
-        call read_data(topo_rough_file,topo_rough_var,topo_stdev_SG,domain=SG_domain)
+        ndims = get_variable_num_dimensions(topo_rough_fileobj, topo_rough_var)
+        allocate(dimnames(ndims))
+        call get_variable_dimension_names(topo_rough_fileobj, topo_rough_var, dimnames)
+        call register_axis(topo_rough_fileobj, dimnames(1), "x")
+        call register_axis(topo_rough_fileobj, dimnames(2), "y")
+        call register_field(topo_rough_fileobj, topo_rough_var, "double", dimnames)
+        call read_data(topo_rough_fileobj, topo_rough_var, topo_stdev_SG)
+        deallocate(dimnames)
+        call close_file(topo_rough_fileobj)
      else
         call error_mesg('topo_rough_init','"'//trim(topo_rough_source)//&
              '" is not a valid value for topo_rough_source', FATAL)
