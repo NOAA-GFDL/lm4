@@ -47,16 +47,16 @@ real, public, protected :: overshoot_tolerance = 1e-4 ! tolerance interval for o
 character(len=16), public, protected :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 ! for irrigation
-character(len=1024), public, protected :: management_file = '' ! management data file, for input land fraction irrigated area
-logical, public, protected :: irrigation_on = .FALSE.
+character(len=1024), public, protected :: irrigation_file = '' ! irrigation data file
+logical, public, protected :: do_irrigation = .FALSE.
 
 character(len=1024), public, protected :: input_file_lake  = '' ! input data set of lake transition dates
 character(len=1024), public, protected :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
 character(len=1024), public, protected :: depth_file_rsv   = '' ! reservoir construction depth
 logical, protected, public :: do_lake_change = .FALSE.
 
-namelist/landuse_nml/do_landuse_change, irrigation_on, data_type, &
-     input_file, state_file, static_file, management_file,&
+namelist/landuse_nml/do_landuse_change, do_irrigation, data_type, &
+     input_file, state_file, static_file, irrigation_file,&
      rangeland_is_pasture, distribute_transitions, &
      overshoot_handling, overshoot_tolerance, &
      conservation_handling, &
