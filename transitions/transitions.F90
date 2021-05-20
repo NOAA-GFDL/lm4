@@ -784,7 +784,8 @@ subroutine land_transitions (time)
         enddo
 
         tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
-        call add_irrigation_transitions(area0(:), tran0, cost, irr_frac(l), atot, tran(l,:,:))
+        call add_irrigation_transitions(area0(:), tran0, cost, irr_frac(l), atot, &
+                tran(l,:,:), verbose=is_watch_cell())
      enddo
   endif ! irrigation
 
@@ -1828,12 +1829,11 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   area00(:) = area0(1:N_LU_TYPES)
   area00(LU_CROP) = area00(LU_CROP)+area0(LU_IRRIG)
 
-!  if (verbose_) then
- if (is_watch_cell()) then
+  if (verbose_) then
      write(*,*)'INPUT DATA'
      write(*,*)'initial land use fractions'
      do i = 1,M_LU_TYPES
-        !write(*,'(a," : ",g)') landuse_name(i),area00(i)
+        write(*,'(a," : ",g)') landuse_name(i),area00(i)
      enddo
      write(*,*)
      write(*,*)'initial transition matrix:'
@@ -1845,13 +1845,13 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
         write(*,*)
      enddo
      write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,N_LU_TYPES)
-     if ((area00(LU_CROP)) > 0) then
-        fi0 = area0(LU_IRRIG)/(area00(LU_CROP))
+     if (area00(LU_CROP) > 0) then
+        fi0 = area0(LU_IRRIG)/area00(LU_CROP)
      else
         fi0 = 0.0
      endif
-     !write(*,'(x,a,99(/2x,a,g:))') 'irrigated cropland fraction', 'before transition:',&
-               !fi0,'after transition:',fi1
+     write(*,'(x,a,99(/2x,a,g:))') 'irrigated cropland fraction', 'before transition:',&
+               fi0,'after transition:',fi1
      write(*,*)
      write(*,*)'relative cost of transitions:'
      do i = 1,M_LU_TYPES
@@ -1888,8 +1888,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   enddo
   enddo
 
-!  if (verbose_) then
- if (is_watch_cell()) then
+  if (verbose_) then
      write(*,*)
      write(*,*)
      write(*,'(x,a)')'transition index encoding:'
@@ -1914,7 +1913,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   m1 = 0
   m2 = 0
   m3 = 2 + 2*(N_LU_TYPES-1) ! eq 1,11, and N_LU_TYPES of eq 8,9
-  ! calculate # of equations (17) and 18
+  ! calculate # of equations (17) and (18)
   do i = 1,N_LU_TYPES
      if (i==LU_CROP) cycle
      do j = i+1,N_LU_TYPES
@@ -1927,8 +1926,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   m = m1 + m2 + m3  ! Total number of constraints
 
-!  if (verbose_) then
- if (is_watch_cell()) then
+  if (verbose_) then
      write(*,*)
      write(*,'(99(a,I2))') 'Number of variables       (n) :',N
      write(*,'(99(a,I2))') 'Number of constraints     (m) :',M
@@ -1947,8 +1945,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   enddo
   enddo
 
-!  if (verbose_) then
-  if (is_watch_cell()) then
+  if (verbose_) then
      write(*,*)
      write(*,*)'total cropland area after transitions:',area1(LU_CROP)
      write(*,*)'irrigated cropland area after transitions:',area1(LU_CROP)*fi1
@@ -2029,8 +2026,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      enddo
   enddo
 
-!  if (verbose_) then
-  if (is_watch_cell()) then
+  if (verbose_) then
      print *,' Input Table for simplx:'
      write(*,'(8x)',advance='NO')
      do i = 1,size(map1i)
@@ -2063,8 +2059,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 !    write(*,'(99f8.2)') (a(i,j),j=1,n+1)
 ! enddo
 
-!  if (verbose_) then
-  if (is_watch_cell()) then
+  if (verbose_) then
      print *,' '
      print *,' Maximum of objective function = ', A(1,1)
   endif
@@ -2072,17 +2067,16 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   do I=1, N
     do J=1, M
       if (IPOSV(J).eq.I) then
-        if (is_watch_cell()) then
+        if (verbose_) then
           write(*,'("  x",i2.2," = ",g10.3,x,a1,"->",a1)') I, A(J+1, 1),landuse_name(map1i(i)),landuse_name(map1j(i))
         endif
         goto 3
       end if
     end do
-    if (is_watch_cell()) then
+    if (verbose_) then
       write(*,'("  y",i2.2," = ",g10.3,x,a1,"->",a1)') I, 0.0, landuse_name(map1i(i)),landuse_name(map1j(i))
     endif
 3 end do
-!  print *,' '
 
   tran1(:,:) = 0.0
   tran1(1:N_LU_TYPES,1:N_LU_TYPES) = tran_temp(:,:)
@@ -2098,8 +2092,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   tran1 = tran1/atot
 
-!  if (verbose_) then
-  if (is_watch_cell()) then
+  if (verbose_) then
     write(*,*)
     write(*,*)'final transition matrix:'
     do i = 1,M_LU_TYPES
