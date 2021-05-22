@@ -98,14 +98,6 @@ integer, parameter :: tran_order(M_LU_TYPES) = (/LU_URBN, LU_CROP, LU_IRRIG, LU_
 
 ! TODO: describe differences between data sets
 
-! ==== data types ===========================================================
-! a description of single transition
-type :: tran_type
-   integer :: donor    = 0  ! kind of donor tile
-   integer :: acceptor = 0  ! kind of acceptor tile
-   real    :: frac     = 0  ! area of transition
-end type tran_type
-
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
 
@@ -418,8 +410,7 @@ subroutine lake_transitions_init(id_ug)
   ! ---- local vars
   integer        :: unit
   integer        :: year,month,day,hour,mi,sec
-  integer        :: k1,k2,k3, id, n1,n2, i1, i2, id_lake, l
-  real           :: w
+  integer        :: k1,k2,k3, n1,n2, l
   real           :: frac(lnd%ls:lnd%le)
 
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
@@ -694,7 +685,8 @@ subroutine land_transitions (time)
   integer :: src(M_LU_TYPES*M_LU_TYPES), dst(M_LU_TYPES*M_LU_TYPES) ! source and destination LU types
   real    :: frac(M_LU_TYPES*M_LU_TYPES) ! fraction of area undergoing transition
   ! variables for diagnostics
-  real    :: diag(lnd%ls:lnd%le)
+  real    :: diag(lnd%ls:lnd%le), part_of_year
+  integer :: sec, days
   logical :: used
 
   type(land_tile_enum_type) :: ce
@@ -719,6 +711,9 @@ subroutine land_transitions (time)
   ! get transition rates for current time: read map of transitions, and accumulate
   ! as many time steps in array of transitions as necessary.
   tran(:,:,:) = 0.0
+  ! calculate time interval, for diagnostics
+  call get_time(time-time0, sec,days)
+  part_of_year = (days+sec/86400.0)/days_in_year(time0)
   do k1 = 1,N_LU_TYPES
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
@@ -730,6 +725,9 @@ subroutine land_transitions (time)
         if (input_tran(k1,k2)%nvars>0) then
            call input_tran(k1,k2)%integrate(time0,time,tran(:,k1,k2))
         endif
+     endif
+     if(diag_ids(k1,k2)>0) then
+        used = send_data(diag_ids(k1,k2), frac/part_of_year, time)
      endif
   enddo
   enddo
@@ -1020,15 +1018,15 @@ subroutine lake_transitions (time)
   type(time_type), intent(in) :: time
 
   ! ---- local vars.
-  integer :: i,k,k1,k2,k3,i1,i2,l,m, m1,m2, n
+  integer :: k1,k2,i1,i2,l
   real, dimension(lnd%ls:lnd%le) :: frac
-  type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   real    :: w
-  real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  real, dimension(lnd%ls:lnd%le) :: atots, atotl
+  real, dimension(lnd%ls:lnd%le) :: &
+       atots, & ! total soil area in grid cell
+       atotl    ! total lake area in grid cell
   logical :: is_laketran = .True.
   type(time_type) :: time_adj
 
@@ -1037,7 +1035,6 @@ subroutine lake_transitions (time)
   call get_date(time,             year0,month0,day0,hour,minute,second)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
   if(year0 == year1) &
-!!$  if(day0 == day1) &
        return ! do nothing during a year
 
   if (mpp_pe()==mpp_root_pe()) &
@@ -1051,19 +1048,18 @@ subroutine lake_transitions (time)
     call read_rsv_depth(i1)
   endif
 
-  atots = 0. ; atotl = 0. !; rsv_depth = 0.
+  atots = 0.0 ; atotl = 0.0 !; rsv_depth = 0.
   do l = lnd%ls,lnd%le
-    ce = first_elmt(land_tile_map(l))
-    do while (loop_over_tiles(ce,tile))
-       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac !soil frac
-       if (associated(tile%lake))then
-         atotl(l) = atotl(l) + tile%frac !lake frac
-         if(.not.use_reservoir) tile%lake%rsv_depth = -1.
-       endif
-    enddo
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile))
+        if (associated(tile%soil)) atots(l) = atots(l) + tile%frac !soil frac
+        if (associated(tile%lake))then
+          atotl(l) = atotl(l) + tile%frac !lake frac
+          if(.not.use_reservoir) tile%lake%rsv_depth = -1.
+        endif
+     enddo
   enddo
 
-  transitions => NULL()
   !do k1 = 2,2 ! 1 is lake, and 2 is soil
   !do k2 = 1,1
      ! get transition rate for this specific transition
@@ -1081,18 +1077,16 @@ subroutine lake_transitions (time)
        if(lnd%ug_area(l)>0.)then
          frac(l) = frac(l)*(lnd%ug_cellarea(l)/lnd%ug_area(l)) !frac2land
        else
-         frac(l) = 0.
+         frac(l) = 0.0
        endif
        !if(k1==2.and.k2==1)then !from soil to lake
          frac(l) = min(atots(l), frac(l))
-         if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell.
+         if(atotl(l)<=0.0) frac(l)=0.0 !Currently we do not build reservoir if there is no original lake in the gridcell.
        !else !from lake to soil
          !frac(l) = min(atotl(l), frac(l))
          !if(atots(l)==0.) frac(l)=0.
        !endif
      enddo
-
-     call add_to_transitions(frac,time0,time,2,1,transitions, is_laketran)
   !enddo
   !enddo
 
@@ -1102,13 +1096,10 @@ subroutine lake_transitions (time)
      call set_current_point(l,1)
      ! transition land area between different tile types
      call lake_transitions_0d(land_tile_map(l), &
-          transitions(l,1)%donor, &
-          transitions(l,1)%acceptor,&
-          transitions(l,1)%frac)
+          2, &
+          1,&
+          frac(l))
   enddo
-
-  ! deallocate array of transitions
-  if (associated(transitions)) deallocate(transitions)
 
   ! store current time for future reference
   timel0=time
@@ -1717,64 +1708,6 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(P); real :: P
      P = max(min(tau,1.0),0.0)
   endif
 end function vegn_tran_priority
-
-
-! ============================================================================
-
-subroutine add_to_transitions(frac, time0,time1,k1,k2,tran,is_laketran)
-  real, intent(in) :: frac(lnd%ls:lnd%le)
-  type(time_type), intent(in) :: time0       ! time of previous calculation of
-    ! transitions (the integral transitions will be calculated between time0
-    ! and time)
-  type(time_type), intent(in) :: time1       ! current time
-  integer, intent(in) :: k1,k2               ! kinds of tiles
-  type(tran_type), pointer :: tran(:,:)    ! transition info
-  logical, intent(in), optional :: is_laketran
-
-  ! ---- local vars
-  integer :: k,sec,days,l
-  type(tran_type), pointer :: ptr(:,:) => NULL()
-  real    :: part_of_year
-  logical :: used
-
-  ! allocate array of transitions, if necessary
-  if (.not.associated(tran)) allocate(tran(lnd%ls:lnd%le,1))
-
-  do l = lnd%ls, lnd%le
-     if(frac(l) == 0) cycle ! skip points where transition rate is zero
-     ! find the first empty transition element for the current indices
-     k = 1
-     do while ( k <= size(tran,2) )
-        if(tran(l,k)%donor == 0) exit
-        if(tran(l,k)%donor == k1.and.tran(l,k)%acceptor==k2) exit
-        k = k+1
-     enddo
-
-     if (k>size(tran,2)) then
-        ! if there is no room, make the array of transitions larger
-        allocate(ptr(lnd%ls:lnd%le,size(tran,2)*2))
-        ptr(:,1:size(tran,2)) = tran
-        deallocate(tran)
-        tran => ptr
-        nullify(ptr)
-     end if
-
-     ! store the transition element
-     tran(l,k) = tran_type(k1,k2,frac(l))
-  enddo
-
-  if(present(is_laketran))then
-    if(is_laketran) return
-  endif
-
-  ! send transition data to diagnostics
-  if(diag_ids(k1,k2)>0) then
-    call get_time(time1-time0, sec,days)
-    part_of_year = (days+sec/86400.0)/days_in_year(time0)
-    used = send_data(diag_ids(k1,k2), frac/part_of_year, time1)
-  endif
-
-end subroutine add_to_transitions
 
 !=================================================================
 subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
