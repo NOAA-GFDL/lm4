@@ -72,7 +72,8 @@ use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
-                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
+                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon, &
+                          vegn_check_cohort_order
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_cover_cold_start, &
@@ -1707,6 +1708,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call check_var_range(p_surf,     0.0, HUGE(1.0), 'land model input', 'p_surf',      WARNING)
   ! not checking fluxes and their derivatives, since they can be either positive
   ! or negative, and it is hard to determine valid ranges for them.
+
+!   if (associated(tile%vegn)) then
+!      call vegn_check_cohort_order(tile%vegn,'update_land_model_fast_0d')
+!   endif
 
   Ea0    = tr_flux(isphum) ; DEaDqc  = dfdtr(isphum)
   fco2_0 = tr_flux(ico2)   ; Dfco2Dq = dfdtr(ico2)

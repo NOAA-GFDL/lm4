@@ -54,7 +54,8 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
      tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
-     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
+     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE, &
+     zbot_assumption_bug
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -2291,6 +2292,7 @@ subroutine update_derived_vegn_data(vegn, soil)
   real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in the layer
   real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in the layer
   integer :: current_layer
+  real, allocatable :: layer_top(:) ! height of the tallest vegeattion in layer, for zbot calculations
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
   real :: scale
@@ -2408,22 +2410,6 @@ subroutine update_derived_vegn_data(vegn, soil)
     cc%Wl_max        = spdata(sp)%cmc_lai*cc%leafarea
     cc%Ws_max        = spdata(sp)%csc_lai*cc%leafarea
     cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
-    if (is_watch_point()) then
-       write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc%layer
-       call dpri('frac',cc%layerfrac)
-       call dpri('height',cc%height)
-       call dpri('LAI',cc%lai)
-
-       ! call dpri('bl',cc%bl)
-       ! call dpri('leafarea',cc%leafarea)
-       call dpri('crownarea',cc%crownarea)
-       call dpri('nindivs',cc%nindivs)
-       ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
-       ! call dpri('layerarea',layer_area(cc%layer))
-       call dpri('species',spdata(sp)%name)
-
-       write(*,*)
-    endif
   enddo
 
   if (is_watch_point()) then
@@ -2433,15 +2419,37 @@ subroutine update_derived_vegn_data(vegn, soil)
   call check_var_range(vegn%cohorts(1:vegn%n_cohorts)%layerfrac, 0.0, 1.0, 'update_derived_vegn_data', 'layerfrac', FATAL)
 
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
-  ! this code assumes that cohorts are arranged in descending order
-  zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
-  do k = vegn%n_cohorts, 1, -1
-    if (vegn%cohorts(k)%layer/=current_layer) then
-       zbot = vegn%cohorts(k+1)%height
-       current_layer = vegn%cohorts(k)%layer
-    endif
-    vegn%cohorts(k)%zbot = zbot
-  enddo
+  if(zbot_assumption_bug) then
+     ! this code assumes that cohorts are always arranged in descending order of height.
+     ! This may not be correct because cohorts are arranged in order of "effective
+     ! height" -- e.g. when "trees squeeze grass" or "trees top grass," grasses are
+     ! always at the end of the cohort array regardless of their height; "effective
+     ! height" also affected by species layer_height_factor.
+     zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
+     do k = vegn%n_cohorts, 1, -1
+       if (vegn%cohorts(k)%layer/=current_layer) then
+          zbot = vegn%cohorts(k+1)%height
+          current_layer = vegn%cohorts(k)%layer
+       endif
+       vegn%cohorts(k)%zbot = zbot
+     enddo
+  else
+     ! this code does not make height-order assumptions, and also ensures that
+     ! zbot<=height
+     allocate(layer_top(n_layers+1))
+     layer_top(:) = 0.0
+     do k = 1, vegn%n_cohorts
+        cc=>vegn%cohorts(k)
+        layer_top(cc%layer) = max(layer_top(cc%layer),cc%height)
+     enddo
+     do k = 1, vegn%n_cohorts
+        cc=>vegn%cohorts(k)
+        cc%zbot = layer_top(cc%layer+1)
+        if(cc%zbot>cc%height) cc%zbot = cc%height
+     enddo
+     deallocate(layer_top)
+  endif
+
 
   ! calculate volumetric root length for the entire tile
   VRL(:) = 0.0
@@ -2457,6 +2465,25 @@ subroutine update_derived_vegn_data(vegn, soil)
   elsewhere
      vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway
   end where
+
+  if (is_watch_point()) then
+     do k = 1, vegn%n_cohorts
+        cc=>vegn%cohorts(k)
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc%layer
+        call dpri('frac',cc%layerfrac)
+        call dpri('height',cc%height)
+        call dpri('zbot',cc%zbot)
+        call dpri('LAI',cc%lai)
+        ! call dpri('bl',cc%bl)
+        ! call dpri('leafarea',cc%leafarea)
+        call dpri('crownarea',cc%crownarea)
+        call dpri('nindivs',cc%nindivs)
+        ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
+        ! call dpri('layerarea',layer_area(cc%layer))
+        call dpri('species',spdata(cc%species)%name)
+        write(*,*)
+     enddo
+  endif
 
   deallocate(layer_area,area_t,area_g,scale_t,scale_g)
 end subroutine update_derived_vegn_data
