@@ -23,7 +23,7 @@ use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
 use snow_tile_mod, only : snow_tile_stock_pe
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
-use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
+use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL, LU_RANGE
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use land_data_mod, only : lnd, log_version
@@ -79,8 +79,13 @@ real :: snow_thresh= 1.0  ! snow threshold, kg/m2
 real :: u_min      = 2.0  ! units m/s
 real :: u_min_crop = 2.0  ! units m/s
 real :: u_min_past = 4.0  ! units m/s
+real :: u_min_range = 4.0  ! units m/s
 real :: frac_bare_crop = 0.25 ! fraction of bare surface for cropfields
 real :: frac_bare_past = 0.25 ! fraction of bare surface for pasture
+real :: frac_bare_range = 0.25 ! fraction of bare surface for pasture
+logical :: range_as_ntrl = .TRUE. ! if TRUE, rangeland is teated the same way as NTRL
+                              ! or SCND, as it was in LM4.1
+logical :: past_as_ntrl = .FALSE., crop_as_ntrl = .FALSE.
 real :: ch         = 3.5e-10 ! dimensional factor [kg s2/m5]
 logical :: dependency_soil_moisture = .false.
 character(len=256) :: input_file_name = 'INPUT/dust_source.nc'
@@ -88,8 +93,8 @@ character(len=64)  :: input_field_name = 'source'
 namelist /land_dust_nml/ &
    soil_depth, c1, lai_thresh, sai_thresh, &
    sliq_thresh, sice_thresh, snow_thresh, dependency_soil_moisture, &
-   u_min, u_min_crop, u_min_past, frac_bare_crop, frac_bare_past, &
-   ch, input_file_name, input_field_name
+   u_min, u_min_crop, u_min_past, u_min_range, frac_bare_crop, frac_bare_past, frac_bare_range, &
+   past_as_ntrl, crop_as_ntrl, range_as_ntrl, ch, input_file_name, input_field_name
 !---- end of namelist ----------------------------------------------------------
 
 
@@ -512,7 +517,7 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
   call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
-  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)  
+  call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)
   call send_tile_data(id_cana_dens, rho,       tile%diag)
 
   ! + conservation check, part 2: calculate totals in final state, and compare
@@ -531,9 +536,17 @@ end subroutine update_land_dust
 
 
 ! ==============================================================================
+! Note that 2021-04-27 update introduced two logical options (crop_as_ntrl and
+! past_as_ntrl, both default to FALSE) in addition to existing range_as_ntrl (TRUE
+! by default) and slightly changed the way calculations of wind thresholds and
+! bareness are done, to provide more control over the dust emission from
+! agricultural tiles.
+!
+! As a consequence, to reproduce LM4.1 one needs to set namelist parameter
+! u_min_range in dust_nml to the same value as u_min.
 subroutine update_dust_source(tile, l, ustar, wind10, emis)
   type(land_tile_type), intent(inout) :: tile ! it is only "inout" because diagnostics is sent to it
-  integer :: l ! unstructured grid indices 
+  integer :: l ! unstructured grid indices
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(inout) :: emis(:)
@@ -550,6 +563,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real :: dust_emis
   real :: sai, lai ! values of stem an leaf area indices, respectively
   integer :: tr ! tracer index
+  logical :: treat_as_ntrl
 
   u_ts     = 100.0 ! unrealistically big value guaranteed to be above ustar
   bareness = 1.0  ! value for bare ground
@@ -560,19 +574,30 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   if (associated(tile%soil)) then
     ! calculate soil average wetness and "iceness"
     call soil_ave_wetness(tile%soil, soil_depth, soil_wetness, soil_iceness)
-    ! calculate snow properties
+    ! calculate vegetation-related properties
+    lai = vegn_tile_LAI(tile%vegn)
+    sai = vegn_tile_SAI(tile%vegn)
     if (associated(tile%vegn)) then
        if (tile%vegn%landuse .eq. LU_PAST ) then
-          u_thresh = u_min_past
-          bareness = frac_bare_past
+          u_thresh      = u_min_past
+          bareness      = frac_bare_past
+          treat_as_ntrl = past_as_ntrl
+       else if (tile%vegn%landuse .eq. LU_RANGE) then
+          u_thresh      = u_min_range
+          bareness      = frac_bare_range
+          treat_as_ntrl = range_as_ntrl
        else if (tile%vegn%landuse .eq. LU_CROP ) then
-          u_thresh = u_min_crop
-          bareness = frac_bare_crop
+          u_thresh      = u_min_crop
+          bareness      = frac_bare_crop
+          treat_as_ntrl = crop_as_ntrl
        else ! NTRL or SCND
-          lai = vegn_tile_LAI(tile%vegn)
-          sai = vegn_tile_SAI(tile%vegn)  
+          u_thresh      = u_min
+          treat_as_ntrl = .TRUE.
+       endif
+
+       ! override bareness and wind threshold for tiles treated as natural vegetation
+       if(treat_as_ntrl) then
           if ((lai<lai_thresh) .and. (sai<sai_thresh)) then
-             u_thresh=u_min
              bareness = exp( -2.0*lai/2.0-10.*sai)
           else
              u_thresh=u_ts
