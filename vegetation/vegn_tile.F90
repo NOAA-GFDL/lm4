@@ -6,7 +6,7 @@ use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point, check_var_range
+use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
@@ -51,6 +51,7 @@ public :: vegn_mergecohorts_lm3 ! merge two cohorts in LM3 mode (one cohort per 
 public :: vegn_mergecohorts_ppa ! reduce number of cohorts in given vegetation tile
                            ! by merging as many as possible
 public :: vegn_relayer_cohorts_ppa ! recalculate the cohort layers
+public :: vegn_check_cohort_order
 
 public :: vegn_cover_cold_start
 
@@ -813,6 +814,24 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
 
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_relayer_cohorts_ppa
+
+! ============================================================================
+! check that cohorts are in order
+subroutine vegn_check_cohort_order(vegn, text)
+  type(vegn_tile_type), intent(in) :: vegn
+  character(*),         intent(in) :: text
+
+  integer :: k ! cohort index
+
+  associate (cc=>vegn%cohorts)
+  do k = 2,vegn%n_cohorts
+     if (cc(k)%layer < cc(k-1)%layer) then
+        call land_error_message(trim(text)//': cohort layers are out of order', WARNING)
+        exit
+     endif
+  enddo
+  end associate
+end subroutine vegn_check_cohort_order
 
 ! ============================================================================
 ! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even
