@@ -2744,8 +2744,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 end subroutine update_land_model_fast_0d
 
 ! ============================================================================
-! givean a tile, calculate resisrances between canopy air and each cohort, and
-! between canopy air and underlying surafce
+! given a tile, calculate resistances between canopy air and each cohort, and
+! between canopy air and underlying surface
 subroutine land_turbulence(tile, &
      p_surf, & ! surface pressure, N/m2
      atmos_wind, & ! wind at the bottom of the atmosphere, m/s
@@ -2767,9 +2767,9 @@ subroutine land_turbulence(tile, &
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), con_v_stem(:),  & ! one-sided foliage-CAS conductance per unit ground area
        con_g_h   , con_g_v, &       ! ground-CAS turbulent conductance per unit ground area
-       con_g_turb,  &     ! turbulent conductance per unit ground area (does not iinclude ground laminar conductance), m/s
+       con_g_turb,  &     ! turbulent conductance per unit ground area (does not include ground laminar conductance), m/s
        r_bl_h2o           ! ground laminar resistance for h2o, s/m
-  
+
 
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: current_layer, i
@@ -2797,7 +2797,7 @@ subroutine land_turbulence(tile, &
      gaps = gaps*layer_gaps ! take the last layer into account
 
      ! calculate aerodynamic conductance coefficients between canopy air and vegetation
-     call cana_v_turb(ustar, 1-gaps, &
+     call cana_v_turb(ustar, 1-gaps, tile%vegn%aerodyn_height, &
         cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
         tile%land_d, tile%land_z0m, &
         ! output:
@@ -2811,9 +2811,10 @@ subroutine land_turbulence(tile, &
         r_evap, r_sens, d_visc, r_bl_h2o)
 
      ! calculate aerodynamic conductance coefficients between canopy air and ground
-     call cana_g_turb (ustar, a, 1-gaps, &
-       cc(:)%layerfrac, cc(:)%height, cc(:)%lai, cc(:)%sai, &
+     call cana_g_turb (ustar, a, 1-gaps, tile%vegn%aerodyn_height, &
+       cc(:)%layerfrac, cc(:)%lai, cc(:)%sai, &
        tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, d_visc, &
+       ! output:
        con_g_h, con_g_v)
 
      if(is_watch_point()) then
@@ -2822,7 +2823,7 @@ subroutine land_turbulence(tile, &
         __DEBUG4__(tile%land_d, tile%land_z0s, tile%land_z0m, tile%grnd_z0s)
         __DEBUG1__(con_v_h)
         __DEBUG1__(con_v_v)
-        __DEBUG1__(con_v_stem)        
+        __DEBUG1__(con_v_stem)
      endif
   else
      con_v_h = 0.0 ; con_v_v = 0.0 ;  con_v_stem = 0.0
@@ -2836,7 +2837,7 @@ subroutine land_turbulence(tile, &
   endif
 
   con_g_turb = con_g_h
-  
+
   con_g_h = con_g_h/(1.0+r_sens*con_g_h)
   con_g_v = con_g_v/(1.0+r_evap*con_g_v)
   if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
@@ -3633,7 +3634,8 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      ! vegn_diffusion returns integral properties of the canopy, relevant for the
      ! calculations of the land roughness and displacement
      call vegn_diffusion ( tile%vegn, snow_depth, &
-                   vegn_cover, vegn_height, vegn_lai, vegn_sai)
+                   vegn_cover, vegn_lai, vegn_sai)
+     vegn_height   = tile%vegn%aerodyn_height
      ! assign layers and fractions
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
      vegn_frac (:) = tile%vegn%cohorts(1:N)%layerfrac
@@ -4770,7 +4772,7 @@ subroutine send_cellfrac_cohort_data(id, ttest, ctest, scale)
   real :: scale_
 
   if (.not.id>0) return ! do nothing if the field was not registered
-  scale_ = 100.0 ! by fractions are in percent
+  scale_ = 100.0 ! fractions are in percent
   if (present(scale)) scale_ = scale
 
   frac(:) = 0.0

@@ -203,9 +203,12 @@ type :: vegn_tile_type
    real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire first day, for computing fire coalescence.
    real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires
 
+   real :: aerodyn_height          = 0.0 ! aerodynamic height of vegetation as whole, m
+
    ! it is probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
    real :: rh =0.0 ! soil carbon lost to the atmosphere
+
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
