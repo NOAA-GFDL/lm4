@@ -467,7 +467,7 @@ subroutine cana_v_turb (ustar, &
         else
            con_v_h(i) = vegn_lai(i)*gb
         endif
-        con_v_stem = vegn_sai(i)*gb
+        con_v_stem(i) = vegn_sai(i)*gb
      enddo
 
   case(TURB_R1996)
