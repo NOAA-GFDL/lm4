@@ -98,11 +98,16 @@ contains
   procedure :: get_data => varset_get_data
 end type varset_T
 
+! ---- module variables
+logical :: module_is_initialized = .FALSE.
+
 contains
 
 subroutine transition_io_init()
+  if(module_is_initialized) return
   call log_version(version, module_name, &
   __FILE__)
+  module_is_initialized = .TRUE.
 end subroutine transition_io_init
 
 ! ==== infile_T member functions =============================================
