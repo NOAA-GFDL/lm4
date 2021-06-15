@@ -435,41 +435,25 @@ subroutine cana_v_turb (ustar, &
      a  = max(vegn_cover,0.0)*a_max
      if(vegn_cover > 0) then
         ztop = aerodyn_height
-
         utop  = ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
+
         do i = 1,size(vegn_lai)
-           height = vegn_height(i) ! effective height of the vegetation
-           h0     = vegn_bottom(i) ! height of the bottom of the canopy
-           if(height-h0>min_thickness) then
-              con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(utop/vegn_d_leaf(i))*ztop/(height-h0)&
-                 *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
-           else
-              ! thin cohort canopy limit
-              con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(utop/vegn_d_leaf(i))&
-                 *exp(-a/2*(ztop-height)/ztop)
-           endif
+           call test(ztop, vegn_bottom(i), vegn_height(i), utop, a, vegn_d_leaf(i), gb)
+           con_v_h(i) = gb*vegn_lai(i)
         enddo
      else
-        con_v_h = 0
+        con_v_h(:) = 0
      endif
-     con_v_v = con_v_h
-     con_v_stem = con_v_h
-  case(TURB_LM3V)
-     ztop = max(aerodyn_height,min_height)
+     con_v_v(:)    = con_v_h(:)
+     con_v_stem(:) = con_v_h(:)
 
+  case(TURB_LM3V)
      a = a_max
-     utop=ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
+     ztop = max(aerodyn_height,min_height)
+     utop = ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
 
      do i = 1,size(vegn_lai)
-        height = max(vegn_height(i),min_height) ! effective height of the vegetation
-        h0     = vegn_bottom(i) ! height of the canopy bottom above ground
-        if(height-h0>min_thickness) then
-           gb = 2*leaf_co*sqrt(utop/vegn_d_leaf(i))*ztop/(height-h0)&
-              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
-        else
-           ! thin cohort canopy limit
-           gb = leaf_co*sqrt(utop/vegn_d_leaf(i)) * exp(-a/2*(ztop-height)/ztop)
-        endif
+        call test(ztop, vegn_bottom(i), max(vegn_height(i),min_height), utop, a, vegn_d_leaf(i), gb)
         con_v_v(i) = vegn_lai(i)*gb
         if (use_SAI_for_heat_exchange) then
            con_v_h(i) = (vegn_lai(i)+vegn_sai(i))*gb
@@ -491,15 +475,8 @@ subroutine cana_v_turb (ustar, &
      a       = u_ratio/(vonkarm*rsl_factor)*ztop/(ztop - land_d)
 
      do i = 1,size(vegn_lai)
-        height = vegn_height(i) ! effective height of the cohort canopy top above ground
-        h0     = vegn_bottom(i) ! height of the cohort canopy bottom above ground
-        if(height-h0>min_thickness) then
-           gb = 2*leaf_co*sqrt(utop/vegn_d_leaf(i))*ztop/(height-h0)&
-              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
-        else
-           ! thin cohort canopy limit
-           gb = leaf_co*sqrt(utop/vegn_d_leaf(i)) * exp(-a/2*(ztop-height)/ztop)
-        endif
+        call test(ztop, vegn_bottom(i), vegn_height(i), utop, a, vegn_d_leaf(i), gb)
+
         con_v_v(i) = vegn_lai(i)*gb
         ! should we use 2*LAI+SAI for heat, since leaves are two-sided?
         if (use_SAI_for_heat_exchange) then
@@ -537,6 +514,37 @@ subroutine cana_v_turb (ustar, &
 
   call send_tile_data(id_wind_decay, a, diag)
 end subroutine cana_v_turb
+
+
+subroutine test(Ha, Hb, Ht, Utop, a, d_leaf, gb)
+  real, intent(in)  :: Ha     ! aerodynamic height of the vegetation, m
+  real, intent(in)  :: Hb, Ht ! bottom and top of the cohort's canopy, m
+  real, intent(in)  :: Utop   ! wind speed at the top of vegetation (Ha), m/s
+  real, intent(in)  :: a      ! coefficient of wind exponemtial decay below Ha, unitless
+  real, intent(in)  :: d_leaf ! leaf dimension, m
+  real, intent(out) :: gb     ! conductance between cohort's canopy and canopy air, normalized per unit LAI
+
+  real, parameter :: leaf_co = 0.01 ! quasi-laminar conductance coefficient,
+                              ! Choudhury and Monteith (1988), m s^(-1/2)
+  real, parameter :: min_thickness = 0.01 ! cohort canopy thickness for switching to
+                              ! thin-canopy approximation, m
+  if (is_watch_point()) then
+     __DEBUG4__(Ha,Hb,Ht,Utop)
+     __DEBUG2__(a,d_leaf)
+  endif
+  if(Ht-Hb > min_thickness) then
+     gb = 2*leaf_co*sqrt(utop/d_leaf)*Ha/(Ht-Hb)&
+        *(exp(-a/2*(Ha-Ht)/Ha)-exp(-a/2*(Ha-Hb)/Ha))/a
+  else
+     ! thin cohort canopy limit
+     gb = leaf_co*sqrt(utop/d_leaf) * exp(-a/2*(Ha-Ht)/Ha)
+  endif
+  if (is_watch_point()) then
+     __DEBUG1__(gb)
+  endif
+  call check_var_range(gb, 0.0, HUGE(1.0), 'test', 'gb', FATAL)
+end subroutine
+
 
 ! ============================================================================
 ! given vegetation properties, calculate aerodynamic conductances coefficients
