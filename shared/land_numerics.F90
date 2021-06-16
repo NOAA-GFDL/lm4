@@ -28,6 +28,8 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: land_numerics_init
+
 public :: bisect    ! finds a position of point in array of bounds
 public :: lin_int   ! linear interpolation
 public :: ludcmp, lubksb, lubksb_and_improve ! LU decomposition and back substitution
@@ -46,8 +48,6 @@ public :: gammaln ! ln(gamma); useful for ratio of gamma functions
 public :: erfi ! imaginary error function
 
 public :: rank_descending ! rank the input array in descending order
-
-public :: numerics_init
 ! ==== end of public interfaces ==============================================
 
 
@@ -64,7 +64,7 @@ interface nearest
    module procedure nearest1D, nearest2D, nearestUG
 end interface
 
-logical :: module_is_initialized =.FALSE.
+logical :: module_is_initialized = .FALSE.
 ! ==== module constants ======================================================
 character(len=*), parameter :: mod_name = 'land_numerics'
 #include "../shared/version_variable.inc"
@@ -101,17 +101,19 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 ! Initializes the numerics module.
-subroutine numerics_init()
+subroutine land_numerics_init()
   integer :: i
 
-  module_is_initialized =.TRUE.
+  if (module_is_initialized) return
   call log_version(version, mod_name, thisfile)
 
-  ! initialize Dawson function pre-computed coefficients
+  ! pre-compute coefficients for Dawson function
   do i = 0, DAWSON_NMAX-1
      dawson_c(i+1)=exp(-(DAWSON_H*(2.0*i+1.0))**2)
   enddo
-end subroutine numerics_init
+
+  module_is_initialized =.TRUE.
+end subroutine land_numerics_init
 
 
 ! ============================================================================

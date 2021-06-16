@@ -79,7 +79,7 @@ use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
 use glac_tile_mod, only : glac_cover_cold_start, &
                           glac_tile_stock_pe, glac_tile_heat, glac_roughness
 use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, snow_radiation
-use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
+use land_numerics_mod, only : land_numerics_init, ludcmp, lubksb, lubksb_and_improve, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
 use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
@@ -408,6 +408,9 @@ subroutine land_model_init &
 
   ! initialize land state data, including grid geometry and processor decomposition
   call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,npes_io_group)
+
+  ! initialize numerics
+  call land_numerics_init()
 
   ! initialize land debug output
   call land_debug_init()

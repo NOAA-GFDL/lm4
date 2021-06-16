@@ -19,7 +19,7 @@ use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
 
 use land_constants_mod, only : mol_CO2, mol_air, diffusivity_h2o, kin_visc_air, thermal_diff_air
-use land_numerics_mod, only : gamma, gammaln
+use land_numerics_mod, only : gamma, gammaln, erfi
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_debug_mod, only : is_watch_point, check_var_range
 use cana_tile_mod, only : cana_tile_type, &
@@ -438,7 +438,7 @@ subroutine cana_v_turb (ustar, &
         utop  = ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
 
         do i = 1,size(vegn_lai)
-           call test(ztop, vegn_bottom(i), vegn_height(i), utop, a, vegn_d_leaf(i), gb)
+           call cohort_gb(ztop, vegn_bottom(i), vegn_height(i), utop, ustar, land_d, a, vegn_d_leaf(i), gb)
            con_v_h(i) = gb*vegn_lai(i)
         enddo
      else
@@ -453,7 +453,7 @@ subroutine cana_v_turb (ustar, &
      utop = ustar/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
 
      do i = 1,size(vegn_lai)
-        call test(ztop, vegn_bottom(i), max(vegn_height(i),min_height), utop, a, vegn_d_leaf(i), gb)
+        call cohort_gb(ztop, vegn_bottom(i), max(vegn_height(i),min_height), utop, ustar, land_d, a, vegn_d_leaf(i), gb)
         con_v_v(i) = vegn_lai(i)*gb
         if (use_SAI_for_heat_exchange) then
            con_v_h(i) = (vegn_lai(i)+vegn_sai(i))*gb
@@ -472,10 +472,10 @@ subroutine cana_v_turb (ustar, &
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
      utop    = ustar/u_ratio
      ! exponent of wind profile within canopy
-     a       = u_ratio/(vonkarm*rsl_factor)*ztop/(ztop - land_d)
+     a       = u_ratio/(VONKARM*rsl_factor)*ztop/(ztop - land_d)
 
      do i = 1,size(vegn_lai)
-        call test(ztop, vegn_bottom(i), vegn_height(i), utop, a, vegn_d_leaf(i), gb)
+        call cohort_gb(ztop, vegn_bottom(i), vegn_height(i), utop, ustar, land_d, a, vegn_d_leaf(i), gb)
 
         con_v_v(i) = vegn_lai(i)*gb
         ! should we use 2*LAI+SAI for heat, since leaves are two-sided?
@@ -508,43 +508,95 @@ subroutine cana_v_turb (ustar, &
   end select
 
   if (is_watch_point()) then
-     __DEBUG2__(vegn_idx,land_d)
-     __DEBUG4__(ztop,ustar,utop,ustar_sfc)
+     write(*,*) '#### cana_v_turb ##'
+     __DEBUG3__(land_d, land_z0m, vegn_idx)
+     __DEBUG2__(aerodyn_height, ztop)
+     __DEBUG3__(ustar, utop, ustar_sfc)
+     do i = 1, size(vegn_lai)
+        write(*,'(i2.2)',advance='NO') i
+        call dpri('frac',vegn_layerfrac(i))
+        call dpri('top',vegn_height(i))
+        call dpri('bot',vegn_bottom(i))
+        call dpri('LAI',vegn_LAI(i))
+        call dpri('con_v_v',con_v_v(i))
+        write(*,*)
+     enddo
   endif
 
   call send_tile_data(id_wind_decay, a, diag)
+
 end subroutine cana_v_turb
 
 
-subroutine test(Ha, Hb, Ht, Utop, a, d_leaf, gb)
+subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
   real, intent(in)  :: Ha     ! aerodynamic height of the vegetation, m
-  real, intent(in)  :: Hb, Ht ! bottom and top of the cohort's canopy, m
+  real, intent(in)  :: Hb, Ht ! bottom and top of the cohort canopy, m
   real, intent(in)  :: Utop   ! wind speed at the top of vegetation (Ha), m/s
-  real, intent(in)  :: a      ! coefficient of wind exponemtial decay below Ha, unitless
+  real, intent(in)  :: ustar  ! friction velocity in the layer above canopy, m/s
+  real, intent(in)  :: d      ! displacement height, m
+  real, intent(in)  :: a      ! coefficient of wind exponential decay below Ha, unitless
   real, intent(in)  :: d_leaf ! leaf dimension, m
-  real, intent(out) :: gb     ! conductance between cohort's canopy and canopy air, normalized per unit LAI
+  real, intent(out) :: gb     ! conductance between cohort canopy and canopy air, normalized per unit LAI
 
+  !--- constants
   real, parameter :: leaf_co = 0.01 ! quasi-laminar conductance coefficient,
                               ! Choudhury and Monteith (1988), m s^(-1/2)
   real, parameter :: min_thickness = 0.01 ! cohort canopy thickness for switching to
                               ! thin-canopy approximation, m
-  if (is_watch_point()) then
-     __DEBUG4__(Ha,Hb,Ht,Utop)
-     __DEBUG2__(a,d_leaf)
-  endif
+  !--- local variables
+  real :: h1, h2, h3, h4 ! integration boundaries below and above Ha, respectively
+  real :: b, u, gb1, gb2
+
+!   if (is_watch_point()) then
+!      __DEBUG4__(Ha,Hb,Ht,Utop)
+!      __DEBUG2__(a,d_leaf)
+!   endif
   if(Ht-Hb > min_thickness) then
-     gb = 2*leaf_co*sqrt(utop/d_leaf)*Ha/(Ht-Hb)&
-        *(exp(-a/2*(Ha-Ht)/Ha)-exp(-a/2*(Ha-Hb)/Ha))/a
+     ! canopy of finite thickness
+     ! part of the canopy below Ha
+     h1 = min(Hb,Ha); h2 = min(Ht,Ha)
+     gb1 = 0; gb2 = 0
+     if (h1<Ha) then
+        gb1 = 2*leaf_co*sqrt(utop/d_leaf)*Ha/(Ht-Hb)&
+            *(exp(-a/2*(Ha-h2)/Ha)-exp(-a/2*(Ha-h1)/Ha))/a
+     endif
+     h3 = max(Hb,Ha); h4 = max(Ht,Ha)
+     if (h4>Ha) then
+        b = VONKARM*Utop/ustar
+        gb2 = leaf_co*sqrt(ustar/(VONKARM*d_leaf))*(Ha-d)/(Ht-Hb)* &
+                        (func((h4-d)/(Ha-d),b)-func((h3-d)/(Ha-d),b))
+     endif
+     gb = gb1+gb2
+     if (is_watch_point()) then
+        __DEBUG3__(Ht,gb1,gb2)
+     endif
   else
      ! thin cohort canopy limit
-     gb = leaf_co*sqrt(utop/d_leaf) * exp(-a/2*(Ha-Ht)/Ha)
+     if (Ht > Ha) then
+        ! logarithmic profile above aerodynamic canopy height
+        u = Utop + ustar/VONKARM * log((Ht-d)/(Ha-d))
+        gb = leaf_co*sqrt(u/d_leaf)
+     else
+        ! exponential profile below aerodynamic canopy height
+        gb = leaf_co*sqrt(Utop/d_leaf) * exp(-a/2*(Ha-Ht)/Ha)
+     endif
   endif
-  if (is_watch_point()) then
-     __DEBUG1__(gb)
-  endif
-  call check_var_range(gb, 0.0, HUGE(1.0), 'test', 'gb', FATAL)
+!   if (is_watch_point()) then
+!      __DEBUG1__(gb)
+!   endif
+  call check_var_range(gb, 0.0, HUGE(1.0), 'cohort_gb', 'gb', WARNING)
 end subroutine
 
+real function func(x, b)
+  real, intent(in) :: x
+  real, intent(in) :: b
+
+  real :: x1
+  real, parameter :: pi2 = sqrt(PI)/2
+
+  x1 = sqrt(b+log(x))
+  func = x*x1 - pi2*exp(-b)*erfi(x1)
+end function func
 
 ! ============================================================================
 ! given vegetation properties, calculate aerodynamic conductances coefficients

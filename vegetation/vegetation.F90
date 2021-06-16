@@ -2507,7 +2507,7 @@ subroutine update_derived_vegn_data(vegn, soil)
         call dpri('frac',cc%layerfrac)
         call dpri('height',cc%height)
         call dpri('zbot',cc%zbot)
-        call dpri('LAI',cc%lai)
+        ! call dpri('LAI',cc%lai)
         ! call dpri('bl',cc%bl)
         ! call dpri('leafarea',cc%leafarea)
         call dpri('crownarea',cc%crownarea)
@@ -2517,6 +2517,7 @@ subroutine update_derived_vegn_data(vegn, soil)
         call dpri('species',spdata(cc%species)%name)
         write(*,*)
      enddo
+     call dpri('aerodyn_height', vegn%aerodyn_height); write(*,*)
   endif
 
   deallocate(layer_area,area_t,area_g,scale_t,scale_g)
