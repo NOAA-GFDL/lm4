@@ -65,7 +65,8 @@ use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
-                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
+                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon, &
+                          vegn_check_cohort_order
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_cover_cold_start, &
@@ -108,6 +109,7 @@ use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
+use land_dust_mod, only : update_dust_slow
 
 implicit none
 private
@@ -1611,6 +1613,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! not checking fluxes and their derivatives, since they can be either positive
   ! or negative, and it is hard to determine valid ranges for them.
 
+!   if (associated(tile%vegn)) then
+!      call vegn_check_cohort_order(tile%vegn,'update_land_model_fast_0d')
+!   endif
+
   Ea0    = tr_flux(isphum) ; DEaDqc  = dfdtr(isphum)
   fco2_0 = tr_flux(ico2)   ; Dfco2Dq = dfdtr(ico2)
 
@@ -2797,6 +2803,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   endif
 
   call update_vegn_slow( )
+  call update_dust_slow(lnd%time)
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%time)
 
