@@ -130,11 +130,11 @@ subroutine infile_init(this, path, static, data_type)
   this%data_type = data_type
   path_exists = open_file(this%ncobj, this%path, "read")
   if(.not. path_exists) call error_mesg('land_transition_io_infile_init', &
-      //trim(path)//'" could not be opened.', FATAL)
+      trim(path)//'" could not be opened.', FATAL)
   static_exists = open_file(this%statobj, this%static, "read")
   if(trim(lowercase(this%datatype)) == 'luh2' .and. .not. static_exists) call &
       error_mesg('land_transition_io_infile_init', &
-      //trim(static)//'" could not be opened.', FATAL)
+      trim(static)//'" could not be opened.', FATAL)
   ! get time axis
   call get_time_axis(this%ncobj,this%time_in)
 end subroutine infile_init
@@ -145,7 +145,7 @@ subroutine infile_destroy(this)
   class(infile_T), intent(inout) :: this
 
   ! close input file
-  close_file(this%ncobj)
+  call close_file(this%ncobj)
   ! deallocate timeline
   if (allocated(this%time_in)) deallocate(this%time_in)
   ! deallocate interpolator, if it exists
