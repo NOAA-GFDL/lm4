@@ -451,7 +451,7 @@ subroutine land_transitions (time)
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (time0==set_date(0001,01,01).and.fstate%ncid>0) then
+     if (time0==set_date(0001,01,01).and.fstate%ncobj%is_open) then
         ! read initial transition from state file
         call time_interp(time, fstate%time_in, w, i1,i2)
         call input_state(k1,k2)%get_data(i1,frac)
