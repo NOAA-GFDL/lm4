@@ -2,8 +2,9 @@ module transition_io_mod
 
 use netcdf, only: nf90_max_name
 use constants_mod, only : PI
+use mpp_mod, only: input_nml_file
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, input_nml_file, get_unit, &
+     mpp_pe, lowercase, get_unit, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 
 use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
@@ -132,7 +133,7 @@ subroutine infile_init(this, path, static, data_type)
   if(.not. path_exists) call error_mesg('land_transition_io_infile_init', &
       trim(path)//'" could not be opened.', FATAL)
   static_exists = open_file(this%statobj, this%static, "read")
-  if(trim(lowercase(this%datatype)) == 'luh2' .and. .not. static_exists) call &
+  if(trim(lowercase(this%data_type)) == 'luh2' .and. .not. static_exists) call &
       error_mesg('land_transition_io_infile_init', &
       trim(static)//'" could not be opened.', FATAL)
   ! get time axis
@@ -358,7 +359,7 @@ function varset_descr(this) result(str)
   character(:), allocatable :: str
   class(varset_T), intent(in) :: this
 
-  character(len=nf90_nax_name) :: varname
+  character(len=nf90_max_name) :: varname
   integer :: i
 
   str = trim(this%name)//' = '
