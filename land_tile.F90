@@ -29,8 +29,8 @@ use cana_tile_mod, only : &
      cana_tile_stock_pe, cana_tile_carbon, cana_tile_heat
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
-     vegn_tiles_can_be_merged, tiny_vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_tile_tag, &
-     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen
+     vegn_tiles_can_be_merged, vegn_tile_lu_match, merge_vegn_tiles, vegn_tile_tag, &
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen, vegn_tile_bwood
 use vegn_util_mod, only : kill_small_cohorts_ppa
 use vegn_data_mod, only : landuse_name
 use snow_tile_mod, only : &
@@ -116,7 +116,7 @@ interface operator(/=)
 end interface
 
 interface insert
-   module procedure insert_at_position, insert_in_list
+   module procedure insert_at_position, append_to_list
 end interface
 interface remove
    module procedure remove_at_position, remove_all_from_list
@@ -617,10 +617,9 @@ end subroutine merge_land_tiles
 ! given a pointer to a tile and a tile list, insert the tile into the list so that
 ! if tile can be merged with any one already present, it is merged; otherwise
 ! the tile is added to the list
-subroutine merge_land_tile_into_list(tile, list, vegn_merge_check)
+subroutine merge_land_tile_into_list(tile, list)
   type(land_tile_type), pointer :: tile
   type(land_tile_list_type), intent(inout) :: list
-  procedure(vegn_tiles_merge_check), optional :: vegn_merge_check
 
   ! ---- local vars
   type(land_tile_type), pointer :: ptr
@@ -629,7 +628,7 @@ subroutine merge_land_tile_into_list(tile, list, vegn_merge_check)
   ! try to find a tile that we can merge to
   ct = first_elmt(list)
   do while(loop_over_tiles(ct,ptr))
-     if (land_tiles_can_be_merged(tile,ptr,vegn_merge_check)) then
+     if (land_tiles_can_be_merged(tile,ptr)) then
         call merge_land_tiles(tile,ptr)
         call delete_land_tile(tile)
         return ! break out of the subroutine
@@ -646,10 +645,11 @@ end subroutine merge_land_tile_into_list
 subroutine remerge_tile_list(list)
   type(land_tile_list_type), intent(inout) :: list
 
-  type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile, tile1, tile2, dst
+  type(land_tile_enum_type) :: ce, co
   type(land_tile_list_type) :: tmp, tmp1 ! temporary list to hold large and small tiles, respectively
   integer :: i
+  real :: d, dmin ! "distance" between vegetation tiles in biomass
 
   ! for conservation checks:
   real :: lmass0,fmass0,cmass0,nmass0,heat0
@@ -686,32 +686,57 @@ subroutine remerge_tile_list(list)
 
   call land_tile_list_init(tmp)
   call land_tile_list_init(tmp1)
-  ! move all tiles into two temporary list: very small tiles go into tmp1,
+  ! move all tiles into two temporary list: very small soil tiles stored in tmp1,
   ! while tiles with non-negligible land area fraction are merged into tmp
   do while (.not.empty(list))
      ce=first_elmt(list)
      tile=>current_tile(ce)
      call remove(ce)
-     ! move small tiles into separate list
-     if (tile%frac < min_tile_frac) then
-        call insert(tile,tmp1)
+     if (associated(tile%vegn).and.tile%frac < min_tile_frac) then
+        call append_to_list(tile,tmp1)
      else
-     call merge_land_tile_into_list(tile,tmp)
+        ! this merges individual tiles, according to general criteria
+        call merge_land_tile_into_list(tile,tmp)
      endif
   enddo
-  ! merge all small tiles into tmp, using relaxed merge criteria
+
+  ! merge all small soil/vegn tiles into larger tiles, using relaxed merge criteria
   do while (.not.empty(tmp1))
      ce=first_elmt(tmp1)
-     tile=>current_tile(ce)
+     tile1=>current_tile(ce)
      call remove(ce)
-     call merge_land_tile_into_list(tile,tmp,tiny_vegn_tiles_can_be_merged)
+     ! select the best larger tile that tile1 can be merged into
+     co = first_elmt(tmp); dmin = HUGE(1.0); dst=>NULL()
+     do while (loop_over_tiles(co, tile2))
+        ! the check below returns true if the tiles are compatible in all non-vegetation
+        ! respects (e.g. soil type, etc.) and their land use types are the same, regardless
+        ! of the vegetation state. This loop selects the tiles that are closest in bwood.
+        if (land_tiles_can_be_merged(tile1,tile2,vegn_merge_check=vegn_tile_lu_match)) then
+            ! this hard-coded rule can be replaced with a more sophisticated function,
+            ! if desired
+            d = abs(vegn_tile_bwood(tile1%vegn)-vegn_tile_bwood(tile2%vegn))
+            if (d<dmin) then
+               dst=>tile2; dmin = d
+            endif
+        endif
+     enddo
+     if (associated(dst)) then
+        call merge_land_tiles(tile1,dst)
+        call delete_land_tile(tile1)
+     else
+        ! we get here only if there are no matching tiles, e.g. tiny cropland tile,
+        ! which is the only cropland tile in the grid cell and therefore cannot be
+        ! merged with anything.
+        call append_to_list(tile1,tmp)
+     endif
   enddo
-  ! move all tiles from temporary list to tile map
+
+  ! move all tiles from temporary list to the tile map
   do while (.not.empty(tmp))
      ce=first_elmt(tmp)
      tile=>current_tile(ce)
      call remove(ce)
-     call insert(tile,list)
+     call append_to_list(tile,list)
   enddo
   call land_tile_list_end(tmp)
   call land_tile_list_end(tmp1)
@@ -835,13 +860,12 @@ function elmt_at_index(list,k) result(ptr)
 end function elmt_at_index
 
 ! ============================================================================
-subroutine insert_in_list(tile,list)
-  type(land_tile_type),           pointer :: tile
+subroutine append_to_list(tile,list)
+  type(land_tile_type),            pointer :: tile
   type(land_tile_list_type), intent(inout) :: list
 
   call insert_at_position(tile,tail_elmt(list))
-
-end subroutine insert_in_list
+end subroutine append_to_list
 
 
 ! ============================================================================
@@ -1183,6 +1207,7 @@ subroutine print_land_tile_info(tile)
 !  if(associated(tile%cana)) write(*,'(a)',advance='no')', cana'
   if(associated(tile%vegn)) then
        write(*,'(a)',advance='no')', vegn LU = '//landuse_name(tile%vegn%landuse)
+       write(*,'(a,g23.16)',advance='no') ', bwood = ',vegn_tile_bwood(tile%vegn)
   endif
   write(*,'(")")')
 

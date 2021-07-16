@@ -46,7 +46,7 @@ public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
 public :: vegn_tile_SAI    ! returns total SAI of vegetation [m2/m2]
 
-public :: vegn_tiles_can_be_merged, tiny_vegn_tiles_can_be_merged, merge_vegn_tiles
+public :: vegn_tiles_can_be_merged, vegn_tile_lu_match, merge_vegn_tiles
 public :: vegn_mergecohorts_lm3 ! merge two cohorts in LM3 mode (one cohort per tile)
 public :: vegn_mergecohorts_ppa ! reduce number of cohorts in given vegetation tile
                            ! by merging as many as possible
@@ -281,13 +281,13 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
 end function vegn_tiles_can_be_merged
 
 ! =============================================================================
-function tiny_vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
+function vegn_tile_lu_match(vegn1,vegn2) result(response)
   logical :: response
   type(vegn_tile_type), intent(in) :: vegn1,vegn2
 
   response = (vegn1%landuse == vegn2%landuse) ! tiny tiles can be merged regardless of
            ! the biomass, as long as the land use type is the same
-end function tiny_vegn_tiles_can_be_merged
+end function vegn_tile_lu_match
 
 
 ! ============================================================================
