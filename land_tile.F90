@@ -650,6 +650,8 @@ subroutine remerge_tile_list(list)
   type(land_tile_list_type) :: tmp, tmp1 ! temporary list to hold large and small tiles, respectively
   integer :: i
   real :: d, dmin ! "distance" between vegetation tiles in biomass
+  real, parameter :: eps = 0.001 ! small number to make sure "distance" is not unreasonable
+        ! when bwood is close to 0
 
   ! for conservation checks:
   real :: lmass0,fmass0,cmass0,nmass0,heat0
@@ -714,7 +716,9 @@ subroutine remerge_tile_list(list)
         if (land_tiles_can_be_merged(tile1,tile2,vegn_merge_check=vegn_tile_lu_match)) then
             ! this hard-coded rule can be replaced with a more sophisticated function,
             ! if desired
-            d = abs(vegn_tile_bwood(tile1%vegn)-vegn_tile_bwood(tile2%vegn))
+            d = (abs(vegn_tile_bwood(tile1%vegn))+eps)/ &
+                (abs(vegn_tile_bwood(tile2%vegn))+eps)
+            if (d<1) d = 1.0/d
             if (d<dmin) then
                dst=>tile2; dmin = d
             endif
