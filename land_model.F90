@@ -82,10 +82,9 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
-     merge_land_tile_into_list, tile_test_func
+     merge_land_tile_into_list, remerge_tile_list, tile_test_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
-use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
@@ -97,7 +96,8 @@ use land_tile_diag_mod, only : OP_SUM, cmor_name, tile_diag_init, tile_diag_end,
      register_tiled_static_field, get_area_id
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
+     check_conservation, do_check_conservation, &
+     water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
@@ -2731,12 +2731,11 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   type(land_data_type)          , intent(inout) :: land2cplr
 
   ! ---- local vars
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
   integer :: l,k
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   integer :: n_cohorts
-  type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce
-  type(land_tile_list_type) :: tmp
 
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
@@ -2782,24 +2781,10 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
-     call land_tile_list_init(tmp)
      do l = lnd%ls,lnd%le
-        ! merge all tiles into temporary list
-        do while (.not.empty(land_tile_map(l)))
-           ce=first_elmt(land_tile_map(l))
-           tile=>current_tile(ce)
-           call remove(ce)
-           call merge_land_tile_into_list(tile,tmp)
-        enddo
-        ! move all tiles from temporary list to tile map
-        do while (.not.empty(tmp))
-           ce=first_elmt(tmp)
-           tile=>current_tile(ce)
-           call remove(ce)
-           call insert(tile,land_tile_map(l))
-        enddo
+        call set_current_point(l,1) ! for watch point
+        call remerge_tile_list(land_tile_map(l))
      enddo
-     call land_tile_list_end(tmp)
   endif
 
   call update_vegn_slow( )
