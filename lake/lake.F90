@@ -21,14 +21,12 @@
 ! ============================================================================
 module lake_mod
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, lowercase
+use mpp_domains_mod, only: domain2d, domainug, mpp_get_compute_domain, mpp_pass_sg_to_ug
+use fms_mod, only : error_mesg, check_nml_error, &
+     stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE, lowercase
+use fms2_io_mod, only: open_file, close_file, read_data, register_field, FmsNetcdfDomainFile_t, &
+                     &register_axis, get_variable_num_dimensions, get_variable_dimension_names
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
 use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, grav, vonkarm, rdgas
@@ -133,7 +131,7 @@ contains
 ! ============================================================================
 subroutine read_lake_namelist()
   ! ---- local vars
-  integer :: unit         ! unit for namelist i/o
+  integer :: file_unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: l
@@ -142,24 +140,12 @@ subroutine read_lake_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=lake_nml, iostat=io)
-     ierr = check_nml_error(io, 'lake_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=lake_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'lake_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=lake_nml, iostat=io)
+  ierr = check_nml_error(io, 'lake_nml')
+
   if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=lake_nml)
+     file_unit=stdlog()
+     write(file_unit, nml=lake_nml)
   endif
 
   ! ---- set up vertical discretization
@@ -206,6 +192,9 @@ subroutine lake_init_predefined(id_ug)
   integer :: i, g, l
   logical :: river_data_exist
   character(*), parameter :: restart_file_name = 'INPUT/lake.res.nc'
+  character(len=30), allocatable :: dimnames(:)  !< Array of dimension names
+  type(FmsNetcdfDomainFile_t) :: fileobj  !< Domain decomposed fileobj
+  integer :: ndims  !< Number of dimensions
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -217,26 +206,35 @@ subroutine lake_init_predefined(id_ug)
   bufferc(:) = 0
   buffert(:) = 0
 
-  river_data_exist = file_exist('INPUT/river_data.nc', lnd%sg_domain)
+  river_data_exist = open_file(fileobj, 'INPUT/river_data.nc', "read", lnd%sg_domain)
   if (river_data_exist) then
      call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
   else
      call error_mesg('lake_init', 'river data file not present: lake fraction is set to zero', NOTE)
   endif
 
+  if (river_data_exist) then
+     !< Register the domain decomposed dimensions
+     ndims = get_variable_num_dimensions(fileobj, "connected_to_next")
+     allocate(dimnames(ndims))
+     call get_variable_dimension_names(fileobj,"connected_to_next" , dimnames)
+     call register_axis(fileobj, dimnames(1), "x")
+     call register_axis(fileobj, dimnames(2), "y")
+  endif
+
   IF (LARGE_DYN_SMALL_STAT) THEN
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'connected_to_next', bufferc(:), lnd%ug_domain, lnd%sg_domain, dimnames)
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:), lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'whole_lake_area', buffer(:), lnd%ug_domain, lnd%sg_domain, dimnames)
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:),  lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'lake_depth_sill', buffer(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      buffer = min(buffer, lake_depth_max)
      buffer = max(buffer, lake_depth_min)
 
      ! lake_tau is just used here as a flag for 'large lakes'
      ! sill width of -1 is a flag saying not to allow transient storage
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:),  lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'lake_tau', buffert(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      buffer = -1.
      !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
      where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
@@ -252,29 +250,33 @@ subroutine lake_init_predefined(id_ug)
 
      buffer = 1.e8
      if (max_plain_slope.gt.0. .and. river_data_exist) &
-          call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:), lnd%sg_domain)
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:), lnd%sg_domain)
+          call SG_to_UG_read_data(fileobj, 'max_slope_to_next', buffer(:), lnd%ug_domain, lnd%sg_domain, dimnames)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'travel', buffert(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      bufferc = 0.
      where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
      bufferc = 0
      where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
 
   ELSE
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:), lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'whole_lake_area', bufferc(:), lnd%ug_domain, lnd%sg_domain, dimnames)
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'lake_depth_sill', buffer(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      where (bufferc.eq.0.)                      buffer = 0.
      where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
 
      buffer = 4. * buffer
      where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd%sg_domain)
+     if(river_data_exist) call SG_to_UG_read_data(fileobj, 'connected_to_next', bufferc(:), lnd%ug_domain, lnd%sg_domain, dimnames)
 
      where (bufferc.gt.0.5) buffer=lake_width_inside_lake
      if (make_all_lakes_wide) buffer = lake_width_inside_lake
   ENDIF
 
   deallocate (buffer, bufferc, buffert)
+  if (river_data_exist) then
+     deallocate(dimnames)
+     call close_file(fileobj)
+  endif
 
   ! -------- initialize lake state --------
   te = tail_elmt (land_tile_map)
@@ -332,7 +334,10 @@ subroutine lake_init (id_ug)
   real, allocatable :: buffer(:),bufferc(:),buffert(:)
   integer :: i, g, l
   logical :: river_data_exist
-  character(*), parameter :: restart_file_name = 'INPUT/lake.res.nc'
+  character(*), parameter :: restart_file_name = 'INPUT/lake.nc'
+  character(len=30), allocatable :: dimnames(:)  !< Array of dimension names
+  type(FmsNetcdfDomainFile_t) :: fileobj  !< Domain decomposed fileobj
+  integer :: ndims  !< Number of dimensions
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -344,33 +349,42 @@ subroutine lake_init (id_ug)
   bufferc(:) = 0
   buffert(:) = 0
 
-  river_data_exist = file_exist('INPUT/river_data.nc', lnd%sg_domain)
+  river_data_exist =open_file(fileobj, 'INPUT/river_data.nc', "read", lnd%sg_domain)
   if (river_data_exist) then
      call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
   else
      call error_mesg('lake_init', 'river data file not present: lake fraction is set to zero', NOTE)
   endif
 
+  if (river_data_exist) then
+     !< Register the domain decomposed dimensions
+     ndims = get_variable_num_dimensions(fileobj, "connected_to_next")
+     allocate(dimnames(ndims))
+     call get_variable_dimension_names(fileobj,"connected_to_next" , dimnames)
+     call register_axis(fileobj, dimnames(1), "x")
+     call register_axis(fileobj, dimnames(2), "y")
+  endif
+
   IF (LARGE_DYN_SMALL_STAT) THEN
 
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', &
-            bufferc(:), lnd%sg_domain, lnd%ug_domain)
+     if (river_data_exist) call SG_to_UG_read_data(fileobj, 'connected_to_next', &
+            bufferc(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_connected_to_next_ptr)
 
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', &
-            buffer(:), lnd%sg_domain, lnd%ug_domain)
+     if (river_data_exist) call SG_to_UG_read_data(fileobj, 'whole_lake_area', &
+            buffer(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      call put_to_tiles_r0d_fptr(buffer, land_tile_map, lake_whole_area_ptr)
 
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', &
-            buffer(:),  lnd%sg_domain, lnd%ug_domain)
+     if (river_data_exist) call SG_to_UG_read_data(fileobj, 'lake_depth_sill', &
+            buffer(:),  lnd%ug_domain, lnd%sg_domain, dimnames)
      buffer = min(buffer, lake_depth_max)
      buffer = max(buffer, lake_depth_min)
      call put_to_tiles_r0d_fptr(buffer,  land_tile_map, lake_depth_sill_ptr)
 
      ! lake_tau is just used here as a flag for 'large lakes'
      ! sill width of -1 is a flag saying not to allow transient storage
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', &
-            buffert(:),  lnd%sg_domain, lnd%ug_domain)
+     if (river_data_exist) call SG_to_UG_read_data(fileobj, 'lake_tau', &
+            buffert(:),  lnd%ug_domain, lnd%sg_domain, dimnames)
      buffer = -1.
      !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
      where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
@@ -387,10 +401,10 @@ subroutine lake_init (id_ug)
 
      buffer = 1.e8
      if (river_data_exist .and. max_plain_slope.gt.0.) &
-        call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:), &
-        lnd%sg_domain, lnd%ug_domain)
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:), &
-        lnd%sg_domain, lnd%ug_domain)
+        call SG_to_UG_read_data(fileobj, 'max_slope_to_next', buffer(:), &
+        lnd%ug_domain, lnd%sg_domain, dimnames)
+     if (river_data_exist) call SG_to_UG_read_data(fileobj, 'travel', buffert(:), &
+        lnd%ug_domain, lnd%sg_domain, dimnames)
      bufferc = 0.
      where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
      call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_backwater_ptr)
@@ -400,10 +414,10 @@ subroutine lake_init (id_ug)
 
   ELSE
      if (river_data_exist) then
-        call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:), &
-                lnd%sg_domain, lnd%ug_domain)
-        call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), &
-                lnd%sg_domain, lnd%ug_domain)
+        call SG_to_UG_read_data(fileobj, 'whole_lake_area', bufferc(:), &
+                lnd%ug_domain, lnd%sg_domain, dimnames)
+        call SG_to_UG_read_data(fileobj, 'lake_depth_sill', buffer(:), &
+                lnd%ug_domain, lnd%sg_domain, dimnames)
      endif
      where (bufferc.eq.0.)                      buffer = 0.
      where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
@@ -412,8 +426,8 @@ subroutine lake_init (id_ug)
 
      buffer = 4. * buffer
      where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', &
-            bufferc(:), lnd%sg_domain, lnd%ug_domain)
+     if (river_data_exist) call SG_to_UG_read_data(fileobj, 'connected_to_next', &
+            bufferc(:), lnd%ug_domain, lnd%sg_domain, dimnames)
      call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_connected_to_next_ptr)
 
      where (bufferc.gt.0.5) buffer=lake_width_inside_lake
@@ -422,6 +436,10 @@ subroutine lake_init (id_ug)
   ENDIF
 
   deallocate (buffer, bufferc, buffert)
+  if (river_data_exist) then
+     deallocate(dimnames)
+     call close_file(fileobj)
+  endif
 
   ! -------- initialize lake state --------
   ce = first_elmt(land_tile_map)
@@ -482,15 +500,15 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call error_mesg('lake_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'lake.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'lake.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level')
 
   ! write out fields
-  call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
-  call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
-  call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
-  call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
+  call add_tile_data(restart,'dz',   'zfull          ', lake_dz_ptr,   'layer thickness','m')
+  call add_tile_data(restart,'temp', 'zfull          ', lake_temp_ptr, 'lake temperature','degrees_K')
+  call add_tile_data(restart,'wl',   'zfull          ', lake_wl_ptr,   'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws',   'zfull          ', lake_ws_ptr,   'solid water content','kg/m2')
   
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
@@ -1049,7 +1067,7 @@ subroutine lake_diag_init(id_ug)
 
   ! ---- local vars
   integer :: axes(2)
-  integer :: id_zhalf, id_zfull
+  integer :: id_zhalf, id_zfull, id_nv
 
   ! define vertical axis
   id_zhalf = diag_axis_init ( &
@@ -1057,6 +1075,7 @@ subroutine lake_diag_init(id_ug)
   id_zfull = diag_axis_init ( &
        'zfull_lake', zfull(1:num_l),   'meters', 'z', 'full level',  -1, set_name='lake', &
        edges=id_zhalf )
+  id_nv = diag_axis_init('nv', (/1.,2./), 'none', 'N', 'vertex number', set_name='nv')    
 
   ! define array of axis indices
   axes = (/id_ug,id_zfull/)
@@ -1089,7 +1108,7 @@ subroutine lake_diag_init(id_ug)
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   id_K_z  = register_tiled_diag_field ( module_name, 'lake_K_z', axes,         &
        lnd%time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
-  id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
+  id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:1),  &
        lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
@@ -1207,6 +1226,28 @@ subroutine lake_backwater_1_ptr(tile, ptr)
       if(associated(tile%lake)) ptr=>tile%lake%pars%backwater_1
    endif
 end subroutine lake_backwater_1_ptr
+
+subroutine SG_to_UG_read_data(fileobj, varname, UG_data, UG_domain, SG_domain, dimnames)
+type(FmsNetcdfDomainFile_t), intent(inout) :: fileobj     !< Domain decomposed fileobj
+character(len=*),            intent(in)    :: varname     !< Variname name
+real,                        intent(inout) :: UG_data(:)  !< Buffer with data on the unstructured grid
+type(domainug),              intent(in)    :: UG_domain   !< Unstructured domain
+type(domain2d),              intent(in)    :: SG_domain   !< Structured doman
+character(len=30), intent(in)              :: dimnames(:) !< Array of dimension names for that variable
+
+integer :: is, ie, js, je
+real, allocatable :: SG_data(:,:)
+
+call mpp_get_compute_domain(SG_domain, is, ie, js, je)
+allocate(SG_data(is:ie,js:je))
+
+call register_field(fileobj, varname, "double", dimnames)
+call read_data(fileobj, varname, SG_data)
+call mpp_pass_SG_to_UG(UG_domain, SG_data, UG_data)
+
+deallocate(SG_data)
+
+end subroutine SG_to_UG_read_data
 
 end module lake_mod
 

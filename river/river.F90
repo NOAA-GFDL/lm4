@@ -40,25 +40,26 @@ module river_mod
 !  </DATA>
 ! </NAMELIST>
 
-#ifdef INTERNAL_FILE_NML
-  use mpp_mod, only: input_nml_file
-#else
-  use fms_mod, only: open_namelist_file
-#endif
-
-  use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE
+  use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE, input_nml_file
   use mpp_mod,             only : mpp_error, FATAL, WARNING, NOTE, stdout, stdlog
   use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
-  use mpp_domains_mod,     only : mpp_pass_sg_to_ug
-  use fms_mod,             only : check_nml_error, string
-  use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data
-  use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
-  use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
-  use fms_io_mod,          only : restart_file_type, register_restart_field, restore_state, save_restart, free_restart_type
+  use mpp_domains_mod,     only : mpp_pass_sg_to_ug, mpp_get_tile_id
+  use fms_mod,             only : check_nml_error, string, get_unit
+  use fms_mod,             only : CLOCK_FLAG_DEFAULT, error_mesg
+
+
+!New imports ---
+  use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
+                         register_restart_field, variable_exists, register_field, &
+                         read_restart, write_restart, close_file, register_variable_attribute, write_data, &
+                         get_global_io_domain_indices, FmsNetcdfFile_t, &
+                         get_variable_size, read_data, get_variable_num_dimensions, unlimited
+!-------
+
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
   use data_override_mod,   only : data_override
@@ -74,7 +75,6 @@ module river_mod
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_loop_over_list, fm_change_list
-  use land_io_mod,         only : new_land_io
   use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod
@@ -187,6 +187,8 @@ type tracer_data_type
 end type
 
 type(tracer_data_type), allocatable :: trdata(:) ! common tracer data
+character(len=8),parameter :: river_res_xdim = "xaxis_1"
+character(len=8),parameter :: river_res_ydim = "yaxis_1"
 
 contains
 
@@ -212,7 +214,9 @@ contains
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
     type(Leo_Mad_trios)   :: AAS_exp            ! at-a-station equation exponents
 
-    type(restart_file_type) :: river_restart
+    type(FmsNetcdfDomainFile_t) :: river_restart
+    logical :: exists
+    type(FmsNetcdfFile_t) :: river_input
 
     riverclock = mpp_clock_id('update_river'           , CLOCK_FLAG_DEFAULT, CLOCK_SUBCOMPONENT)
     slowclock = mpp_clock_id('update_river_slow'       , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
@@ -221,21 +225,8 @@ contains
     diagclock    = mpp_clock_id('river diag'           , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
 
 !--- read namelist -------------------------------------------------
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=river_nml, iostat=io_status)
-     ierr = check_nml_error(io_status, 'river_nml')
-#else
-    if (file_exist('input.nml')) then
-      unit = open_namelist_file()
-      ierr = 1;
-      do while (ierr /= 0)
-         read  (unit, nml=river_nml, iostat=io_status, end=10)
-         ierr = check_nml_error(io_status,'river_nml')
-      enddo
-10    continue
-      call close_file (unit)
-    endif
-#endif
+    read (input_nml_file, nml=river_nml, iostat=io_status)
+    ierr = check_nml_error(io_status, 'river_nml')
 
 !--- write version and namelist info to logfile --------------------
     call log_version(version, module_name, &
@@ -357,78 +348,51 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file
-    call get_instance_filename('INPUT/river.res.nc', filename)
-    call get_mosaic_tile_file(trim(filename), filename, .false., domain)
-
-    if(file_exist(trim(filename),domain) ) then
+    filename = 'INPUT/river.nc'
+    exists = open_file(river_restart, filename, "read", domain, &
+                       is_restart=.true.)
+    if (exists) then
         call mpp_error(NOTE, 'river_init : Read restart files '//trim(filename))
-        if(new_land_io) then
-           id_restart = register_restart_field(river_restart,'river.res.nc','storage', River%storage, domain)
-           id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
-           if (field_exist(filename,'discharge2ocean_c',domain)) then
-              id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean_c',discharge2ocean_next_c, domain)
-              id_restart = register_restart_field(river_restart,'river.res.nc','storage_c', River%storage_c, domain)
-           else
-              do i_species = 1, num_species
-                if (field_exist(filename,'disch2ocn_'//trdata(i_species)%name,domain)) then
-                  id_restart = register_restart_field(river_restart,'river.res.nc','disch2ocn_'//trdata(i_species)%name, &
-                               discharge2ocean_next_c(:,:,i_species),domain)
-                else
-                  call mpp_error(WARNING, 'river_init: disch2ocn_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                endif
-                if (field_exist(filename,'storage_'//trdata(i_species)%name,domain)) then
-                  id_restart = register_restart_field(river_restart,'river.res.nc','storage_'//trdata(i_species)%name, &
-                               River%storage_c(:,:,i_species),domain)
-                else
-                  call mpp_error(WARNING, 'river_init: storage_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                endif
-              enddo
-           endif
-           id_restart = register_restart_field(river_restart,'river.res.nc','Omean', River%outflowmean, domain)
-           if (field_exist(filename,'depth',domain)) then
-              id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
-           endif
-           call restore_state(river_restart)
-           call free_restart_type(river_restart)
+        call register_axis(river_restart, river_res_xdim, "x")
+        call register_axis(river_restart, river_res_ydim, "y")
+        call register_restart_field(river_restart, "storage", river%storage)
+        call register_restart_field(river_restart, "discharge2ocean", &
+                                    discharge2ocean_next)
+        if (variable_exists(river_restart, "discharge2ocean_c")) then
+            call register_restart_field(river_restart, "discharge2ocean_c", discharge2ocean_next_c)
+            call register_restart_field(river_restart, "storage_c", river%storage_c)
         else
-           call read_data(filename,'storage',          River%storage,          domain)
-           call read_data(filename,'discharge2ocean',  discharge2ocean_next,   domain)
-           if (field_exist(filename,'discharge2ocean_c',domain)) then
-              call read_data(filename,'discharge2ocean_c',discharge2ocean_next_c, domain)
-              call read_data(filename,'storage_c',        River%storage_c,        domain)
-           else
-              ! NOTE that the base name of the discharge field was deliberately made
-              ! different from the name of the older 3D tracer array, to avoid conflicts
-              ! with a tracer is called "C"
-              do i_species = 1, num_species
-                 if (field_exist(filename,'disch2ocn_'//trdata(i_species)%name,domain)) then
-                   call read_data(filename,'disch2ocn_'//trdata(i_species)%name,discharge2ocean_next_c(:,:,i_species), domain)
-                 else
-                    call mpp_error(WARNING, 'river_init: disch2ocn_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                 endif
-                 if (field_exist(filename,'storage_'//trdata(i_species)%name,domain)) then
-                   call read_data(filename,'storage_'//trdata(i_species)%name,River%storage_c(:,:,i_species), domain)
-                 else
-                    call mpp_error(WARNING, 'river_init: storage_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
-                 endif
-              enddo
-           endif
-           call read_data(filename,'Omean',            River%outflowmean,      domain)
-           if (field_exist(filename,'depth',domain)) then
-                ! call mpp_error(WARNING, 'river_init : Reading field "depth" from '//trim(filename))
-                call read_data(filename,'depth',       River%depth,            domain)
-           else
-                ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
-           endif
+            do i_species = 1, num_species
+                if (variable_exists(river_restart, "disch2ocn_"//trdata(i_species)%name)) then
+                    call register_restart_field(river_restart, "disch2ocn_"//trdata(i_species)%name, &
+                                                discharge2ocean_next_c(:,:,i_species))
+                else
+                    call mpp_error(WARNING, "river_init: disch2ocn_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
+                endif
+                if (variable_exists(river_restart, "storage_"//trdata(i_species)%name)) then
+                    call register_restart_field(river_restart, "storage_"//trdata(i_species)%name, &
+                                                river%storage_c(:,:,i_species))
+                else
+                    call mpp_error(WARNING, "river_init: storage_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
+                endif
+            enddo
         endif
+        call register_restart_field(river_restart, "Omean", river%outflowmean)
+        if (variable_exists(river_restart, "depth")) then
+            call register_restart_field(river_restart, "depth", river%depth)
+        endif
+        call read_restart(river_restart)
+        call close_file(river_restart)
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
         River%storage    = 0.0
         River%storage_c  = 0.0
         discharge2ocean_next   = 0.0
         discharge2ocean_next_c = 0.0
-        if(file_exist(river_Omean_file)) then
-           call read_data(river_Omean_file, 'Omean', River%outflowmean, domain)
+        exists = open_file(river_input, river_Omean_file, "read")
+        if (exists) then
+           call read_data(river_restart, 'Omean', River%outflowmean)
+           call close_file(river_input)
         else
            River%outflowmean = CONST_OMEAN
         end if
@@ -1042,57 +1006,94 @@ end subroutine print_river_tracer_data
   subroutine save_river_restart(timestamp)
     character(*), intent(in) :: timestamp
 
-    character(len=128) :: filename
-    integer :: tr, id_restart
-    type(restart_file_type) :: river_restart
+    type(FmsNetcdfDomainFile_t) :: river_restart
+    logical :: s
+    integer :: tr
+    integer :: starting, ending, i
 
-    if(.not.do_rivers) return ! do nothing further if rivers are turned off
-    if(new_land_io) then
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','storage', River%storage, domain)
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
-       do tr = 1, num_species
-          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','storage_'//trdata(tr)%name, &
-                       River%storage_c(:,:,tr),domain)
-          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','disch2ocn_'//trdata(tr)%name, &
-                       discharge2ocean_next_c(:,:,tr),domain)
-       enddo
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','Omean', River%outflowmean, domain)
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','depth', River%depth, domain, mandatory=.false.)
-       call save_restart(river_restart)
-       call free_restart_type(river_restart)
-    else
+    if (.not. do_rivers) return ! do nothing further if rivers are turned off
+    s = open_file(river_restart, 'RESTART/'//trim(timestamp)//"river.nc", &
+                  "overwrite", domain, is_restart=.true.)
 
-       filename = 'RESTART/'//trim(timestamp)//'river.res.nc'
+    call register_axis(river_restart, river_res_xdim, "x")
+    call register_axis(river_restart, river_res_ydim, "y")
+    call register_axis(river_restart, "Time", unlimited)
 
-       call write_data(filename,'storage', River%storage(isc:iec,jsc:jec), domain)
-       call write_data(filename,'discharge2ocean', discharge2ocean_next(isc:iec,jsc:jec), domain)
+    !< Add the axis as variables so the combiner can work correctly.
+    call register_field(river_restart, river_res_xdim, "double", (/river_res_xdim/))
+    call register_field(river_restart, river_res_ydim, "double", (/river_res_ydim/))
 
-       !--- write out tracer data
-       do tr = 1, num_species
-           call write_data(filename,'storage_'//trdata(tr)%name,River%storage_c(isc:iec,jsc:jec,tr), domain)
-           call write_data(filename,'disch2ocn_'//trdata(tr)%name,discharge2ocean_next_c(isc:iec,jsc:jec,tr), domain)
-       end do
-       call write_data(filename,'Omean', River%outflowmean, domain)
-       call write_data(filename,'depth', River%depth, domain)
-    endif
+    call register_restart_field(river_restart, "storage", river%storage, (/river_res_xdim, river_res_ydim, "Time"/))
+    call register_restart_field(river_restart, "discharge2ocean", discharge2ocean_next, (/river_res_xdim, river_res_ydim, "Time"/))
+
+     do tr = 1, num_species
+        call register_restart_field(river_restart, "storage_"//trdata(tr)%name, river%storage_c(:,:,tr), (/river_res_xdim, river_res_ydim, "Time"/))
+        call register_restart_field(river_restart, "disch2ocn_"//trdata(tr)%name, discharge2ocean_next_c(:,:,tr), (/river_res_xdim, river_res_ydim, "Time"/))
+    enddo
+
+    call register_restart_field(river_restart, "Omean", river%outflowmean, (/river_res_xdim, river_res_ydim, "Time"/))
+    call register_restart_field(river_restart, "depth", river%depth, (/river_res_xdim, river_res_ydim, "Time"/))
+
+    call write_restart(river_restart)
+    call add_domain_dimension_data(river_restart)
+    call close_file(river_restart)
 
   end subroutine save_river_restart
 
+
+  !>@brief Register the axis data as a variable in the netcdf file and add some dummy data.
+  !! This is needed so the combiner can work correctly when the io_layout is not 1,1
+  subroutine add_domain_dimension_data(fileobj)
+    type(FmsNetcdfDomainFile_t) :: fileobj !< Fms2io domain decomposed fileobj
+    integer, dimension(:), allocatable :: buffer !< Buffer with axis data
+    integer :: is, ie !< Starting and Ending indices for data
+
+    call get_global_io_domain_indices(fileobj, "xaxis_1", is, ie, indices=buffer)
+    call write_data(fileobj, "xaxis_1", buffer)
+    deallocate(buffer)
+
+    call get_global_io_domain_indices(fileobj, "yaxis_1", is, ie, indices=buffer)
+    call write_data(fileobj, "yaxis_1", buffer)
+    deallocate(buffer)
+
+   end subroutine add_domain_dimension_data
 !#####################################################################
   subroutine get_river_data(land_lon, land_lat, land_frac)
     real,            intent(in) :: land_lon(isc:,jsc:)  ! geographical lontitude of cell center
     real,            intent(in) :: land_lat(isc:,jsc:)  ! geographical lattitude of cell center
     real,            intent(in) :: land_frac(isc:,jsc:) ! land area fraction of land grid.
 
-    integer                           :: ni, nj, i, j, siz(4), ntiles
+    integer                           :: ni, nj, i, j, ntiles
     real, dimension(:,:), allocatable :: xt, yt, frac, glon, glat, lake_frac
     integer :: nerrors ! number of errors detected during initialization
 
-    ntiles = mpp_get_ntile_count(domain)
+    type(FmsNetcdfFile_t) :: fileobj
+    logical :: exists
+    integer, dimension(:), allocatable :: siz
+    integer :: isize, jsize
+    integer :: ndims, L
+    integer, dimension(1) :: tile_id
 
-    call field_size(river_src_file, 'basin', siz, domain=domain)
+    ntiles = mpp_get_ntile_count(domain)
+    tile_id = mpp_get_tile_id(domain)
+    
+    if (ntiles>1) then !If there are more than 1 tile add .tilex. to the name 
+        L = len(trim(river_src_file))
+        write(river_src_file, '(a,a,i1,a)') trim(river_src_file(1:L-2)), 'tile', tile_id(1), '.nc'
+    endif
+
+    exists = open_file(fileobj, river_src_file, "read")
+    if (.not. exists) then
+      call error_mesg("get_river_data", &
+                      "file "//trim(river_src_file)//" does not exist.", &
+                      fatal)
+    endif
+    ndims = get_variable_num_dimensions(fileobj, "basin")
+    allocate(siz(ndims))
+    call get_variable_size(fileobj, "basin", siz)
     ni = siz(1)
     nj = siz(2)
+    deallocate(siz)
     if(ni .NE. River%nlon .OR. nj .NE. River%nlat) call mpp_error(FATAL, &
        "river_mod: size mismatch between river grid and land grid")
 
@@ -1101,13 +1102,17 @@ end subroutine print_river_tracer_data
     allocate(lake_frac(isc:iec, jsc:jec))
 
     if (ntiles == 1) then
-        call read_data(river_src_file, 'x', glon, no_domain=.true.)
-        call read_data(river_src_file, 'y', glat, no_domain=.true.)
+        call read_data(fileobj, "x", glon)
+        call read_data(fileobj, "y", glat)
       endif
-    call read_data(river_src_file, 'x', xt, domain)
-    call read_data(river_src_file, 'y', yt, domain)
-    call read_data(river_src_file, 'land_frac', frac, domain)
-    call read_data(river_src_file, 'lake_frac', lake_frac, domain)
+    isize = iec - isc + 1
+    jsize = jec - jsc + 1
+    call read_data(fileobj, "x", xt, corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
+    call read_data(fileobj, "y", yt, corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
+    call read_data(fileobj, "land_frac", frac, corner=(/isc, jsc/), &
+                   edge_lengths=(/isize, jsize/))
+    call read_data(fileobj, "lake_frac", lake_frac, &
+                   corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
     !--- the following will be changed when the river data sets is finalized.
     xt = land_lon
     yt = land_lat
@@ -1185,7 +1190,8 @@ end subroutine print_river_tracer_data
     River%inflow    = 0.
     River%inflow_c  = 0.
 !--- read the data from the source file
-    call read_data(river_src_file, 'tocell', River%tocell, domain)
+    call read_data(fileobj, "tocell", River%tocell, corner=(/isc, jsc/), &
+                   edge_lengths=(/isize, jsize/))
 
     where (River%tocell(:,:).eq.  4) River%tocell(:,:)=3
     where (River%tocell(:,:).eq.  8) River%tocell(:,:)=4
@@ -1225,7 +1231,8 @@ end subroutine print_river_tracer_data
     if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
         'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
-    call read_data(river_src_file, 'basin', River%basinid, domain)
+    call read_data(fileobj, "basin", River%basinid, corner=(/isc, jsc/), &
+                   edge_lengths=(/isize, jsize/))
     where (River%basinid >0)
        River%mask = .true.
     elsewhere
@@ -1233,19 +1240,24 @@ end subroutine print_river_tracer_data
     endwhere
 
     River%travel = 0
-    call read_data(river_src_file, 'travel', River%travel(isc:iec,jsc:jec), domain)
+    call read_data(fileobj, "travel", River%travel(isc:iec,jsc:jec), &
+                   corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
     call mpp_update_domains(River%travel, domain)
-    call read_data(river_src_file, 'celllength', River%reach_length, domain)
+    call read_data(fileobj, "celllength", River%reach_length, &
+                   corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
     River%reach_length = River%reach_length * River%landfrac * (1.-lake_frac)
     if (land_area_called_cellarea) then
-        call read_data(river_src_file, 'cellarea', River%land_area, domain)
+        call read_data(fileobj, "cellarea", River%land_area, &
+                       corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
       else
-        call read_data(river_src_file, 'land_area', River%land_area, domain)
+        call read_data(fileobj, "land_area", River%land_area, &
+                       corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
       endif
-!    call read_data(river_src_file, 'So', River%So, domain)
+!    call read_data(fileobj, "So", River%So)
     River%So = 0.0
     where (River%So .LT. 0.0) River%So = Somin
 
+    call close_file(fileobj)
     deallocate(lake_frac)
 
   end subroutine get_river_data
@@ -1630,15 +1642,12 @@ end module river_mod
 
 program river_solo
   use mpp_mod,                  only : mpp_error, mpp_pe, mpp_root_pe, mpp_npes, FATAL
-  use mpp_mod,                  only : mpp_clock_id, mpp_clock_begin, mpp_clock_end
+  use mpp_mod,                  only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, input_nml_file
   use mpp_domains_mod,          only : mpp_define_layout, mpp_define_domains
   use mpp_domains_mod,          only : mpp_get_compute_domain, domain2d, CYCLIC_GLOBAL_DOMAIN
   use mpp_domains_mod,          only : mpp_get_current_ntile, mpp_get_tile_id
-  use mpp_io_mod,               only : mpp_open, MPP_RDONLY, MPP_NETCDF, MPP_SINGLE
-  use mpp_io_mod,               only : MPP_ASCII, MPP_OVERWR, mpp_close
-  use fms_mod,                  only : fms_init, fms_end, stdlog, open_namelist_file
-  use fms_mod,                  only : check_nml_error, close_file, file_exist, stdout, read_data
-  use fms_io_mod,               only : fms_io_exit
+  use fms_mod,                  only : fms_init, fms_end, stdlog
+  use fms_mod,                  only : check_nml_error, stdout, get_unit
   use time_manager_mod,         only : time_type, increment_time, set_date, increment_date, set_time
   use time_manager_mod,         only : set_calendar_type, JULIAN, NOLEAP, THIRTY_DAY_MONTHS, NO_CALENDAR
   use time_manager_mod,         only : operator(/), operator(-), operator( + ), month_name, get_date
@@ -1649,6 +1658,8 @@ program river_solo
   use grid_mod,                 only : get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area
   use grid_mod,                 only : define_cube_mosaic, get_grid_ntiles
   use river_mod,                only : num_species
+
+  use fms2_io_mod, only: close_file, file_exists, FmsNetcdfFile_t, open_file
 
 
   implicit none
@@ -1709,14 +1720,13 @@ program river_solo
   call get_date(Time,yr,mon,day,hr,min,sec)
 
   if (mpp_pe() == mpp_root_pe()) then
-      call mpp_open(unit, 'RESTART/river_solo.res',form=MPP_ASCII,&
-           action=MPP_OVERWR,threading=MPP_SINGLE,fileset=MPP_SINGLE,nohdrs=.true.)
+      unit = get_unit
+      open(unit=unit, file="RESTART/river_solo.res", action="write")
       write(unit,*) yr, mon, day, hr, min, sec
       write(unit,*) calendar_type
-      call mpp_close(unit)
+      close(unit)
   endif
 
-  call fms_io_exit
   call fms_end
 
 
@@ -1733,24 +1743,13 @@ contains
     real,   allocatable         :: area_lnd(:,:), area_lnd_cell(:,:), gfrac(:,:)
     integer                     :: date(6)
     character(len=9)            :: month
+    type(FmsNetcdfFile_t ) :: fileobj
+    logical :: exists
 
     call constants_init
 
-#ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=river_solo_nml, iostat=io)
     ierr = check_nml_error(io, 'river_solo_nml')
-#else
-    if (file_exist('input.nml')) then
-      unit = open_namelist_file ()
-      ierr=1
-      do while (ierr /= 0)
-         read  (unit, nml=river_solo_nml, iostat=io, end=10)
-         ierr = check_nml_error (io, 'river_solo_nml')
-      enddo
-10    continue
-      call close_file (unit)
-    endif
-#endif
 
     unit=stdlog()
     write(unit, nml= river_solo_nml)
@@ -1771,11 +1770,12 @@ contains
     endif
 
 ! get river_solo restart
-    if (file_exist('INPUT/river_solo.res')) then
-        call mpp_open(unit,'INPUT/river_solo.res',form=MPP_ASCII,action=MPP_RDONLY)
+    if (file_exists("INPUT/river_solo.res")) then
+        unit = get_unit()
+        open(unit=unit, file="INPUT/river_solo.res", action="read")
         read(unit,*) date
         read(unit,*) calendar_type
-        call close_file(unit)
+        close(unit)
     endif
 
     call set_calendar_type (calendar_type)
@@ -1789,7 +1789,7 @@ contains
              current_date(4),current_date(5),current_date(6))
     endif
 
-    if (file_exist('INPUT/river_solo.res')) then
+    if (file_exists('INPUT/river_solo.res')) then
         Time_start =  set_date(date(1),date(2),date(3),date(4),date(5),date(6))
     else
         Time_start = Time_start
@@ -1802,16 +1802,16 @@ contains
     Time_step_fast = set_time(dt_fast, 0)
     num_fast_step  = Run_len/Time_step_fast
 
-    call mpp_open (unit, 'time_stamp.out', form=MPP_ASCII, action=MPP_OVERWR,threading=MPP_SINGLE)
-
-    month = month_name(current_date(2))
-    if ( mpp_pe() == mpp_root_pe() ) write (unit,'(6i4,2x,a3)') date, month(1:3)
-
-    call get_date (Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
-    month = month_name(date(2))
-    if ( mpp_pe() == mpp_root_pe() ) write (unit,'(6i4,2x,a3)') date, month(1:3)
-
-    call close_file (unit)
+    if (mpp_pe() .eq. mpp_root_pe()) then
+      unit = get_unit()
+      open(unit=unit, file="time_stamp.out", action="write")
+      month = month_name(current_date(2))
+      write (unit,'(6i4,2x,a3)') date, month(1:3)
+      call get_date (Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
+      month = month_name(date(2))
+      write (unit,'(6i4,2x,a3)') date, month(1:3)
+      close(unit)
+    endif
 
 !--- get the land grid and set up domain decomposition
     call get_grid_size('LND', 1, ni, nj)
@@ -1850,14 +1850,13 @@ contains
 
     allocate(runoff_c(isc:iec,jsc:jec,num_species) )
     allocate(runoff(isc:iec,jsc:jec), discharge(isc:iec,jsc:jec) )
-    if(file_exist("INPUT/runoff.nc")) then
-       call read_data("INPUT/runoff.nc", "runoff", runoff )
+    exists = open_file(fileobj, "INPUT/runoff.nc", "read")
+    if (exists) then
+       call read_data(fileobj, "runoff", runoff)
+       call read_data(fileobj, "runoff_c", runoff_c)
+       call close_file(fileobj)
     else
        runoff = CONST_RUNOFF
-    end if
-    if(file_exist("INPUT/runoff.nc")) then
-       call read_data("INPUT/runoff.nc", "runoff_c", runoff_c )
-    else
        runoff_c = CONST_RUNOFF
     end if
     allocate( discharge2ocean(isc:iec,jsc:jec) )

@@ -25,7 +25,7 @@ module soil_carbon_mod
 
 use constants_mod, only : pi, dens_h2o
 use land_constants_mod, only : Rugas, seconds_per_year
-use fms_mod, only: check_nml_error, file_exist, close_file, &
+use fms_mod, only: check_nml_error, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use vegn_data_mod, only: K1,K2
 use land_numerics_mod,only: tridiag
@@ -192,7 +192,7 @@ end subroutine init_soil_carbon
 ! =============================================================================
 #ifndef STANDALONE_SOIL_CARBON
 subroutine read_soil_carbon_namelist
-  integer :: unit         ! unit for namelist i/o
+  integer :: file_unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: i
@@ -200,24 +200,12 @@ subroutine read_soil_carbon_namelist
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=soil_carbon_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'soil_carbon_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
   if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=soil_carbon_nml)
+     file_unit=stdlog()
+     write(file_unit, nml=soil_carbon_nml)
   endif
 
 

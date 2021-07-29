@@ -19,17 +19,12 @@
 module snow_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
-use constants_mod,only: tfreeze, hlf
+use fms_mod, only : check_nml_error, stdlog
+use constants_mod,only: PI,tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
-use land_data_mod, only : log_version
+use land_data_mod, only : log_version, lnd
 
 implicit none
 private
@@ -65,7 +60,7 @@ character(len=*), parameter :: module_name = 'snow_tile_mod'
 
 integer, parameter, public :: max_lev = 10
 
-! from the modis brdf/albedo product user's guide:
+! from the modis brdf/albedo product users guide:
 real, parameter :: g_iso  = 1.
 real, parameter :: g_vol  = 0.189184
 real, parameter :: g_geo  = -1.377622
@@ -81,6 +76,8 @@ real, parameter :: g2_geo =  0.041840
 
 ! range of temperatures for ramp between "warm" and "cold" albedo
 real, parameter :: t_range = 10.0 ! degK
+
+real, parameter :: deg2rad = PI/180.0
 
 ! ==== types =================================================================
 
@@ -141,6 +138,11 @@ real :: refl_snow_max_dir_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 f
 real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
 real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+! boundaries of the boxes where the snow-on-glacier parameters are applied: by
+! default all boxes are empty, except first (initialized later) which covers the
+! entire Earth.
+integer, parameter :: n_boxes = 2
+real, dimension(n_boxes) :: box_W=0.0, box_E=0.0, box_S=+1.0, box_N=-1.0
 
 namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
      psi_sat,                k_sat,                 &
@@ -159,7 +161,8 @@ namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
      f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
      refl_snow_max_dir_on_glacier,    refl_snow_min_dir_on_glacier,   &
-     refl_snow_max_dif_on_glacier,    refl_snow_min_dif_on_glacier
+     refl_snow_max_dif_on_glacier,    refl_snow_min_dif_on_glacier,   &
+     box_W, box_E, box_S, box_N
 
 !---- end of namelist --------------------------------------------------------
 
@@ -178,21 +181,12 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+  ! set default values for the first box: it covers the whole Earth unless
+  ! set otherwise in the namelist.
+  box_W(1)=-180.0; box_E(1)=180.0; box_S(1)=-90.0; box_N(1)=90.0
+
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snow_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snow_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   unit=stdlog()
   write(unit, nml=snow_data_nml)
 
@@ -203,6 +197,9 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   snow_dz    = dz
   snow_mc_fict = mc_fict
 
+  ! convert box coordinates to radian
+  box_W = box_W*deg2rad; box_E = box_E*deg2rad
+  box_S = box_S*deg2rad; box_N = box_N*deg2rad
 end subroutine read_snow_data_namelist
 
 ! ============================================================================
@@ -347,14 +344,24 @@ end subroutine snow_data_area
 
 ! ============================================================================
 ! compute snow properties needed to do soil-canopy-atmos energy balance
-subroutine snow_radiation ( snow_T, cosz, on_glacier,&
+subroutine snow_radiation ( snow_T, cosz, on_glacier, l, &
      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
   real, intent(in) :: snow_T  ! snow temperature, deg K
   real, intent(in) :: cosz ! cosine of zenith angle
+  integer, intent(in) :: l ! grid cell index in unstructured grid
   logical, intent(in) :: on_glacier ! TRUE if snow is on glacier
   real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
 
-  if (on_glacier.and.distinct_snow_on_glacier) then
+  logical :: in_box ! true if the current point is within one of the boxes
+  integer :: i ! box index
+
+  in_box = .FALSE.
+  if (distinct_snow_on_glacier.and.on_glacier) then
+     do i = 1,n_boxes
+         in_box = in_box.or.within_box(lnd%ug_lon(l),lnd%ug_lat(l), box_W(i),box_E(i),box_S(i),box_N(i))
+     enddo
+  endif
+  if (on_glacier.and.in_box.and.distinct_snow_on_glacier) then
      call snow_rad_calculations ( snow_T, cosz, &
         f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
         f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
@@ -370,6 +377,21 @@ subroutine snow_radiation ( snow_T, cosz, on_glacier,&
         snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
   endif
 end subroutine snow_radiation
+
+! ============================================================================
+! given coordinates of the point and box boundaries, returns TRUE if the point
+! is within the specified box
+logical function within_box(lon,lat,W,E,S,N)
+   real, intent(in) :: lon,lat  ! coordinares of the point
+   real, intent(in) :: W,E,S,N  ! bundaries of the box
+
+   real :: lon1 ! longitude converted to the same range as the box boundaries
+   within_box = (S<=lat).and.(lat<=N)
+   if (.not.within_box) return ! no need to check anything else
+   ! convert longitude to the same range as the western boundary of the box
+   lon1=lon-2*PI*floor((lon-W)/(2*PI))
+   within_box = (W<=lon1).and.(lon1<=E)
+end function within_box
 
 ! ============================================================================
 subroutine snow_rad_calculations ( snow_T, cosz, &

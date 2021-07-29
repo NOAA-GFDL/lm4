@@ -21,14 +21,10 @@
 ! ============================================================================
 module snow_mod
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
-use fms_mod, only : error_mesg, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_mod, only : error_mesg, check_nml_error, &
+     stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -109,7 +105,7 @@ contains
 ! ============================================================================
 subroutine read_snow_namelist()
   ! ---- local vars
-  integer :: unit         ! unit for namelist i/o
+  integer :: file_unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: l            ! layer iterator
@@ -118,24 +114,11 @@ subroutine read_snow_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snow_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snow_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=snow_nml)
+     file_unit=stdlog()
+     write(file_unit, nml=snow_nml)
   endif
 
   ! -------- set up vertical discretization --------
@@ -156,7 +139,7 @@ subroutine snow_init()
   integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/snow.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -217,13 +200,13 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'snow.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1)
+  call add_restart_axis(restart,'zfull',zz(1:num_l),.false.,"Z",longname='depth of level centers',units="")
 
-  call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
-  call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')
-  call add_tile_data(restart,'ws'  ,'zfull', snow_ws_ptr,   'snow solid water content','kg/m2')
+  call add_tile_data(restart,'temp','zfull          ', snow_temp_ptr, 'snow temperature','degrees_K')
+  call add_tile_data(restart,'wl'  ,'zfull          ', snow_wl_ptr,   'snow liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'  ,'zfull          ', snow_ws_ptr,   'snow solid water content','kg/m2')
 
   call save_land_restart(restart)
   call free_land_restart(restart)

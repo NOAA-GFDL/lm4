@@ -18,17 +18,10 @@
 !***********************************************************************
 module vegn_harvesting_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
-     mpp_pe, file_exist, close_file, &
+     mpp_pe, &
      check_nml_error, stdlog, mpp_root_pe
-use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
-     mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
+use mpp_mod, only: input_nml_file
 use vegn_data_mod, only : N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
@@ -101,21 +94,8 @@ subroutine vegn_harvesting_init
   call log_version(version, module_name, &
   __FILE__)
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=harvesting_nml, iostat=io)
   ierr = check_nml_error(io, 'harvesting_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=harvesting_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'harvesting_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()

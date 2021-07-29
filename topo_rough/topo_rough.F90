@@ -24,20 +24,15 @@ module topo_rough_mod
   use time_manager_mod,   only : time_type
   use mpp_domains_mod,    only : domain2d, domainUG, mpp_pass_SG_to_UG, mpp_get_ug_compute_domain, &
                                  mpp_get_compute_domain
-
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
   use fms_mod,            only : error_mesg, FATAL, NOTE, &
-       open_restart_file, read_data, &
-       write_data, close_file, file_exist, check_nml_error, mpp_pe, &
+       check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
+  use mpp_mod, only: input_nml_file
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev
   use land_data_mod,      only : log_version
-
+  use fms2_io_mod,        only : open_file, close_file, register_axis, register_field, FmsNetcdfDomainFile_t, read_data
+  use fms2_io_mod,        only : get_variable_num_dimensions, get_variable_dimension_names
 implicit none
 private
 ! ==== public interface ======================================================
@@ -93,9 +88,6 @@ character(len=*), parameter :: module_name = 'topo_rough'
 real, allocatable, save ::topo_stdev(:)
 logical :: module_is_initialized = .FALSE.
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-
 contains ! ###################################################################
 
 subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
@@ -122,25 +114,16 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
   real, allocatable :: topo_stdev_SG(:,:)
   logical :: used, got_stdev
 
+  type(FmsNetcdfDomainFile_t) :: topo_rough_fileobj
+  integer :: ndims
+  character(len=20), allocatable :: dimnames(:)
+
   call log_version(version, module_name, &
   __FILE__)
 
   ! read and write (to logfile) namelist variables
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=topo_rough_nml, iostat=io)
   ierr = check_nml_error(io, 'topo_rough_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=topo_rough_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'topo_rough_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
@@ -163,12 +146,19 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
      else if (trim(topo_rough_source)=='input') then
         call error_mesg('topo_rough_init','reading topography standard deviation from "'&
              //trim(topo_rough_file)//'"',NOTE)
-        if(.not.file_exist(topo_rough_file,SG_domain))&
+        if (.not. open_file(topo_rough_fileobj, topo_rough_file, "read", SG_domain)) &
              call error_mesg('topo_rough_init',            &
              'input file for topography standard deviation "'// &
              trim(topo_rough_file)//'" does not exist', FATAL)
-
-        call read_data(topo_rough_file,topo_rough_var,topo_stdev_SG,domain=SG_domain)
+        ndims = get_variable_num_dimensions(topo_rough_fileobj, topo_rough_var)
+        allocate(dimnames(ndims))
+        call get_variable_dimension_names(topo_rough_fileobj, topo_rough_var, dimnames)
+        call register_axis(topo_rough_fileobj, dimnames(1), "x")
+        call register_axis(topo_rough_fileobj, dimnames(2), "y")
+        call register_field(topo_rough_fileobj, topo_rough_var, "double", dimnames)
+        call read_data(topo_rough_fileobj, topo_rough_var, topo_stdev_SG)
+        deallocate(dimnames)
+        call close_file(topo_rough_fileobj)
      else
         call error_mesg('topo_rough_init','"'//trim(topo_rough_source)//&
              '" is not a valid value for topo_rough_source', FATAL)

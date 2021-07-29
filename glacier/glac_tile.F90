@@ -19,13 +19,8 @@
 module glac_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
+use fms_mod, only : check_nml_error, stdlog
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
 use constants_mod, only : pi, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_io_mod, only : init_cover_field
@@ -231,21 +226,8 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=glac_data_nml, iostat=io)
-     ierr = check_nml_error(io, 'glac_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=glac_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'glac_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=glac_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'glac_data_nml')
   unit=stdlog()
   write (unit, nml=glac_data_nml)
 
