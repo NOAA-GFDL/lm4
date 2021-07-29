@@ -931,7 +931,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
-  vegn%age = vegn%age + dt_fast_yr;
 
 
   ! ---- diagnostic section
@@ -1255,7 +1254,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   vegn%nep = sum((gpp(1:M)-resp(1:M))*c(1:M)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
-  vegn%age = vegn%age + dt_fast_yr
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'

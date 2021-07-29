@@ -22,16 +22,13 @@ module vegn_fire_mod
 
 ! This stuff is boilerplate for making/reading namelists.
 use mpp_mod, only: mpp_pe, mpp_root_pe
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
 use constants_mod,   only: PI
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
-use fms_mod, only : file_exist, check_nml_error, error_mesg, close_file, stdlog, stdout, &
+use fms_mod, only : file_exist, check_nml_error, error_mesg, stdlog, stdout, &
       lowercase, WARNING, FATAL, NOTE
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use sphum_mod, only : qscomp
 use diag_manager_mod, only : register_diag_field, send_data
 
@@ -422,24 +419,14 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   type(land_tile_type), pointer :: tile
   type(land_restart_type) :: restart
   logical :: restart_exists
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=fire_nml, iostat=io)
   ierr = check_nml_error(io, 'fire_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=fire_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'fire_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
@@ -603,24 +590,36 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   if (.not.FireMIP_ltng) then
      allocate(lightning_in_v2(lnd%ls:lnd%le,12))
      do i = 1, 12
-        call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_'//month_name(i), &
+		    exists = open_file(fileobj, 'INPUT/lightning.nc' , "read")
+  			 if (.not. exists) then
+    			call error_mesg("vegn_fire_init", "INPUT/lightning.nc does not exist.", fatal)
+  			 endif
+  			 call read_field( fileobj,  'LRMTS_COM_FR_'//month_name(i), &
                         lightning_in_v2(:,i), interp='conservative', fill=0.0)
+  			 call close_file(fileobj)
      enddo
   endif
 
   do i = 1,12
-     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), crop_burn_rate_in(:,i), &
+		    exists = open_file(fileobj, 'INPUT/Fk.nc' , "read")
+  			 if (.not. exists) then
+    			call error_mesg("vegn_fire_init", "INPUT/Fk.nc does not exist.", fatal)
+  			 endif
+  			 call read_field( fileobj, 'Fcrop_'//month_name(i), crop_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
-     call read_field('INPUT/Fk.nc', 'Fpast_'//month_name(i), past_burn_rate_in(:,i), &
+  			 call read_field( fileobj, 'Fpast_'//month_name(i), past_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
+  			 call close_file(fileobj)
   enddo
 
   !!! dsward_kop begin
-  if (file_exist('INPUT/Koppen_zones_2deg_1950-2000.nc'))then
+  exists = open_file(fileobj, 'INPUT/Koppen_zones_2deg_1950-2000.nc' , "read")
+  if (exists) then
      call error_mesg('vegn_fire_init','Reading Koppen zones.',NOTE)
      allocate(koppen_zone_2000(lnd%ls:lnd%le) )
-     call read_field('INPUT/Koppen_zones_2deg_1950-2000.nc','Koppen', koppen_zone_2000, &
+  	  call read_field( fileobj,'Koppen', koppen_zone_2000, &
                       interp='nearest')
+  	  call close_file(fileobj)
      do l = lnd%ls, lnd%le
         ce = first_elmt(land_tile_map(l))
         do while (loop_over_tiles(ce,tile))
@@ -634,6 +633,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   !!! dsward_kop end
 
   ! get fire data for current date
+  call error_mesg('vegn_fire_init','Updating fire data.',NOTE)
   call update_fire_data(time)
 
   ! ---- initialize the diagnostics --------------------------------------------
@@ -977,16 +977,16 @@ subroutine save_fire_restart(tile_dim_length,timestamp)
 
   if (fire_option == FIRE_UNPACKED) then
      call error_mesg('fire_end','writing NetCDF restart',NOTE)
-     filename = trim(timestamp)//'fire.res.nc'
+     filename = 'RESTART/'//trim(timestamp)//'fire.res.nc'
      call init_land_restart(restart, filename, vegn_tile_exists, tile_dim_length)
      ! create dimension for multi-day fire duration axis
-     call add_restart_axis(restart,'mdf_day',[(real(i),i=1,MAX_MDF_LENGTH)],'Z')
+     call add_restart_axis(restart,'mdf_day',[(real(i),i=1,MAX_MDF_LENGTH)], .false., "Z")
 
      call add_tile_data(restart,'BAperfire_ave_mdf', BAperfire_ave_mdf_ptr, 'average burned area per multi-day fire', 'km2')
      call add_tile_data(restart,'fires_to_add_mdf', fires_to_add_mdf_ptr)
      call add_tile_data(restart,'past_tilesize_mdf', past_tilesize_mdf_ptr)
-     call add_tile_data(restart,'past_fires_mdf', 'mdf_day', past_fires_mdf_ptr)
-     call add_tile_data(restart,'past_areaburned_mdf', 'mdf_day', past_areaburned_mdf_ptr)
+     call add_tile_data(restart,'past_fires_mdf', 'mdf_day        ', past_fires_mdf_ptr)
+     call add_tile_data(restart,'past_areaburned_mdf', 'mdf_day        ', past_areaburned_mdf_ptr)
 
      call save_land_restart(restart)
      call free_land_restart(restart)
@@ -2707,7 +2707,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      killed_wood_C = fireMort_stem*(bc%bwood+bc%bsw)
      killed_wood_N = fireMort_stem*(bc%wood_N+bc%sapwood_N)
      killed_root_C = fireMort_root*bc%br
-     killed_root_N = fireMort_root*bc%wood_N
+     killed_root_N = fireMort_root*bc%root_N
 
      bc%bl    = (1-fireMort_leaf) * bc%bl    ; bc%leaf_N    = (1-fireMort_leaf) * bc%leaf_N
      bc%br    = (1-fireMort_root) * bc%br    ; bc%root_N    = (1-fireMort_root) * bc%root_N
@@ -3517,6 +3517,8 @@ subroutine fire_transitions_0D(tiles, land_area, l)
         ! reset fire values for the next period
         tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
         temp%vegn%burned_frac = 0.0 ; temp%vegn%fire_rad_power = 0.0
+        ! reset time elapsed since last disturbance in the new tile; do not change age_since_landuse
+        temp%vegn%age_since_disturbance = 0.0
         ! add disturbed part to the output list
         call insert(temp, burned)
      else

@@ -25,13 +25,13 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-
-use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
-     close_file, check_nml_error, stdlog, string, lowercase
+use fms_mod, only: error_mesg, NOTE,FATAL,WARNING, file_exist, &
+ 	check_nml_error, stdlog, string, lowercase
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, &
+     days_in_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -71,7 +71,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
-     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY
+     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -105,6 +105,8 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
+    get_variable_size
 
 implicit none
 private
@@ -270,7 +272,8 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
-   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib
+   id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
+   id_age_since_disturbance, id_age_since_landuse
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -295,21 +298,8 @@ subroutine read_vegn_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-    read (input_nml_file, nml=vegn_nml, iostat=io)
-    ierr = check_nml_error(io, 'vegn_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=vegn_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_nml')
 
   unit=stdlog()
 
@@ -371,6 +361,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
   integer :: i,j,l,n ! indices of current tile
+  logical :: exists
+  type(FmsNetcdfFile_t) :: fileobj
+
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
 
   module_is_initialized = .TRUE.
@@ -386,8 +379,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
-  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
+  call open_land_restart(restart1,'INPUT/vegn1.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.nc',restart_2_exists)
+
   if (restart_1_exists) then
      call error_mesg('vegn_init',&
           'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
@@ -401,8 +395,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
 
      ! read global variables
-     call get_scalar_data(restart2,'n_accum',n_accum)
-     call get_scalar_data(restart2,'nmn_acm',nmn_acm)
+     call read_data(restart2%rhandle, "n_accum", n_accum)
+     call read_data(restart2%rhandle, "nmn_acm", nmn_acm)
 
      ! read cohort data
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
@@ -512,7 +506,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
 
-     call get_tile_data(restart2,'age',vegn_age_ptr)
+     if (field_exists(restart2,'age_since_disturbance')) then
+        call get_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr)
+        call get_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr)
+     endif
 
      call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
      call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
@@ -615,21 +612,23 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   call free_land_restart(restart2)
 
   ! read climatological fields for initialization of species distribution
-  if (file_exist('INPUT/biodata.nc'))then
+  exists = open_file(fileobj, "INPUT/biodata.nc", mode="read")
+  if (exists) then
      allocate(&
           t_ann (lnd%ls:lnd%le),&
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
+     call read_field(fileobj, 'T_ANN', t_ann, interp='nearest')
+     call read_field(fileobj, 'T_COLD', t_cold, interp='nearest')
+     call read_field(fileobj, 'P_ANN', p_ann, interp='nearest')
+     call read_field(fileobj, 'NCM', ncm, interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
      did_read_biodata = .FALSE.
      call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
+     call close_file(fileobj)
   endif
 
   ! create a list of species indices for initialization
@@ -1216,6 +1215,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
 
+  id_age_since_disturbance = register_tiled_diag_field (module_name, 'age_since_disturbance',(/id_ug/), &
+       time, 'tile age since last disturbance (human or natural)', 'year', &
+       missing_value=-1.0)
+  id_age_since_landuse = register_tiled_diag_field (module_name, 'age_since_landuse',(/id_ug/), &
+       time, 'tile age since last land use event', 'year', &
+       missing_value=-1.0)
+
   ! CMOR/CMIP variables
   call set_default_diag_filter('land')
 
@@ -1359,12 +1365,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
-  character:: spnames(fm_field_name_len, nspecies) ! names of the species
+  character(len=fm_field_name_len) :: spnames(nspecies) ! names of the species
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
   ! create output file, including internal structure necessary for tile output
-  filename = trim(timestamp)//'vegn1.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn1.nc'
   call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
 
   ! create compressed dimension for vegetation cohorts -- must be called even
@@ -1379,19 +1385,19 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call free_land_restart(restart1)
 
 
-  filename = trim(timestamp)//'vegn2.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn2.nc'
   call init_land_restart(restart2, filename, vegn_tile_exists, tile_dim_length)
   ! create compressed dimension for vegetation cohorts -- see note above
   call create_cohort_dimension(restart2)
   ! store table of species names
-  call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)],'Z')
-  call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],'Z')
+  call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)], .false.,"Z")
+  call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],.false.,"Z")
   do i = 0, nspecies-1
-     do j = 1,size(spnames,1)
-        spnames(j,i+1) = ' '
+     do j = 1,fm_field_name_len
+        spnames(i+1)(j:j) = ' '
      enddo
-     do j = 1,min(len(spdata(i)%name),size(spnames,1))
-        spnames(j,i+1) = spdata(i)%name(j:j)
+     do j = 1,min(len(spdata(i)%name),fm_field_name_len)
+        spnames(i+1)(j:j) = spdata(i)%name(j:j)
      enddo
   enddo
   call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
@@ -1493,11 +1499,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
      call add_tile_data(restart2,'drop_seed_C_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
                         'seed carbon dropped by dying plants', 'kgC/m2')
      call add_tile_data(restart2,'drop_seed_N_'//trim(spdata(i)%name),vegn_drop_seed_C_ptr,i,&
-                        'seed nirogen dropped by dying plants', 'kgC/m2')
+                        'seed nitrogen dropped by dying plants', 'kgC/m2')
   enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
-  call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
+  call add_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr,'time since last disturbance', 'yr')
+  call add_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr,'time since last land use disturbance', 'yr')
 
   ! write carbon pools and rates
   call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for AG fast soil carbon input', 'kg C/m2')
@@ -2516,6 +2523,7 @@ subroutine update_vegn_slow( )
   real, allocatable :: btot(:) ! storage for total biomass
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
+  real :: age_increment ! slow time step in years, for average year length in our calendar
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -2525,6 +2533,10 @@ subroutine update_vegn_slow( )
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   ! calculate day of year, to avoid re-calculating it in harvesting
   doy = day_of_year(lnd%time)
+  ! calculate age increment, to avoid re-calculating for every tile.
+  ! Trying to avoid ages jumping over the year boundaries within the year, which
+  ! would happen if we used average length of year for given calendar.
+  age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -2749,6 +2761,12 @@ subroutine update_vegn_slow( )
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      endif
+
+     ! ---- increment tile ages
+     call send_tile_data(id_age_since_disturbance,   tile%vegn%age_since_disturbance,   tile%diag)
+     call send_tile_data(id_age_since_landuse,       tile%vegn%age_since_landuse,       tile%diag)
+     tile%vegn%age_since_disturbance = min(tile%vegn%age_since_disturbance + age_increment, MAX_TILE_AGE)
+     tile%vegn%age_since_landuse     = min(tile%vegn%age_since_landuse     + age_increment, MAX_TILE_AGE)
 
      ! ---- diagnostic section
      call send_tile_data(id_t_ann,   tile%vegn%t_ann,   tile%diag)
@@ -3078,8 +3096,8 @@ subroutine read_remap_species(restart)
   ! ---- local vars
   integer :: nsp ! number of input species
   integer :: i, sp
-  character(fm_field_name_len), allocatable :: spnames(:)
-  character, allocatable :: text(:,:)
+  integer :: sp_dims(2)
+  character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
@@ -3091,13 +3109,13 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
-  call get_text_data(restart, 'species_names', text)
-  nsp = size(text,2)
-  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
+  call get_variable_size(restart%rhandle, "species_names", sp_dims)
+  nsp = sp_dims(2)
+  allocate(spnames(1:nsp))
+  allocate(sptable(1:nsp))
+  call get_text_data(restart, 'species_names', nsp, spnames)
   sptable(:) = -1
-  do i = 0, nsp-1
-     ! convert character array to strings
-     call array2str(text(:,i+1),spnames(i))
+  do i = 1, nsp
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then
@@ -3117,14 +3135,14 @@ subroutine read_remap_species(restart)
         sp = tile%vegn%cohorts(i)%species
         if (sp<0.or.sp>=nsp) &
              call error_mesg('vegn_init','species index is outside of the bounds', FATAL)
-        if (sptable(sp)<0) &
-             call error_mesg('vegn_init','species "'//trim(spnames(sp))// &
+        if (sptable(sp+1)<0) &
+             call error_mesg('vegn_init','species "'//trim(spnames(sp+1))// &
                             '" from restart are not found in the model species parameter list',&
                             FATAL)
-        tile%vegn%cohorts(i)%species = sptable(sp)
+        tile%vegn%cohorts(i)%species = sptable(sp+1)
      enddo
   enddo
-  deallocate(text, spnames, sptable)
+  deallocate(spnames, sptable)
 end subroutine read_remap_species
 
 ! =====================================================================================

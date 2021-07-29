@@ -18,19 +18,13 @@
 !***********************************************************************
 module vegn_harvesting_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 #include "../shared/debug.inc"
 
 use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, WARNING, &
-     mpp_pe, file_exist, close_file, &
+     mpp_pe, &
      check_nml_error, stdlog, mpp_root_pe, lowercase
-use mpp_mod, only: mpp_sum
+use mpp_mod, only: mpp_sum, input_nml_file
 use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year
@@ -54,6 +48,7 @@ use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
 private
@@ -171,25 +166,15 @@ subroutine vegn_harvesting_init(id_ug)
 
   integer :: unit, ierr, io, i
   logical :: used
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   call log_version(version, module_name, &
   __FILE__)
 
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=harvesting_nml, iostat=io)
   ierr = check_nml_error(io, 'harvesting_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1
-     do while (ierr /= 0)
-        read (unit, nml=harvesting_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'harvesting_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
@@ -223,8 +208,14 @@ subroutine vegn_harvesting_init(id_ug)
   case('prescribed')
      crop_schedule_option = CROP_SCHEDULE_PRESCRIBED
      ! read input data
-     call read_field( crop_schedule_file, 'plantingdy', crop_planting_day, interp='nearest' )
-     call read_field( crop_schedule_file, 'harvestdy',  crop_harvest_day,  interp='nearest' )
+	  exists = open_file(fileobj, crop_schedule_file, "read")
+  	  if (.not. exists) then
+    	 call error_mesg("vegn_harvesting_init", trim(crop_schedule_file)//" does not exist.", fatal)
+  	  endif
+ 	  call read_field( fileobj, 'plantingdy', crop_planting_day, interp='nearest' )
+	  call read_field( fileobj, 'harvestdy',  crop_harvest_day,  interp='nearest' )
+  	  call close_file(fileobj)
+
   case default
      call error_mesg('vegn_harvesting_init','crop_schedule must be "lm3" or "prescribed"',FATAL)
   end select

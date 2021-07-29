@@ -55,6 +55,7 @@ integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
   ! by "natural" it means non-human-maintained, so secondary vegetation
   ! grassland will be included.
+integer, public, parameter :: SCND_AGE_SEL_TAG = 4 ! tag for the secondary vegetation age selectors
 
 integer, public, parameter :: & ! life form of the plant
  FORM_GRASS = 0, &
@@ -148,6 +149,11 @@ integer, public, parameter :: & ! NSC target calculation options
        ! This is to make sure that NSC target does not jumps suddenly when trees go in and
        ! out of canppy layer
   NSC_TARGET_FROM_BSW          = 3     ! form sapwood biomass
+
+real, public, parameter :: MAX_TILE_AGE = 1.0e5 ! upper limit for the tile ages, years
+! bins of secondary forest ages (since land use), for diagnostics only
+real, protected :: scnd_age_bins(5) = &
+      [ 50.0, 150.0, MAX_TILE_AGE, MAX_TILE_AGE, MAX_TILE_AGE]
 
 ! ---- public data
 integer, public, protected :: nspecies ! total number of species
@@ -585,7 +591,8 @@ namelist /vegn_data_nml/ &
   T_transp_min, &
   phen_theta_to_use, phen_ev1, phen_ev2, &
   treeline_base_T, treeline_thresh_T, treeline_season_length, &
-  scnd_biomass_bins, sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai_pheno, &
+  scnd_biomass_bins, scnd_age_bins, &
+  sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai_pheno, &
   ! PPA-related namelist values
   do_ppa, &
   cmc_eps, &
@@ -620,6 +627,8 @@ subroutine read_vegn_data_namelist()
   integer :: i, k, n
   integer :: species_errors, total_errors
   logical, allocatable :: spdata_set(:)
+  character(256) :: sname, lname ! strings for selector names
+  real :: age0, age1 ! shorthands for boundaries of age buckets
 
   call log_version(version, module_name, &
   __FILE__)
@@ -786,6 +795,24 @@ subroutine read_vegn_data_namelist()
   ! register selector for natural grass
   call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&
           tag = SEL_VEGN, idata1 = NG_SEL_TAG)
+
+  ! register selectors for secondary vegetation ages
+  age0 = 0.0
+  do i=1, size(scnd_age_bins)
+     age1 = scnd_age_bins(i)
+     if (age1<MAX_TILE_AGE) then
+        sname = 'scnd'//trim(string(nint(age0)))//'to'//trim(string(nint(age1)))
+        lname = 'secondary vegetation '//trim(string(age0))//' to '//trim(string(age1))//' years of age since last land use disturbance'
+     else
+        sname = 'scnd'//trim(string(nint(age0)))//'toInf'
+        lname = 'secondary vegetation older than '//trim(string(age0))//' years since last land use disturbance'
+        age1  = HUGE(age1)
+     endif
+     call register_tile_selector(trim(sname), long_name=trim(lname),&
+          tag = SEL_VEGN, idata1 = SCND_AGE_SEL_TAG, rdata1 = age0, rdata2 = age1 )
+     if (age1.ge.MAX_TILE_AGE) exit ! from loop
+     age0 = age1
+  enddo
 
 contains
 

@@ -21,15 +21,9 @@ module river_physics_mod
 ! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT>
 ! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT>
 
-#ifdef INTERNAL_FILE_NML
-  use mpp_mod, only: input_nml_file
-#else
-  use fms_mod, only: open_namelist_file
-#endif
-
   use mpp_mod,         only : mpp_sync_self, mpp_send, mpp_recv, EVENT_RECV, EVENT_SEND
   use mpp_mod,         only : mpp_npes, mpp_error, FATAL, mpp_get_current_pelist
-  use mpp_mod,         only : mpp_root_pe, mpp_pe, mpp_max
+  use mpp_mod,         only : mpp_root_pe, mpp_pe, mpp_max, input_nml_file
   use mpp_mod,         only : COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
   use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, mpp_get_data_domain
   use mpp_domains_mod, only : ZERO, NINETY, MINUS_NINETY, mpp_update_domains
@@ -37,7 +31,7 @@ module river_physics_mod
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
   use mpp_domains_mod, only : mpp_get_update_size, mpp_get_update_pelist
   use fms_mod,         only : stdlog
-  use fms_mod,         only : close_file, check_nml_error, file_exist
+  use fms_mod,         only : check_nml_error
   use diag_manager_mod,only : register_diag_field, send_data
   use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
@@ -138,21 +132,8 @@ contains
 
 
 !--- read namelist -------------------------------------------------
-#ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=river_physics_nml, iostat=io_status)
     ierr = check_nml_error(io_status, 'river_physics_nml')
-#else
-    if (file_exist('input.nml')) then
-      unit = open_namelist_file()
-      ierr = 1;
-      do while ( ierr/=0 )
-         read  (unit, river_physics_nml, iostat=io_status, end=10)
-         ierr = check_nml_error(io_status,'river_physics_nml')
-      enddo
-10    continue
-      call close_file (unit)
-    endif
-#endif
 
 !--- write version and namelist info to logfile --------------------
     call log_version(version, module_name, &
