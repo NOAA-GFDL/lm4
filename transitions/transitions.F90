@@ -50,7 +50,7 @@ use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
-     get_current_point, check_var_range, log_date
+     get_current_point, check_var_range, log_date, land_error_message
 use land_numerics_mod, only : rank_descending
 use lake_mod, only : prohibit_shallow_lake, is_rsv_restart, use_reservoir
 use transitions_input_mod
@@ -1735,6 +1735,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   integer :: i,j,k,icase
   logical :: verbose_
   real    :: fi0 ! fraction of irrigated area before transition, for diagnostics only
+  real    :: s   ! accumulator value for various calculations
   real    :: tran_temp(N_LU_TYPES, N_LU_TYPES)
 
   verbose_ = .FALSE.
@@ -1766,7 +1767,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      write(*,*)'INPUT DATA'
      write(*,*)'initial land use fractions'
      do i = 1,M_LU_TYPES
-        write(*,'(a," : ",g)') landuse_name(i),area00(i)
+        write(*,'(a," : ",g23.16)') landuse_name(i),area0(i)
      enddo
      write(*,*)
      write(*,*)'initial transition matrix:'
@@ -1783,7 +1784,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      else
         fi0 = 0.0
      endif
-     write(*,'(x,a,99(/2x,a,g:))') 'irrigated cropland fraction', 'before transition:',&
+     write(*,'(x,a,99(/2x,a,g23.16:))') 'irrigated cropland fraction', 'before transition:',&
                fi0,'after transition:',fi1
      write(*,*)
      write(*,*)'relative cost of transitions:'
@@ -1843,7 +1844,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      enddo
   endif
 
-  m1 = 0
+  m1 = M_LU_TYPES
   m2 = 0
   m3 = 2 + 2*(N_LU_TYPES-1) ! eq 1,11, and N_LU_TYPES of eq 8,9
   ! calculate # of equations (17) and (18)
@@ -1861,17 +1862,15 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   if (verbose_) then
      write(*,*)
-     write(*,'(99(a,I2))') 'Number of variables       (n) :',N
-     write(*,'(99(a,I2))') 'Number of constraints     (m) :',M
-     write(*,'(99(a,I2))') 'Number of <= inequalities (m1):',M1
-     write(*,'(99(a,I2))') 'Number of >= inequalities (m2):',M2
-     write(*,'(99(a,I2))') 'Number of == equalities   (m3):',M3
+     write(*,'(99(a,I2))') 'Number of variables       (n) :',n
+     write(*,'(99(a,I2))') 'Number of constraints     (m) :',m
+     write(*,'(99(a,I2))') 'Number of <= inequalities (m1):',m1
+     write(*,'(99(a,I2))') 'Number of >= inequalities (m2):',m2
+     write(*,'(99(a,I2))') 'Number of == equalities   (m3):',m3
   endif
 
   ! calculate areas after transition
   area1(1:N_LU_TYPES) = area00(:)
- ! area1(:) = area0(:)
- ! area1(LU_CROP)=area0(LU_CROP)+area0(LU_IRRIG)
   do i = 1,N_LU_TYPES
   do j = 1,N_LU_TYPES
      area1(i) = area1(i) + tran_temp(j,i) - tran_temp(i,j)
@@ -1880,9 +1879,9 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   if (verbose_) then
      write(*,*)
-     write(*,*)'total cropland area after transitions:',area1(LU_CROP)
-     write(*,*)'irrigated cropland area after transitions:',area1(LU_CROP)*fi1
-     write(*,*)'non-irrigated cropland area after transitions:',area1(LU_CROP)*(1-fi1)
+     write(*,*)'total cropland area after transitions     :',area1(LU_CROP)
+     write(*,*)'irrigated cropland area after transitions :',area1(LU_CROP)*fi1
+     write(*,*)'rain-fed cropland area after transitions  :',area1(LU_CROP)*(1-fi1)
   endif
   ! fill up matrix for the simplex method
   allocate (a(m+2,n+1))
@@ -1893,6 +1892,26 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      a(eq,k+1) = -cost(map1i(k),map1j(k))
   enddo
   a(eq,1) = 0.0
+
+  ! area limitations: equations (13) in the notes.
+  do k = 1, M_LU_TYPES
+     eq = eq+1
+     a(eq,1) = area0(k)
+     do i = 1,M_LU_TYPES
+        if (map2(k,i)>0) then
+           ! transition involves rain-fed or irrigated crops
+           a(eq,map2(k,i)+1) = -1
+        else
+           ! transition does not involve rain-fed or irrigated crops, and therefore
+           ! would not be affected by the correction
+           if (i<=N_LU_TYPES.and.k<N_LU_TYPES) then
+              if (verbose_) &
+                  write(*,'(3(a,i2,x),99(a,g23.16))')'eq=',eq,'k=',k,'i=',i,'tran0=',tran_temp(k,i), 'a(eq,1)=', a(eq,1), ' -> ',a(eq,1) - tran_temp(k,i)
+              a(eq,1) = a(eq,1) - tran_temp(k,i)
+           endif
+        endif
+     enddo
+  enddo
 
   eq = eq+1 ! equation (10) in the notes
   a(eq,1) = area1(LU_CROP)*fi1 - area0(LU_IRRIG)
@@ -1910,7 +1929,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   enddo
   if (a(eq,1)<0) a(eq,:) = -a(eq,:)
 
-  ! equations (8): sum of transitions to irrigated and un-irrigated cropland is equal
+  ! equations (8): sum of transitions to irrigated and rain-fed cropland is equal
   ! to the total transition to cropland
   do k = 1,N_LU_TYPES
      if (k==LU_CROP) cycle
@@ -1919,7 +1938,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      a(eq,map2(k,LU_CROP)+1)  = -1.0
      a(eq,map2(k,LU_IRRIG)+1) = -1.0
   enddo
-  ! eq (9): sum of transitions from irrigated and un-irrigated cropland is equal
+  ! eq (9): sum of transitions from irrigated and rain-fed cropland is equal
   ! to the total transition to cropland
   do i = 1,N_LU_TYPES
      if (i==LU_CROP) cycle
@@ -1929,7 +1948,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      if (map2(LU_IRRIG,i)>0) a(eq,map2(LU_IRRIG,i)+1) = -1.0
   enddo
   ! eq (17): proportionality assumption to resolve ambiguities in transitions
-  ! to irrigated and non-irrigated cropland
+  ! to irrigated and rain-fed cropland
   do i = 1,N_LU_TYPES
      if (i==LU_CROP) cycle
      do j = i+1,N_LU_TYPES
@@ -1944,7 +1963,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      enddo
   enddo
   ! eq (18): proportionality assumption to resolve ambiguities in transitions
-  ! from irrigated and non-irrigated cropland
+  ! from irrigated and rain-fed cropland
   do i = 1,N_LU_TYPES
      if (i==LU_CROP.or.i==LU_NTRL) cycle
      do j = i+1,N_LU_TYPES
@@ -1967,7 +1986,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      enddo
      write(*,*)
      do i = 1, m+1
-        write(*,'(99f8.2)') (a(i,j),j=1,n+1)
+        write(*,'(99f8.4)') (a(i,j),j=1,n+1)
      enddo
   endif
 
@@ -1976,8 +1995,8 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   if (icase == 0) then
      if (verbose_) write(*,*) 'simplx finished successfully'
   else
-     ! TODO: make it a FATAL error
-     if (verbose_) write(*,*) 'simplx finished un-successfully, with code',icase
+     call land_error_message('add_irrigation_transitions: simplx failed',FATAL)
+     ! if (verbose_) write(*,*) 'simplx finished un-successfully, with code',icase
   endif
 ! write(*,'(x,a,99i3)') 'izrov=',izrov
 ! write(*,'(x,a,99i3)') 'iposv=',iposv
@@ -1993,23 +2012,18 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 ! enddo
 
   if (verbose_) then
-     print *,' '
-     print *,' Maximum of objective function = ', A(1,1)
-  endif
-
-  do I=1, N
-    do J=1, M
-      if (IPOSV(J).eq.I) then
-        if (verbose_) then
-          write(*,'("  x",i2.2," = ",g10.3,x,a1,"->",a1)') I, A(J+1, 1),landuse_name(map1i(i)),landuse_name(map1j(i))
-        endif
+     write(*,*)
+     write(*,*) ' Maximum of objective function = ', A(1,1)
+     do i=1,n
+       do j=1,m
+          if (iposv(j)==i) then
+             write(*,'("  x",i2.2," = ",g12.5,x,a1,"->",a1)') i, a(j+1, 1),landuse_name(map1i(i)),landuse_name(map1j(i))
         goto 3
       end if
     end do
-    if (verbose_) then
-      write(*,'("  y",i2.2," = ",g10.3,x,a1,"->",a1)') I, 0.0, landuse_name(map1i(i)),landuse_name(map1j(i))
-    endif
+       write(*,'("  y",i2.2," = ",g12.5,x,a1,"->",a1)') i, 0.0, landuse_name(map1i(i)),landuse_name(map1j(i))
 3 end do
+  endif
 
   tran1(:,:) = 0.0
   tran1(1:N_LU_TYPES,1:N_LU_TYPES) = tran_temp(:,:)
@@ -2036,6 +2050,25 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
        write(*,*)
     enddo
     write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,M_LU_TYPES)
+
+    write(*,*)
+    write(*,'(a/5x,2a23)')'land use fractions',' before','after'
+    do i = 1,M_LU_TYPES
+       write(*,'(a5,g23.16)',advance='NO') landuse_name(i),area0(i)
+       s = area0(i)
+       do j = 1,M_LU_TYPES
+          s = s + tran1(j,i) - tran1(i,j)
+       enddo
+       write(*,'(g23.16)') s
+    enddo
+
+    do i = 1,M_LU_TYPES
+       s = sum(tran1(i,:))
+       if (s > area0(i)) then
+          write (*,'("sum of transitions from ",a," (",g10.3,") exceeds initial area (",g10.3,")")') &
+              landuse_name(i),s,area0(i)
+       endif
+    enddo
   endif
 
   deallocate (map1i, map1j)
@@ -2106,12 +2139,12 @@ subroutine simplx(a,m,n,m1,m2,m3,icase,izrov,iposv)
   10 call simp1(a,m+1,l1,nl1,0,kp,bmax) !Find max. coeff. of auxiliary objective fn
   if(bmax.le.EPS.and.a(m+2,1).lt.-EPS)then
     !write(*,*) 'bmax', bmax, 'a', a(m+2,1)
-    icase=-1        !Auxiliary objective function is still negative and canât be improved,
+    icase=-1        !Auxiliary objective function is still negative and cannot be improved,
     return          !hence no feasible solution exists.
   else if(bmax.le.EPS.and.a(m+2,1).le.EPS)then
-  !Auxiliary objective function is zero and canât be improved; we have a feasible starting vector.
+  !Auxiliary objective function is zero and cannot be improved; we have a feasible starting vector.
   !Clean out the artificial variables corresponding to any remaining equality constraints by
-  !goto 1âs and then move on to phase two by goto 30.
+  !goto 1 and then move on to phase two by goto 30.
     m12=m1+m2+1
     if (m12.le.m) then
       do ip=m12,m
@@ -2156,7 +2189,7 @@ subroutine simplx(a,m,n,m1,m2,m3,icase,izrov,iposv)
     if(iposv(ip).lt.n+m1+1) goto 20
     kh=iposv(ip)-m1-n
     if(l3(kh).eq.0) goto 20      !Exchanged out an m2 type constraint.
-    l3(kh)=0                     !If itâs the first time, correct the pivot column
+    l3(kh)=0                     !If it is the first time, correct the pivot column
                                  !or the minus sign and the implicit
                                  !artificial variable.
   end if
