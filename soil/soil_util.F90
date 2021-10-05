@@ -50,6 +50,13 @@ subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativ
   integer :: k
   real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
 
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     ! do nothing
+  case default
+     call error_mesg('add_root_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
+  end select
+
   call rhizosphere_frac(vegn, rhiz_frac)
 
   do k = 1,num_l
