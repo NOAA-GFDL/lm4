@@ -2878,12 +2878,19 @@ end subroutine soil_step_1
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
 !ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
-   call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
+   select case (soil_carbon_option)
+   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+      total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
+   case(SOILC_CORPSE, SOILC_CORPSE_N)
+      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
             ! output
             total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
+   case default
+      call error_mesg('soil_step_2', 'unrecognized soil carbon option -- this should never happen', FATAL)
+   end select
 
    !FIXME BNS: What if there is net flow of nitrogen into tile from other hillslope tiles?
    soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile &
