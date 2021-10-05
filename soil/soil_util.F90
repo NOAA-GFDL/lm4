@@ -81,13 +81,21 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
   if(present(ammonium)) NH4=ammonium
   if(present(nitrate))  NO3=nitrate
 
-  do k=1,num_l
-     call add_C_N_to_rhizosphere(soil%org_matter(k),   &
-                             newCarbon=[exudateC(k),0.0,0.0], &
-                             newNitrogen=[exudateN(k),0.0,0.0]  )
-     soil%org_matter(k)%ammonium = soil%org_matter(k)%ammonium+NH4(k)
-     soil%org_matter(k)%nitrate = soil%org_matter(k)%nitrate+NO3(k)
-  enddo
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+     do k = 1, num_l
+        soil%fast_soil_C(k) = soil%fast_soil_C(k) + exudateC(k)
+        ! ignore exudateN for CENTURY-like soil carbon
+     enddo
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
+     do k=1,num_l
+        call add_C_N_to_rhizosphere(soil%org_matter(k),   &
+                                newCarbon=[exudateC(k),0.0,0.0], &
+                                newNitrogen=[exudateN(k),0.0,0.0]  )
+        soil%org_matter(k)%ammonium = soil%org_matter(k)%ammonium+NH4(k)
+        soil%org_matter(k)%nitrate = soil%org_matter(k)%nitrate+NO3(k)
+     enddo
+  end select
 end subroutine add_root_exudates
 
 ! ============================================================================
