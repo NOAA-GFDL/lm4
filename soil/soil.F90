@@ -644,8 +644,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            if (restart_exists) then
               ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
               ! and slow_soil_C arrays
-              call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
-              call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
+              if(field_exists(restart1, 'fsc')) then
+                 call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
+                 call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
+              endif
            endif
            call free_land_restart(restart1)
         endif
