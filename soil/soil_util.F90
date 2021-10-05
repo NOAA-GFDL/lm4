@@ -72,7 +72,7 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
   NH4(:)=0.0
   NO3(:)=0.0
   if(present(ammonium)) NH4=ammonium
-  if(present(nitrate)) NH4=nitrate
+  if(present(nitrate))  NO3=nitrate
 
   do k=1,num_l
      call add_C_N_to_rhizosphere(soil%org_matter(k),   &
