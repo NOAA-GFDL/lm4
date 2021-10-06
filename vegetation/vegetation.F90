@@ -2838,10 +2838,11 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_fsc_rate_ag,tile%vegn%fsc_rate_ag,tile%diag)
      call send_tile_data(id_ssc_pool_ag,tile%vegn%ssc_pool_ag,tile%diag)
      call send_tile_data(id_ssc_rate_ag,tile%vegn%ssc_rate_ag,tile%diag)
-     call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_ag,tile%diag)
-     call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_ag,tile%diag)
-     call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_ag,tile%diag)
-     call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_ag,tile%diag)
+
+     call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_bg,tile%diag)
+     call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_bg,tile%diag)
+     call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_bg,tile%diag)
+     call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_bg,tile%diag)
 
      do j = 1,N_LITTER_POOLS
      do i = 1,N_C_TYPES
