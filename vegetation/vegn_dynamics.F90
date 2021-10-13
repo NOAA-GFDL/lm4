@@ -2277,13 +2277,30 @@ end subroutine
 
 
 ! =============================================================================
+! given an intermediate pool of C or N, and its spending rate, move the amount
+! of mass corresponding to one fats time step from the pool to the destination.
+! The spending rate is adjusted so that intermediate pool is never depleted below zero.
+! NOTE that the spending rate is also updated, to be correctly reported to diagnostics
+subroutine deplete_pool(pool, rate, dest)
+   real, intent(inout) :: pool ! C or N intermediate pool, kg
+   real, intent(inout) :: rate ! C or N spending rate, kg/yr
+   real, intent(inout) :: dest ! C or N destination pool, kg
+
+   real :: delta ! change in pool over time step, kg
+
+   rate  = MAX( 0.0, MIN(rate, pool/dt_fast_yr) ) ! adjust rate
+   delta = rate * dt_fast_yr
+   dest  = dest + delta
+   pool  = pool - delta
+end subroutine deplete_pool
+
+! =============================================================================
 subroutine update_soil_pools(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
   integer :: i,k
-  real :: delta
   real :: deltafast, deltaslow, deltafast_N, deltaslow_N
   real :: profile(num_l), profile1(num_l), psum ! for depostion profile calculation
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
@@ -2292,35 +2309,13 @@ subroutine update_soil_pools(vegn, soil)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
-     delta = vegn%fsc_rate_bg*dt_fast_yr;
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + delta;
-     vegn%fsc_pool_bg    = vegn%fsc_pool_bg    - delta;
+     call deplete_pool(vegn%fsc_pool_ag, vegn%fsc_rate_ag, soil%fast_soil_C(1))
+     call deplete_pool(vegn%ssc_pool_ag, vegn%ssc_rate_ag, soil%slow_soil_C(1))
 
-     ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
-     delta = vegn%ssc_rate_bg*dt_fast_yr;
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + delta;
-     vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - delta;
+     call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1))
+     call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1))
+
   case (SOILC_CORPSE,SOILC_CORPSE_N)
-     ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%fsc_rate_ag = MAX( 0.0, MIN(vegn%fsc_rate_ag, vegn%fsc_pool_ag/dt_fast_yr));
-     deltafast = vegn%fsc_rate_ag*dt_fast_yr;
-     vegn%fsc_pool_ag       = vegn%fsc_pool_ag       - deltafast;
-
-     ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%ssc_rate_ag = MAX(0.0, MIN(vegn%ssc_rate_ag, vegn%ssc_pool_ag/dt_fast_yr));
-     deltaslow = vegn%ssc_rate_ag*dt_fast_yr;
-     vegn%ssc_pool_ag       = vegn%ssc_pool_ag       - deltaslow;
 
      vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
      delta_C = vegn%litter_rate_C*dt_fast_yr
@@ -2338,28 +2333,12 @@ subroutine update_soil_pools(vegn, soil)
      vegn%litter_buff_C = vegn%litter_buff_C - delta_C
      vegn%litter_buff_N = vegn%litter_buff_N - delta_N
 
-     ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
-     deltafast        = vegn%fsc_rate_bg*dt_fast_yr;
-     vegn%fsc_pool_bg = vegn%fsc_pool_bg - deltafast;
-
-     ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
-     deltaslow        = vegn%ssc_rate_bg*dt_fast_yr;
-     vegn%ssc_pool_bg = vegn%ssc_pool_bg - deltaslow;
+     deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
+     deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)
 
      if (soil_carbon_option == SOILC_CORPSE_N) then
-        vegn%fsn_rate_bg = MAX( 0.0, MIN(vegn%fsn_rate_bg, vegn%fsn_pool_bg/dt_fast_yr));
-        deltafast_N      = vegn%fsn_rate_bg*dt_fast_yr;
-        vegn%fsn_pool_bg = vegn%fsn_pool_bg - deltafast_N;
-
-        vegn%ssn_rate_bg = MAX(0.0, MIN(vegn%ssn_rate_bg, vegn%ssn_pool_bg/dt_fast_yr));
-        deltaslow_N      = vegn%ssn_rate_bg*dt_fast_yr;
-        vegn%ssn_pool_bg = vegn%ssn_pool_bg - deltaslow_N;
+        deltafast_N = 0.0 ; call deplete_pool(vegn%fsn_pool_bg, vegn%fsn_rate_bg, deltafast_N)
+        deltaslow_N = 0.0 ; call deplete_pool(vegn%ssn_pool_bg, vegn%ssn_rate_bg, deltaslow_N)
      else
         vegn%fsn_rate_bg = 0.0
         deltafast_N      = 0.0
