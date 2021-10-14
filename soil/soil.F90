@@ -1538,6 +1538,11 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','litterCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
      enddo
 
+     do i = 1, N_C_TYPES
+        call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i,'accumulated negative '//trim(c_longname(i))//' C litter input','kg/m2')
+        call add_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i,'accumulated negative '//trim(c_longname(i))//' N litter input','kg/m2')
+     enddo
+
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
 
      if (soil_carbon_option == SOILC_CORPSE_N) then
@@ -1574,10 +1579,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case default
      call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
-  do i = 1, N_C_TYPES
-     call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i,'accumulated negative '//trim(c_longname(i))//' C litter input','kg/m2')
-     call add_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i,'accumulated negative '//trim(c_longname(i))//' N litter input','kg/m2')
-  enddo
 
   call save_land_restart(restart)
   call free_land_restart(restart)
