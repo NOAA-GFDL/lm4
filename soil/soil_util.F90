@@ -81,11 +81,13 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
   if(present(ammonium)) NH4=ammonium
   if(present(nitrate))  NO3=nitrate
 
+  ! ignore exudateN for CENTURY-like soil carbon options
   select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+  case (SOILC_CENTURY)
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + sum(exudateC(:))
+  case (SOILC_CENTURY_BY_LAYER)
      do k = 1, num_l
         soil%fast_soil_C(k) = soil%fast_soil_C(k) + exudateC(k)
-        ! ignore exudateN for CENTURY-like soil carbon
      enddo
   case (SOILC_CORPSE, SOILC_CORPSE_N)
      do k=1,num_l
