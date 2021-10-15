@@ -75,6 +75,7 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
 
   integer :: k
   real,dimension(num_l) :: NH4,NO3
+  real :: fsc
 
   NH4(:)=0.0
   NO3(:)=0.0
@@ -84,10 +85,13 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
   ! ignore exudateN for CENTURY-like soil carbon options
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + sum(exudateC(:))
+     fsc = sum(exudateC(:))
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+     soil%fsc_in(1)      = soil%fsc_in(1)      + fsc ! for soil carbon equilibration
   case (SOILC_CENTURY_BY_LAYER)
      do k = 1, num_l
         soil%fast_soil_C(k) = soil%fast_soil_C(k) + exudateC(k)
+        soil%fsc_in(k)      = soil%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
      enddo
   case (SOILC_CORPSE, SOILC_CORPSE_N)
      do k=1,num_l
