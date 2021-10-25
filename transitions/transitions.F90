@@ -755,8 +755,12 @@ subroutine land_transitions (time)
   enddo
 
   if (do_irrigation) then
-     ! calculate fraction of crops that is irrigated
-     ! interpolate irrigation and crop areas from irrigation and state data
+     ! calculate irrigated fraction of crops. Using irrigated fraction
+     ! of crops instead of irrigated area allows to use irrigation data
+     ! with different land use data sets that may have a different total crop
+     ! area, not necessarily consistent with input irrigation areas.
+
+     ! interpolate irrigation and crop areas from irrigation and crop data
      irr_area(:)  = 0.0
      crop_area(:) = 0.0
      call input_irrig % interpolate(time, irr_area)
@@ -1711,7 +1715,7 @@ end function vegn_tran_priority
 
 !=================================================================
 subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
-  real, intent(in)  :: area0(M_LU_TYPES) ! area of each of the land use types
+  real, intent(in)  :: area0(M_LU_TYPES) ! area of each of the land use types [frac of land area]
   real, intent(inout)  :: tran0(N_LU_TYPES,   N_LU_TYPES)   ! initial transition matrix
   real, intent(in)  :: cost (M_LU_TYPES, M_LU_TYPES) ! cost of transitions
   real, intent(in)  :: fi1 ! fraction of irrigated area after transition
@@ -1719,6 +1723,10 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   real, intent(out) :: tran1(M_LU_TYPES, M_LU_TYPES) ! resulting transition matrix
   logical, intent(in), optional :: verbose
 
+  ! local constants
+  real, parameter :: tol = 1e-14 ! minimum value of non-zero transitions:
+       ! for 1x1 degree grid, area is roughly 1e10 m2, so the area involved in transitions
+       ! below tol would be below 1 cm2, which is probably safe to ignore
   ! local vars
   integer :: map2 (M_LU_TYPES, M_LU_TYPES) ! mapping transition to var number
   integer, allocatable :: map1i(:), map1j(:) ! mapping var number to transitions
@@ -1726,12 +1734,14 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   integer :: m1 ! Number of <= inequalities
   integer :: m2 ! Number of >= inequalities
   integer :: m3 ! Number of == equalities
-  integer :: m  ! total number of constraints
+  integer :: m  ! total number of constraints = m1+m2+m3
   integer :: eq ! equation number
   real,    allocatable :: a(:,:) ! input matrix for simplex method
   integer, allocatable :: iposv(:), izrov(:)
-  real    :: area00(N_LU_TYPES)
+  real    :: area00(N_LU_TYPES) ! fraction of each land use type before transition,
+                                ! with irrigated and rain-fed crop added together
   real    :: area1 (M_LU_TYPES) ! fraction of each land use type after transitions
+                                ! with irrigated and rain-fed crop added together
   integer :: i,j,k,icase
   logical :: verbose_
   real    :: fi0 ! fraction of irrigated area before transition, for diagnostics only
@@ -1741,7 +1751,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   verbose_ = .FALSE.
   if (present(verbose)) verbose_ = verbose
 
-  ! check that the area the area involved in transitions is greater then zero,
+  ! check that the area involved in transitions is greater then zero,
   ! and if it is not, return copy of input transitions
   if (atot<=0.0) then
      tran1(:,:) = 0.0
@@ -1755,11 +1765,11 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   do i = 1,N_LU_TYPES
     do j = 1,N_LU_TYPES
-     if (tran0(i,j) < 1e-16) tran0(i,j)= 0.
+     if (tran0(i,j) < tol) tran0(i,j)= 0.0
     enddo
   enddo
 
-  tran_temp = tran0*atot
+  tran_temp = tran0*atot ! convert transitions to [frac of vegetated area]
   area00(:) = area0(1:N_LU_TYPES)
   area00(LU_CROP) = area00(LU_CROP)+area0(LU_IRRIG)
 
@@ -1769,6 +1779,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      do i = 1,M_LU_TYPES
         write(*,'(a," : ",g23.16)') landuse_name(i),area0(i)
      enddo
+     write(*,*)'atot:', atot, sum(area0)
      write(*,*)
      write(*,*)'initial transition matrix:'
      do i = 1,N_LU_TYPES
@@ -1911,6 +1922,8 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
            endif
         endif
      enddo
+     ! protect from negative results due to numerics
+     if (a(eq,1)<0.and.abs(a(eq,1)) < tol) a(eq,1) = 0.0
   enddo
 
   eq = eq+1 ! equation (10) in the notes
@@ -1995,7 +2008,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   if (icase == 0) then
      if (verbose_) write(*,*) 'simplx finished successfully'
   else
-     call land_error_message('add_irrigation_transitions: simplx failed',FATAL)
+     call land_error_message('add_irrigation_transitions: simplx failed with code '//string(-icase),FATAL)
      ! if (verbose_) write(*,*) 'simplx finished un-successfully, with code',icase
   endif
 ! write(*,'(x,a,99i3)') 'izrov=',izrov
