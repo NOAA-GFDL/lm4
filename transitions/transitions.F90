@@ -709,7 +709,8 @@ subroutine land_transitions (time)
   allocate(tran(lnd%ls:lnd%le,M_LU_TYPES,M_LU_TYPES))
 
   ! get transition rates for current time: read map of transitions, and accumulate
-  ! as many time steps in array of transitions as necessary.
+  ! as many time steps in array of transitions as necessary. The units of transition
+  ! rates are [fraction of vegetated area per year]
   tran(:,:,:) = 0.0
   ! calculate time interval, for diagnostics
   call get_time(time-time0, sec,days)
@@ -785,9 +786,11 @@ subroutine land_transitions (time)
            area0(n) = area0(n) + tile%frac
         enddo
 
-        tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
-        call add_irrigation_transitions(area0(:), tran0, cost, irr_frac(l), atot, &
-                tran(l,:,:), verbose=is_watch_cell())
+        if ((area0(LU_IRRIG).ne.0).or.(irr_frac(l).ne.0)) then
+           tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
+           call add_irrigation_transitions(area0(:), tran0, cost, irr_frac(l), atot, &
+                   tran(l,:,:), verbose=is_watch_cell())
+        endif
      enddo
   endif ! irrigation
 
@@ -1714,13 +1717,13 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(P); real :: P
 end function vegn_tran_priority
 
 !=================================================================
-subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
+subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
   real, intent(in)  :: area0(M_LU_TYPES) ! area of each of the land use types [frac of land area]
-  real, intent(inout)  :: tran0(N_LU_TYPES,   N_LU_TYPES)   ! initial transition matrix
+  real, intent(in)  :: tranI(N_LU_TYPES, N_LU_TYPES)   ! initial transition matrix [frac of vegetated area per year]
   real, intent(in)  :: cost (M_LU_TYPES, M_LU_TYPES) ! cost of transitions
   real, intent(in)  :: fi1 ! fraction of irrigated area after transition
-  real, intent(in)  :: atot ! total area of tiles that can be involved in transitions
-  real, intent(out) :: tran1(M_LU_TYPES, M_LU_TYPES) ! resulting transition matrix
+  real, intent(in)  :: atot ! total area of vegetated tiles (i.e. the area that can be involved in transitions)
+  real, intent(out) :: tran1(M_LU_TYPES, M_LU_TYPES) ! resulting transition matrix [frac of vegetated area per year]
   logical, intent(in), optional :: verbose
 
   ! local constants
@@ -1728,25 +1731,25 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
        ! for 1x1 degree grid, area is roughly 1e10 m2, so the area involved in transitions
        ! below tol would be below 1 cm2, which is probably safe to ignore
   ! local vars
+  real    :: tran0(N_LU_TYPES, N_LU_TYPES) ! input transitions, converted to [land area per year]
   integer :: map2 (M_LU_TYPES, M_LU_TYPES) ! mapping transition to var number
   integer, allocatable :: map1i(:), map1j(:) ! mapping var number to transitions
   integer :: n  ! number of variables
   integer :: m1 ! Number of <= inequalities
-  integer :: m2 ! Number of >= inequalities
   integer :: m3 ! Number of == equalities
-  integer :: m  ! total number of constraints = m1+m2+m3
   integer :: eq ! equation number
-  real,    allocatable :: a(:,:) ! input matrix for simplex method
-  integer, allocatable :: iposv(:), izrov(:)
+  real,    allocatable :: c(:) ! coefficients of cost function
+  real,    allocatable :: A_ub(:,:), b_ub(:) ! input matrix and RHS for inequality (<=) conditions
+  real,    allocatable :: A_eq(:,:), b_eq(:) ! input matrix and RHS for equality conditions
+  real,    allocatable :: x(:) ! solution of linear optimization problem
   real    :: area00(N_LU_TYPES) ! fraction of each land use type before transition,
                                 ! with irrigated and rain-fed crop added together
   real    :: area1 (M_LU_TYPES) ! fraction of each land use type after transitions
                                 ! with irrigated and rain-fed crop added together
-  integer :: i,j,k,icase
+  integer :: i,j,k,ierr
   logical :: verbose_
   real    :: fi0 ! fraction of irrigated area before transition, for diagnostics only
   real    :: s   ! accumulator value for various calculations
-  real    :: tran_temp(N_LU_TYPES, N_LU_TYPES)
 
   verbose_ = .FALSE.
   if (present(verbose)) verbose_ = verbose
@@ -1757,21 +1760,36 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      tran1(:,:) = 0.0
      do i = 1,N_LU_TYPES
      do j = 1,N_LU_TYPES
-        tran1(i,j) = tran0(i,j)
+        tran1(i,j) = tranI(i,j)
      enddo
      enddo
      return
   endif
 
-  do i = 1,N_LU_TYPES
-    do j = 1,N_LU_TYPES
-     if (tran0(i,j) < tol) tran0(i,j)= 0.0
-    enddo
-  enddo
-
-  tran_temp = tran0*atot ! convert transitions to [frac of vegetated area]
+  ! calculate the fraction each land use type with rain-fed and irrigated areas combined
   area00(:) = area0(1:N_LU_TYPES)
   area00(LU_CROP) = area00(LU_CROP)+area0(LU_IRRIG)
+
+  tran0 = tranI*atot ! convert transitions to [frac of land area per year]: it is easier to
+  ! work in this units since tile fractions are fractions of land area.
+
+  ! filter out negatives in input transition matrix
+  do i = 1,N_LU_TYPES
+  do j = 1,N_LU_TYPES
+     if (tran0(i,j) < tol) tran0(i,j)= 0.0
+  enddo
+  enddo
+
+  ! Ensure that the total transitions from every land use type do not exceed area of that
+  ! type of land use (no overshoots). This is necessary because linear programming
+  ! optimization algorithms are quite sensitive to the overshoots: they lead to empty
+  ! feasible solution region, and consequent failure of the optimization.
+  do i = 1,N_LU_TYPES
+     s = sum(tran0(i,:))
+     if (s>area00(i)) then
+        tran0(i,:) = tran0(i,:)*area00(i)/s
+     endif
+  enddo
 
   if (verbose_) then
      write(*,*)'INPUT DATA'
@@ -1785,9 +1803,13 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      do i = 1,N_LU_TYPES
         write(*,'(a5)',advance='NO') landuse_name(i)
         do j = 1,N_LU_TYPES
-           write(*,'(x,g10.3)',advance='NO') tran_temp(i,j)
+           write(*,'(x,g10.3)',advance='NO') tran0(i,j)
         enddo
         write(*,*)
+     enddo
+     do i = 1,N_LU_TYPES
+        write(*,'(99(a,g10.3))') 'sum of transitions from '//landuse_name(i)//':', sum(tran0(i,:)), &
+                   ' to '//landuse_name(i)//':', sum(tran0(:,i))
      enddo
      write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,N_LU_TYPES)
      if (area00(LU_CROP) > 0) then
@@ -1811,6 +1833,8 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   endif
 
   ! build the translation between indices in output transition matrix and variable number
+  ! map2(i,j) holds the variable number of transition from land use type i to type j
+  ! map1i(k), map1j(k) -- src and dst land use types for variable k
   map2(:,:) = -1
   n = 0
   do i = 1,M_LU_TYPES
@@ -1856,7 +1880,6 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   endif
 
   m1 = M_LU_TYPES
-  m2 = 0
   m3 = 2 + 2*(N_LU_TYPES-1) ! eq 1,11, and N_LU_TYPES of eq 8,9
   ! calculate # of equations (17) and (18)
   do i = 1,N_LU_TYPES
@@ -1869,14 +1892,10 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      enddo
   enddo
 
-  m = m1 + m2 + m3  ! Total number of constraints
-
   if (verbose_) then
      write(*,*)
      write(*,'(99(a,I2))') 'Number of variables       (n) :',n
-     write(*,'(99(a,I2))') 'Number of constraints     (m) :',m
      write(*,'(99(a,I2))') 'Number of <= inequalities (m1):',m1
-     write(*,'(99(a,I2))') 'Number of >= inequalities (m2):',m2
      write(*,'(99(a,I2))') 'Number of == equalities   (m3):',m3
   endif
 
@@ -1884,7 +1903,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   area1(1:N_LU_TYPES) = area00(:)
   do i = 1,N_LU_TYPES
   do j = 1,N_LU_TYPES
-     area1(i) = area1(i) + tran_temp(j,i) - tran_temp(i,j)
+     area1(i) = area1(i) + tran0(j,i) - tran0(i,j)
   enddo
   enddo
 
@@ -1894,72 +1913,81 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      write(*,*)'irrigated cropland area after transitions :',area1(LU_CROP)*fi1
      write(*,*)'rain-fed cropland area after transitions  :',area1(LU_CROP)*(1-fi1)
   endif
-  ! fill up matrix for the simplex method
-  allocate (a(m+2,n+1))
-  a(:,:) = 0.0
+  ! fill up matrices for the linear optimization
+  allocate (A_ub(m1,n),b_ub(m1)) ; A_ub(:,:) = 0.0 ; b_ub(:) = 0.0
+  allocate (A_eq(m3,n),b_eq(m3)) ; A_eq(:,:) = 0.0 ; b_eq(:) = 0.0
+  allocate (c(n)) ; c(:) = 0.0
 
-  eq = 1  ! equation (14) in the notes: objective function (i.e. negative cost)
+  ! equation (14) in the notes: set op objective (cost) function
   do k = 1,n
-     a(eq,k+1) = -cost(map1i(k),map1j(k))
+     c(k) = cost(map1i(k),map1j(k))
   enddo
-  a(eq,1) = 0.0
 
+  ! set up <= conditions
   ! area limitations: equations (13) in the notes.
+  eq = 0
   do k = 1, M_LU_TYPES
      eq = eq+1
-     a(eq,1) = area0(k)
+     b_ub(eq) = area0(k)
      do i = 1,M_LU_TYPES
         if (map2(k,i)>0) then
            ! transition involves rain-fed or irrigated crops
-           a(eq,map2(k,i)+1) = -1
+           A_ub(eq,map2(k,i)) = 1
         else
            ! transition does not involve rain-fed or irrigated crops, and therefore
            ! would not be affected by the correction
            if (i<=N_LU_TYPES.and.k<N_LU_TYPES) then
-              if (verbose_) &
-                  write(*,'(3(a,i2,x),99(a,g23.16))')'eq=',eq,'k=',k,'i=',i,'tran0=',tran_temp(k,i), 'a(eq,1)=', a(eq,1), ' -> ',a(eq,1) - tran_temp(k,i)
-              a(eq,1) = a(eq,1) - tran_temp(k,i)
+!               if (verbose_) &
+!                   write(*,'(3(a,i2,x),99(a,g23.16))')'eq=',eq,'k=',k,'i=',i,'tran0=',tran0(k,i), &
+!                           'b_ub(eq,1)=', b_ub(eq), ' -> ',b_ub(eq) - tran0(k,i)
+              b_ub(eq) = b_ub(eq) - tran0(k,i)
            endif
         endif
      enddo
-     ! protect from negative results due to numerics
-     if (a(eq,1)<0.and.abs(a(eq,1)) < tol) a(eq,1) = 0.0
+     ! protect from tiny negatives that may arise due to loss of precision
+     if (b_ub(eq)<0.and.abs(b_ub(eq)) < tol) b_ub(eq) = 0.0
+     call print_equation(A_ub(eq,:), '<=', b_ub(eq), label='(13)')
   enddo
 
-  eq = eq+1 ! equation (10) in the notes
-  a(eq,1) = area1(LU_CROP)*fi1 - area0(LU_IRRIG)
-  do k = 1, N_LU_TYPES
-     if (map2(k,LU_IRRIG)>0) a(eq,map2(k,LU_IRRIG)+1) = -1
-     if (map2(LU_IRRIG,k)>0) a(eq,map2(LU_IRRIG,k)+1) = +1
+  ! set up == conditions
+  eq = 1 ! equation (10) sum of transitons must be equal to total irrigated area change
+  b_eq(eq) = area1(LU_CROP)*fi1 - area0(LU_IRRIG)
+  do k = 1, M_LU_TYPES
+     if (map2(k,LU_IRRIG)>0) A_eq(eq,map2(k,LU_IRRIG)) = +1
+     if (map2(LU_IRRIG,k)>0) A_eq(eq,map2(LU_IRRIG,k)) = -1
   enddo
-  if (a(eq,1)<0) a(eq,:) = -a(eq,:)
+  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(10)')
 
-  eq = eq+1 ! equation (11) in the notes
-  a(eq,1) = area1(LU_CROP)*(1-fi1) - area0(LU_CROP)
-  do k = 1, N_LU_TYPES
-     if (map2(k,LU_CROP)>0) a(eq,map2(k,LU_CROP)+1) = -1
-     if (map2(LU_CROP,k)>0) a(eq,map2(LU_CROP,k)+1) = +1
+  eq = eq+1 ! equation (11): sum of transitons must be equal to total rainfed area change.
+  b_eq(eq) = area1(LU_CROP)*(1-fi1) - area0(LU_CROP)
+  do k = 1, M_LU_TYPES
+     if (map2(k,LU_CROP)>0) A_eq(eq,map2(k,LU_CROP)) = +1
+     if (map2(LU_CROP,k)>0) A_eq(eq,map2(LU_CROP,k)) = -1
   enddo
-  if (a(eq,1)<0) a(eq,:) = -a(eq,:)
+  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(11)')
 
   ! equations (8): sum of transitions to irrigated and rain-fed cropland is equal
   ! to the total transition to cropland
   do k = 1,N_LU_TYPES
      if (k==LU_CROP) cycle
      eq = eq+1
-     a(eq,1) = tran_temp(k,LU_CROP)
-     a(eq,map2(k,LU_CROP)+1)  = -1.0
-     a(eq,map2(k,LU_IRRIG)+1) = -1.0
+     b_eq(eq) = tran0(k,LU_CROP)
+     A_eq(eq,map2(k,LU_CROP))  = 1.0
+     A_eq(eq,map2(k,LU_IRRIG)) = 1.0
   enddo
-  ! eq (9): sum of transitions from irrigated and rain-fed cropland is equal
+  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(08)')
+
+  ! equation (9): sum of transitions from irrigated and rain-fed cropland is equal
   ! to the total transition to cropland
   do i = 1,N_LU_TYPES
      if (i==LU_CROP) cycle
      eq = eq+1
-     a(eq,1) = tran_temp(LU_CROP,i)
-     if (map2(LU_CROP, i)>0) a(eq,map2(LU_CROP, i)+1) = -1.0
-     if (map2(LU_IRRIG,i)>0) a(eq,map2(LU_IRRIG,i)+1) = -1.0
+     b_eq(eq) = tran0(LU_CROP,i)
+     if (map2(LU_CROP, i)>0) A_eq(eq,map2(LU_CROP, i)) = 1.0
+     if (map2(LU_IRRIG,i)>0) A_eq(eq,map2(LU_IRRIG,i)) = 1.0
   enddo
+  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(09)')
+
   ! eq (17): proportionality assumption to resolve ambiguities in transitions
   ! to irrigated and rain-fed cropland
   do i = 1,N_LU_TYPES
@@ -1969,9 +1997,10 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
         if ((cost(i,LU_IRRIG)==cost(j,LU_IRRIG)).and.(cost(i,LU_CROP)==cost(j,LU_CROP))) then
            !write(*,*) i,j,map2(i,LU_IRRIG),map2(j,LU_IRRIG)
            eq = eq+1
-           a(eq,1) = 0
-           a(eq,map2(i,LU_IRRIG)+1) =  tran_temp(j,LU_CROP)
-           a(eq,map2(j,LU_IRRIG)+1) = -tran_temp(i,LU_CROP)
+           b_eq(eq) = 0
+           A_eq(eq,map2(i,LU_IRRIG)) = -tran0(j,LU_CROP)
+           A_eq(eq,map2(j,LU_IRRIG)) = +tran0(i,LU_CROP)
+           call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(17)')
         endif
      enddo
   enddo
@@ -1984,73 +2013,69 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
         if ((cost(LU_IRRIG,i)==cost(LU_IRRIG,j)).and.(cost(LU_CROP,i)==cost(LU_CROP,j))) then
           ! write(*,*) i,j,map2(i,LU_IRRIG),map2(j,LU_IRRIG)
            eq = eq+1
-           a(eq,1) = 0
-           a(eq,map2(LU_IRRIG,i)+1) =  tran_temp(LU_CROP,j)
-           a(eq,map2(LU_IRRIG,j)+1) = -tran_temp(LU_CROP,i)
+           b_eq(eq) = 0
+           A_eq(eq,map2(LU_IRRIG,i)) = -tran0(LU_CROP,j)
+           A_eq(eq,map2(LU_IRRIG,j)) = +tran0(LU_CROP,i)
+           call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(18)')
         endif
      enddo
   enddo
 
+  ! A number of equations in the input tables may be redundant, e.g. equations like
+  ! 0 == 0 in A_eq, b_eq part. It appears not to be a problem for the simplex implementation
+  ! of linprog, but for the sake of the efficiency such redundancies can be eliminated
+  ! here.
+
   if (verbose_) then
-     print *,' Input Table for simplx:'
-     write(*,'(8x)',advance='NO')
+     write(*,*)' Input Tables for linprog:'
      do i = 1,size(map1i)
-        write(*,'(4x,a1,"->",a1)',advance='NO')landuse_name(map1i(i)),landuse_name(map1j(i))
+        write(*,'(5x,a1,"2",a1)',advance='NO')landuse_name(map1i(i)),landuse_name(map1j(i))
      enddo
      write(*,*)
-     do i = 1, m+1
-        write(*,'(99f8.4)') (a(i,j),j=1,n+1)
+     do i = 1, size(A_ub,1)
+        do j = 1,n
+!            if (a(i,j).ne.0) then
+               write(*,'(f8.4)',advance='NO')A_ub(i,j)
+!            else
+!                write(*,'(8x)',advance='NO')
+!            endif
+        enddo
+        write(*,'(a,f8.4)') ' <=', b_ub(i)
+     enddo
+     do i = 1, size(A_eq,1)
+        do j = 1,n
+!            if (a(i,j).ne.0) then
+               write(*,'(f8.4)',advance='NO')A_eq(i,j)
+!            else
+!                write(*,'(8x)',advance='NO')
+!            endif
+        enddo
+        write(*,'(a,f8.4)') ' ==', b_eq(i)
      enddo
   endif
 
-  allocate(izrov(n),iposv(m))
-  call simplx(a,m,n,m1,m2,m3,icase,izrov,iposv)
-  if (icase == 0) then
+  allocate (x(n)) ; x(:) = 0.0
+  call linprog(c,A_ub,b_ub,A_eq,b_eq,x,ierr)
+  if (ierr == 0) then
      if (verbose_) write(*,*) 'simplx finished successfully'
   else
-     call land_error_message('add_irrigation_transitions: simplx failed with code '//string(-icase),FATAL)
+     call land_error_message('add_irrigation_transitions: simplx failed with code '//string(-ierr),FATAL)
      ! if (verbose_) write(*,*) 'simplx finished un-successfully, with code',icase
   endif
-! write(*,'(x,a,99i3)') 'izrov=',izrov
-! write(*,'(x,a,99i3)') 'iposv=',iposv
-
-! print *,' Output Table:'
-! write(*,'(8x)',advance='NO')
-! do i = 1,size(map1i)
-!    write(*,'(4x,a1,"->",a1)',advance='NO')landuse_name(map1i(i)),landuse_name(map1j(i))
-! enddo
-! write(*,*)
-! do i = 1, m+1
-!    write(*,'(99f8.2)') (a(i,j),j=1,n+1)
-! enddo
 
   if (verbose_) then
      write(*,*)
-     write(*,*) ' Maximum of objective function = ', A(1,1)
+!      write(*,*) ' Maximum of objective function = ', A(1,1)
      do i=1,n
-       do j=1,m
-          if (iposv(j)==i) then
-             write(*,'("  x",i2.2," = ",g12.5,x,a1,"->",a1)') i, a(j+1, 1),landuse_name(map1i(i)),landuse_name(map1j(i))
-        goto 3
-      end if
-    end do
-       write(*,'("  y",i2.2," = ",g12.5,x,a1,"->",a1)') i, 0.0, landuse_name(map1i(i)),landuse_name(map1j(i))
-3 end do
+        write(*,'("  x",i2.2," = ",g12.5,x,a1,"->",a1)') i, x(i),landuse_name(map1i(i)),landuse_name(map1j(i))
+     enddo
   endif
 
   tran1(:,:) = 0.0
-  tran1(1:N_LU_TYPES,1:N_LU_TYPES) = tran_temp(:,:)
+  tran1(1:N_LU_TYPES,1:N_LU_TYPES) = tran0(:,:)
   do i=1,n
-     do j=1,m
-        if (iposv(j)==i) then
-           tran1(map1i(i),map1j(i)) = a(j+1, 1)
-           goto 4
-        end if
-     end do
-     tran1(map1i(i),map1j(i)) = 0.0
-4 end do
-
-  tran1 = tran1/atot
+     tran1(map1i(i),map1j(i)) = x(i)
+  end do
 
   if (verbose_) then
     write(*,*)
@@ -2084,10 +2109,160 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
     enddo
   endif
 
-  deallocate (map1i, map1j)
-  deallocate (a, izrov, iposv)
+  ! convert transition units back to [fraction of vegetated area per year]
+  tran1 = tran1/atot
+
+  deallocate (map1i, map1j, A_ub, b_ub, A_eq, b_eq, x)
+
+contains
+
+  subroutine print_equation(a,op,b,label)
+     real,         intent(in)           :: a(:)
+     character(*), intent(in), optional :: op
+     real,         intent(in), optional :: b
+     character(*), intent(in), optional :: label
+
+     integer :: i
+     character :: sign
+
+     if (.NOT.verbose_) return
+
+     if (present(label)) write(*,'(a)',advance='NO') label
+     do i = 1,size(a)
+        if (a(i)==0) cycle
+        sign = '+'
+        if (a(i) < 0) sign = '-'
+        write(*,'(a)',advance='NO') sign
+        if (abs(a(i)).ne.1.0)  write(*,'(f8.4)',advance='NO') abs(a(i))
+        write(*,'(a1,"2",a1)',advance='NO')landuse_name(map1i(i)),landuse_name(map1j(i))
+     enddo
+     if (present(op)) write(*,'(x,a)',advance='NO') op
+     if (present(b))  write(*,'(f8.4)',advance='NO') b
+     write(*,*)
+  end subroutine print_equation
+
 end subroutine add_irrigation_transitions
 
+! optimize linear programming problem
+subroutine linprog(c,A_ub,b_ub,A_eq,b_eq,x,ierr)
+  real, intent(in)  :: c(:)      ! coefficients of linear functions to minimize
+  real, intent(in)  :: A_ub(:,:) ! the inequality constrain matrix
+  real, intent(in)  :: b_ub(:)   ! the inequality constrain vector: A_ub*x <= b_ub
+  real, intent(in)  :: A_eq(:,:) ! the equality constrain matrix
+  real, intent(in)  :: b_eq(:)   ! the equality constrain vector: A_eq*x == b_eq
+
+  real, intent(out) :: x(:)      ! solution vector
+  integer, intent(out) :: ierr
+
+  integer :: n ! number of variables
+  integer :: m ! total number of constraints
+  integer :: m1 ! number of <= constraints
+  integer :: m2 ! number of >= constraints
+  integer :: m3 ! number of == constraints
+  real, allocatable :: tableau(:,:) ! "tableau" for the simplex module
+  integer, allocatable :: izrov(:), iposv(:)
+  integer :: i,j,k,eq
+
+  n = size(c)
+  ! sanity checks
+  if (size(A_ub,2).ne.n)          call error_mesg('linprog','size of A_ub is inconsistent with number of variables',FATAL)
+  if (size(A_ub,1).ne.size(b_ub)) call error_mesg('linprog','sizes of A_ub and b_ub are inconsistent',FATAL)
+  if (size(A_eq,2).ne.n)          call error_mesg('linprog','size of A_eq is inconsistent with number of variables',FATAL)
+  if (size(A_eq,1).ne.size(b_eq)) call error_mesg('linprog','sizes of A_eq and b_eq are inconsistent',FATAL)
+  if (size(c).ne.size(x))         call error_mesg('linprog','sizes of c and x are inconsistent',FATAL)
+
+  m = size(A_ub,1) + size(A_eq,1)
+
+  m1 = count(b_ub(:)>=0) ! count <= conditions
+  m2 = size(b_ub) - m1   ! and >= conditions
+  m3 = size(b_eq)        ! and the number of == conditions
+
+  ! size of the tableau is m+2 because one line is reserved for cost function, and another
+  ! for internal needs of simplex method implementation
+  allocate(tableau(m+2,n+1))
+  tableau(:,:) = 0.0
+  ! function to optimize: we are changing the sign because simplx maximizes, not minimizes cost
+  tableau(1,2:) = -c(:)
+  eq = 2
+  do k = 1,size(b_ub)
+     if (b_ub(k)>=0) then
+        tableau(eq,1)  =  b_ub(k)
+        tableau(eq,2:) = -A_ub(k,:)
+        eq = eq+1
+     endif
+  enddo
+  do k = 1,size(b_ub)
+     if (b_ub(k)<0) then
+        tableau(eq, 1)  = -b_ub(k)
+        tableau(eq, 2:) =  A_ub(k,:)
+        eq = eq+1
+     endif
+  enddo
+  do k = 1,size(b_eq)
+     if (b_eq(k)>=0) then
+        tableau(eq, 1)  =  b_eq(k)
+        tableau(eq, 2:) = -A_eq(k,:)
+     else
+        tableau(eq, 1)  = -b_eq(k)
+        tableau(eq, 2:) =  A_eq(k,:)
+     endif
+     eq = eq+1
+  enddo
+
+!   write(*,*)'m1,m2,m3:', m1, m2, m3
+!   write(*,*)'Tableau:'
+!   do k = 1,size(tableau,1)
+!      write(*,'(999(f8.4))') tableau(k,:)
+!   enddo
+
+  allocate(izrov(n),iposv(m))
+  call simplx(tableau,m,n,m1,m2,m3,ierr,izrov,iposv)
+  do i=1, n
+     do j=1, m
+        if (IPOSV(J).eq.I) then
+           x(i) = tableau(j+1,1)
+           goto 3
+        endif
+     enddo
+3 enddo
+
+  deallocate(izrov,iposv,tableau)
+end subroutine linprog
+
+!****************************************************************
+!*           LINEAR PROGRAMMING: THE SIMPLEX METHOD
+!* ------------------------------------------------------------
+!* SAMPLE RUN:
+!* Maximize z = x1 + x2 + 3x3 -0.5x4 with conditions:
+!*          x1  + 2x3 <= 740
+!*          2x2 - 7x4 <= 0
+!*          x2  - x3 + 2x4 >= 0.5
+!*          x1 + x2 + x3 +x4 = 9
+!*          and all x's >=0.
+!*
+!* Number of variables in E.F.: 4
+!* Number of <= inequalities..: 2
+!* Number of >= inequalities..: 1
+!* Number of = equalities.....: 1
+!*
+!*  Input Table:
+!*    0.00    1.00    1.00    3.00   -0.50
+!*  740.00   -1.00    0.00   -2.00    0.00
+!*    0.00    0.00   -2.00    0.00    7.00
+!*    0.50    0.00   -1.00    1.00   -2.00
+!*    9.00   -1.00   -1.00   -1.00   -1.00
+!*
+!*  Maximum of E.F. =    17.02500
+!*  X 1 =    0.000000
+!*  X 2 =    3.325000
+!*  X 3 =    4.725000
+!*  X 4 =    0.950000
+!*
+!* ------------------------------------------------------------
+!* Reference: "Numerical Recipes By W.H. Press, B. P. Flannery,
+!*             S.A. Teukolsky and W.T. Vetterling, Cambridge
+!*             University Press, 1986"
+!****************************************************************
 !----------------------------------------------------------------------------------------
 ! USES simp1,simp2,simp3
 !Simplex method for linear programming. Input parameters a, m, n, mp, np, m1, m2, and m3,
@@ -2096,7 +2271,11 @@ end subroutine add_irrigation_transitions
 !the scale of your variables.
 subroutine simplx(a,m,n,m1,m2,m3,icase,izrov,iposv)
   real,    intent(inout) :: a(:,:)
-  integer, intent(in) :: n,m,m1,m2,m3
+  integer, intent(in) :: n  ! number of variables
+  integer, intent(in) :: m  ! total number of constraints (must be equal to m1+m2+m3)
+  integer, intent(in) :: m1 ! number of <= constraints
+  integer, intent(in) :: m2 ! number of >= constraints
+  integer, intent(in) :: m3 ! number of == constraints
   integer, intent(out) :: icase
   integer, intent(out) :: izrov(:)
   integer, intent(out) :: iposv(:)
