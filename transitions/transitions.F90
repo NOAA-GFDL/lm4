@@ -146,13 +146,6 @@ integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, L
 type(varset_T) :: input_irrig!, input_flood(1) ! input irrigation area
 type(varset_T) :: input_crop  ! input crop area
 character(5) :: luh2crop(5) = ['c3ann', 'c4ann', 'c3per', 'c4per', 'c3nfx']
-real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))
 ! variables for reservoir
 logical :: module_is_initialized_lake = .FALSE.
 type(time_type) :: timel0 ! time of previous lake transition calculations
@@ -788,7 +781,7 @@ subroutine land_transitions (time)
 
         if ((area0(LU_IRRIG).ne.0).or.(irr_frac(l).ne.0)) then
            tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
-           call add_irrigation_transitions(area0(:), tran0, cost, irr_frac(l), atot, &
+           call add_irrigation_transitions(area0(:), tran0, irr_frac(l), atot, &
                    tran(l,:,:), verbose=is_watch_cell())
         endif
      enddo
@@ -1717,10 +1710,9 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(P); real :: P
 end function vegn_tran_priority
 
 !=================================================================
-subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
+subroutine add_irrigation_transitions(area0,tranI,fi1,atot,tran1,verbose)
   real, intent(in)  :: area0(M_LU_TYPES) ! area of each of the land use types [frac of land area]
   real, intent(in)  :: tranI(N_LU_TYPES, N_LU_TYPES)   ! initial transition matrix [frac of vegetated area per year]
-  real, intent(in)  :: cost (M_LU_TYPES, M_LU_TYPES) ! cost of transitions
   real, intent(in)  :: fi1 ! fraction of irrigated area after transition
   real, intent(in)  :: atot ! total area of vegetated tiles (i.e. the area that can be involved in transitions)
   real, intent(out) :: tran1(M_LU_TYPES, M_LU_TYPES) ! resulting transition matrix [frac of vegetated area per year]
@@ -1730,26 +1722,38 @@ subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
   real, parameter :: tol = 1e-14 ! minimum value of non-zero transitions:
        ! for 1x1 degree grid, area is roughly 1e10 m2, so the area involved in transitions
        ! below tol would be below 1 cm2, which is probably safe to ignore
+  integer, parameter :: IR=1, II=2, IZ=3 ! indices of aggregated LU types (rain-fed, irrigated, other)
+  integer, parameter :: LU_RAINF = LU_CROP
+  character(1), parameter :: tname(3) = ['r','i','z']
+
+  type map1_t
+     integer :: i, j;
+     character(16) :: name
+  end type map1_t
+
   ! local vars
-  real    :: tran0(N_LU_TYPES, N_LU_TYPES) ! input transitions, converted to [land area per year]
-  integer :: map2 (M_LU_TYPES, M_LU_TYPES) ! mapping transition to var number
-  integer, allocatable :: map1i(:), map1j(:) ! mapping var number to transitions
+  real    :: tran0(N_LU_TYPES, N_LU_TYPES) ! input transitions [frac of soil area per year]
   integer :: n  ! number of variables
   integer :: m1 ! Number of <= inequalities
   integer :: m3 ! Number of == equalities
   integer :: eq ! equation number
-  real,    allocatable :: c(:) ! coefficients of cost function
-  real,    allocatable :: A_ub(:,:), b_ub(:) ! input matrix and RHS for inequality (<=) conditions
-  real,    allocatable :: A_eq(:,:), b_eq(:) ! input matrix and RHS for equality conditions
-  real,    allocatable :: x(:) ! solution of linear optimization problem
+  real    :: area0c, area0z ! total area of crops and everything else before transitions
+  real    :: area1i, area1r ! area of irrigated and rain-fed crops after transitions
+  real    :: area1c ! total area of crops after transition
+  real    :: c2z, z2c ! total transitions from and to crops, respectively
+  integer :: map2(3,3) ! mapping from aggregated transition indices to variable index
+  type(map1_t) :: map1(6) ! mapping var number to transitions
+  real, allocatable :: c(:) ! coefficients of cost function
+  real, allocatable :: A_ub(:,:), b_ub(:) ! input matrix and RHS for inequality (<=) conditions
+  real, allocatable :: A_eq(:,:), b_eq(:) ! input matrix and RHS for equality conditions
+  real, allocatable :: x(:) ! solution of linear optimization problem
   real    :: area00(N_LU_TYPES) ! fraction of each land use type before transition,
                                 ! with irrigated and rain-fed crop added together
-  real    :: area1 (M_LU_TYPES) ! fraction of each land use type after transitions
-                                ! with irrigated and rain-fed crop added together
-  integer :: i,j,k,ierr
+  integer :: i,j,ierr
   logical :: verbose_
   real    :: fi0 ! fraction of irrigated area before transition, for diagnostics only
   real    :: s   ! accumulator value for various calculations
+
 
   verbose_ = .FALSE.
   if (present(verbose)) verbose_ = verbose
@@ -1771,7 +1775,7 @@ subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
   area00(LU_CROP) = area00(LU_CROP)+area0(LU_IRRIG)
 
   tran0 = tranI*atot ! convert transitions to [frac of land area per year]: it is easier to
-  ! work in this units since tile fractions are fractions of land area.
+                     ! work in this units since tile area units are [fractions of land area].
 
   ! filter out negatives in input transition matrix
   do i = 1,N_LU_TYPES
@@ -1795,241 +1799,126 @@ subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
      write(*,*)'INPUT DATA'
      write(*,*)'initial land use fractions'
      do i = 1,M_LU_TYPES
-        write(*,'(a," : ",g23.16)') landuse_name(i),area0(i)
+        write(*,'(a," : ",g12.4)') landuse_name(i),area0(i)
      enddo
-     write(*,*)'atot:', atot, sum(area0)
+     write(*,*)
+     write(*,*)'atot:', atot
+
      write(*,*)
      write(*,*)'initial transition matrix:'
-     do i = 1,N_LU_TYPES
-        write(*,'(a5)',advance='NO') landuse_name(i)
-        do j = 1,N_LU_TYPES
-           write(*,'(x,g10.3)',advance='NO') tran0(i,j)
-        enddo
-        write(*,*)
-     enddo
+     call print_transitions(tran0)
+
+     write(*,*)
      do i = 1,N_LU_TYPES
         write(*,'(99(a,g10.3))') 'sum of transitions from '//landuse_name(i)//':', sum(tran0(i,:)), &
                    ' to '//landuse_name(i)//':', sum(tran0(:,i))
      enddo
-     write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,N_LU_TYPES)
+
      if (area00(LU_CROP) > 0) then
         fi0 = area0(LU_IRRIG)/area00(LU_CROP)
      else
         fi0 = 0.0
      endif
-     write(*,'(x,a,99(/2x,a,g23.16:))') 'irrigated cropland fraction', 'before transition:',&
-               fi0,'after transition:',fi1
      write(*,*)
-     write(*,*)'relative cost of transitions:'
-     do i = 1,M_LU_TYPES
-        write(*,'(a5)',advance='NO') landuse_name(i)
-        do j = 1,M_LU_TYPES
-           write(*,'(x,g10.3)',advance='NO') cost(i,j)
-        enddo
-        write(*,*)
-     enddo
-     write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,M_LU_TYPES)
-     write(*,*)'END OF INPUT DATA'
+     write(*,'(x,a,99(2x,a,g12.4:))') 'irrigated cropland fraction','before :', &
+               fi0,'after :',fi1
+
   endif
 
-  ! build the translation between indices in output transition matrix and variable number
-  ! map2(i,j) holds the variable number of transition from land use type i to type j
-  ! map1i(k), map1j(k) -- src and dst land use types for variable k
-  map2(:,:) = -1
-  n = 0
-  do i = 1,M_LU_TYPES
-  do j = 1,M_LU_TYPES
-     if (i==LU_CROP.or.j==LU_CROP .or.i==LU_IRRIG.or.j==LU_IRRIG) then
-        if (i==j) cycle       ! skip c->c and i->i transition
-        if (j==LU_NTRL) cycle ! skip x->n transitions
-        n = n+1
-        map2(i,j) = n
-     endif
-  enddo
-  enddo
-
-  allocate(map1i(n),map1j(n))
-  do i = 1,M_LU_TYPES
-  do j = 1,M_LU_TYPES
-     if (map2(i,j)>0) then
-        map1i(map2(i,j)) = i; map1j(map2(i,j)) = j
-     endif
-  enddo
-  enddo
-
-  if (verbose_) then
-     write(*,*)
-     write(*,*)
-     write(*,'(x,a)')'transition index encoding:'
-     do i = 1,M_LU_TYPES
-        write(*,'(a5)',advance='NO') landuse_name(i)
-        do j = 1,M_LU_TYPES
-           if (map2(i,j)>0) then
-              write(*,'(x,i5)',advance='NO') map2(i,j)
-           else
-              write(*,'(6x)',advance='NO')
-           endif
-        enddo
-        write(*,*)
-     enddo
-     write(*,'(8x,99(x,a5))') (landuse_name(i),i=1,M_LU_TYPES)
-
-     do i = 1,size(map1i)
-        write(*,'("x",i2.2," : ",a5," -> ",a5)') i, landuse_name(map1i(i)),landuse_name(map1j(i))
-     enddo
-  endif
-
-  m1 = M_LU_TYPES
-  m3 = 2 + 2*(N_LU_TYPES-1) ! eq 1,11, and N_LU_TYPES of eq 8,9
-  ! calculate # of equations (17) and (18)
+  ! calculate combined transitions (assuming crop->crop transitions are zero)
+  c2z = 0.0; z2c = 0.0
   do i = 1,N_LU_TYPES
-     if (i==LU_CROP) cycle
-     do j = i+1,N_LU_TYPES
-        if (j==LU_CROP) cycle
-        if ((cost(i,LU_IRRIG)==cost(j,LU_IRRIG)).and.(cost(i,LU_CROP)==cost(j,LU_CROP))) m3 = m3+1
-        if (j==LU_NTRL) cycle
-        if ((cost(LU_IRRIG,i)==cost(LU_IRRIG,j)).and.(cost(LU_CROP,i)==cost(LU_CROP,j))) m3 = m3+1
-     enddo
+     if (i == LU_CROP) continue
+     z2c = z2c + tran0(i,LU_CROP)
+     c2z = c2z + tran0(LU_CROP,i)
   enddo
-
-  if (verbose_) then
-     write(*,*)
-     write(*,'(99(a,I2))') 'Number of variables       (n) :',n
-     write(*,'(99(a,I2))') 'Number of <= inequalities (m1):',m1
-     write(*,'(99(a,I2))') 'Number of == equalities   (m3):',m3
-  endif
 
   ! calculate areas after transition
-  area1(1:N_LU_TYPES) = area00(:)
-  do i = 1,N_LU_TYPES
-  do j = 1,N_LU_TYPES
-     area1(i) = area1(i) + tran0(j,i) - tran0(i,j)
-  enddo
-  enddo
+  area0c = area0(LU_RAINF) + area0(LU_IRRIG)
+  area0z = sum(area0) - area0c
+
+  area1c = area0c + z2c - c2z
+  area1i = area1c*fi1
+  area1r = area1c - area1i
 
   if (verbose_) then
      write(*,*)
-     write(*,*)'total cropland area after transitions     :',area1(LU_CROP)
-     write(*,*)'irrigated cropland area after transitions :',area1(LU_CROP)*fi1
-     write(*,*)'rain-fed cropland area after transitions  :',area1(LU_CROP)*(1-fi1)
+     write(*,*)'total cropland area after transitions     :',area1c
+     write(*,*)'irrigated cropland area after transitions :',area1i
+     write(*,*)'rain-fed cropland area after transitions  :',area1r
   endif
-  ! fill up matrices for the linear optimization
-  allocate (A_ub(m1,n),b_ub(m1)) ; A_ub(:,:) = 0.0 ; b_ub(:) = 0.0
-  allocate (A_eq(m3,n),b_eq(m3)) ; A_eq(:,:) = 0.0 ; b_eq(:) = 0.0
-  allocate (c(n)) ; c(:) = 0.0
 
-  ! equation (14) in the notes: set op objective (cost) function
-  do k = 1,n
-     c(k) = cost(map1i(k),map1j(k))
+  ! initialize mapping of aggregated transitions to variables. This is a constant array;
+  ! the set-up can be moved to module initialization code
+  n = 0
+  do i = 1,3
+  do j = 1,3
+     if (i.ne.j) then
+        n = n+1
+        map2(i,j)  = n
+        map1(n)%i = i
+        map1(n)%j = j
+        map1(n)%name = tname(i)//'2'//tname(j)
+!         write(*,*) n, i, j, map1(n)%name
+     else
+        map2(i,j) = 0
+     endif
   enddo
+  enddo
+
+  ! n  = 6 ! number of variables (z2i,z2r,i2z,r2z,i2r,r2i)
+  m1 = 2 ! number of <= constraints: available area constraints
+  m3 = 4 ! number of == constraints
+
+  if (verbose_) then
+     write(*,*)
+     write(*,'(99(a,I2))') 'Number of variables      (n) :',n
+     write(*,'(99(a,I2))') 'Number of <= constraints (m1):',m1
+     write(*,'(99(a,I2))') 'Number of == constraints (m3):',m3
+  endif
+
+  ! The cost function
+  allocate (c(n)) ; c(:) = 0.0
+!  c(map2(IZ,II)) = 1;  c(map2(II,IZ)) = 1
+  c(map2(IZ,II)) = 1.01;  c(map2(II,IZ)) = 1.01
+  c(map2(IR,II)) = 1;     c(map2(II,IR)) = 1
+  call print_equation(c,label='cost function:')
 
   ! set up <= conditions
-  ! area limitations: equations (13) in the notes.
-  eq = 0
-  do k = 1, M_LU_TYPES
-     eq = eq+1
-     b_ub(eq) = area0(k)
-     do i = 1,M_LU_TYPES
-        if (map2(k,i)>0) then
-           ! transition involves rain-fed or irrigated crops
-           A_ub(eq,map2(k,i)) = 1
-        else
-           ! transition does not involve rain-fed or irrigated crops, and therefore
-           ! would not be affected by the correction
-           if (i<=N_LU_TYPES.and.k<N_LU_TYPES) then
-!               if (verbose_) &
-!                   write(*,'(3(a,i2,x),99(a,g23.16))')'eq=',eq,'k=',k,'i=',i,'tran0=',tran0(k,i), &
-!                           'b_ub(eq,1)=', b_ub(eq), ' -> ',b_ub(eq) - tran0(k,i)
-              b_ub(eq) = b_ub(eq) - tran0(k,i)
-           endif
-        endif
-     enddo
-     ! protect from tiny negatives that may arise due to loss of precision
-     if (b_ub(eq)<0.and.abs(b_ub(eq)) < tol) b_ub(eq) = 0.0
-     call print_equation(A_ub(eq,:), '<=', b_ub(eq), label='(13)')
-  enddo
+  ! available area constraints
+  allocate (A_ub(m1,n),b_ub(m1)) ; A_ub(:,:) = 0.0 ; b_ub(:) = 0.0
+  A_ub(1,map2(II,IZ)) = 1 ; A_ub(1,map2(II,IR)) = 1 ; b_ub(1) = area0(LU_IRRIG)
+  A_ub(2,map2(IR,IZ)) = 1 ; A_ub(2,map2(IR,II)) = 1 ; b_ub(2) = area0(LU_RAINF)
+  call print_equation(A_ub(1,:), '<=', b_ub(1))
+  call print_equation(A_ub(2,:), '<=', b_ub(2))
 
   ! set up == conditions
-  eq = 1 ! equation (10) sum of transitons must be equal to total irrigated area change
-  b_eq(eq) = area1(LU_CROP)*fi1 - area0(LU_IRRIG)
-  do k = 1, M_LU_TYPES
-     if (map2(k,LU_IRRIG)>0) A_eq(eq,map2(k,LU_IRRIG)) = +1
-     if (map2(LU_IRRIG,k)>0) A_eq(eq,map2(LU_IRRIG,k)) = -1
-  enddo
-  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(10)')
+  allocate (A_eq(m3,n),b_eq(m3)) ; A_eq(:,:) = 0.0 ; b_eq(:) = 0.0
+  eq = 1 ! sum of transitons must be equal to total irrigated area change
+  b_eq(eq) = area1i - area0(LU_IRRIG)
+  A_eq(eq,map2(IZ,II)) = 1 ; A_eq(eq,map2(II,IZ)) = -1
+  A_eq(eq,map2(IR,II)) = 1 ; A_eq(eq,map2(II,IR)) = -1
+  call print_equation(A_eq(eq,:), '==', b_eq(eq))
 
-  eq = eq+1 ! equation (11): sum of transitons must be equal to total rainfed area change.
-  b_eq(eq) = area1(LU_CROP)*(1-fi1) - area0(LU_CROP)
-  do k = 1, M_LU_TYPES
-     if (map2(k,LU_CROP)>0) A_eq(eq,map2(k,LU_CROP)) = +1
-     if (map2(LU_CROP,k)>0) A_eq(eq,map2(LU_CROP,k)) = -1
-  enddo
-  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(11)')
+  eq = 2 ! sum of transitons must be equal to total rain-fed area change
+  b_eq(eq) = area1r - area0(LU_RAINF)
+  A_eq(eq,map2(IZ,IR)) = 1 ; A_eq(eq,map2(IR,IZ)) = -1
+  A_eq(eq,map2(II,IR)) = 1 ; A_eq(eq,map2(IR,II)) = -1
+  call print_equation(A_eq(eq,:), '==', b_eq(eq))
 
-  ! equations (8): sum of transitions to irrigated and rain-fed cropland is equal
+  ! equations (e6): sum of transitions to irrigated and rain-fed cropland is equal
   ! to the total transition to cropland
-  do k = 1,N_LU_TYPES
-     if (k==LU_CROP) cycle
-     eq = eq+1
-     b_eq(eq) = tran0(k,LU_CROP)
-     A_eq(eq,map2(k,LU_CROP))  = 1.0
-     A_eq(eq,map2(k,LU_IRRIG)) = 1.0
-  enddo
-  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(08)')
-
-  ! equation (9): sum of transitions from irrigated and rain-fed cropland is equal
-  ! to the total transition to cropland
-  do i = 1,N_LU_TYPES
-     if (i==LU_CROP) cycle
-     eq = eq+1
-     b_eq(eq) = tran0(LU_CROP,i)
-     if (map2(LU_CROP, i)>0) A_eq(eq,map2(LU_CROP, i)) = 1.0
-     if (map2(LU_IRRIG,i)>0) A_eq(eq,map2(LU_IRRIG,i)) = 1.0
-  enddo
-  call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(09)')
-
-  ! eq (17): proportionality assumption to resolve ambiguities in transitions
-  ! to irrigated and rain-fed cropland
-  do i = 1,N_LU_TYPES
-     if (i==LU_CROP) cycle
-     do j = i+1,N_LU_TYPES
-        if (j==LU_CROP) cycle
-        if ((cost(i,LU_IRRIG)==cost(j,LU_IRRIG)).and.(cost(i,LU_CROP)==cost(j,LU_CROP))) then
-           !write(*,*) i,j,map2(i,LU_IRRIG),map2(j,LU_IRRIG)
-           eq = eq+1
-           b_eq(eq) = 0
-           A_eq(eq,map2(i,LU_IRRIG)) = -tran0(j,LU_CROP)
-           A_eq(eq,map2(j,LU_IRRIG)) = +tran0(i,LU_CROP)
-           call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(17)')
-        endif
-     enddo
-  enddo
-  ! eq (18): proportionality assumption to resolve ambiguities in transitions
-  ! from irrigated and rain-fed cropland
-  do i = 1,N_LU_TYPES
-     if (i==LU_CROP.or.i==LU_NTRL) cycle
-     do j = i+1,N_LU_TYPES
-        if (j==LU_CROP.or.j==LU_NTRL) cycle
-        if ((cost(LU_IRRIG,i)==cost(LU_IRRIG,j)).and.(cost(LU_CROP,i)==cost(LU_CROP,j))) then
-          ! write(*,*) i,j,map2(i,LU_IRRIG),map2(j,LU_IRRIG)
-           eq = eq+1
-           b_eq(eq) = 0
-           A_eq(eq,map2(LU_IRRIG,i)) = -tran0(LU_CROP,j)
-           A_eq(eq,map2(LU_IRRIG,j)) = +tran0(LU_CROP,i)
-           call print_equation(A_eq(eq,:), '==', b_eq(eq), label='(18)')
-        endif
-     enddo
-  enddo
-
-  ! A number of equations in the input tables may be redundant, e.g. equations like
-  ! 0 == 0 in A_eq, b_eq part. It appears not to be a problem for the simplex implementation
-  ! of linprog, but for the sake of the efficiency such redundancies can be eliminated
-  ! here.
+  eq=3
+  A_eq(eq,map2(IZ,II)) = 1 ;  A_eq(eq,map2(IZ,IR)) = 1 ; b_eq(eq) = z2c
+  call print_equation(A_eq(eq,:), '==', b_eq(eq))
+  eq=4
+  A_eq(eq,map2(II,IZ)) = 1 ;  A_eq(eq,map2(IR,IZ)) = 1 ; b_eq(eq) = c2z
+  call print_equation(A_eq(eq,:), '==', b_eq(eq))
 
   if (verbose_) then
      write(*,*)' Input Tables for linprog:'
-     do i = 1,size(map1i)
-        write(*,'(5x,a1,"2",a1)',advance='NO')landuse_name(map1i(i)),landuse_name(map1j(i))
+     do i = 1,n
+        write(*,'(5x,a3)',advance='NO') map1(i)%name
      enddo
      write(*,*)
      do i = 1, size(A_ub,1)
@@ -2067,44 +1956,49 @@ subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
      write(*,*)
 !      write(*,*) ' Maximum of objective function = ', A(1,1)
      do i=1,n
-        write(*,'("  x",i2.2," = ",g12.5,x,a1,"->",a1)') i, x(i),landuse_name(map1i(i)),landuse_name(map1j(i))
+        write(*,'("  x",i2.2," : ", a," = ",g12.5)') i, trim(map1(i)%name), x(i)
      enddo
   endif
 
+  ! unpack the solution into final transition matrix
   tran1(:,:) = 0.0
   tran1(1:N_LU_TYPES,1:N_LU_TYPES) = tran0(:,:)
-  do i=1,n
-     tran1(map1i(i),map1j(i)) = x(i)
-  end do
+  if (c2z>0) then
+     do i = 1,N_LU_TYPES
+        tran1(LU_IRRIG,i) = x(map2(II,IZ))*tran0(LU_CROP,i)/c2z
+        tran1(LU_RAINF,i) = x(map2(IR,IZ))*tran0(LU_CROP,i)/c2z
+     enddo
+  endif
+  if (z2c>0) then
+     do i = 1,N_LU_TYPES
+        tran1(i,LU_IRRIG) = x(map2(IZ,II))*tran0(i,LU_CROP)/z2c
+        tran1(i,LU_RAINF) = x(map2(IZ,IR))*tran0(i,LU_CROP)/z2c
+     enddo
+  endif
+  tran1(LU_IRRIG,LU_RAINF) = x(map2(II,IR))
+  tran1(LU_RAINF,LU_IRRIG) = x(map2(IR,II))
 
   if (verbose_) then
     write(*,*)
     write(*,*)'final transition matrix:'
-    do i = 1,M_LU_TYPES
-       write(*,'(a5)',advance='NO') landuse_name(i)
-       do j = 1,M_LU_TYPES
-          write(*,'(x,g10.3)',advance='NO') tran1(i,j)
-       enddo
-       write(*,*)
-    enddo
-    write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,M_LU_TYPES)
+    call print_transitions(tran1)
 
     write(*,*)
-    write(*,'(a/5x,2a23)')'land use fractions',' before','after'
+    write(*,'(a/5x,2a23)')'change in land use fractions'
     do i = 1,M_LU_TYPES
-       write(*,'(a5,g23.16)',advance='NO') landuse_name(i),area0(i)
+       write(*,'(a5,g12.4)',advance='NO') landuse_name(i),area0(i)
        s = area0(i)
        do j = 1,M_LU_TYPES
           s = s + tran1(j,i) - tran1(i,j)
        enddo
-       write(*,'(g23.16)') s
+       write(*,'("->",g12.4)') s
     enddo
 
     do i = 1,M_LU_TYPES
        s = sum(tran1(i,:))
        if (s > area0(i)) then
-          write (*,'("sum of transitions from ",a," (",g10.3,") exceeds initial area (",g10.3,")")') &
-              landuse_name(i),s,area0(i)
+          write (*,'("sum of transitions from ",a," (",g10.3,") exceeds initial area (",g10.3,") by", g23.16)') &
+              landuse_name(i),s,area0(i), s-area0(i)
        endif
     enddo
   endif
@@ -2112,7 +2006,7 @@ subroutine add_irrigation_transitions(area0,tranI,cost,fi1,atot,tran1,verbose)
   ! convert transition units back to [fraction of vegetated area per year]
   tran1 = tran1/atot
 
-  deallocate (map1i, map1j, A_ub, b_ub, A_eq, b_eq, x)
+  deallocate (A_ub, b_ub, A_eq, b_eq, x)
 
 contains
 
@@ -2132,14 +2026,26 @@ contains
         if (a(i)==0) cycle
         sign = '+'
         if (a(i) < 0) sign = '-'
-        write(*,'(a)',advance='NO') sign
-        if (abs(a(i)).ne.1.0)  write(*,'(f8.4)',advance='NO') abs(a(i))
-        write(*,'(a1,"2",a1)',advance='NO')landuse_name(map1i(i)),landuse_name(map1j(i))
+        write(*,'(x,a,x)',advance='NO') sign
+        if (abs(a(i)).ne.1.0)  write(*,'(f8.4,x)',advance='NO') abs(a(i))
+        write(*,'(a3)',advance='NO')map1(i)%name
      enddo
      if (present(op)) write(*,'(x,a)',advance='NO') op
      if (present(b))  write(*,'(f8.4)',advance='NO') b
      write(*,*)
   end subroutine print_equation
+
+  subroutine print_transitions(tran)
+     real, intent(in) :: tran(:,:)
+     integer :: i, j
+
+     do i = 1, size(tran,1)
+     do j = 1, size(tran,2)
+         if (tran(i,j) <= 0) cycle
+         write(*,'(a4,"->",a4,g12.3)') landuse_name(i), landuse_name(j), tran(i,j)
+     enddo
+     enddo
+  end subroutine print_transitions
 
 end subroutine add_irrigation_transitions
 
@@ -2238,7 +2144,7 @@ end subroutine linprog
 !*          2x2 - 7x4 <= 0
 !*          x2  - x3 + 2x4 >= 0.5
 !*          x1 + x2 + x3 +x4 = 9
-!*          and all x's >=0.
+!*          and all variables xN  >=0.
 !*
 !* Number of variables in E.F.: 4
 !* Number of <= inequalities..: 2
