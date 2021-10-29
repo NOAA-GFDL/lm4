@@ -10,8 +10,8 @@ use soil_carbon_mod, only : N_C_TYPES, C_FAST, deadmic_slow_frac
 use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
-      min_cohort_nindivs
-use vegn_tile_mod, only : vegn_tile_type
+      min_cohort_nindivs, seedling_relayer_bug
+use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C, plant_N, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
       init_cohort_allometry_ppa, cohort_can_reproduce
@@ -196,7 +196,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      if (k==0) then
         ! Most of the code assumes that there is at least one cohort present.
         ! So if all cohorts die, preserve single cohort with zero individuals.
-        ! It probably doesn't matter which, but let's pick the shortest here.
+        ! It probably does not matter which, but let us pick the shortest here.
         cc(1) = vegn%cohorts(vegn%n_cohorts)
         cc(1)%nindivs = 0.0
         vegn%n_cohorts = 1
@@ -254,7 +254,23 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
 
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa input #####'
-     __DEBUG1__(seed_C)
+     associate(cc=>vegn%cohorts)
+     do k = 1, vegn%n_cohorts
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc(k)%layer
+        call dpri('height',cc(k)%height)
+        call dpri('nindivs',cc(k)%nindivs)
+        call dpri('species',spdata(cc(k)%species)%name)
+        call dpri('Tv',cc(k)%Tv)
+        write(*,*)
+     enddo
+     end associate
+     write(*,*)'##### seeds #####'
+     do i = 0, nspecies-1
+        write (*,'(i2.2," : ",a20,x)',advance='NO') i,spdata(i)%name
+        call dpri('seed_C',seed_C(i))
+        call dpri('seed_N',seed_N(i))
+        write(*,*)
+     enddo
   endif
   call check_var_range(seed_C,-carbon_cons_tol,HUGE(1.0),'add_seedlings_ppa','seed_C', FATAL)
 
@@ -313,7 +329,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     endif
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
-    ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N is
+    ! Nitrogen needs to be adjusted at this point so it is conserved, since seedling N is
     ! not necessarily consistent with initial C values. cc%total_N is set in
     ! init_cohort_allometry_ppa so it should be correct
     if(cc%nindivs>0) &
@@ -346,26 +362,34 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     enddo
 
     ! we assume that the newborn cohort is dry; since nindivs of the parent
-    ! doesn't change we don't need to do anything with its Wl and Ws to
+    ! does not change we do not need to do anything with its Wl and Ws to
     ! conserve water (since Wl and Ws are per individual)
     cc%Wl = 0 ; cc%Ws = 0
 
     end associate   ! F2003
   enddo
 
+
   call add_soil_carbon(soil, vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
 
   vegn%n_cohorts = k
+  if (.not.seedling_relayer_bug) then
+     call vegn_relayer_cohorts_ppa(vegn)
+  endif
+
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa output #####'
      __DEBUG2__(newcohorts, vegn%n_cohorts)
-     do k = vegn%n_cohorts-newcohorts+1, vegn%n_cohorts
-        write(*,'(a,i2.2)',advance='NO') 'cohort=', k
-        call dpri(' nindivs=', vegn%cohorts(k)%nindivs)
-        call dpri(' species=', vegn%cohorts(k)%species)
-        call dpri(' Tv=',      vegn%cohorts(k)%Tv)
+     associate(cc=>vegn%cohorts)
+     do k = 1, vegn%n_cohorts
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc(k)%layer
+        call dpri('height',cc(k)%height)
+        call dpri('nindivs',cc(k)%nindivs)
+        call dpri('species',spdata(cc(k)%species)%name)
+        call dpri('Tv',cc(k)%Tv)
         write(*,*)
      enddo
+     end associate
   endif
 
   deallocate(Tv,height)

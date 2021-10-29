@@ -1,6 +1,13 @@
 module land_tile_mod
 
-use fms_mod, only : error_mesg, FATAL
+use fms_mod, only : &
+     open_namelist_file, close_file, mpp_pe, mpp_root_pe, &
+     check_nml_error, error_mesg, stdlog, FATAL
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
 
 use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
@@ -22,9 +29,10 @@ use cana_tile_mod, only : &
      cana_tile_stock_pe, cana_tile_carbon, cana_tile_heat
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
-     vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_tile_tag, &
-     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen
+     vegn_tiles_can_be_merged, vegn_tile_lu_match, merge_vegn_tiles, vegn_tile_tag, &
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen, vegn_tile_bwood
 use vegn_util_mod, only : kill_small_cohorts_ppa
+use vegn_data_mod, only : landuse_name
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
@@ -33,7 +41,11 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, init_diag_buff
-use land_data_mod, only : lnd
+use land_data_mod, only : lnd, log_version
+use land_debug_mod, only : &
+     is_watch_cell, &
+     check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, heat_cons_tol
+
 
 implicit none
 private
@@ -49,7 +61,8 @@ public :: max_n_tiles
 
 ! operations with tile
 public :: new_land_tile, delete_land_tile
-public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
+public :: merge_land_tiles, merge_land_tile_into_list
+public :: remerge_tile_list ! reduces number of tiles by merging all that can be merged
 
 public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
@@ -74,9 +87,6 @@ public :: empty   ! returns true if the list of tiles is empty
 public :: nitems  ! count of items in list
 
 public :: tile_is_selected
-
-public :: print_land_tile_info
-public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
 public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
@@ -106,7 +116,7 @@ interface operator(/=)
 end interface
 
 interface insert
-   module procedure insert_at_position, insert_in_list
+   module procedure insert_at_position, append_to_list
 end interface
 interface remove
    module procedure remove_at_position, remove_all_from_list
@@ -117,6 +127,10 @@ end interface
 interface nitems
    module procedure n_items_in_list
 end interface
+
+! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'land_tile_mod'
+#include "shared/version_variable.inc"
 
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
@@ -248,12 +262,25 @@ abstract interface
   ! do not have access to their environment by host association, so without
   ! "import" they don't know the definition of land_tile_type, and compilation
   ! fails
+
+  ! given two vegetation tiles, returns TRUE is they are allowed to merge, FALSE
+  ! otherwise
+  logical function vegn_tiles_merge_check(vegn1, vegn2)
+     import vegn_tile_type
+     type(vegn_tile_type), intent(in) :: vegn1, vegn2
+  end function vegn_tiles_merge_check
 end interface
 
 ! ==== module data ===========================================================
-integer :: n_created_land_tiles = 0 ! total number of created tiles
-integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
 type(land_tile_list_type), allocatable :: land_tile_map(:) ! map of tiles
+
+real    :: min_tile_frac = 0.0 ! minimum fraction of tile land area that is not
+   ! aggressively merged during re-merging of the tiles in remerge_tile_list
+! chatacter(32) :: vegn_merge_policy = 'agressive' ! or 'strict-LU-match'
+   ! 'agressive' means that tiny tiles can be merged into any large natural, secondary, or
+   ! rangeland tile, regardless of their own land use
+   ! 'strict-LU-match' means that tiny tiles can be merged only
+namelist /tile_merge_nml/ min_tile_frac!, vegn_merge_policy
 
 contains
 
@@ -263,6 +290,31 @@ contains
 ! initialize land tile map
 subroutine init_tile_map()
   integer :: l
+  integer :: unit, ierr, io
+
+  call log_version(version, module_name, &
+  __FILE__)
+
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=tile_merge_nml, iostat=io)
+     ierr = check_nml_error(io, 'tile_merge_nml')
+#else
+  if (file_exist('input.nml')) then
+     unit = open_namelist_file ( )
+     ierr = 1;
+     do while (ierr /= 0)
+        read (unit, nml=tile_merge_nml, iostat=io, end=10)
+        ierr = check_nml_error (io, 'tile_merge_nml')
+     enddo
+10   continue
+     call close_file (unit)
+  endif
+#endif
+  if (mpp_pe() == mpp_root_pe()) then
+     unit = stdlog()
+     write (unit, nml=tile_merge_nml)
+     call close_file (unit)
+  endif
 
   allocate(land_tile_map(lnd%ls:lnd%le))
   do l = lnd%ls,lnd%le
@@ -336,9 +388,6 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   ! create a buffer for diagnostic output
   call init_diag_buff(tile%diag)
 
-  ! increment total number of created files for tile statistics
-  n_created_land_tiles = n_created_land_tiles + 1
-
 end function land_tile_ctor
 
 
@@ -375,9 +424,6 @@ subroutine delete_land_tile(tile)
 
   ! release the tile memory
   deallocate(tile)
-
-  ! increment the number of deleted files for tile statistics
-  n_deleted_land_tiles = n_deleted_land_tiles + 1
 
 end subroutine delete_land_tile
 
@@ -488,10 +534,11 @@ function land_tile_grnd_T(tile) result(T) ; real T
 end function land_tile_grnd_T
 
 ! ============================================================================
-! returns true if two land tiles can be merged
-function land_tiles_can_be_merged(tile1,tile2) result (answer)
+! returns true if tile1 can be merged into tile2
+function land_tiles_can_be_merged(tile1,tile2,vegn_merge_check) result (answer)
    logical :: answer ! returned value
    type(land_tile_type), intent(in) :: tile1, tile2
+   procedure(vegn_tiles_merge_check), optional :: vegn_merge_check
 
    ! make sure that the two tiles have the same components. For
    ! uniformity every component is checked, even though snow and
@@ -513,9 +560,14 @@ function land_tiles_can_be_merged(tile1,tile2) result (answer)
       answer = answer.and.cana_tiles_can_be_merged(tile1%cana,tile2%cana)
    if (answer.and.associated(tile1%snow)) &
       answer = answer.and.snow_tiles_can_be_merged(tile1%snow,tile2%snow)
-   if (answer.and.associated(tile1%vegn)) &
-      answer = answer.and.vegn_tiles_can_be_merged(tile1%vegn,tile2%vegn)
-
+   if (answer.and.associated(tile1%vegn)) then
+      if (present(vegn_merge_check)) then
+          answer = answer.and.vegn_merge_check(tile1%vegn,tile2%vegn)
+      else
+          ! use traditional check: match between land use types and biomass bins
+          answer = answer.and.vegn_tiles_can_be_merged(tile1%vegn,tile2%vegn)
+      endif
+   endif
 end function land_tiles_can_be_merged
 
 ! ============================================================================
@@ -586,6 +638,147 @@ subroutine merge_land_tile_into_list(tile, list)
   ! if no suitable tile was found, just insert given tile into the list.
   call insert(tile,list)
 end subroutine merge_land_tile_into_list
+
+! ============================================================================
+! given tile list, tries to re-merge as many tiles as possible, to reduce
+! computational burden.
+subroutine remerge_tile_list(list)
+  type(land_tile_list_type), intent(inout) :: list
+
+  type(land_tile_type), pointer :: tile, tile1, tile2, dst
+  type(land_tile_enum_type) :: ce, co
+  type(land_tile_list_type) :: tmp, tmp1 ! temporary list to hold large and small tiles, respectively
+  integer :: i
+  real :: d, dmin ! "distance" between vegetation tiles in biomass
+  real, parameter :: eps = 0.001 ! small number to make sure "distance" is not unreasonable
+        ! when bwood is close to 0
+
+  ! for conservation checks:
+  real :: lmass0,fmass0,cmass0,nmass0,heat0
+  real :: lmass1,fmass1,cmass1,nmass1,heat1
+  real :: lmass,fmass,cmass,nmass,heat
+
+  ! + conservation check part 1
+  lmass0=0.0 ; fmass0=0.0 ; cmass0=0.0 ; nmass0=0.0 ; heat0=0.0
+  ce=first_elmt(list)
+  do while (loop_over_tiles(ce,tile))
+     ! tile values, per unit area
+     call get_tile_water(tile,lmass,fmass)
+     cmass  = land_tile_carbon(tile)
+     nmass  = land_tile_nitrogen(tile)
+     heat   = land_tile_heat(tile)
+     ! accumulate grid cell values
+     lmass0 = lmass0 + lmass*tile%frac
+     fmass0 = fmass0 + fmass*tile%frac
+     cmass0 = cmass0 + cmass*tile%frac
+     nmass0 = nmass0 + nmass*tile%frac
+     heat0  =  heat0 +  heat*tile%frac
+  enddo
+  ! - conservation check part 1
+
+  if (is_watch_cell()) then
+     write (*,*)'##### remerge_tile_list input #####'
+     ce = first_elmt(list); i = 1
+     do while(loop_over_tiles(ce, tile))
+        write(*,'(i3, 2x)',advance='no'),i
+        call print_land_tile_info(tile)
+        i = i+1
+     enddo
+  endif
+
+  call land_tile_list_init(tmp)
+  call land_tile_list_init(tmp1)
+  ! move all tiles into two temporary list: very small soil tiles stored in tmp1,
+  ! while tiles with non-negligible land area fraction are merged into tmp
+  do while (.not.empty(list))
+     ce=first_elmt(list)
+     tile=>current_tile(ce)
+     call remove(ce)
+     if (associated(tile%vegn).and.tile%frac < min_tile_frac) then
+        call append_to_list(tile,tmp1)
+     else
+        ! this merges individual tiles, according to general criteria
+        call merge_land_tile_into_list(tile,tmp)
+     endif
+  enddo
+
+  ! merge all small soil/vegn tiles into larger tiles, using relaxed merge criteria
+  do while (.not.empty(tmp1))
+     ce=first_elmt(tmp1)
+     tile1=>current_tile(ce)
+     call remove(ce)
+     ! select the best larger tile that tile1 can be merged into
+     co = first_elmt(tmp); dmin = HUGE(1.0); dst=>NULL()
+     do while (loop_over_tiles(co, tile2))
+        ! the check below returns true if the tiles are compatible in all non-vegetation
+        ! respects (e.g. soil type, etc.) and their land use types are the same, regardless
+        ! of the vegetation state. This loop selects the tiles that are closest in bwood.
+        if (land_tiles_can_be_merged(tile1,tile2,vegn_merge_check=vegn_tile_lu_match)) then
+            ! this hard-coded rule can be replaced with a more sophisticated function,
+            ! if desired
+            d = (abs(vegn_tile_bwood(tile1%vegn))+eps)/ &
+                (abs(vegn_tile_bwood(tile2%vegn))+eps)
+            if (d<1) d = 1.0/d
+            if (d<dmin) then
+               dst=>tile2; dmin = d
+            endif
+        endif
+     enddo
+     if (associated(dst)) then
+        call merge_land_tiles(tile1,dst)
+        call delete_land_tile(tile1)
+     else
+        ! we get here only if there are no matching tiles, e.g. tiny cropland tile,
+        ! which is the only cropland tile in the grid cell and therefore cannot be
+        ! merged with anything.
+        call append_to_list(tile1,tmp)
+     endif
+  enddo
+
+  ! move all tiles from temporary list to the tile map
+  do while (.not.empty(tmp))
+     ce=first_elmt(tmp)
+     tile=>current_tile(ce)
+     call remove(ce)
+     call append_to_list(tile,list)
+  enddo
+  call land_tile_list_end(tmp)
+  call land_tile_list_end(tmp1)
+
+  if (is_watch_cell()) then
+     write (*,*)'##### remerge_tile_list output #####'
+     ce = first_elmt(list); i = 1
+     do while(loop_over_tiles(ce, tile))
+        write(*,'(i3, 2x)',advance='no'),i
+        call print_land_tile_info(tile)
+        i = i+1
+     enddo
+  endif
+
+  ! + conservation check part 2
+  lmass1=0.0 ; fmass1=0.0 ; cmass1=0.0 ; nmass1=0.0 ; heat1=0.0
+  ce=first_elmt(list)
+  do while (loop_over_tiles(ce,tile))
+     ! tile values, per unit area
+     call get_tile_water(tile,lmass,fmass)
+     cmass  = land_tile_carbon(tile)
+     nmass  = land_tile_nitrogen(tile)
+     heat   = land_tile_heat(tile)
+     ! accumulate grid cell values
+     lmass1 = lmass1 + lmass*tile%frac
+     fmass1 = fmass1 + fmass*tile%frac
+     cmass1 = cmass1 + cmass*tile%frac
+     nmass1 = nmass1 + nmass*tile%frac
+     heat1  =  heat1 +  heat*tile%frac
+  enddo
+  call check_conservation ('remerge_tile_list', 'liquid water', lmass0, lmass1, water_cons_tol)
+  call check_conservation ('remerge_tile_list', 'frozen water', fmass0, fmass1, water_cons_tol)
+  call check_conservation ('remerge_tile_list', 'carbon'      , cmass0, cmass1, carbon_cons_tol)
+  call check_conservation ('remerge_tile_list', 'nitrogen'    , nmass0, nmass1, nitrogen_cons_tol)
+  call check_conservation ('remerge_tile_list', 'heat'        , heat0,  heat1,  heat_cons_tol)
+  ! - conservation check part 2
+end subroutine remerge_tile_list
+
 
 ! #### tile container ########################################################
 
@@ -671,13 +864,12 @@ function elmt_at_index(list,k) result(ptr)
 end function elmt_at_index
 
 ! ============================================================================
-subroutine insert_in_list(tile,list)
-  type(land_tile_type),           pointer :: tile
+subroutine append_to_list(tile,list)
+  type(land_tile_type),            pointer :: tile
   type(land_tile_list_type), intent(inout) :: list
 
   call insert_at_position(tile,tail_elmt(list))
-
-end subroutine insert_in_list
+end subroutine append_to_list
 
 
 ! ============================================================================
@@ -1011,22 +1203,18 @@ end function tile_is_selected
 subroutine print_land_tile_info(tile)
   type(land_tile_type), intent(in) :: tile
 
-  write(*,'("(tag =",i3,", frac =",f7.4)',advance='no') tile%tag, tile%frac
+  write(*,'("(tag =",i3,", frac =",g23.16)',advance='no') tile%tag, tile%frac
   if(associated(tile%lake)) write(*,'(a,i3)',advance='no')', lake =',tile%lake%tag
   if(associated(tile%soil)) write(*,'(a,i3)',advance='no')', soil =',tile%soil%tag
   if(associated(tile%glac)) write(*,'(a,i3)',advance='no')', glac =',tile%glac%tag
-  if(associated(tile%snow)) write(*,'(a,i3)',advance='no')', snow =',tile%snow%tag
-  if(associated(tile%cana)) write(*,'(a)',advance='no')', cana'
-  if(associated(tile%vegn)) write(*,'(a)',advance='no')', vegn'
-  write(*,'(")")',advance='no')
+!  if(associated(tile%snow)) write(*,'(a,i3)',advance='no')', snow =',tile%snow%tag
+!  if(associated(tile%cana)) write(*,'(a)',advance='no')', cana'
+  if(associated(tile%vegn)) then
+       write(*,'(a)',advance='no')', vegn LU = '//landuse_name(tile%vegn%landuse)
+       write(*,'(a,g23.16)',advance='no') ', bwood = ',vegn_tile_bwood(tile%vegn)
+  endif
+  write(*,'(")")')
 
 end subroutine print_land_tile_info
-
-
-! ============================================================================
-subroutine print_land_tile_statistics()
-  write(*,*)'Total number of created land_tiles =',n_created_land_tiles
-  write(*,*)'Total number of deleted land_tiles =',n_deleted_land_tiles
-end subroutine print_land_tile_statistics
 
 end module land_tile_mod
