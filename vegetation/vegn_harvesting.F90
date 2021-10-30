@@ -22,7 +22,7 @@ use land_debug_mod, only : string_from_time, land_error_message, check_conservat
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, &
+     N_LU_TYPES, LU_PAST, LU_RAINF, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
      nspecies, spdata, agf_bs
@@ -288,7 +288,7 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
          (end_of_year .and. grazing_freq==GRAZING_ANNUAL)) then
         call vegn_graze_rangeland (tile)
      endif
-  case(LU_CROP, LU_IRRIG)  ! crop
+  case(LU_RAINF, LU_IRRIG)  ! crop
      select case(crop_schedule_option)
      case (CROP_SCHEDULE_LM3)
         if (end_of_year) call vegn_harvest_cropland (tile)
@@ -1219,7 +1219,7 @@ subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C, crop_seed_
    integer, intent(in) :: day_of_year
    real, intent(out) :: crop_seed_demand_C, crop_seed_demand_N
    crop_seed_demand_C = 0.0; crop_seed_demand_N = 0.0
-   if ((vegn%landuse==LU_CROP.or.vegn%landuse==LU_IRRIG) .and. day_of_year==nint(crop_planting_day(l))) then
+   if ((vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) .and. day_of_year==nint(crop_planting_day(l))) then
       crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
       crop_seed_demand_N = MAX(crop_seed_density/crop_seed_c2n - vegn%harv_pool_N(HARV_POOL_CROP),0.0)
    endif

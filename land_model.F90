@@ -53,7 +53,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, sweep_tiny_snow
-use vegn_data_mod, only : LU_PAST, LU_CROP, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
+use vegn_data_mod, only : LU_PAST, LU_RAINF, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -4667,7 +4667,7 @@ function is_crop(tile) result(answer); logical :: answer
   answer = .FALSE.
   if (.not.associated(tile)) return
   if (.not.associated(tile%vegn)) return
-  answer = (tile%vegn%landuse == LU_CROP.or.tile%vegn%landuse == LU_IRRIG)
+  answer = (tile%vegn%landuse == LU_RAINF.or.tile%vegn%landuse == LU_IRRIG)
 end function is_crop
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

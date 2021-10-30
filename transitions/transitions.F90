@@ -26,7 +26,7 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
      nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, M_LU_TYPES, LU_PAST, LU_CROP, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
+     N_LU_TYPES, M_LU_TYPES, LU_PAST, LU_RAINF, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
      landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat, cana_tile_stock_pe, cana_tile_carbon, new_cana_tile, merge_cana_tiles, cana_tile_type, delete_cana_tile
@@ -94,7 +94,7 @@ integer, parameter :: &
 ! min-n-tiles transition distribution option. ALL land use types MUST be present in this
 ! array, otherwise some transitions may be missed -- except perhaps LU_NTRL, since we
 ! assume there are no transitions to LU_NTRL
-integer, parameter :: tran_order(M_LU_TYPES) = (/LU_URBN, LU_CROP, LU_IRRIG, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
+integer, parameter :: tran_order(M_LU_TYPES) = [ LU_URBN, LU_RAINF, LU_IRRIG, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL ]
 
 ! TODO: describe differences between data sets
 
@@ -121,12 +121,12 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
    'primn', LU_NTRL, &
    'secdf', LU_SCND, &
    'secdn', LU_SCND, &
-   'urban', LU_CROP, &
-   'c3ann', LU_CROP, &
-   'c4ann', LU_CROP, &
-   'c3per', LU_CROP, &
-   'c4per', LU_CROP, &
-   'c3nfx', LU_CROP, &
+   'urban', LU_RAINF, &
+   'c3ann', LU_RAINF, &
+   'c4ann', LU_RAINF, &
+   'c3per', LU_RAINF, &
+   'c4per', LU_RAINF, &
+   'c3nfx', LU_RAINF, &
    'pastr', LU_PAST, &
    'range', LU_RANGE /
 
@@ -1544,7 +1544,7 @@ function landuse_priority(tile, dst) result(P); real P
      ! hidx_j is the index of the hillslope tile; the higher the index the
      ! higher the tile in the hillslope
      P = tile%soil%hidx_j
-  else if ((src==LU_CROP.or.src==LU_IRRIG).and.dst==LU_PAST) then
+  else if ((src==LU_RAINF.or.src==LU_IRRIG).and.dst==LU_PAST) then
      ! for CROP->PAST conversion, start from the top of the hill
      P = tile%soil%hidx_j
   else
@@ -1723,7 +1723,6 @@ subroutine add_irrigation_transitions(area0,tranI,fi1,atot,tran1,verbose)
        ! for 1x1 degree grid, area is roughly 1e10 m2, so the area involved in transitions
        ! below tol would be below 1 cm2, which is probably safe to ignore
   integer, parameter :: IR=1, II=2, IZ=3 ! indices of aggregated LU types (rain-fed, irrigated, other)
-  integer, parameter :: LU_RAINF = LU_CROP
   character(1), parameter :: tname(3) = ['r','i','z']
 
   type map1_t
@@ -1772,7 +1771,7 @@ subroutine add_irrigation_transitions(area0,tranI,fi1,atot,tran1,verbose)
 
   ! calculate the fraction each land use type with rain-fed and irrigated areas combined
   area00(:) = area0(1:N_LU_TYPES)
-  area00(LU_CROP) = area00(LU_CROP)+area0(LU_IRRIG)
+  area00(LU_RAINF) = area00(LU_RAINF)+area0(LU_IRRIG)
 
   tran0 = tranI*atot ! convert transitions to [frac of land area per year]: it is easier to
                      ! work in this units since tile area units are [fractions of land area].
@@ -1814,8 +1813,8 @@ subroutine add_irrigation_transitions(area0,tranI,fi1,atot,tran1,verbose)
                    ' to '//landuse_name(i)//':', sum(tran0(:,i))
      enddo
 
-     if (area00(LU_CROP) > 0) then
-        fi0 = area0(LU_IRRIG)/area00(LU_CROP)
+     if (area00(LU_RAINF) > 0) then
+        fi0 = area0(LU_IRRIG)/area00(LU_RAINF)
      else
         fi0 = 0.0
      endif
@@ -1828,9 +1827,9 @@ subroutine add_irrigation_transitions(area0,tranI,fi1,atot,tran1,verbose)
   ! calculate combined transitions (assuming crop->crop transitions are zero)
   c2z = 0.0; z2c = 0.0
   do i = 1,N_LU_TYPES
-     if (i == LU_CROP) continue
-     z2c = z2c + tran0(i,LU_CROP)
-     c2z = c2z + tran0(LU_CROP,i)
+     if (i == LU_RAINF) continue
+     z2c = z2c + tran0(i,LU_RAINF)
+     c2z = c2z + tran0(LU_RAINF,i)
   enddo
 
   ! calculate areas after transition
@@ -1965,14 +1964,14 @@ subroutine add_irrigation_transitions(area0,tranI,fi1,atot,tran1,verbose)
   tran1(1:N_LU_TYPES,1:N_LU_TYPES) = tran0(:,:)
   if (c2z>0) then
      do i = 1,N_LU_TYPES
-        tran1(LU_IRRIG,i) = x(map2(II,IZ))*tran0(LU_CROP,i)/c2z
-        tran1(LU_RAINF,i) = x(map2(IR,IZ))*tran0(LU_CROP,i)/c2z
+        tran1(LU_IRRIG,i) = x(map2(II,IZ))*tran0(LU_RAINF,i)/c2z
+        tran1(LU_RAINF,i) = x(map2(IR,IZ))*tran0(LU_RAINF,i)/c2z
      enddo
   endif
   if (z2c>0) then
      do i = 1,N_LU_TYPES
-        tran1(i,LU_IRRIG) = x(map2(IZ,II))*tran0(i,LU_CROP)/z2c
-        tran1(i,LU_RAINF) = x(map2(IZ,IR))*tran0(i,LU_CROP)/z2c
+        tran1(i,LU_IRRIG) = x(map2(IZ,II))*tran0(i,LU_RAINF)/z2c
+        tran1(i,LU_RAINF) = x(map2(IZ,IR))*tran0(i,LU_RAINF)/z2c
      enddo
   endif
   tran1(LU_IRRIG,LU_RAINF) = x(map2(II,IR))
