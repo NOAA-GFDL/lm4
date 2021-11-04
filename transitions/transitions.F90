@@ -394,6 +394,11 @@ subroutine land_transitions_init(id_ug, id_cellarea)
            call input_crop %addvar(fstate,trim(luh2name(n2)))
         endif
      enddo
+     if (mpp_pe()==mpp_root_pe()) then
+        write(*,*)'land_transitions_init: summary of irrigation-related input'
+        write(*,'(a)') input_irrig%descr()
+        write(*,'(a)') input_crop %descr()
+     endif
   endif
 
 end subroutine land_transitions_init
@@ -1439,10 +1444,8 @@ subroutine check_area_overshoot(area, d_kind, a_kind, dfrac)
      severity = WARNING
      if (overshoot_opt==OPT_STOP) severity = FATAL
      call get_current_point(i,j,k,face)
-     call error_mesg('landuse',&
-          'transition at ('//trim(string(i))//','//trim(string(j))//&
-          ',face='//trim(string(face))//&
-          ') from "'//trim(landuse_name(d_kind))// &
+     call land_error_message(&
+          'land use transition from "'//trim(landuse_name(d_kind))// &
           '" to "'  //trim(landuse_name(a_kind))//&
           '" ('//trim(string(dfrac))//') is larger than area of "'&
           //trim(landuse_name(d_kind))//'" ('//trim(string(area))//')', &
