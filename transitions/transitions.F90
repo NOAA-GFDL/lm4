@@ -145,7 +145,6 @@ integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, L
 ! variables for irrigation
 type(varset_T) :: input_irrig!, input_flood(1) ! input irrigation area
 type(varset_T) :: input_crop  ! input crop area
-character(5) :: luh2crop(5) = ['c3ann', 'c4ann', 'c3per', 'c4per', 'c3nfx']
 ! variables for reservoir
 logical :: module_is_initialized_lake = .FALSE.
 type(time_type) :: timel0 ! time of previous lake transition calculations
@@ -388,9 +387,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      ! create input variable set for irrigated fraction. Note that currently we sum up
      ! irrigation areas for all crops and use the total.
      input_irrig%name='irrigation fraction'
-     do n2 = 1,size(luh2crop)
-        call input_irrig%addvar(firrig,trim(luh2crop(n2))//'_irrig')
-        call input_crop %addvar(fstate,trim(luh2crop(n2)))
+     input_crop %name='cropland fraction'
+     do n2 = 1,size(luh2type)
+        if ((luh2type(n2)==LU_RAINF).or.(luh2type(n2)==LU_IRRIG)) then
+           call input_irrig%addvar(firrig,trim(luh2name(n2))//'_irrig')
+           call input_crop %addvar(fstate,trim(luh2name(n2)))
+        endif
      enddo
   endif
 
