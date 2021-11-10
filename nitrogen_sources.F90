@@ -283,7 +283,7 @@ subroutine nitrogen_sources_init(time, id_ug)
 
   ! ---- initialize the diagnostics --------------------------------------------
   axes = [id_ug] ! define array of horizontal axes for diagnostics
-  
+
   call set_default_diag_filter('soil')
 
   id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'Ndep_nit', axes, &
@@ -552,7 +552,7 @@ subroutine nitrogen_sources(time, l, p_ann, precip, lu, input_nit, input_amm, in
                                     fml_nit    + fml_amm    + fml_org,     diag)
   case default
      call send_tile_data(id_fNfert, 0.0, diag)
-  end select  
+  end select
 end subroutine nitrogen_sources
 
 

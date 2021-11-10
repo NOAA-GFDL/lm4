@@ -78,8 +78,8 @@ module river_type_mod
      real, dimension(:),        pointer :: q10           => NULL()
      real, dimension(:),        pointer :: kinv          => NULL()
      real, dimension(:,:),      pointer :: threshold     => NULL() !m3
-     real, dimension(:,:),      pointer :: env_flow      => NULL() !m3/s  
-     real, dimension(:,:),      pointer :: abst          => NULL() !m3 
+     real, dimension(:,:),      pointer :: env_flow      => NULL() !m3/s
+     real, dimension(:,:),      pointer :: abst          => NULL() !m3
      real, dimension(:,:,:),    pointer :: abstflow_c    => NULL() !units as outflow_c, m3/s, J (m3/kg)/s
      real, dimension(:,:),      pointer :: lake_abst     => NULL() !m3
      real, dimension(:,:),      pointer :: lake_habst    => NULL() !J

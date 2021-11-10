@@ -375,10 +375,10 @@ type :: soil_tile_type
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
 
-   real :: r_pores ! surface pore radius, m
+
    ! For irrigation module
    real :: irr_demand_ac = 0. !kg/m2
-   real :: irr_rate      = 0. !kg/(m2 s) 
+   real :: irr_rate      = 0. !kg/(m2 s)
    real :: hirr_rate     = 0. !W/m2
    real :: irr_area2frac_input= 0. !m2, per tile frac
    real :: irr_area2frac_real = 0. !m2, per tile frac
@@ -386,7 +386,8 @@ type :: soil_tile_type
    real :: habst_s = 0. !W/m2
    real :: abst_d = 0. !kg/(m2 s)
    real :: habst_d = 0. !W/m2
-
+   real :: r_pores ! surface pore radius, m
+   
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -1740,6 +1741,7 @@ function soil_ave_theta2(soil, depth) result (A) ; real :: A
   A = A/N
 end function soil_ave_theta2
 
+
 ! ============================================================================
  function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
   type(soil_tile_type), intent(in) :: soil
@@ -1759,6 +1761,8 @@ end function soil_ave_theta2
   A = A/N ! m / m = 1
   layer = k
 end function soil_ave_theta3
+
+
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water
 subroutine soil_ave_wetness(soil, depth, SW, SI)

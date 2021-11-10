@@ -299,7 +299,7 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
         if (end_of_day.AND.day_of_year==nint(crop_planting_day(l))) then
            call vegn_plant_crop (tile)
         endif
-     end select ! crop_schedule_option   
+     end select ! crop_schedule_option
   end select
   end associate
 end subroutine vegn_harvesting

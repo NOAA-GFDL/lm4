@@ -8,10 +8,9 @@ use constants_mod, only : PI
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler, &
-     read_data
-use fms_io_mod, only : get_file_name     
+     mpp_pe, lowercase, file_exist, close_file, read_data, &
+     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+use fms_io_mod, only : get_file_name
 
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
@@ -55,7 +54,8 @@ use land_debug_mod, only : set_current_point, is_watch_cell, &
 use land_numerics_mod, only : rank_descending
 use lake_mod, only : prohibit_shallow_lake, is_rsv_restart, use_reservoir
 use transitions_input_mod
-
+use transition_io_mod, only : transition_io_init, infile_T, varset_T, &
+     new_infile_LUH1, new_infile_LUH2, new_infile_CS
 
 implicit none
 private
@@ -101,13 +101,6 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 ! ==== data types ===========================================================
-! set of variables that are summed up on input
-type :: var_set_type
-   character(64) :: name  = '' ! internal lm3 name of the field
-   integer       :: nvars = 0  ! number of variable ids
-   integer, allocatable :: id(:)    ! ids of the input fields
-end type
-
 ! a description of single transition
 type :: tran_type
    integer :: donor    = 0  ! kind of donor tile
@@ -118,19 +111,15 @@ end type tran_type
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
 
-integer :: tran_ncid  = -1 ! netcdf id of the input file
-integer :: state_ncid = -1 ! netcdf id of the input file, if any
 integer :: nlon_in, nlat_in
 
-type(var_set_type) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
-type(var_set_type) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
+class(infile_T), pointer :: ftran=>NULL(), fstate=>NULL(), fmanag=>NULL()
+type(varset_T) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
+type(varset_T) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
 
 integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
 real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data to
         ! units of [fractions of vegetated area per year]
-type(time_type), allocatable :: time_in(:) ! time axis in input data
-type(time_type), allocatable :: state_time_in(:) ! time axis in input data
-type(horiz_interp_type), save :: interp ! interpolator for the input data
 type(time_type) :: time0 ! time of previous transition calculations
 type(time_type) :: timel0 ! time of previous lake transition calculations
 
@@ -168,11 +157,9 @@ integer :: &
 integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB, LUMIP_PST]
 
 ! variables for irrigation
-integer :: nlon_in_manag, nlat_in_manag
-type(var_set_type) :: input_manag  (1), input_flood(1) ! input management fields
+type(varset_T) :: input_manag  (1), input_flood(1) ! input management fields
 integer :: manag_ncid = -1
 type(time_type), allocatable :: manag_time_in(:) ! time axis in input data
-type(horiz_interp_type), save :: interp_manag ! interpolator for the input data
 character(len=5), public, parameter  :: &
      crop_name (1) = (/'c3ann'/) !,'c4per', 'c3nfx' /)
 real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
@@ -181,24 +168,21 @@ real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))     
+                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))
 ! variables for reservoir
 logical :: module_is_initialized_lake = .FALSE.
-integer :: tran_ncid_lake  = -1 ! netcdf id of the input file
-integer :: state_ncid_lake = -1 ! netcdf id of the input file, if any
-integer :: depth_ncid_rsv  = -1
-type(time_type), allocatable :: time_in_lake(:) ! time axis in input data
-type(time_type), allocatable :: state_time_in_lake(:) ! time axis in input data
-type(time_type), allocatable :: depth_time_in_rsv(:)
-type(var_set_type) :: input_tran_lake  (2,2) ! input transition rate fields
-type(var_set_type) :: input_state_lake (2,2) ! input state field (for initial transition only)
-type(var_set_type) :: input_depth_rsv
+class(infile_T), pointer :: infile_lake_tran  => NULL()
+class(infile_T), pointer :: infile_lake_state => NULL()
+class(infile_T), pointer :: infile_depth_rsv  => NULL()
+type(varset_T) :: input_tran_lake  (2,2) ! input transition rate fields
+type(varset_T) :: input_state_lake (2,2) ! input state field (for initial transition only)
+type(varset_T) :: input_depth_rsv
 character(len=5), parameter  :: &
      landuse_name_lake (2) = (/ 'lake','soil'/)
-!type(horiz_interp_type), save :: interp_lake ! interpolator for the input data    
-real, allocatable :: norm_in_lake  (:,:) ! normalizing factor to convert input data to 
-integer :: nlon_in_lake, nlat_in_lake  
-real :: rsv_depth_min = 2.                                                                                
+!type(horiz_interp_type), save :: interp_lake ! interpolator for the input data
+real, allocatable :: norm_in_lake  (:,:) ! normalizing factor to convert input data to
+integer :: nlon_in_lake, nlat_in_lake
+real :: rsv_depth_min = 2.
 character(len=1024) :: input_lake_file  = '' ! input data set of lake transition dates
 character(len=1024) :: state_lake_file  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: depth_rsv_file   = '' ! reservoir construction depth
@@ -213,15 +197,8 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   ! ---- local vars
   integer        :: unit, ierr, ncid1
   integer        :: year,month,day,hour,min,sec
-  integer        :: k1,k2,k3, id, n1,n2
-
-  real, allocatable :: lon_in(:,:),lat_in(:,:) ! horizontal grid of input data
-  real, allocatable :: buffer_in(:,:) ! buffers for input data reading
-  real, allocatable :: mask_in  (:,:) ! valid data mask on the input data grid
-
-  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
-  type(nfu_validtype) :: v ! valid values range
-  character(len=12) :: fieldname
+  integer        :: k1,k2,k3, n1,n2
+  character(12)  :: fieldname
 
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
@@ -354,22 +331,17 @@ subroutine land_transitions_init(id_ug, id_cellarea)
        'do_landuse_change is requested, but landuse transition file is not specified', &
        FATAL)
 
-  ierr=nf_open(input_file,NF_NOWRITE,tran_ncid)
-  if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
-       'do_landuse_change is requested, but landuse transition file "'// &
-       trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-  call get_time_axis(tran_ncid,time_in)
-
   ! initialize arrays of input fields
   select case (trim(lowercase(data_type)))
   case('luh1')
+     ftran => new_infile_LUH1(input_file)
      do k1 = 1,size(input_tran,1)
      do k2 = 1,size(input_tran,2)
         ! construct a name of input field and register the field
         fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if(trim(fieldname)=='2') cycle ! skip unspecified tiles
         input_tran(k1,k2)%name=fieldname
-        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,fieldname)
+        call input_tran(k1,k2)%addvar(ftran,fieldname)
      enddo
      enddo
 
@@ -377,21 +349,22 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      ! LUH2 data set has more land use types and transitions than LM3,
      ! therefore several transitions need to be aggregated on input to get
      ! the transitions among LM3 land use types
+     ftran => new_infile_LUH2(input_file,static_file)
      do n1 = 1,size(luh2type)
      do n2 = 1,size(luh2type)
         k1 = luh2type(n1)
         k2 = luh2type(n2)
         input_tran(k1,k2)%name=trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
-        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
+        call input_tran(k1,k2)%addvar(ftran,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
      enddo
      enddo
      ! add transitions that are not part "state1_to_state2" variable set
-     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
-     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
-     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
+     call input_tran(LU_NTRL,LU_SCND)%addvar(ftran,'primf_harv')
+     call input_tran(LU_NTRL,LU_SCND)%addvar(ftran,'primn_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secmf_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secyf_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secnf_harv')
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
@@ -400,16 +373,14 @@ subroutine land_transitions_init(id_ug, id_cellarea)
             'starting land use transitions, but land use state file is not specified',FATAL)
 
         ! open state file
-        ierr=nf_open(state_file,NF_NOWRITE,state_ncid)
-        if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'landuse state file "'// &
-             trim(state_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-        call get_time_axis(state_ncid, state_time_in)
+        fstate=>new_infile_LUH2(state_file,static_file)
+
         ! initialize state variable array
         do n2 = 1,size(luh2type)
            k2 = luh2type(n2)
            if (k2==LU_NTRL) cycle
            input_state(LU_NTRL,k2)%name='initial '//trim(landuse_name(LU_NTRL))//'2'//trim(landuse_name(k2))
-           call add_var_to_varset(input_state(LU_NTRL,k2),state_ncid,state_file,luh2name(n2))
+           call input_state(LU_NTRL,k2)%addvar(fstate,luh2name(n2))
         enddo
      endif
   case default
@@ -421,101 +392,17 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      do k1 = 1,size(input_tran,1)
      do k2 = 1,size(input_tran,2)
         if(input_tran(k1,k2)%name/='') &
-             write(*,'(a)') varset_descr(tran_ncid,input_tran(k1,k2))
+             write(*,'(a)') input_tran(k1,k2)%descr()
      enddo
      enddo
   endif
-  ! initialize the input data grid and horizontal interpolator
-  ! find any field that is defined in input data
-  id = -1
-l1:do k1 = 1,size(input_tran,1)
-  do k2 = 1,size(input_tran,2)
-     if (.not.allocated(input_tran(k1,k2)%id)) cycle
-     do k3 = 1,size(input_tran(k1,k2)%id(:))
-        if (input_tran(k1,k2)%id(k3)>0) then
-           id = input_tran(k1,k2)%id(k3)
-           exit l1 ! from all loops
-        endif
-     enddo
-  enddo
-  enddo l1
-
-  if (id<=0) call error_mesg('land_transitions_init',&
-         'could not find any land transition fields in the input file', FATAL)
-
-  ! we assume that all transition rate fields are specified on the same grid,
-  ! in both horizontal and time "directions". Therefore there is a single grid
-  ! for all fields, initialized only once.
-
-  __NF_ASRT__(nfu_inq_var(tran_ncid,id,dimids=dimids,dimlens=dimlens))
-  nlon_in = dimlens(1); nlat_in=dimlens(2)
-  ! allocate temporary variables
-  allocate(buffer_in(nlon_in,nlat_in), &
-           mask_in(nlon_in,nlat_in),   &
-           lon_in(nlon_in+1,1), lat_in(1,nlat_in+1) )
-  ! allocate module data
-  allocate(norm_in(nlon_in,nlat_in))
-
-  ! get the boundaries of the horizontal axes and initialize horizontal
-  ! interpolator
-  __NF_ASRT__(nfu_get_dim_bounds(tran_ncid, dimids(1), lon_in(:,1)))
-  __NF_ASRT__(nfu_get_dim_bounds(tran_ncid, dimids(2), lat_in(1,:)))
-
-  ! get the first record from variable and obtain the mask of valid data
-  ! assume that valid mask does not change with time
-  __NF_ASRT__(nfu_get_rec(tran_ncid,id,1,buffer_in))
-  ! get the valid range for the variable
-  __NF_ASRT__(nfu_get_valid_range(tran_ncid,id,v))
-  ! get the mask
-  where (nfu_is_valid(buffer_in,v))
-     mask_in = 1
-  elsewhere
-     mask_in = 0
-  end where
-
-  ! calculate the normalizing factor to convert input data to units of
-  ! [fraction of vegetated area per year]
-  select case (trim(lowercase(data_type)))
-  case ('luh1')
-     ! LUH1 (CMIP5) data were converted on pre-processing
-     norm_in = 1.0
-  case ('luh2')
-     ! read static file and calculate normalizing factor
-     ! LUH2 data are in [fraction of cell area per year]
-     if (trim(static_file)=='') call error_mesg('land_transitions_init', &
-          'using LUH2 data set, but static data file is not specified', FATAL)
-     ierr=nf_open(static_file,NF_NOWRITE,ncid1)
-     if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
-          'using LUH2 data set, but static data file "'// &
-          trim(static_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-     __NF_ASRT__(nfu_get_var(ncid1,'landfrac',buffer_in))
-     where (buffer_in > 0.0)
-        norm_in = 1.0/buffer_in
-     elsewhere
-        norm_in = 0.0
-        mask_in = 0
-     end where
-     ierr = nf_close(ncid1)
-  case default
-     call error_mesg('land_transitions_init','unknown data_type "'&
-                    //trim(data_type)//'", use "luh1" or "luh2"', FATAL)
-  end select
-
-  ! initialize horizontal interpolator
-  call horiz_interp_new(interp, lon_in*PI/180,lat_in*PI/180, &
-       lnd%sg_lonb, lnd%sg_latb, &
-       interp_method='conservative',&
-       mask_in=mask_in, is_latlon_in=.TRUE. )
-
-  ! get rid of temporary allocated data
-  deallocate(buffer_in, mask_in,lon_in,lat_in)
 
   call land_irrigatedareas_init(id_ug)
 end subroutine land_transitions_init
 
 !===========================================================================
 subroutine lake_transitions_init(id_ug)
-  integer, intent(in) :: id_ug !<Unstructured axis id.  
+  integer, intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
   integer        :: unit, ierr, ncid1
@@ -528,12 +415,12 @@ subroutine lake_transitions_init(id_ug)
   real, allocatable :: buffer_in_lake(:,:) ! buffers for input data reading
   real, allocatable :: mask_in_lake(:,:) ! valid data mask on the input data grid
 
-  integer :: dimids_lake(NF_MAX_VAR_DIMS), dimlens_lake(NF_MAX_VAR_DIMS)  
-  type(nfu_validtype) :: v_lake ! valid values range  
+  integer :: dimids_lake(NF_MAX_VAR_DIMS), dimlens_lake(NF_MAX_VAR_DIMS)
+  type(nfu_validtype) :: v_lake ! valid values range
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
-  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   real :: frac2land, whole_lake_area, Afrac_rsv_bak
-  logical :: read_dist, io_domain_exist, found_file  
+  logical :: read_dist, io_domain_exist, found_file
 
   if(module_is_initialized_lake) return
   module_is_initialized_lake = .TRUE.
@@ -543,7 +430,7 @@ subroutine lake_transitions_init(id_ug)
           NOTE)
      call mpp_open(unit,'INPUT/laketran.res', action=MPP_RDONLY, form=MPP_ASCII)
      read(unit,*) year,month,day,hour,mi,sec
-     timel0 = set_date(year,month,day,hour,mi,sec)   
+     timel0 = set_date(year,month,day,hour,mi,sec)
      call mpp_close(unit)
   else
      call error_mesg('lake_transitions_init','cold-starting lake transitions',&
@@ -551,171 +438,157 @@ subroutine lake_transitions_init(id_ug)
      timel0 = set_date(0001,01,01)
   endif
 
-  found_file = get_file_name(input_file_lake, input_lake_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
-  !if(.not.found_file) call error_mesg('lake_transitions_init',trim(input_lake_file)//'does not exist', FATAL)  
   found_file = get_file_name(state_file_lake, state_lake_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
-  !if(.not.found_file) call error_mesg('lake_transitions_init',trim(state_lake_file)//'does not exist', FATAL)
-  found_file = get_file_name(depth_file_rsv, depth_rsv_file, read_dist, io_domain_exist, domain=lnd%sg_domain)  
-  !if(.not.found_file) call error_mesg('lake_transitions_init',trim(depth_rsv_file)//'does not exist', FATAL)  
-
   if (file_exist(state_lake_file)) then
-      ! open state file
-      ierr=nf_open(state_lake_file,NF_NOWRITE,state_ncid_lake)
-      if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', 'lake state file "'// &
-          trim(state_lake_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-      call get_time_axis(state_ncid_lake, state_time_in_lake)
+      infile_lake_state => new_infile_CS(input_file_lake)
       ! initialize state variable array
       ! 1 means lake, 2 means soil
       !input_state_lake(2,1)%name='initial '//trim(landuse_name_lake(2))//'2'//trim(landuse_name_lake(1))
+
       input_state_lake(2,1)%name='lake'
-      call add_var_to_varset(input_state_lake(2,1),state_ncid_lake,state_lake_file,'lake')
+      call input_state_lake(2,1)%addvar(infile_lake_state,'lake')
   endif
 
+  found_file = get_file_name(depth_file_rsv, depth_rsv_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
   if(file_exist(depth_rsv_file))then
       ! open reservoir depth file
-      ierr=nf_open(depth_rsv_file,NF_NOWRITE,depth_ncid_rsv)
-      if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', 'reservoir depth file "'// &
-          trim(depth_rsv_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-      call get_time_axis(depth_ncid_rsv, depth_time_in_rsv)
+      infile_depth_rsv => new_infile_CS(depth_file_rsv)
+
       input_depth_rsv%name = 'rsv_depth'
-      call add_var_to_varset(input_depth_rsv,depth_ncid_rsv,depth_rsv_file,'rsv_depth') 
+      call input_depth_rsv%addvar(infile_depth_rsv,'rsv_depth')
   else
-      if(use_reservoir) call error_mesg('lake_transitions_init','use_reservoir mod requires depth_rsv_file', FATAL) 
+      if(use_reservoir) call error_mesg('lake_transitions_init','use_reservoir mod requires depth_rsv_file', FATAL)
   endif
 
-  if(do_lake_change) then    
+  if(do_lake_change) then
+    found_file = get_file_name(input_file_lake, input_lake_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
     if (trim(input_lake_file)=='') call error_mesg('lake_transitions_init', &
        'do_lake_change is requested, but lake transition file is not specified', &
-        FATAL)  
-    ierr=nf_open(input_lake_file,NF_NOWRITE,tran_ncid_lake)
-    if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', &
-       'do_lake_change is requested, but lake transition file "'// &
-       trim(input_lake_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-    call get_time_axis(tran_ncid_lake,time_in_lake)
+        FATAL)
+    infile_lake_tran => new_infile_CS(input_file_lake)
+
     !do k1 = 1,2
     !do k2 = 1,2
       input_tran_lake(2,1)%name='soil_to_lake'
       !if (k1==k2) cycle
-      call add_var_to_varset(input_tran_lake(2,1),tran_ncid_lake,input_lake_file,'soil_to_lake')
+      call input_tran_lake(2,1)%addvar(infile_lake_tran,'soil_to_lake')
     !enddo
     !enddo
     if(.not.file_exist(depth_rsv_file)) &
       call error_mesg('lake_transitions_init','depth_rsv_file must exist with do_lake_change turned on', FATAL)
     if(timel0==set_date(0001,01,01).and.(.not.file_exist(state_lake_file))) &
-      call error_mesg('lake_transitions_init','state_lake_file must exist when do_lake_change start', FATAL)             
+      call error_mesg('lake_transitions_init','state_lake_file must exist when do_lake_change start', FATAL)
   endif
 
-! interp_lake 
-
-
+! interp_lake
 
 ! initialize reservoir (rsv_depth, Afrac_rsv, Vfrac_rsv)
   if(.not.timel0==set_date(0001,01,01).and.is_rsv_restart)then
-    call error_mesg('lake_transitions_init','reservoir warm start from previous laketran run', NOTE) 
+    call error_mesg('lake_transitions_init','reservoir warm start from previous laketran run', NOTE)
     call check_rsv_depth()
     return
   else if(.not.timel0==set_date(0001,01,01).and..not.is_rsv_restart)then !we have laketran.res but restart files are not complete
-    call error_mesg('lake_transitions_init','restart files are not complete', FATAL)     
+    call error_mesg('lake_transitions_init','restart files are not complete', FATAL)
   endif
-  
+
   !timel0==set_date(0001,01,01)
   call error_mesg('lake_transitions_init', &
-      'reservoir cold start, rsv_depth and Afrac_rsv are from input, though Vfrac_rsv may be from restart', NOTE)  
+      'reservoir cold start, rsv_depth and Afrac_rsv are from input, though Vfrac_rsv may be from restart', NOTE)
   if (do_lake_change) then
-    call error_mesg('lake_transitions_init','do_lake_change mod, abandon all restarts for rsv if there are any', NOTE)      
+    call error_mesg('lake_transitions_init','do_lake_change mod, abandon all restarts for rsv if there are any', NOTE)
     call rsv_set_zero()
     return
   endif
 
   if (use_reservoir) &
-    call error_mesg('lake_transitions_init','static reservoir mod', NOTE) 
+    call error_mesg('lake_transitions_init','static reservoir mod', NOTE)
   !use_reservoir%.not.do_lake_change  or  .not.use_reservoir&.not.do_lake_change
   !if Afrac_rsv and rsv_depth files exist, we read data anyway, and then determine Vfrac_rsv by restart or Afrac_rsv
   if (file_exist(state_lake_file).and.file_exist(depth_rsv_file)) then
-    n1 = size(depth_time_in_rsv)
-    call read_rsv_depth(n1)    
+    n1 = size(infile_depth_rsv%time_in)
+    call read_rsv_depth(n1)
     frac(:) = 0.0
-    n1 = size(state_time_in_lake)
-    call get_varset_data_lake(state_file_lake,input_state_lake(2,1),n1,frac) 
+    n1 = size(infile_lake_state%time_in)
+    call input_state_lake(2,1)%get_data(n1,frac)
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
-        if (.not.associated(tile%lake)) cycle  
-        Afrac_rsv_bak = tile%lake%Afrac_rsv     
+        if (.not.associated(tile%lake)) cycle
+        Afrac_rsv_bak = tile%lake%Afrac_rsv
         if(lnd%ug_area(l)>0.)then
           frac2land = frac(l)*(lnd%ug_cellarea(l)/lnd%ug_area(l))
         else
           frac2land = 0.
         endif
-        frac2land = max(0.,min(frac2land, tile%frac))  
+        frac2land = max(0.,min(frac2land, tile%frac))
         tile%lake%Afrac_rsv = frac2land/tile%frac
         if(tile%lake%rsv_depth <= 0.) tile%lake%Afrac_rsv = 0.
         ! we use Vfrac_rsv from restart if there is any, otherwise set it to Afrac_rsv
         if(.not.is_rsv_restart.or.&
            (is_rsv_restart.and.Afrac_rsv_bak==0..and.tile%lake%Afrac_rsv>0.)) &
-          tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv      
+          tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv
       enddo
     enddo
-    if(use_reservoir) call adjust_whole_lake_area() 
+    if(use_reservoir) call adjust_whole_lake_area()
   else !if files are incomplete, we keep restart if there is any, otherwise set rsv to zero
     if(use_reservoir) call error_mesg('lake_transitions_init', &
-                           'reservoir cold start requires both state_lake_file and depth_rsv_file', FATAL)   
-    if(.not.is_rsv_restart) call rsv_set_zero()                                      
+                           'reservoir cold start requires both state_lake_file and depth_rsv_file', FATAL)
+    if(.not.is_rsv_restart) call rsv_set_zero()
   endif
-
-
 end subroutine lake_transitions_init
+
+
 !===========================================================================
 subroutine rsv_set_zero()
-
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
-  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: l
 
   do l=lnd%ls, lnd%le
     ce = first_elmt(land_tile_map(l))
     do while(loop_over_tiles(ce,tile))
-      if (.not.associated(tile%lake)) cycle 
+      if (.not.associated(tile%lake)) cycle
       tile%lake%rsv_depth = 0.
-      tile%lake%Afrac_rsv = 0.  
+      tile%lake%Afrac_rsv = 0.
       tile%lake%Vfrac_rsv = 0.
     enddo
   enddo
+end subroutine rsv_set_zero
 
-end subroutine rsv_set_zero 
 !===========================================================================
 subroutine read_rsv_depth(i)
   integer, intent(in) :: i
 
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
-  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: l
-  real, dimension(lnd%ls:lnd%le) :: rsv_depth  
+  real, dimension(lnd%ls:lnd%le) :: rsv_depth
 
-    rsv_depth(:) = 0.0
-    call get_varset_data_lake(depth_file_rsv,input_depth_rsv,i,rsv_depth)    
-    do l=lnd%ls, lnd%le
-      ce = first_elmt(land_tile_map(l))
-      do while(loop_over_tiles(ce,tile))
-        if (.not.associated(tile%lake)) cycle   
-        tile%lake%rsv_depth = rsv_depth(l)
-        if(tile%lake%rsv_depth > 0.) tile%lake%rsv_depth = max(rsv_depth_min,tile%lake%rsv_depth) 
-      enddo
-    enddo        
+  rsv_depth(:) = 0.0
+  call input_depth_rsv%get_data(i,rsv_depth)
 
+  do l=lnd%ls, lnd%le
+    ce = first_elmt(land_tile_map(l))
+    do while(loop_over_tiles(ce,tile))
+      if (.not.associated(tile%lake)) cycle
+      tile%lake%rsv_depth = rsv_depth(l)
+      if(tile%lake%rsv_depth > 0.) tile%lake%rsv_depth = max(rsv_depth_min,tile%lake%rsv_depth)
+    enddo
+  enddo
 end subroutine read_rsv_depth
+
 !===========================================================================
 subroutine adjust_whole_lake_area()
 
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
-  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: l
   character(len=512) :: mesg ! for error message
 
   do l=lnd%ls, lnd%le
     ce = first_elmt(land_tile_map(l))
     do while(loop_over_tiles(ce,tile))
-      if (.not.associated(tile%lake)) cycle 
+      if (.not.associated(tile%lake)) cycle
       tile%lake%pars%whole_area = tile%lake%pars%whole_area - tile%lake%Afrac_rsv*tile%frac*lnd%ug_area(l)
       if(tile%lake%pars%whole_area<=0.)then
         write(mesg,*)'tile%lake%pars%whole_area=',tile%lake%pars%whole_area,' tile%lake%Afrac_rsv=',tile%lake%Afrac_rsv
@@ -723,8 +596,8 @@ subroutine adjust_whole_lake_area()
         if(tile%lake%Afrac_rsv<1.)then
           call error_mesg('adjust_whole_lake_area','lake_whole_area<0..and.Afrac_rsv<1.',FATAL)
         endif
-        tile%lake%pars%whole_area = 0. 
-      endif  
+        tile%lake%pars%whole_area = 0.
+      endif
     enddo
   enddo
 
@@ -732,33 +605,25 @@ end subroutine adjust_whole_lake_area
 !===========================================================================
 subroutine check_rsv_depth()
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
-  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: l
 
     if (.not.use_reservoir) return
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
-        if (.not.associated(tile%lake)) cycle   
+        if (.not.associated(tile%lake)) cycle
         if(tile%lake%rsv_depth < 0.) &
-          call error_mesg('check_rsv_depth','previous run must also use reservoir when this run use reservoir',FATAL)           
+          call error_mesg('check_rsv_depth','previous run must also use reservoir when this run use reservoir',FATAL)
       enddo
-    enddo 
+    enddo
 
 end subroutine check_rsv_depth
 !===========================================================================
 subroutine land_irrigatedareas_init(id_ug)
   integer, intent(in) :: id_ug ! the IDs of land diagnostic axes
   ! ---- local vars
-  integer        :: ierr
-  integer        :: k1,k3,id,n2
-  real, allocatable :: lon_in(:,:),lat_in(:,:) ! horizontal grid of input data
-  real, allocatable :: buffer_in(:,:) ! buffers for input data reading
-  real, allocatable :: mask_in  (:,:) ! valid data mask on the input data grid
-
-  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
-  type(nfu_validtype) :: v ! valid values range
-  character(len=12) :: fieldname
+  integer        :: n2
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
   if (.not.irrigation_on)     return ! do nothing more if irrigation is off
@@ -767,206 +632,48 @@ subroutine land_irrigatedareas_init(id_ug)
        'irrigation transitions are turned on, but land management input file is not specified', &
        FATAL)
 
-  ierr=nf_open(management_file,NF_NOWRITE,manag_ncid)
-  call get_time_axis(manag_ncid,manag_time_in)
+  ! initialize data structure representing input file and horizontal interpolator
+  fmanag=>new_infile_LUH2(management_file,static_file)
 
-  
-   do n2 = 1,size(crop_name)
-        call add_var_to_varset(input_manag(n2),manag_ncid,management_file,'irrig'//'_'//crop_name(n2))
-        input_manag(n2)%name='irrig'//'_'//crop_name(n2)
-   enddo
+  do n2 = 1,size(crop_name)
+     call input_manag(n2)%addvar(fmanag,'irrig_'//crop_name(n2))
+     input_manag(n2)%name='irrig_'//crop_name(n2)
+  enddo
   !call add_var_to_varset(input_flood(1),manag_ncid,management_file,'flood')
   !input_flood(1)%name='flood'
-
-
-  ! initialize the input data grid and horizontal interpolator
-  ! find any field that is defined in input data
-  id = -1
-  l1:do k1 = 1,size(input_manag)
-      if (.not.allocated(input_manag(k1)%id)) cycle
-        do k3 = 1,size(input_manag(k1)%id(:))
-          if (input_manag(k1)%id(k3)>0) then
-            id = input_manag(k1)%id(k3)
-            exit l1 ! from all loops
-        endif
-     enddo
-   enddo l1
-  ! we assume that all transition rate fields are specified on the same grid,
-  ! in both horizontal and time "directions". Therefore there is a single grid
-  ! for all fields, initialized only once.
-
-  __NF_ASRT__(nfu_inq_var(manag_ncid,id,dimids=dimids,dimlens=dimlens))
-  nlon_in_manag = dimlens(1); nlat_in_manag=dimlens(2)
-  ! allocate temporary variables
-  allocate(buffer_in(nlon_in_manag,nlat_in_manag), &
-           mask_in(nlon_in_manag,nlat_in_manag),   &
-           lon_in(nlon_in_manag+1,1), lat_in(1,nlat_in_manag+1) )
-
-  ! get the boundaries of the horizontal axes and initialize horizontal
-  ! interpolator
-  __NF_ASRT__(nfu_get_dim_bounds(manag_ncid, dimids(1), lon_in(:,1)))
-  __NF_ASRT__(nfu_get_dim_bounds(manag_ncid, dimids(2), lat_in(1,:)))
-  if(lat_in(1,1).gt.90.) lat_in(1,1)=90.
-  if(lat_in(1,1).lt.-90.) lat_in(1,1)=-90. 
-  if(lat_in(1,nlat_in_manag+1).lt.-90.) lat_in(1,nlat_in_manag+1)=-90.
-  if(lat_in(1,nlat_in_manag+1).gt.90.) lat_in(1,nlat_in_manag+1)=90.   
-  ! get the first record from variable and obtain the mask of valid data
-  ! assume that valid mask does not change with time
-  __NF_ASRT__(nfu_get_rec(manag_ncid,id,1,buffer_in))
-  ! get the valid range for the variable
-  __NF_ASRT__(nfu_get_valid_range(manag_ncid,id,v))
-  ! get the mask
-  where (nfu_is_valid(buffer_in,v))
-     mask_in = 1
-  elsewhere
-     mask_in = 0
-  end where
-
-  ! initialize horizontal interpolator
-  call horiz_interp_new(interp_manag, lon_in*PI/180,lat_in*PI/180, &
-       lnd%sg_lonb, lnd%sg_latb, &
-       interp_method='conservative',&
-       mask_in=mask_in, is_latlon_in=.TRUE. )
-
-  ! get rid of temporary allocated data
-  deallocate(buffer_in, mask_in,lon_in,lat_in)
-
 end subroutine land_irrigatedareas_init
 
 ! ============================================================================
-subroutine get_time_axis(ncid, time_in)
-  integer, intent(in) :: ncid
-  type(time_type), allocatable :: time_in(:)
-
-  integer :: timedim ! id of the record (time) dimension
-  integer :: timevar ! id of the time variable
-  character(len=NF_MAX_NAME) :: timename  ! name of the time variable
-  character(len=256)         :: timeunits ! units ot time in the file
-  character(len=24) :: calendar ! model calendar
-  real, allocatable :: time(:)  ! real values of time coordinate
-  integer :: i, nrec
-
-  ! get the time axis
-  __NF_ASRT__(nf_inq_unlimdim(ncid, timedim))
-  __NF_ASRT__(nf_inq_dimlen(ncid, timedim, nrec))
-  allocate(time(nrec), time_in(nrec))
-  __NF_ASRT__(nfu_get_dim(ncid, timedim, time))
-  ! get units of time
-  __NF_ASRT__(nf_inq_dimname(ncid, timedim, timename))
-  __NF_ASRT__(nf_inq_varid(ncid, timename, timevar))
-  timeunits = ' '
-  __NF_ASRT__(nf_get_att_text(ncid,timevar,'units',timeunits))
-  ! get model calendar
-  calendar=valid_calendar_types(get_calendar_type())
-
-  ! loop through the time axis and get time_type values in time_in
-  if (index(lowercase(timeunits),'calendar_year')>0) then
-     do i = 1,size(time)
-        time_in(i) = set_date(nint(time(i)),1,1,0,0,0) ! uses model calendar
-     end do
-  else
-     do i = 1,size(time)
-        time_in(i) = get_cal_time(time(i),timeunits,calendar)
-     end do
-  endif
-  deallocate(time)
-end subroutine get_time_axis
-
-! ============================================================================
 subroutine land_transitions_end()
-
   module_is_initialized=.FALSE.
-  if (do_landuse_change) call horiz_interp_del(interp)
-  if(allocated(time_in)) deallocate(time_in)
-
+  ! close files and deallocate associated memory
+  if (associated(ftran))  deallocate(ftran)
+  if (associated(fstate)) deallocate(fstate)
+  if (associated(fmanag)) deallocate(fmanag)
 end subroutine land_transitions_end
 
 ! ============================================================================
 subroutine lake_transitions_end()
 
   module_is_initialized_lake=.FALSE.
-  !if (do_lake_change.or.file_exist(state_lake_file)) call horiz_interp_del(interp_lake)
-  if(allocated(time_in_lake)) deallocate(time_in_lake)
+  if (associated(infile_lake_tran)) deallocate(infile_lake_tran)
+  if (associated(infile_lake_state)) deallocate(infile_lake_state)
+  if (associated(infile_depth_rsv)) deallocate(infile_depth_rsv)
 
 end subroutine lake_transitions_end
 
-! ============================================================================
-subroutine add_var_to_varset(varset,ncid,filename,varname)
-   type(var_set_type), intent(inout) :: varset
-   integer     , intent(in) :: ncid     ! id of netcdf file
-   character(*), intent(in) :: filename ! name of the file (for reporting problems only)
-   character(*), intent(in) :: varname  ! name of the variable
-
-   integer, allocatable :: id(:)
-   integer :: varid, ierr
-
-   if (.not.allocated(varset%id)) then
-      allocate(varset%id(10))
-      varset%id(:) = -1
-   endif
-   if (varset%nvars >= size(varset%id)) then
-      ! make space for new variables
-      allocate(id(size(varset%id)+10))
-      id(:) = -1
-      id(1:varset%nvars) = varset%id(1:varset%nvars)
-      call move_alloc(id,varset%id)
-   endif
-
-   ierr = nfu_inq_var(ncid, trim(varname), id=varid)
-   select case(ierr)
-   case (NF_NOERR)
-      call error_mesg('land_transitions_init',&
-           'adding field "'//trim(varname)//'" from file "'//trim(filename)//'"'//&
-           ' to transition "'//trim(varset%name)//'"',&
-           NOTE)
-      varset%nvars = varset%nvars+1
-      varset%id(varset%nvars) = varid
-   case (NF_ENOTVAR)
-!       call error_mesg('land_transitions_init',&
-!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
-!            NOTE)
-   case default
-      call error_mesg('land_transitions_init',&
-           'error initializing field "'//varname//&
-           '" from file "'//trim(filename)//'" : '//nf_strerror(ierr), FATAL)
-   end select
-end subroutine add_var_to_varset
-
-! ============================================================================
-! read, aggregate, and interpolate set of transitions
-subroutine get_varset_data(ncid,varset,rec,frac)
-   integer, intent(in) :: ncid
-   type(var_set_type), intent(in) :: varset
-   integer, intent(in) :: rec
-   real, intent(out) :: frac(:)
-
-   real :: buff0(nlon_in,nlat_in)
-   real :: buff1(nlon_in,nlat_in)
-   integer :: i
-
-   frac = 0.0
-   buff1 = 0.0
-   do i = 1,varset%nvars
-     if (varset%id(i)>0) then
-        __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
-        buff1 = buff1 + buff0
-     endif
-   enddo
-   call horiz_interp_ug(interp,buff1*norm_in,frac)
-end subroutine get_varset_data
-
 subroutine get_varset_data_lake(filename,varset,rec,frac)
    character(len=*), intent(in) :: filename
-   type(var_set_type), intent(in) :: varset
+   type(varset_T), intent(in) :: varset
    integer, intent(in) :: rec
    real, intent(out) :: frac(:)
-   
+
    !real :: buff0(nlon_in_lake,nlat_in_lake)
    !real :: buff1(nlon_in_lake,nlat_in_lake)
    !integer :: i
 
    frac = 0.0
-   call read_data(filename, trim(varset%name), frac, lnd%sg_domain, lnd%ug_domain, timelevel=rec)   
+   call read_data(filename, trim(varset%name), frac, lnd%sg_domain, lnd%ug_domain, timelevel=rec)
    !buff1 = 0.0
    !do i = 1,varset%nvars
    !  if (varset%id(i)>0) then
@@ -978,32 +685,10 @@ subroutine get_varset_data_lake(filename,varset,rec,frac)
 
 end subroutine get_varset_data_lake
 
-! ============================================================================
-! returns a string representing the parts of the transition
-function varset_descr(ncid,varset) result(str)
-  character(:), allocatable :: str
-  integer, intent(in) :: ncid
-  type(var_set_type), intent(in) :: varset
-
-  character(NF_MAX_NAME) :: varname
-  integer :: i
-
-  str = trim(varset%name)//' = '
-  if (varset%nvars == 0) then
-     str = str//'0'
-  else
-     do i = 1, varset%nvars
-        __NF_ASRT__(nf_inq_varname(ncid,varset%id(i),varname))
-        if (i==1) then
-           str = str//trim(varname)
-        else
-           str = str//' + '//trim(varname)
-        endif
-     enddo
-  endif
-end function varset_descr
 
 ! ============================================================================
+! =======
+! >>>>>>> user/slm/transition-io
 subroutine save_land_transitions_restart(timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
@@ -1048,18 +733,18 @@ subroutine land_transitions (time)
   real    :: diag(lnd%ls:lnd%le)
   logical :: used
   real    :: irr_area(lnd%ls:lnd%le)
-  real    :: irr_frac(lnd%ls:lnd%le,size(crop_name))  
-  type(tran_type), pointer :: transitions2(:,:)  
+  real    :: irr_frac(lnd%ls:lnd%le,size(crop_name))
+  type(tran_type), pointer :: transitions2(:,:)
   real :: tran1 (M_LU_TYPES, M_LU_TYPES) ! output array of transitions
   real :: tran0 (N_LU_TYPES, N_LU_TYPES) ! output array of transitions
-  real :: fi1(lnd%ls:lnd%le)    
+  real :: fi1(lnd%ls:lnd%le)
   real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions
   real :: temp_area (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each landuse type before transitions
   real :: atot (lnd%ls:lnd%le) ! total fraction of tiles that can be involved in transitions
   real :: check_area
 
   type(land_tile_enum_type) :: ce
-  type(land_tile_type), pointer :: tile  
+  type(land_tile_type), pointer :: tile
   integer :: ntime
   logical :: is_laketran = .False.
 
@@ -1086,13 +771,13 @@ subroutine land_transitions (time)
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (time0==set_date(0001,01,01).and.state_ncid>0) then
+     if (time0==set_date(0001,01,01).and.associated(fstate)) then
         ! read initial transition from state file
-        call time_interp(time, state_time_in, w, i1,i2)
-        call get_varset_data(state_ncid,input_state(k1,k2),i1,frac)
+        call time_interp(time, fstate%time_in, w, i1,i2)
+        call input_state(k1,k2)%get_data(i1,frac)
      else
-        if (any(input_tran(k1,k2)%id(:)>0)) then
-           call integral_transition(time0,time,input_tran(k1,k2),frac)
+        if (input_tran(k1,k2)%nvars>0) then
+           call input_tran(k1,k2)%integrate(time0,time,frac)
         endif
      endif
      call add_to_transitions(frac,time0,time,k1,k2,transitions,is_laketran)
@@ -1129,19 +814,18 @@ subroutine land_transitions (time)
      endif
   enddo
 
-
   ! perform the transitions
-if (irrigation_on) then 
+if (irrigation_on) then
 !-----irr code begin-----
    irr_frac(:,:) = 0.0
    do k2 = 1,size(crop_name)
       ! get fraction irrigation
       irr_area(:) = 0.0
       ! read initial transition from state file
-      call fractions_irr_area(time, input_manag(k2), irr_area) !, input_area(k2), crop_area)
+      call input_manag(k2)%interpolate(time, irr_area) !, input_area(k2), crop_area)
       do l = lnd%ls,lnd%le
          irr_frac(l,k2) = irr_area(l)
-      enddo   
+      enddo
    enddo
 
    fi1(:)=0.0
@@ -1157,7 +841,7 @@ if (irrigation_on) then
         if (.not.associated(tile%vegn)) cycle ! skip non-vegetated tiles
          atot(l) = atot(l)+tile%frac
          do n = 1,M_LU_TYPES
-           if(tile%vegn%landuse == n) & 
+           if(tile%vegn%landuse == n) &
             area0(l,n) = area0(l,n)+tile%frac
          enddo
       enddo
@@ -1250,7 +934,7 @@ if (irrigation_on) then
           transitions(l,:)%acceptor,&
           transitions(l,:)%frac )
   enddo
- endif 
+ endif
 
   ! deallocate array of transitions
   if (associated(transitions)) deallocate(transitions)
@@ -1462,17 +1146,17 @@ end subroutine land_transitions_0d
 
 ! =============================================================================
 subroutine lake_transitions (time)
-  type(time_type), intent(in) :: time  
+  type(time_type), intent(in) :: time
 
   ! ---- local vars.
   integer :: i,k,k1,k2,k3,i1,i2,l,m, m1,m2, n
   real, dimension(lnd%ls:lnd%le) :: frac
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  real    :: w   
-  real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions  
+  real    :: w
+  real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions
   type(land_tile_enum_type) :: ce
-  type(land_tile_type), pointer :: tile  
+  type(land_tile_type), pointer :: tile
   real, dimension(lnd%ls:lnd%le) :: atots, atotl
   logical :: is_laketran = .True.
   type(time_type) :: time_adj
@@ -1486,15 +1170,15 @@ subroutine lake_transitions (time)
        return ! do nothing during a year
 
   if (mpp_pe()==mpp_root_pe()) &
-       call log_date('lake_transitions: applying lake area transitions on ', time)   
+       call log_date('lake_transitions: applying lake area transitions on ', time)
 
   !update rsv depth
   if(use_reservoir)then
   ! adjust the integration limits, in case they are out of range
-    time_adj = time_adjust(time, depth_time_in_rsv)
-    call time_interp(time_adj, depth_time_in_rsv, w, i1,i2)
-    call read_rsv_depth(i1) 
-  endif      
+    time_adj = time_adjust(time, infile_depth_rsv%time_in)
+    call time_interp(time_adj, infile_depth_rsv%time_in, w, i1,i2)
+    call read_rsv_depth(i1)
+  endif
 
   atots = 0. ; atotl = 0. !; rsv_depth = 0.
   do l = lnd%ls,lnd%le
@@ -1502,25 +1186,23 @@ subroutine lake_transitions (time)
     do while (loop_over_tiles(ce,tile))
        if (associated(tile%soil)) atots(l) = atots(l) + tile%frac !soil frac
        if (associated(tile%lake))then
-         atotl(l) = atotl(l) + tile%frac !lake frac   
-         if(.not.use_reservoir) tile%lake%rsv_depth = -1. 
-       endif     
+         atotl(l) = atotl(l) + tile%frac !lake frac
+         if(.not.use_reservoir) tile%lake%rsv_depth = -1.
+       endif
     enddo
   enddo
-       
+
   transitions => NULL()
   !do k1 = 2,2 ! 1 is lake, and 2 is soil
   !do k2 = 1,1
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (timel0==set_date(0001,01,01).and.state_ncid_lake>0) then
+     if (timel0==set_date(0001,01,01).and.infile_lake_state%ncid>0) then
         ! read initial transition from state file
-        time_adj = time_adjust(time, state_time_in_lake)     
-        call time_interp(time_adj, state_time_in_lake, w, i1,i2)
-        call get_varset_data_lake(state_file_lake,input_state_lake(2,1),i1,frac)
+        call input_state_lake(2,1)%interpolate(time,frac,interp='before')
      else
-        if (any(input_tran_lake(2,1)%id(:)>0)) then
-           call integral_transition_lake(timel0,time,input_tran_lake(2,1),frac)
+        if (input_tran_lake(2,1)%nvars>0) then
+           call input_tran_lake(2,1)%integrate(timel0,time,frac)
         endif
      endif
 
@@ -1532,19 +1214,19 @@ subroutine lake_transitions (time)
        endif
        !if(k1==2.and.k2==1)then !from soil to lake
          frac(l) = min(atots(l), frac(l))
-         if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell. 
+         if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell.
        !else !from lake to soil
          !frac(l) = min(atotl(l), frac(l))
-         !if(atots(l)==0.) frac(l)=0. 
+         !if(atots(l)==0.) frac(l)=0.
        !endif
      enddo
 
      call add_to_transitions(frac,time0,time,2,1,transitions, is_laketran)
   !enddo
-  !enddo 
+  !enddo
 
   do l = lnd%ls,lnd%le
-     if(empty(land_tile_map(l))) cycle ! skip cells where there is no land  !irr code  
+     if(empty(land_tile_map(l))) cycle ! skip cells where there is no land  !irr code
      ! set current point for debugging
      call set_current_point(l,1)
      ! transition land area between different tile types
@@ -1552,7 +1234,7 @@ subroutine lake_transitions (time)
           transitions(l,1)%donor, &
           transitions(l,1)%acceptor,&
           transitions(l,1)%frac)
-  enddo            
+  enddo
 
   ! deallocate array of transitions
   if (associated(transitions)) deallocate(transitions)
@@ -1605,7 +1287,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   lake_heat0  = 0 ;  glac_heat0  = 0 ; e_res_heat0 = 0
   soil_lmass0 = 0 ;  vegn_lmass0 = 0 ; cana_lmass0 = 0 ; snow_lmass0 = 0
   soil_fmass0 = 0 ;  vegn_fmass0 = 0 ; cana_fmass0 = 0 ; snow_fmass0 = 0
-  soil_cmass0 = 0 ;  vegn_cmass0 = 0 ; cana_cmass0 = 0 
+  soil_cmass0 = 0 ;  vegn_cmass0 = 0 ; cana_cmass0 = 0
 
   cana_lmass0_soil=0; cana_fmass0_soil=0; cana_heat0_soil=0; cana_cmass0_soil=0
   snow_lmass0_soil=0; snow_fmass0_soil=0; snow_heat0_soil=0
@@ -1625,38 +1307,38 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
 
      if (associated(ptr%soil))then
        call soil_tile_stock_pe(ptr%soil, lm, fm)
-       soil_lmass0 = soil_lmass0 + lm*ptr%frac ; soil_fmass0 = soil_fmass0 + fm*ptr%frac 
-     endif    
+       soil_lmass0 = soil_lmass0 + lm*ptr%frac ; soil_fmass0 = soil_fmass0 + fm*ptr%frac
+     endif
      if (associated(ptr%vegn))then
        call vegn_tile_stock_pe(ptr%vegn, lm, fm)
-       vegn_lmass0 = vegn_lmass0 + lm*ptr%frac ; vegn_fmass0 = vegn_fmass0 + fm*ptr%frac 
-     endif         
+       vegn_lmass0 = vegn_lmass0 + lm*ptr%frac ; vegn_fmass0 = vegn_fmass0 + fm*ptr%frac
+     endif
      if (associated(ptr%snow))then
        call snow_tile_stock_pe(ptr%snow, lm, fm)
        snow_lmass0 = snow_lmass0 + lm*ptr%frac ; snow_fmass0 = snow_fmass0 + fm*ptr%frac
-     endif          
-     if (associated(ptr%cana))then 
-       call cana_tile_stock_pe(ptr%cana, lm, fm)     
+     endif
+     if (associated(ptr%cana))then
+       call cana_tile_stock_pe(ptr%cana, lm, fm)
        cana_lmass0 = cana_lmass0 + lm*ptr%frac ; cana_fmass0 = cana_fmass0 + fm*ptr%frac
-     endif   
+     endif
 
      if (associated(ptr%snow).and.associated(ptr%soil))then
        call snow_tile_stock_pe(ptr%snow, lm, fm)
        snow_lmass0_soil = snow_lmass0_soil + lm*ptr%frac ; snow_fmass0_soil = snow_fmass0_soil + fm*ptr%frac
-     endif          
-     if (associated(ptr%cana).and.associated(ptr%soil))then 
-       call cana_tile_stock_pe(ptr%cana, lm, fm)     
+     endif
+     if (associated(ptr%cana).and.associated(ptr%soil))then
+       call cana_tile_stock_pe(ptr%cana, lm, fm)
        cana_lmass0_soil = cana_lmass0_soil + lm*ptr%frac ; cana_fmass0_soil = cana_fmass0_soil + fm*ptr%frac
-     endif  
+     endif
 
      if (associated(ptr%snow).and.associated(ptr%lake))then
        call snow_tile_stock_pe(ptr%snow, lm, fm)
        snow_lmass0_lake = snow_lmass0_lake + lm*ptr%frac ; snow_fmass0_lake = snow_fmass0_lake + fm*ptr%frac
-     endif          
-     if (associated(ptr%cana).and.associated(ptr%lake))then 
-       call cana_tile_stock_pe(ptr%cana, lm, fm)     
+     endif
+     if (associated(ptr%cana).and.associated(ptr%lake))then
+       call cana_tile_stock_pe(ptr%cana, lm, fm)
        cana_lmass0_lake = cana_lmass0_lake + lm*ptr%frac ; cana_fmass0_lake = cana_fmass0_lake + fm*ptr%frac
-     endif     
+     endif
 
 
      heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
@@ -1667,24 +1349,24 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
      if(associated(ptr%lake)) lake_heat0 = lake_heat0 + lake_tile_heat(ptr%lake)*ptr%frac + ptr%lake%sub_heat*ptr%frac
-     if(associated(ptr%glac)) glac_heat0 = glac_heat0 + glac_tile_heat(ptr%glac)*ptr%frac 
-     e_res_heat0 = e_res_heat0 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac 
+     if(associated(ptr%glac)) glac_heat0 = glac_heat0 + glac_tile_heat(ptr%glac)*ptr%frac
+     e_res_heat0 = e_res_heat0 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac
 
      if(associated(ptr%cana).and.associated(ptr%soil)) cana_heat0_soil = cana_heat0_soil + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow).and.associated(ptr%soil)) snow_heat0_soil = snow_heat0_soil + snow_tile_heat(ptr%snow)*ptr%frac     
+     if(associated(ptr%snow).and.associated(ptr%soil)) snow_heat0_soil = snow_heat0_soil + snow_tile_heat(ptr%snow)*ptr%frac
 
      if(associated(ptr%cana).and.associated(ptr%lake)) cana_heat0_lake = cana_heat0_lake + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow).and.associated(ptr%lake)) snow_heat0_lake = snow_heat0_lake + snow_tile_heat(ptr%snow)*ptr%frac   
+     if(associated(ptr%snow).and.associated(ptr%lake)) snow_heat0_lake = snow_heat0_lake + snow_tile_heat(ptr%snow)*ptr%frac
 
      cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
      if(associated(ptr%lake)) cmass0 = cmass0 + ptr%lake%sub_cmass*ptr%frac
 
      if(associated(ptr%soil)) soil_cmass0 = soil_cmass0 + soil_tile_carbon(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_cmass0 = vegn_cmass0 + vegn_tile_carbon(ptr%vegn)*ptr%frac
-     if(associated(ptr%cana)) cana_cmass0 = cana_cmass0 + cana_tile_carbon(ptr%cana)*ptr%frac 
+     if(associated(ptr%cana)) cana_cmass0 = cana_cmass0 + cana_tile_carbon(ptr%cana)*ptr%frac
 
-     if(associated(ptr%cana).and.associated(ptr%soil)) cana_cmass0_soil = cana_cmass0_soil + cana_tile_carbon(ptr%cana)*ptr%frac 
-     if(associated(ptr%cana).and.associated(ptr%lake)) cana_cmass0_lake = cana_cmass0_lake + cana_tile_carbon(ptr%cana)*ptr%frac 
+     if(associated(ptr%cana).and.associated(ptr%soil)) cana_cmass0_soil = cana_cmass0_soil + cana_tile_carbon(ptr%cana)*ptr%frac
+     if(associated(ptr%cana).and.associated(ptr%lake)) cana_cmass0_lake = cana_cmass0_lake + cana_tile_carbon(ptr%cana)*ptr%frac
 
      lwup0 = lwup0 + ptr%lwup*ptr%frac
   enddo
@@ -1693,20 +1375,20 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   ts = first_elmt(d_list)
   do while (loop_over_tiles(ts,ptr))
     if (associated(ptr%soil)) atots = atots + ptr%frac
-    if (associated(ptr%lake)) atotl = atotl + ptr%frac      
+    if (associated(ptr%lake)) atotl = atotl + ptr%frac
   enddo
 
   if(d_kinds==2.and.a_kinds==1)then  !from soil to lake
-    
+
     !before lake transition, we get the cana and other trivials on soil tile first.
     cana_soil => NULL()
     lwup_soil=0.; e_res_1_soil=0.; e_res_2_soil=0.
-    frac_ac = 0.    
+    frac_ac = 0.
     ts = first_elmt(d_list)
-    do while (loop_over_tiles(ts,ptr)) 
+    do while (loop_over_tiles(ts,ptr))
       if(associated(ptr%soil))then !We assume that all soil tiles have cana here
         if(.not.associated(ptr%cana)) &
-          call error_mesg('lake_transitions_0d','soil tile must have cana', FATAL) 
+          call error_mesg('lake_transitions_0d','soil tile must have cana', FATAL)
         if(.not.associated(cana_soil))then
           cana_soil => new_cana_tile(ptr%cana)
           frac_ac = ptr%frac
@@ -1717,8 +1399,8 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
         e_res_1_soil = e_res_1_soil + ptr%e_res_1*ptr%frac
         e_res_2_soil = e_res_2_soil + ptr%e_res_2*ptr%frac
         lwup_soil = lwup_soil + ptr%lwup*ptr%frac
-      endif   
-    enddo  
+      endif
+    enddo
 
     !conduct the transition
     ts = first_elmt(d_list)
@@ -1726,7 +1408,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
 
       if(associated(ptr%lake))then
         if(use_reservoir.and.ptr%lake%rsv_depth<=0.) &
-          call error_mesg('lake_transitions_0d','rsv_depth cannnot be less than 0 when using reservoir', FATAL)  
+          call error_mesg('lake_transitions_0d','rsv_depth cannnot be less than 0 when using reservoir', FATAL)
         frac0 = ptr%frac
         ptr%frac = ptr%frac + area
         if(ptr%frac>1.+thres) &
@@ -1735,7 +1417,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
 
         ptr%lake%wl = ptr%lake%wl*frac0/ptr%frac
         ptr%lake%ws = ptr%lake%ws*frac0/ptr%frac
-        ptr%lake%dz = ptr%lake%dz*frac0/ptr%frac 
+        ptr%lake%dz = ptr%lake%dz*frac0/ptr%frac
         ptr%lake%sub_lmass = ptr%lake%sub_lmass*frac0/ptr%frac
         ptr%lake%sub_fmass = ptr%lake%sub_fmass*frac0/ptr%frac
         ptr%lake%sub_heat  = ptr%lake%sub_heat *frac0/ptr%frac
@@ -1747,19 +1429,19 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
 
         if(associated(ptr%snow))then
           ptr%snow%wl = ptr%snow%wl*frac0/ptr%frac
-          ptr%snow%ws = ptr%snow%ws*frac0/ptr%frac     
+          ptr%snow%ws = ptr%snow%ws*frac0/ptr%frac
           fict_heat_dif = snow_tile_heat(ptr%snow)*ptr%frac - snow_heat0_lake
-          ptr%lake%sub_heat  = ptr%lake%sub_heat - fict_heat_dif/ptr%frac              
+          ptr%lake%sub_heat  = ptr%lake%sub_heat - fict_heat_dif/ptr%frac
         endif
 
         if(associated(ptr%cana).and.associated(cana_soil))then
-          call merge_cana_tiles(cana_soil, area, ptr%cana, frac0) 
+          call merge_cana_tiles(cana_soil, area, ptr%cana, frac0)
           call delete_cana_tile(cana_soil)
-        endif  
+        endif
 
         ptr%lake%sub_lmass = ptr%lake%sub_lmass + (soil_lmass0+vegn_lmass0+snow_lmass0_soil)*(area/atots)/ptr%frac !kg/m2
-        ptr%lake%sub_fmass = ptr%lake%sub_fmass + (soil_fmass0+vegn_fmass0+snow_fmass0_soil)*(area/atots)/ptr%frac !kg/m2    
-        ptr%lake%sub_cmass = ptr%lake%sub_cmass + (soil_cmass0+vegn_cmass0)*(area/atots)/ptr%frac !kg/m2 
+        ptr%lake%sub_fmass = ptr%lake%sub_fmass + (soil_fmass0+vegn_fmass0+snow_fmass0_soil)*(area/atots)/ptr%frac !kg/m2
+        ptr%lake%sub_cmass = ptr%lake%sub_cmass + (soil_cmass0+vegn_cmass0)*(area/atots)/ptr%frac !kg/m2
 
         ptr%lake%sub_heat  = ptr%lake%sub_heat  + (soil_heat0+vegn_heat0+snow_heat0_soil )*(area/atots)/ptr%frac !J/m2
         ptr%lake%sub_heat  = ptr%lake%sub_heat  + (e_res_1_soil+e_res_2_soil)*(area/atots)/ptr%frac !J/m2
@@ -1771,7 +1453,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
         ptr%frac = ptr%frac*(1.-area/atots)
       endif
 
-    enddo  
+    enddo
 
     call land_tile_list_init(a_list)
     ! move all tiles from the donor list to the acceptor list -- this will ensure
@@ -1813,14 +1495,14 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   do while (loop_over_tiles(ts,ptr))
      atot = atot + ptr%frac
   enddo
-  if(abs(atot-1.)>thres) & 
+  if(abs(atot-1.)>thres) &
     call error_mesg('lake_transitions_0d','sum of tile frac must be zero', FATAL)
 
   ! conservation check part 2: calculate grid cell totals in final state, and
   ! compare them with pre-transition totals
   lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
   soil_heat1 = 0 ;  vegn_heat1 = 0 ; cana_heat1 = 0 ; snow_heat1 = 0
-  lake_heat1 = 0 ;  glac_heat1 = 0 ; e_res_heat1 = 0  
+  lake_heat1 = 0 ;  glac_heat1 = 0 ; e_res_heat1 = 0
   lwup1 = 0
   ts = first_elmt(d_list)
   do while (loop_over_tiles(ts,ptr))
@@ -1829,21 +1511,21 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%lake))then
        lmass1 = lmass1 + ptr%lake%sub_lmass*ptr%frac
        fmass1 = fmass1 + ptr%lake%sub_fmass*ptr%frac
-     endif     
+     endif
 
      heat1  = heat1  + land_tile_heat  (ptr)*ptr%frac
      if(associated(ptr%lake)) heat1 = heat1 + ptr%lake%sub_heat*ptr%frac
 
      cmass1 = cmass1 + land_tile_carbon(ptr)*ptr%frac
-     if(associated(ptr%lake)) cmass1 = cmass1 + ptr%lake%sub_cmass*ptr%frac     
+     if(associated(ptr%lake)) cmass1 = cmass1 + ptr%lake%sub_cmass*ptr%frac
 
      if(associated(ptr%soil)) soil_heat1 = soil_heat1 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
      if(associated(ptr%lake)) lake_heat1 = lake_heat1 + lake_tile_heat(ptr%lake)*ptr%frac + ptr%lake%sub_heat*ptr%frac
-     if(associated(ptr%glac)) glac_heat1 = glac_heat1 + glac_tile_heat(ptr%glac)*ptr%frac 
-     e_res_heat1 = e_res_heat1 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac 
+     if(associated(ptr%glac)) glac_heat1 = glac_heat1 + glac_tile_heat(ptr%glac)*ptr%frac
+     e_res_heat1 = e_res_heat1 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac
 
      lwup1 = lwup1 + ptr%lwup*ptr%frac
   enddo
@@ -1856,15 +1538,15 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('snow heat content',       snow_heat0-snow_heat0_soil*area/atots+fict_heat_dif, snow_heat1, 1e-4)
   call check_conservation ('soil heat content',       soil_heat0*(1.-area/atots), soil_heat1 , 1e-4)
   call check_conservation ('lake heat content',       lake_heat0+(soil_heat0+vegn_heat0+snow_heat0_soil+e_res_1_soil+e_res_2_soil)*area/atots-fict_heat_dif, lake_heat1, 1e-4)
-  call check_conservation ('glac heat content',       glac_heat0, glac_heat1, 1e-4)  
-  call check_conservation ('e_res heat content',      e_res_heat0-(e_res_1_soil+e_res_2_soil)*area/atots, e_res_heat1, 1e-4)    
-  call check_conservation ('heat content', heat0 , heat1 , 1e-4)  
+  call check_conservation ('glac heat content',       glac_heat0, glac_heat1, 1e-4)
+  call check_conservation ('e_res heat content',      e_res_heat0-(e_res_1_soil+e_res_2_soil)*area/atots, e_res_heat1, 1e-4)
+  call check_conservation ('heat content', heat0 , heat1 , 1e-4)
   call check_conservation ('upward longwave', lwup0, lwup1, 1e-4)
 
 end subroutine lake_transitions_0d
 ! =============================================================================
 function time_adjust(time, time_list)
-  type(time_type) :: time_adjust  
+  type(time_type) :: time_adjust
   type(time_type), intent(in) :: time, time_list(:)
 
   integer :: n
@@ -2222,175 +1904,6 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran,is_laketran)
 
 end subroutine add_to_transitions
 
-
-! ==============================================================================
-! given boundaries of time interval [t1,t2], calculates total transition (time
-! integral of transition rates) over the specified interval
-subroutine integral_transition(t1, t2, tran, frac, err_msg)
-  type(time_type), intent(in)  :: t1,t2 ! time boundaries
-  type(var_set_type), intent(in)  :: tran ! id of the field
-  real           , intent(out) :: frac(:)
-  character(len=*),intent(out), optional :: err_msg
-
-  ! ---- local vars
-  integer :: n ! size of time axis
-  type(time_type) :: ts,te
-  integer         :: i1,i2
-  real :: w  ! time interpolation weight
-  real :: dt ! current time interval, in years
-  real :: sum(size(frac(:)))
-  integer :: l
-  character(len=256) :: msg
-
-  msg = ''
-  ! adjust the integration limits, in case they are out of range
-  n = size(time_in)
-  ts = t1;
-  if (ts<time_in(1)) ts = time_in(1)
-  if (ts>time_in(n)) ts = time_in(n)
-  te = t2
-  if (te<time_in(1)) te = time_in(1)
-  if (te>time_in(n)) te = time_in(n)
-
-  call time_interp(ts, time_in, w, i1,i2, err_msg=msg)
-  if(msg /= '') then
-    if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
-  endif
-  call get_varset_data(tran_ncid,tran,i1,frac)
-
-  dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
-  sum = -frac*w*dt
-  do while(time_in(i2)<=te)
-     call get_varset_data(tran_ncid,tran,i1,frac)
-     dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
-     sum = sum+frac*dt
-     i2 = i2+1
-     i1 = i2-1
-     if(i2>size(time_in)) exit ! from loop
-  enddo
-
-  call time_interp(te,time_in,w,i1,i2, err_msg=msg)
-  if(msg /= '') then
-    if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
-  endif
-  call get_varset_data(tran_ncid,tran,i1,frac)
-  dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
-  frac = sum+frac*w*dt
-  ! check the transition rate validity
-  do l = 1,size(frac(:))
-     call set_current_point(l+lnd%ls-1,1)
-     call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition',tran%name, FATAL)
-  enddo
-end subroutine integral_transition
-
-subroutine integral_transition_lake(t1, t2, tran, frac, err_msg)
-  type(time_type), intent(in)  :: t1,t2 ! time boundaries
-  type(var_set_type), intent(in)  :: tran ! id of the field
-  real           , intent(out) :: frac(:)
-  character(len=*),intent(out), optional :: err_msg
-
-  ! ---- local vars
-  integer :: n ! size of time axis
-  type(time_type) :: ts,te
-  integer         :: i1,i2
-  real :: w  ! time interpolation weight
-  real :: dt ! current time interval, in years
-  real :: sum(size(frac(:)))
-  integer :: i,j,l
-  character(len=256) :: msg
-
-  msg = ''
-  ! adjust the integration limits, in case they are out of range
-  n = size(time_in_lake)
-  ts = t1;
-  if (ts<time_in_lake(1)) ts = time_in_lake(1)
-  if (ts>time_in_lake(n)) ts = time_in_lake(n)
-  te = t2
-  if (te<time_in_lake(1)) te = time_in_lake(1)
-  if (te>time_in_lake(n)) te = time_in_lake(n)
-
-  call time_interp(ts, time_in_lake, w, i1,i2, err_msg=msg)
-  if(msg /= '') then
-    if(fms_error_handler('integral_transition_lake','Message from time_interp: '//trim(msg),err_msg)) return
-  endif
-  call get_varset_data_lake(input_file_lake,tran,i1,frac)
-
-  dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
-  sum = -frac*w*dt
-  do while(time_in_lake(i2)<=te)
-     call get_varset_data_lake(input_file_lake,tran,i1,frac)
-     dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
-     sum = sum+frac*dt
-     i2 = i2+1
-     i1 = i2-1
-     if(i2>size(time_in_lake)) exit ! from loop
-  enddo
-
-  call time_interp(te,time_in_lake,w,i1,i2, err_msg=msg)
-  if(msg /= '') then
-    if(fms_error_handler('integral_transition_lake','Message from time_interp: '//trim(msg),err_msg)) return
-  endif
-  call get_varset_data_lake(input_file_lake,tran,i1,frac)
-  dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
-  frac = sum+frac*w*dt
-  ! check the transition rate validity
-  do l = 1,size(frac(:))
-     call set_current_point(l+lnd%ls-1,1)
-     call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition_lake',tran%name, FATAL)
-  enddo
-end subroutine integral_transition_lake
-!====for irrigation=============================================================
-! read, aggregate, and interpolate set of transitions
-subroutine get_varset_data_manag(ncid,varset,rec,frac)
-   integer, intent(in) :: ncid
-   type(var_set_type), intent(in) :: varset
-   integer, intent(in) :: rec
-   real, intent(out) :: frac(:)
-
-   real :: buff0(nlon_in_manag,nlat_in_manag)
-   real :: buff1(nlon_in_manag,nlat_in_manag)
-   integer :: i
-
-   frac = 0.0
-   buff1 = 0.0
-   do i = 1,varset%nvars
-     if (varset%id(i)>0) then
-        __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
-        buff1 = buff1 + buff0
-     endif
-   enddo
-   call horiz_interp_ug(interp_manag,buff1,frac)
-end subroutine get_varset_data_manag
-
-! ============================================================================
-subroutine fractions_irr_area(t2, manag, irr_area,  err_msg)
-  type(time_type), intent(in)  :: t2 ! time boundaries
-  type(var_set_type), intent(in)  :: manag ! id of the field
-  real           , intent(out) :: irr_area(:)
-  real :: irr_area1(lnd%ls:lnd%le)
-  real :: irr_area2(lnd%ls:lnd%le)
-  character(len=*),intent(out), optional :: err_msg
-  integer :: ntime
-
-  ! ---- local vars
-  integer         :: i1,i2
-  real :: w  ! time interpolation weight
-  character(len=256) :: msg
-  type(time_type) :: time_adj
-
-  msg = ''
-  time_adj = time_adjust(t2, manag_time_in)
-  call time_interp(time_adj, manag_time_in, w, i1,i2, err_msg=msg)
-  if(msg /= '') then
-    if(fms_error_handler('fractions_irr_area','Message from time_interp:'//trim(msg),err_msg)) return
-  endif
-  call get_varset_data_manag(manag_ncid,manag,i1,irr_area1)
-  call get_varset_data_manag(manag_ncid,manag,i2,irr_area2)
- 
-  irr_area = irr_area1*(1-w)+irr_area2*w
-
-end subroutine
-!=============================== 
 !=================================================================
 subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
   real, intent(in)  :: area0(M_LU_TYPES)
@@ -2436,7 +1949,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
 
   do i = 1,N_LU_TYPES
     do j = 1,N_LU_TYPES
-     if (tran0(i,j) < 1e-16) tran0(i,j)= 0. 
+     if (tran0(i,j) < 1e-16) tran0(i,j)= 0.
     enddo
   enddo
 
@@ -2463,7 +1976,7 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
      write(*,'(2x,99(x,a10))') (landuse_name(i),i=1,N_LU_TYPES)
      if ((area00(LU_CROP)) > 0) then
         fi0 = area0(LU_IRRIG)/(area00(LU_CROP))
-     else 
+     else
         fi0 = 0.0
      endif
      !write(*,'(x,a,99(/2x,a,g:))') 'irrigated cropland fraction', 'before transition:',&
@@ -2540,17 +2053,17 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
         if ((cost(LU_IRRIG,i)==cost(LU_IRRIG,j)).and.(cost(LU_CROP,i)==cost(LU_CROP,j))) m3 = m3+1
      enddo
   enddo
-  
+
   m = m1 + m2 + m3  ! Total number of constraints
 
 !  if (verbose_) then
  if (is_watch_cell()) then
      write(*,*)
-     write(*,'(99(a,I2))'),'Number of variables       (n) :',N
-     write(*,'(99(a,I2))'),'Number of constraints     (m) :',M
-     write(*,'(99(a,I2))'),'Number of <= inequalities (m1):',M1
-     write(*,'(99(a,I2))'),'Number of >= inequalities (m2):',M2
-     write(*,'(99(a,I2))'),'Number of == equalities   (m3):',M3
+     write(*,'(99(a,I2))') 'Number of variables       (n) :',N
+     write(*,'(99(a,I2))') 'Number of constraints     (m) :',M
+     write(*,'(99(a,I2))') 'Number of <= inequalities (m1):',M1
+     write(*,'(99(a,I2))') 'Number of >= inequalities (m2):',M2
+     write(*,'(99(a,I2))') 'Number of == equalities   (m3):',M3
   endif
 
   ! calculate areas after transition
@@ -2690,13 +2203,13 @@ subroutine add_irrigation_transitions(area0,tran0,cost,fi1,atot,tran1,verbose)
       if (IPOSV(J).eq.I) then
         if (is_watch_cell()) then
           write(*,'("  x",i2.2," = ",g10.3,x,a1,"->",a1)') I, A(J+1, 1),landuse_name(map1i(i)),landuse_name(map1j(i))
-        endif 
+        endif
         goto 3
       end if
     end do
     if (is_watch_cell()) then
       write(*,'("  y",i2.2," = ",g10.3,x,a1,"->",a1)') I, 0.0, landuse_name(map1i(i)),landuse_name(map1j(i))
-    endif 
+    endif
 3 end do
 !  print *,' '
 

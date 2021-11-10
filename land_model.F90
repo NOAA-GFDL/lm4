@@ -1585,7 +1585,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
                             (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
                             is_watch_time()) then
-
 !     __DEBUG1__(runoff_sg(iwatch,jwatch))
 !     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
 
@@ -2031,8 +2030,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf, &
         soil_uptake_T )
      ! assign cohort layer area fractions (calculated in update_derived_vegn_properties)
-     f(:) = tile%vegn%cohorts(1:N)%layerfrac     
-     vegn_layer(:) = tile%vegn%cohorts(1:N)%layer     
+     f(:) = tile%vegn%cohorts(1:N)%layerfrac
+     vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
      ! calculate precipitation intercepted by vegetation; need to be calculated here
      ! since vegn_lprec and vegn_fprec get modified with drip and overflow later
      prveg = precip_l + irr_flux + precip_s - vegn_lprec - vegn_fprec !kg/(m2 s)

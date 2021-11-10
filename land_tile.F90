@@ -636,6 +636,7 @@ subroutine get_tile_water(tile, lmass, fmass)
 
 end subroutine get_tile_water
 
+
 ! ============================================================================
 ! returns total tile carbon, kg C/m2
 function land_tile_carbon(tile) result(carbon) ; real carbon
@@ -649,6 +650,7 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
   if (associated(tile%soil)) &
      carbon = carbon + soil_tile_carbon(tile%soil)
 end function land_tile_carbon
+
 
 ! ============================================================================
 ! returns total tile nitrogen, kg N/m2
