@@ -99,7 +99,7 @@ integer, public, parameter :: &
 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
- M_LU_TYPES = 7, & !
+ M_LU_TYPES = 7, & ! including irrigated cropland
  LU_PAST    = 1, & ! pasture
  LU_CROP    = 2, & ! crops
  LU_NTRL    = 3, & ! natural vegetation
