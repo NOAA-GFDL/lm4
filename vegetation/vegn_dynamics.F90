@@ -2214,7 +2214,6 @@ subroutine vegn_phenology_ppa(tile)
          leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
          vegn%litter = vegn%litter + leaf_litter_C
-         soil%fsc_in(1)  = soil%fsc_in(1) + leaf_litter_C
          vegn%veg_out = vegn%veg_out + leaf_litter_C
 
          root_litter_C = (1-sp%root_C_retrans_frac) * dead_roots_C * cc%nindivs
