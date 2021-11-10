@@ -2280,10 +2280,11 @@ end subroutine
 ! of mass corresponding to one fats time step from the pool to the destination.
 ! The spending rate is adjusted so that intermediate pool is never depleted below zero.
 ! NOTE that the spending rate is also updated, to be correctly reported to diagnostics
-subroutine deplete_pool(pool, rate, dest)
+subroutine deplete_pool(pool, rate, dest, accum)
    real, intent(inout) :: pool ! C or N intermediate pool, kg
    real, intent(inout) :: rate ! C or N spending rate, kg/yr
    real, intent(inout) :: dest ! C or N destination pool, kg
+   real, intent(inout), optional :: accum ! accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
 
    real :: delta ! change in pool over time step, kg
 
@@ -2291,6 +2292,7 @@ subroutine deplete_pool(pool, rate, dest)
    delta = rate * dt_fast_yr
    dest  = dest + delta
    pool  = pool - delta
+   if (present(accum)) accum = accum + delta ! increment accumulator
 end subroutine deplete_pool
 
 ! =============================================================================
@@ -2308,11 +2310,11 @@ subroutine update_soil_pools(vegn, soil)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     call deplete_pool(vegn%fsc_pool_ag, vegn%fsc_rate_ag, soil%fast_soil_C(1))
-     call deplete_pool(vegn%ssc_pool_ag, vegn%ssc_rate_ag, soil%slow_soil_C(1))
+     call deplete_pool(vegn%fsc_pool_ag, vegn%fsc_rate_ag, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool(vegn%ssc_pool_ag, vegn%ssc_rate_ag, soil%slow_soil_C(1), soil%ssc_in(1))
 
-     call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1))
-     call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1))
+     call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
 
   case (SOILC_CORPSE,SOILC_CORPSE_N)
 
