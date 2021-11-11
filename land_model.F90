@@ -72,7 +72,8 @@ use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
-                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
+                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon, &
+                          vegn_check_cohort_order
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_cover_cold_start, &
@@ -89,11 +90,12 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
-     merge_land_tile_into_list, tile_test_func
+     merge_land_tile_into_list, remerge_tile_list, &
+     tile_test_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
-use land_utils_mod, only : put_to_tiles_r0d_fptr
+use land_utils_mod, only : put_to_tiles_r0d_fptr, check_conservation_1
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
@@ -105,7 +107,7 @@ use land_tile_diag_mod, only : cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_static_field, get_area_id, register_ptid_axis
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
+     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, heat_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
 use transitions_input_mod, only : read_transitions_namelist
@@ -129,6 +131,7 @@ use predefined_tiles_input_mod, only : &
     open_database_predefined_tiles, close_database_predefined_tiles, &
     land_cover_cold_start_0d_predefined_tiles, land_cover_warm_start_0d_predefined_tiles, &
     downscale_atmos
+use land_dust_mod, only : update_dust_slow
 
 implicit none
 private
@@ -1920,6 +1923,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! not checking fluxes and their derivatives, since they can be either positive
   ! or negative, and it is hard to determine valid ranges for them.
 
+!   if (associated(tile%vegn)) then
+!      call vegn_check_cohort_order(tile%vegn,'update_land_model_fast_0d')
+!   endif
+
   Ea0    = tr_flux(isphum) ; DEaDqc  = dfdtr(isphum)
   fco2_0 = tr_flux(ico2)   ; Dfco2Dq = dfdtr(ico2)
 
@@ -3100,12 +3107,11 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   type(land_data_type)          , intent(inout) :: land2cplr
 
   ! ---- local vars
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
   integer :: l,k
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   integer :: n_cohorts
-  type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce
-  type(land_tile_list_type) :: tmp
 
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
@@ -3152,27 +3158,14 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
-     call land_tile_list_init(tmp)
      do l = lnd%ls,lnd%le
-        ! merge all tiles into temporary list
-        do while (.not.empty(land_tile_map(l)))
-           ce=first_elmt(land_tile_map(l))
-           tile=>current_tile(ce)
-           call remove(ce)
-           call merge_land_tile_into_list(tile,tmp)
-        enddo
-        ! move all tiles from temporary list to tile map
-        do while (.not.empty(tmp))
-           ce=first_elmt(tmp)
-           tile=>current_tile(ce)
-           call remove(ce)
-           call insert(tile,land_tile_map(l))
-        enddo
+        call set_current_point(l,1) ! for watch point
+        call remerge_tile_list(land_tile_map(l))
      enddo
-     call land_tile_list_end(tmp)
   endif
 
   call update_vegn_slow( )
+  call update_dust_slow(lnd%time)
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%time)
 

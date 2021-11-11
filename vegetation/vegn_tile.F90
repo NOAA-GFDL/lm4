@@ -6,7 +6,7 @@ use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point, check_var_range
+use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
@@ -49,11 +49,12 @@ public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
 public :: vegn_tile_SAI    ! returns total SAI of vegetation [m2/m2]
 
-public :: vegn_tiles_can_be_merged, merge_vegn_tiles
+public :: vegn_tiles_can_be_merged, vegn_tile_lu_match, merge_vegn_tiles
 public :: vegn_mergecohorts_lm3 ! merge two cohorts in LM3 mode (one cohort per tile)
 public :: vegn_mergecohorts_ppa ! reduce number of cohorts in given vegetation tile
                            ! by merging as many as possible
 public :: vegn_relayer_cohorts_ppa ! recalculate the cohort layers
+public :: vegn_check_cohort_order
 
 public :: vegn_cover_cold_start
 
@@ -212,14 +213,14 @@ type :: vegn_tile_type
    real :: fire_rad_power=0.0 ! Fire radiative power as seen by MODIS [W/pixel]
    integer :: trop_code = -1 !! dsward
    ! dsward - variables for multi-day fires
-   real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day's fires
+   real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day fires
    real :: BAperfire_ave_mdf       = 0.0 ! Average burned area per fire
    real :: past_fires_mdf      (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires from the previous MAX_MDF_LENGTH days.
    real :: past_areaburned_mdf (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
-   real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire's first day, for computing fire coalescence.
+   real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire first day, for computing fire coalescence.
    real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires
 
-   ! it's probably possible to get rid of the fields below
+   ! it is probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
    real :: rh =0.0 ! soil carbon lost to the atmosphere
 end type vegn_tile_type
@@ -299,7 +300,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
   integer :: i, i1, i2
 
   if (vegn1%landuse /= vegn2%landuse) then
-     response = .false. ! different land use types can't be merged
+     response = .false. ! different land use types cannot be merged
   else if (vegn1%landuse == LU_SCND.or.vegn1%landuse == LU_NTRL) then
      ! merging unmanaged (natural or secondary) vegetation tiles is allowed if
      ! the wood biomasses are close enough
@@ -319,6 +320,15 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
      response = .true. ! non-secondary tiles of the same land use type can always be merged
   endif
 end function vegn_tiles_can_be_merged
+
+! =============================================================================
+function vegn_tile_lu_match(vegn1,vegn2) result(response)
+  logical :: response
+  type(vegn_tile_type), intent(in) :: vegn1,vegn2
+
+  response = (vegn1%landuse == vegn2%landuse) ! tiny tiles can be merged regardless of
+           ! the biomass, as long as the land use type is the same
+end function vegn_tile_lu_match
 
 
 ! ============================================================================
@@ -691,7 +701,7 @@ subroutine merge_cohorts(c1,c2)
      ! sign (e.g. due to negative intercepted water content) this expression can give
      ! Tv outside that range, and -- depending on the situation -- it can be wildly outside,
      ! e.g. when HEAT1 is tiny positive, and HEAT2 is tiny negative. In this case we impose
-     ! limits on the resulting temperatures, so it's not too much out of the range. This
+     ! limits on the resulting temperatures, so it is not too much out of the range. This
      ! does not conserve heat, of course, so this heat non-conservation must be taken care
      ! of in the calling subroutine.
      Temp = max(Temp, min(c1%Tv,c2%Tv)-T_range_ext)
@@ -774,6 +784,21 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   endif
 
   call rank_descending(effective_height,idx)
+  if (is_watch_point()) then
+     write(*,*)'#### vegn_relayer_cohorts_ppa ####'
+     do k = 1, vegn%n_cohorts
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc(k)%layer
+        call dpri('height',cc(k)%height)
+        call dpri('eff_height',effective_height(k))
+        write(*,*)
+     enddo
+     __DEBUG3__(H_tall, N_tall, frac_short)
+     do k = 1, vegn%n_cohorts
+        write(*,'(i2.2," : idx ",i2.2)',advance='NO') k, idx(k)
+        call dpri('height',cc(idx(k))%height)
+        write(*,*)
+     enddo
+  endif
   deallocate(effective_height)
 
   ! calculate max possible number of new cohorts : it is equal to the number of
@@ -782,6 +807,9 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   ! boundary.
   N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea)) + 1
   allocate(new(N1))
+  if (is_watch_point()) then
+     __DEBUG1__(N1)
+  endif
 
   ! copy cohort information to the new cohorts, splitting the old cohorts that
   ! stride the layer boundaries
@@ -823,8 +851,37 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   ! replace the array of cohorts
   deallocate(vegn%cohorts)
   vegn%cohorts => new ; vegn%n_cohorts = i
+  if (is_watch_point()) then
+     write(*,*)'#### vegn_relayer_cohorts_ppa output ####'
+     cc=>vegn%cohorts
+     do k = 1, vegn%n_cohorts
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc(k)%layer
+        call dpri('height',cc(k)%height)
+        write(*,*)
+     enddo
+     __DEBUG1__(vegn%n_cohorts)
+  endif
+
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_relayer_cohorts_ppa
+
+! ============================================================================
+! check that cohorts are in order
+subroutine vegn_check_cohort_order(vegn, text)
+  type(vegn_tile_type), intent(in) :: vegn
+  character(*),         intent(in) :: text
+
+  integer :: k ! cohort index
+
+  associate (cc=>vegn%cohorts)
+  do k = 2,vegn%n_cohorts
+     if (cc(k)%layer < cc(k-1)%layer) then
+        call land_error_message(trim(text)//': cohort layers are out of order', WARNING)
+        exit
+     endif
+  enddo
+  end associate
+end subroutine vegn_check_cohort_order
 
 ! ============================================================================
 ! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even
