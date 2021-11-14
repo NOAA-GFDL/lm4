@@ -7,7 +7,7 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-use mpp_mod, only: mpp_max
+use mpp_mod, only: mpp_max, mpp_error
 use constants_mod, only: PI
 use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, lowercase, &
      close_file, mpp_pe, mpp_root_pe, string, FATAL, WARNING, NOTE
@@ -428,11 +428,7 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
   ! ---- local vars
-  integer :: y,mo,d,h,m,s ! components of date
-  integer :: thread, face
-  real    :: lon, lat ! current coordinates, degree
   character(512) :: message
-  character :: ew,ns  ! hemisphere indicators
 
   if (severity<0) return
 
@@ -440,17 +436,8 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
       if(lo<=value.and.value<=hi) return
   endif
 
-  thread = 1
-!$   thread = OMP_GET_THREAD_NUM()+1
-  call get_date(lnd%time,y,mo,d,h,m,s)
-  call get_current_coordinates(thread, lon, lat, face)
-  ew = 'E'; if (lon<0) ew = 'W'
-  ns = 'N'; if (lat<0) ns = 'S'
-  write(message,'(a,g23.16,a,2(f7.2,a),a,3(i4,",")i4,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-       trim(varname)//' out of range: value=', value, ' at', abs(lon),ew,abs(lat),ns, &
-       '  (i,j,tile,face) = (',curr_i(thread),curr_j(thread),curr_k(thread),face, &
-       ') time=',y,mo,d,h,m,s
-  call error_mesg(trim(tag),trim(message),severity)
+  write(message,'(a,g23.16)') trim(varname)//' out of range: value=', value
+  call land_error_message(trim(tag)//': '//trim(message),severity)
 end subroutine check_var_range_0d
 
 
@@ -465,10 +452,6 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
 
   ! ---- local vars
   integer :: i
-  integer :: y,mo,d,h,m,s ! components of date
-  integer :: thread, face
-  real    :: lon, lat ! current coordinates, degree
-  character :: ew,ns  ! hemisphere indicators
   character(512) :: message
 
   if (severity<0) return
@@ -477,18 +460,9 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
      if(ieee_is_finite(value(i))) then
         if(lo<=value(i).and.value(i)<=hi) cycle
      endif
-     thread = 1
-!$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(lnd%time,y,mo,d,h,m,s)
-     call get_current_coordinates(thread, lon, lat, face)
-     ew = 'E'; if (lon<0) ew = 'W'
-     ns = 'N'; if (lat<0) ns = 'S'
-     write(message,'(a,g23.16,a,2(f7.2,a),a,3(i4,",")i4,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-          trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
-          ' at', abs(lon),ew,abs(lat),ns, &
-          '  (i,j,tile,face) = (',curr_i(thread),curr_j(thread),curr_k(thread),face, &
-          ') time=',y,mo,d,h,m,s
-     call error_mesg(trim(tag),trim(message),severity)
+     write(message,'(a,g23.16)')&
+          trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i)
+     call land_error_message(trim(tag)//': '//trim(message),severity)
   enddo
 end subroutine check_var_range_1d
 
@@ -606,9 +580,6 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
   ! ---- local vars
-  integer :: y,mo,d,h,m,s ! components of date
-  integer :: thread, face
-  real    :: lon, lat ! current coordinates, degree
   character(512) :: message
   integer :: severity_
 
@@ -625,16 +596,9 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
           trim(tag)//': conservation of '//trim(substance)//'; before=', d1, 'after=', d2, 'diff=',d2-d1
      endif
   else
-     thread = 1
-!$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(lnd%time,y,mo,d,h,m,s)
-     call get_current_coordinates(thread, lon, lat, face)
-     write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-          'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-          'at lon=',lon, 'lat=',lat, &
-          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',lnd%ug_face, &
-          'time=',y,mo,d,h,m,s
-     call error_mesg(tag,message,severity_)
+     write(message,'(3(x,a,g23.16))')&
+          'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1
+     call land_error_message(trim(tag)//': '//trim(message),severity_)
   endif
 end subroutine check_conservation
 
@@ -670,7 +634,8 @@ subroutine land_error_message(text,severity)
   integer :: y,mo,d,h,m,s ! components of date
   real    :: lon, lat ! current coordinates, degree
   integer :: thread, face
-  character(512) :: message
+  character(512) :: location
+  character :: ew,ns  ! hemisphere indicators
   integer :: severity_
 
   severity_=WARNING
@@ -680,11 +645,14 @@ subroutine land_error_message(text,severity)
 !$   thread = OMP_GET_THREAD_NUM()+1
   call get_date(lnd%time,y,mo,d,h,m,s)
   call get_current_coordinates(thread, lon, lat, face)
-  write(message,'(2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') &
-       'at lon=',lon, 'lat=',lat, &
-       'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
-       'time=',y,mo,d,h,m,s
-  call error_mesg(text,message,severity_)
+  ew = 'E'; if (lon<0) ew = 'W'
+  ns = 'N'; if (lat<0) ns = 'S'
+  write(location,'(a,2(f8.3,a),a,3(i4,",")i4,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+       '  at', abs(lon),ew,abs(lat),ns, &
+       '  (i,j,tile,face) = (',curr_i(thread),curr_j(thread),curr_k(thread),face, &
+       ') time=',y,mo,d,h,m,s
+
+  call mpp_error(severity_,trim(text)//trim(location))
 
 end subroutine land_error_message
 
