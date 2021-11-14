@@ -6,7 +6,7 @@ use fms_mod, only : &
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 #else
-use fms_mod, only: open_namelist_file
+use fms_mod, only: open_namelist_file, file_exist
 #endif
 
 use land_constants_mod, only : NBANDS
@@ -680,7 +680,7 @@ subroutine remerge_tile_list(list)
      write (*,*)'##### remerge_tile_list input #####'
      ce = first_elmt(list); i = 1
      do while(loop_over_tiles(ce, tile))
-        write(*,'(i3, 2x)',advance='no'),i
+        write(*,'(i3, 2x)',advance='no') i
         call print_land_tile_info(tile)
         i = i+1
      enddo
@@ -749,7 +749,7 @@ subroutine remerge_tile_list(list)
      write (*,*)'##### remerge_tile_list output #####'
      ce = first_elmt(list); i = 1
      do while(loop_over_tiles(ce, tile))
-        write(*,'(i3, 2x)',advance='no'),i
+        write(*,'(i3, 2x)',advance='no') i
         call print_land_tile_info(tile)
         i = i+1
      enddo
