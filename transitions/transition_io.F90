@@ -99,6 +99,7 @@ type, extends(infile_t) :: infile_cs_t
 contains
   procedure :: setup_hgrid => infile_cs_setup_hgrid
   procedure :: to_ug       => infile_cs_to_ug
+  procedure :: get_record  => infile_cs_get_record   
 end type infile_cs_t
 
 !> structure that represents a set of variables
