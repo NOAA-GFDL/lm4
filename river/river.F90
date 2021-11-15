@@ -1121,6 +1121,7 @@ end subroutine print_river_tracer_data
       do while (loop_over_tiles(ce,tile))
         k = k+1
         if(.not.associated(tile%soil))  cycle ! skip non-soil tiles
+        soil => tile%soil
         priority(k) = -tile%soil%pars%tile_elevation
 
         if(.not.allocated(hlsp_irr_demand_gw))then
@@ -1141,10 +1142,12 @@ end subroutine print_river_tracer_data
       enddo
       call rank_descending(priority, idx)
 
+    if(nk_g>0)then
     DO hidxk = 1, nk_g
       do k = 1, ntiles
         tile=>elmt_at_index(land_tile_map(l), idx(k)) 
         if (.not.associated(tile%soil)) cycle
+        soil => tile%soil
         if (soil%hidx_k /= hidxk) cycle
         soil => tile%soil
         demand_left_tile = hlsp_irr_demand_gw(hidxk) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
@@ -1165,9 +1168,9 @@ end subroutine print_river_tracer_data
         ce = first_elmt(land_tile_map(l))
         do while(loop_over_tiles(ce,tile,k=k))   
           if (.not.associated(tile%soil)) cycle
+          soil => tile%soil
           if (soil%hidx_k /= hidxk) cycle
           if (tile%soil%hidx_j /= 1) cycle
-          soil => tile%soil
           deep_abst = hlsp_irr_demand_gw(hidxk) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
           deep_habst = clw*(soil%T(num_soil)-tfreeze)*deep_abst !J/m2  
           soil%abst_d = deep_abst/River%dt_slow
@@ -1181,6 +1184,7 @@ end subroutine print_river_tracer_data
         hlsp_irr_demand_gw(hidxk) = 0.
       endif
     ENDDO
+    endif
 
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile,k=k))   
@@ -1207,8 +1211,11 @@ end subroutine print_river_tracer_data
         demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               
       enddo
 !      demand_unmet_ug(l) = max(0, demand_full_ug(l) - demand_met_ug(l))
-      demand_unmet_ug(l) = sum(hlsp_irr_demand_gw(1:soil%hlsp%nk_g))
-      deallocate(priority, idx, hlsp_irr_demand_gw)
+      if(nk_g>0)then
+        demand_unmet_ug(l) = sum(hlsp_irr_demand_gw(1:nk_g))
+      endif
+      deallocate(priority, idx)
+      if(allocated(hlsp_irr_demand_gw)) deallocate(hlsp_irr_demand_gw)
     enddo    
   endif
 
