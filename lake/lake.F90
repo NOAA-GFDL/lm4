@@ -356,6 +356,14 @@ subroutine lake_init ( id_ug )
      tile%lake%rsv_depth     = 0.
   enddo
 
+  do l=lnd%ls, lnd%le
+    ce = first_elmt(land_tile_map(l))
+    do while(loop_over_tiles(ce,tile))
+      if (.not.associated(tile%lake)) cycle
+      tile%lake%pars%whole_area = max(tile%lake%pars%whole_area, tile%frac*lnd%ug_area(l))
+    enddo
+  enddo
+
   call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('lake_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
