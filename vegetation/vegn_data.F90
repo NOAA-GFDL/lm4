@@ -171,7 +171,9 @@ public :: &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
     excess_stored_N_leakage_rate, min_N_stress, &
-    et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
+    et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
+
+    seedling_relayer_bug, zbot_assumption_bug
 
 logical, public, protected :: do_ppa = .FALSE.
 logical, public, protected :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -574,6 +576,19 @@ character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass' 
            ! light
 real, protected :: reserved_grass_frac = 1e-2 ! for "trees-squeeze-grass" option, lower
            ! limit of area fraction that that grasses may be squeezed to
+logical, protected :: seedling_relayer_bug = .FALSE.  ! if TRUE, triggers buggy behavior
+           ! when cohort relayering after new seedlings were added was not done. That
+           ! sometimes results in cohorts being not arranged in descending order of heigh
+           ! and layers.
+           ! Set this bug trigger to TRUE to reproduce LM4.1.
+logical, protected :: zbot_assumption_bug = .FALSE. ! if TRUE, triggers buggy behavior that
+           ! calculates bottom of the cohort canopy based on the assumption that cohorts
+           ! are always arranged in descending order of height.
+           ! This may not be correct because cohorts are arranged in order of "effective
+           ! height" -- e.g. when "trees squeeze grass" or "trees top grass," grasses are
+           ! always at the end of the cohort array regardless of their height; "effective
+           ! height" also affected by species layer_height_factor.
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -608,7 +623,9 @@ namelist /vegn_data_nml/ &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, N_limits_live_biomass, &
   excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
-  et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
+  et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
+
+  seedling_relayer_bug, zbot_assumption_bug
 
 contains ! ###################################################################
 

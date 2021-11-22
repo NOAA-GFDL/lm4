@@ -579,7 +579,7 @@ function height_from_biomass(btotal) result (height)
     real, intent(in) :: btotal ! total biomass
 
     height = 24.19*(1.0-exp(-0.19*btotal))
-end function
+end function height_from_biomass
 
 
 ! ============================================================================

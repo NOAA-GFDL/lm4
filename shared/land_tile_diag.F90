@@ -7,7 +7,7 @@ use diag_axis_mod,      only : get_axis_length, diag_axis_init
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
      diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
-use fms_mod,            only : error_mesg, string, FATAL, WARNING, NOTE
+use fms_mod,            only : error_mesg, string, FATAL, NOTE
 
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
@@ -674,8 +674,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
 
   if (.not.module_is_initialized) then
-   call error_mesg(mod_name,&
-      'land_tile_diag_mod is not initialized', FATAL)
+     call error_mesg(mod_name,'land_tile_diag_mod is not initialized', FATAL)
   endif
   ! log diagnostic field information
   do_log = .TRUE.; if (present(do_not_log)) do_log = .NOT.do_not_log

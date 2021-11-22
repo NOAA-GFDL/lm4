@@ -97,7 +97,7 @@ type :: land_data_type
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
    real, pointer, dimension(:,:)   :: & !(grid index, tile)
         dws_t_atm      => NULL(),  & ! downscaling weights for temperature
-        dws_prec       => NULL()      ! downscaling weights for precipitation
+        dws_prec       => NULL()     ! downscaling weights for precipitation
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
@@ -156,9 +156,6 @@ type :: land_state_type
    ! coordinates for use in diag axis and such
    real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes, degrees East
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes, degrees North
-
-   !integer :: nfaces ! number of mosaic faces
-   !integer :: face  ! the current mosaic face
 
    integer, allocatable :: pelist(:) ! list of processors that run land model
    integer, allocatable :: io_pelist(:) ! list of processors in our io_domain

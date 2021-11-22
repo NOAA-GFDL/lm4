@@ -54,7 +54,8 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
      tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
-     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
+     phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE, &
+     zbot_assumption_bug
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -83,8 +84,8 @@ use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
-     N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
-     add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
+     soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
 
@@ -335,10 +336,10 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init( id_ug, id_band, id_cellarea)
-  integer,intent(in) :: id_ug   !<Unstructured axis id.
-  integer,intent(in) :: id_band ! ID of spectral band axis
-  integer,intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
+subroutine vegn_init ( id_ug, id_band, id_cellarea )
+  integer, intent(in) :: id_ug   !<Unstructured axis id.
+  integer, intent(in) :: id_band ! ID of spectral band axis
+  integer, intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
 
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
@@ -451,8 +452,6 @@ subroutine vegn_init( id_ug, id_band, id_cellarea)
 !         call get_cohort_data(restart2, 'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr)
 !      endif
 
-     call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
-
      if (field_exists(restart2,'myc_scavenger_biomass_C')) then
         call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_scav_C_ptr )
         call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_scav_N_ptr )
@@ -512,12 +511,15 @@ subroutine vegn_init( id_ug, id_band, id_cellarea)
      call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
      call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
      call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
-     do j = 1,N_LITTER_POOLS
-        do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
-           call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
-           call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
+
+     if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
+        do j = 1,N_LITTER_POOLS
+           do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
+              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
+              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
+           enddo
         enddo
-     enddo
+     endif
      if (soil_carbon_option==SOILC_CORPSE_N.and.field_exists(restart2,'fsn_pool_bg')) then
         call get_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr)
         call get_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr)
@@ -757,7 +759,7 @@ subroutine vegn_init( id_ug, id_band, id_cellarea)
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init (id_ug, id_band, lnd%time )
+  call vegn_diag_init ( id_ug, id_band, lnd%time )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, ls=lnd%ls)
@@ -774,6 +776,7 @@ subroutine vegn_init( id_ug, id_band, id_cellarea)
 
 end subroutine vegn_init
 
+! ============================================================================
 subroutine add_extra_cohorts()
 
   integer :: n_extra_cohorts = 0
@@ -873,7 +876,7 @@ subroutine add_extra_cohorts()
 end subroutine add_extra_cohorts
 
 ! ============================================================================
-subroutine vegn_diag_init ( id_ug, id_band, time)
+subroutine vegn_diag_init ( id_ug, id_band, time )
    integer        , intent(in) :: id_ug   !<Unstructured axis id.
    integer        , intent(in) :: id_band ! ID of spectral band axis
    type(time_type), intent(in) :: time    ! initial time for diagnostic fields
@@ -1509,29 +1512,31 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr,'time since last land use disturbance', 'yr')
 
   ! write carbon pools and rates
-  call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for AG fast soil carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr,'conversion rate of AG fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
-  call add_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr,'intermediate pool for AG slow soil carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr,'conversion rate of AG ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
-  call add_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr,'intermediate pool for BG fast soil carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr,'conversion rate of BG fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
-  call add_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr,'intermediate pool for BG slow soil carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr,'conversion rate of BG ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for aboveground fast soil carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr,'conversion rate of aboveground fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr,'intermediate pool for aboveground slow soil carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr,'conversion rate of aboveground ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr,'intermediate pool for belowground fast soil carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr,'conversion rate of belowground fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr,'intermediate pool for belowground slow soil carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr,'conversion rate of belowground ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
 
-  do j = 1,N_LITTER_POOLS
-     do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
-        call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//trim(c_shortname(i)),vegn_litter_buff_C_ptr, i, j, &
-            'intermediate pool for '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter carbon input', 'kg C/m2')
-        call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//trim(c_shortname(i)),vegn_litter_rate_C_ptr, i, j, &
-            'conversion rate of '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter to litter carbon pool', 'kg C/(m2 yr)')
+  if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
+     do j = 1,N_LITTER_POOLS
+        do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
+           call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//trim(c_shortname(i)),vegn_litter_buff_C_ptr, i, j, &
+               'intermediate pool for '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter carbon input', 'kg C/m2')
+           call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//trim(c_shortname(i)),vegn_litter_rate_C_ptr, i, j, &
+               'conversion rate of '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter to litter carbon pool', 'kg C/(m2 yr)')
+        enddo
      enddo
-  enddo
+  endif
 
   if (soil_carbon_option==SOILC_CORPSE_N) then
-     call add_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr,'intermediate pool for BG fast soil nitrogen input', 'kg N/m2')
-     call add_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr,'conversion rate of BG fsn_pool to fast soil nitrogen', 'kg N/(m2 yr)')
-     call add_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr,'intermediate pool for BG slow soil nitrogen input', 'kg N/m2')
-     call add_tile_data(restart2,'ssn_rate_bg',vegn_ssn_rate_bg_ptr,'conversion rate of BG ssn_pool to slow soil nitrogen', 'kg N/(m2 yr)')
+     call add_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr,'intermediate pool for belowground fast soil nitrogen input', 'kg N/m2')
+     call add_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr,'conversion rate of belowground fsn_pool to fast soil nitrogen', 'kg N/(m2 yr)')
+     call add_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr,'intermediate pool for belowground slow soil nitrogen input', 'kg N/m2')
+     call add_tile_data(restart2,'ssn_rate_bg',vegn_ssn_rate_bg_ptr,'conversion rate of belowground ssn_pool to slow soil nitrogen', 'kg N/(m2 yr)')
      do j = 1,N_LITTER_POOLS
         do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
            call add_tile_data(restart2,trim(l_shortname(j))//'litter_buff_N_'//trim(c_shortname(i)),vegn_litter_buff_N_ptr, i, j, &
@@ -2183,15 +2188,22 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
      __DEBUG3__(depth_ave, tsoil, theta)
   endif
 
-  ! Do N deposition first. For now, it all goes to leaf litter
-  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes
-  ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
   call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
   call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
   call check_var_range(ndep_org, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_org', FATAL)
-  call soil_NH4_deposition   (ndep_amm*dt_fast_yr, soil%org_matter(1))
-  call soil_NO3_deposition   (ndep_nit*dt_fast_yr, soil%org_matter(1))
-  call soil_org_N_deposition (ndep_org*dt_fast_yr, soil%org_matter(1))
+  select case(soil_carbon_option)
+  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     ! do nothing for now
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
+     ! Do N deposition first. For now, it all goes to leaf litter
+     ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes
+     ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
+     call soil_NH4_deposition   (ndep_amm*dt_fast_yr, soil%org_matter(1))
+     call soil_NO3_deposition   (ndep_nit*dt_fast_yr, soil%org_matter(1))
+     call soil_org_N_deposition (ndep_org*dt_fast_yr, soil%org_matter(1))
+  case default
+     call error_mesg('soil_step_2', 'unrecognized soil carbon option -- this should never happen', FATAL)
+  end select
 
   soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + (ndep_amm+ndep_nit+ndep_org)*dt_fast_yr
 
@@ -2318,6 +2330,7 @@ subroutine update_derived_vegn_data(vegn, soil)
   real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in the layer
   real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in the layer
   integer :: current_layer
+  real, allocatable :: layer_top(:) ! height of the tallest vegeattion in layer, for zbot calculations
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
   real :: scale
@@ -2435,22 +2448,6 @@ subroutine update_derived_vegn_data(vegn, soil)
     cc%Wl_max        = spdata(sp)%cmc_lai*cc%leafarea
     cc%Ws_max        = spdata(sp)%csc_lai*cc%leafarea
     cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
-    if (is_watch_point()) then
-       write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc%layer
-       call dpri('frac',cc%layerfrac)
-       call dpri('height',cc%height)
-       call dpri('LAI',cc%lai)
-
-       ! call dpri('bl',cc%bl)
-       ! call dpri('leafarea',cc%leafarea)
-       call dpri('crownarea',cc%crownarea)
-       call dpri('nindivs',cc%nindivs)
-       ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
-       ! call dpri('layerarea',layer_area(cc%layer))
-       call dpri('species',spdata(sp)%name)
-
-       write(*,*)
-    endif
   enddo
 
   if (is_watch_point()) then
@@ -2460,15 +2457,37 @@ subroutine update_derived_vegn_data(vegn, soil)
   call check_var_range(vegn%cohorts(1:vegn%n_cohorts)%layerfrac, 0.0, 1.0, 'update_derived_vegn_data', 'layerfrac', FATAL)
 
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
-  ! this code assumes that cohorts are arranged in descending order
-  zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
-  do k = vegn%n_cohorts, 1, -1
-    if (vegn%cohorts(k)%layer/=current_layer) then
-       zbot = vegn%cohorts(k+1)%height
-       current_layer = vegn%cohorts(k)%layer
-    endif
-    vegn%cohorts(k)%zbot = zbot
-  enddo
+  if(zbot_assumption_bug) then
+     ! this code assumes that cohorts are always arranged in descending order of height.
+     ! This may not be correct because cohorts are arranged in order of "effective
+     ! height" -- e.g. when "trees squeeze grass" or "trees top grass," grasses are
+     ! always at the end of the cohort array regardless of their height; "effective
+     ! height" also affected by species layer_height_factor.
+     zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
+     do k = vegn%n_cohorts, 1, -1
+       if (vegn%cohorts(k)%layer/=current_layer) then
+          zbot = vegn%cohorts(k+1)%height
+          current_layer = vegn%cohorts(k)%layer
+       endif
+       vegn%cohorts(k)%zbot = zbot
+     enddo
+  else
+     ! this code does not make height-order assumptions, and also ensures that
+     ! zbot<=height
+     allocate(layer_top(n_layers+1))
+     layer_top(:) = 0.0
+     do k = 1, vegn%n_cohorts
+        cc=>vegn%cohorts(k)
+        layer_top(cc%layer) = max(layer_top(cc%layer),cc%height)
+     enddo
+     do k = 1, vegn%n_cohorts
+        cc=>vegn%cohorts(k)
+        cc%zbot = layer_top(cc%layer+1)
+        if(cc%zbot>cc%height) cc%zbot = cc%height
+     enddo
+     deallocate(layer_top)
+  endif
+
 
   ! calculate volumetric root length for the entire tile
   VRL(:) = 0.0
@@ -2484,6 +2503,25 @@ subroutine update_derived_vegn_data(vegn, soil)
   elsewhere
      vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway
   end where
+
+  if (is_watch_point()) then
+     do k = 1, vegn%n_cohorts
+        cc=>vegn%cohorts(k)
+        write(*,'(i2.2," : layer ",i2.2)',advance='NO') k, cc%layer
+        call dpri('frac',cc%layerfrac)
+        call dpri('height',cc%height)
+        call dpri('zbot',cc%zbot)
+        call dpri('LAI',cc%lai)
+        ! call dpri('bl',cc%bl)
+        ! call dpri('leafarea',cc%leafarea)
+        call dpri('crownarea',cc%crownarea)
+        call dpri('nindivs',cc%nindivs)
+        ! call dpri('gapfrac',spdata(sp)%internal_gap_frac)
+        ! call dpri('layerarea',layer_area(cc%layer))
+        call dpri('species',spdata(cc%species)%name)
+        write(*,*)
+     enddo
+  endif
 
   deallocate(layer_area,area_t,area_g,scale_t,scale_g)
 end subroutine update_derived_vegn_data
@@ -2834,10 +2872,11 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_fsc_rate_ag,tile%vegn%fsc_rate_ag,tile%diag)
      call send_tile_data(id_ssc_pool_ag,tile%vegn%ssc_pool_ag,tile%diag)
      call send_tile_data(id_ssc_rate_ag,tile%vegn%ssc_rate_ag,tile%diag)
-     call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_ag,tile%diag)
-     call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_ag,tile%diag)
-     call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_ag,tile%diag)
-     call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_ag,tile%diag)
+
+     call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_bg,tile%diag)
+     call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_bg,tile%diag)
+     call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_bg,tile%diag)
+     call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_bg,tile%diag)
 
      do j = 1,N_LITTER_POOLS
      do i = 1,N_C_TYPES

@@ -27,7 +27,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_tiled_diag_field, add_tiled_diag_field_alias, send_tile_data, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
-use vegn_data_mod, only : spdata, nspecies, do_ppa, soil_carbon_depth_scale, C2B, agf_bs, &
+use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
@@ -41,7 +41,7 @@ use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_coh
 use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
-     plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds, update_bio_living_fraction
+     plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC, soil_carbon_option, &
@@ -107,7 +107,7 @@ integer :: &
     id_mrz_mine_C_res, id_mrz_mine_N_res, &
     id_Nfix_C_res, id_Nfix_N_res, &
     id_Nfix_alloc_smoothed, id_mrz_mine_alloc_smoothed, id_mrz_scav_alloc_smoothed
-! CMOR diagnostic field IDs
+! CMIP/CMOR diagnostic field IDs
 integer :: id_gpp_cmor, id_npp_cmor, id_nep_cmor, id_ra, id_rgrowth
 
 contains
@@ -184,13 +184,13 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        missing_value=-100.0)
   id_npp = register_cohort_diag_field ( diag_mod_name, 'npp',  &
        (/id_ug/), time, 'net primary productivity', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_npp_std = register_tiled_diag_field ( module_name, 'npp_std',  &
+       missing_value=-100.0)
+  id_npp_std = register_tiled_diag_field ( diag_mod_name, 'npp_std',  &
        (/id_ug/), time, 'standard deviation of net primary productivity of tiles in grid cell', &
        'kg C/(m2 year)', missing_value=-100.0, op='stdev')
-  id_nep = register_tiled_diag_field ( module_name, 'nep',  &
+  id_nep = register_tiled_diag_field ( diag_mod_name, 'nep',  &
        (/id_ug/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
+       missing_value=-100.0)
   id_wood_prod = register_cohort_diag_field ( diag_mod_name, 'wood_prod',  &
        (/id_ug/), time, 'total wood (heartwood+sapwood) production', 'kgC/(m2 year)', &
        missing_value=-100.0)
@@ -919,9 +919,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
 
   ! ---- diagnostic section
-  call send_tile_data(id_gpp,gpp,diag)
-  call send_tile_data(id_npp,npp,diag)
-  call send_tile_data(id_npp_std,npp,diag)
+  call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_tile_data(id_npp_std,npp(1),diag) ! not sure what would happen if we send an
+                                              ! array; there is only one cohort in any case
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
@@ -2005,8 +2006,8 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
-        __DEBUG4__(vegn%theta_av_phen, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
-        __DEBUG2__(vegn%psist_av, spdata(cc%species)%psi_stress_crit_phen)
+        __DEBUG4__(vegn%theta_av_phen, wilt, sp%cnst_crit_phen, sp%fact_crit_phen)
+        __DEBUG2__(vegn%psist_av, sp%psi_stress_crit_phen)
         __DEBUG1__(cc%species)
         __DEBUG2__(vegn%tc_av,sp%tc_crit)
      endif
@@ -2022,10 +2023,10 @@ subroutine vegn_phenology_lm3(vegn, soil)
         theta_crit = sp%cnst_crit_phen &
               + wilt*sp%fact_crit_phen
         theta_crit = max(0.0,min(1.0, theta_crit))
-        psi_stress_crit = spdata(cc%species)%psi_stress_crit_phen
+        psi_stress_crit = sp%psi_stress_crit_phen
         if (      (psi_stress_crit <= 0. .and. vegn%theta_av_phen < theta_crit) &
              .or. (psi_stress_crit  > 0. .and. vegn%psist_av > psi_stress_crit) &
-             .or. (vegn%tc_av < spdata(cc%species)%tc_crit) ) then
+             .or. (vegn%tc_av < sp%tc_crit) ) then
            cc%status = LEAF_OFF; ! set status to indicate leaf drop
            cc%leaf_age = 0;
 
@@ -2218,7 +2219,6 @@ subroutine vegn_phenology_ppa(tile)
          leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
          vegn%litter = vegn%litter + leaf_litter_C
-         soil%fsc_in(1)  = soil%fsc_in(1) + leaf_litter_C
          vegn%veg_out = vegn%veg_out + leaf_litter_C
 
          root_litter_C = (1-sp%root_C_retrans_frac) * dead_roots_C * cc%nindivs
@@ -2281,13 +2281,32 @@ end subroutine
 
 
 ! =============================================================================
+! given an intermediate pool of C or N, and its spending rate, move the amount
+! of mass corresponding to one fats time step from the pool to the destination.
+! The spending rate is adjusted so that intermediate pool is never depleted below zero.
+! NOTE that the spending rate is also updated, to be correctly reported to diagnostics
+subroutine deplete_pool(pool, rate, dest, accum)
+   real, intent(inout) :: pool ! C or N intermediate pool, kg
+   real, intent(inout) :: rate ! C or N spending rate, kg/yr
+   real, intent(inout) :: dest ! C or N destination pool, kg
+   real, intent(inout), optional :: accum ! accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
+
+   real :: delta ! change in pool over time step, kg
+
+   rate  = MAX( 0.0, MIN(rate, pool/dt_fast_yr) ) ! adjust rate
+   delta = rate * dt_fast_yr
+   dest  = dest + delta
+   pool  = pool - delta
+   if (present(accum)) accum = accum + delta ! increment accumulator
+end subroutine deplete_pool
+
+! =============================================================================
 subroutine update_soil_pools(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
   integer :: i,k
-  real :: delta
   real :: deltafast, deltaslow, deltafast_N, deltaslow_N
   real :: profile(num_l), profile1(num_l), psum ! for depostion profile calculation
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
@@ -2296,35 +2315,13 @@ subroutine update_soil_pools(vegn, soil)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
-     delta = vegn%fsc_rate_bg*dt_fast_yr;
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + delta;
-     vegn%fsc_pool_bg    = vegn%fsc_pool_bg    - delta;
+     call deplete_pool(vegn%fsc_pool_ag, vegn%fsc_rate_ag, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool(vegn%ssc_pool_ag, vegn%ssc_rate_ag, soil%slow_soil_C(1), soil%ssc_in(1))
 
-     ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
-     delta = vegn%ssc_rate_bg*dt_fast_yr;
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + delta;
-     vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - delta;
+     call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
+
   case (SOILC_CORPSE,SOILC_CORPSE_N)
-     ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%fsc_rate_ag = MAX( 0.0, MIN(vegn%fsc_rate_ag, vegn%fsc_pool_ag/dt_fast_yr));
-     deltafast = vegn%fsc_rate_ag*dt_fast_yr;
-     vegn%fsc_pool_ag       = vegn%fsc_pool_ag       - deltafast;
-
-     ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%ssc_rate_ag = MAX(0.0, MIN(vegn%ssc_rate_ag, vegn%ssc_pool_ag/dt_fast_yr));
-     deltaslow = vegn%ssc_rate_ag*dt_fast_yr;
-     vegn%ssc_pool_ag       = vegn%ssc_pool_ag       - deltaslow;
 
      vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
      delta_C = vegn%litter_rate_C*dt_fast_yr
@@ -2342,28 +2339,12 @@ subroutine update_soil_pools(vegn, soil)
      vegn%litter_buff_C = vegn%litter_buff_C - delta_C
      vegn%litter_buff_N = vegn%litter_buff_N - delta_N
 
-     ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
-     deltafast        = vegn%fsc_rate_bg*dt_fast_yr;
-     vegn%fsc_pool_bg = vegn%fsc_pool_bg - deltafast;
-
-     ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only
-     ! depleted, never increased
-     vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
-     deltaslow        = vegn%ssc_rate_bg*dt_fast_yr;
-     vegn%ssc_pool_bg = vegn%ssc_pool_bg - deltaslow;
+     deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
+     deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)
 
      if (soil_carbon_option == SOILC_CORPSE_N) then
-        vegn%fsn_rate_bg = MAX( 0.0, MIN(vegn%fsn_rate_bg, vegn%fsn_pool_bg/dt_fast_yr));
-        deltafast_N      = vegn%fsn_rate_bg*dt_fast_yr;
-        vegn%fsn_pool_bg = vegn%fsn_pool_bg - deltafast_N;
-
-        vegn%ssn_rate_bg = MAX(0.0, MIN(vegn%ssn_rate_bg, vegn%ssn_pool_bg/dt_fast_yr));
-        deltaslow_N      = vegn%ssn_rate_bg*dt_fast_yr;
-        vegn%ssn_pool_bg = vegn%ssn_pool_bg - deltaslow_N;
+        deltafast_N = 0.0 ; call deplete_pool(vegn%fsn_pool_bg, vegn%fsn_rate_bg, deltafast_N)
+        deltaslow_N = 0.0 ; call deplete_pool(vegn%ssn_pool_bg, vegn%ssn_rate_bg, deltaslow_N)
      else
         vegn%fsn_rate_bg = 0.0
         deltafast_N      = 0.0
@@ -2643,4 +2624,3 @@ subroutine spread_seeds(ug_bseed)
 end subroutine spread_seeds
 
 end module vegn_dynamics_mod
-

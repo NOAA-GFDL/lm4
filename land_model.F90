@@ -72,7 +72,7 @@ use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
-                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
+     vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon, vegn_check_cohort_order
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_cover_cold_start, &
@@ -89,7 +89,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
-     merge_land_tile_into_list, tile_test_func
+     merge_land_tile_into_list, remerge_tile_list, tile_test_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -105,7 +105,8 @@ use land_tile_diag_mod, only : cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_static_field, get_area_id, register_ptid_axis
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
+     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
+     nitrogen_cons_tol, heat_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
@@ -115,9 +116,9 @@ use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
-                         read_hlsp_namelist, hlsp_init, hlsp_config_check, &
-                         hlsp_init_predefined
+     read_hlsp_namelist, hlsp_init, hlsp_config_check, hlsp_init_predefined
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
+use land_dust_mod, only : update_dust_slow
 use hdf5
 use predefined_tiles_mod, only : read_predefined_tiles_namelist, &
     use_predefined_tiles, downscale_surface_meteorology
@@ -233,8 +234,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           con_fac_large, con_fac_small, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
-                          layout, io_layout, npes_io_group, mask_table, &
-                          reset_to_ntrl
+                          layout, io_layout, npes_io_group, mask_table, reset_to_ntrl
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -302,7 +302,6 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
   id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1
-
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 
@@ -921,7 +920,8 @@ subroutine land_cover_cold_start()
      endif
   enddo
 
-  !deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
+  deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn)
+
 end subroutine land_cover_cold_start
 
 ! ============================================================================
@@ -1012,7 +1012,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
 
   do i = 1,size(glac)
      if (glac(i)>0) then
-        tile => new_land_tile_glac(glac(i), i)
+        tile => new_land_tile_glac(frac=glac(i), glac=i)
         call insert(tile,set)
         if(is_watch_point()) then
            write(*,*)'created glac tile: frac=',glac(i),' tag=',i
@@ -1021,7 +1021,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   enddo
   do i = 1,size(lake)
      if (lake(i)>0) then
-        tile => new_land_tile_lake(lake(i), i)
+        tile => new_land_tile_lake(frac=lake(i), lake=i)
         call insert(tile,set)
         if(is_watch_point()) then
            write(*,*)'created lake tile: frac=',lake(i),' tag=',i
@@ -1043,7 +1043,8 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   do j = 1,size(vegn)
      frac = soil(i)*vegn(j)*factor
      if(frac>0) then
-        tile  => new_land_tile_soil(frac, soiltags0(i), j, htag_j=hlsp_pos0(i), htag_k=hlsp_par0(i))
+        tile  => new_land_tile_soil(frac=frac, soil=soiltags0(i), vegn=j, &
+                                    htag_j=hlsp_pos0(i), htag_k=hlsp_par0(i))
         call insert(tile,first_non_vegn)
         if(is_watch_point()) then
            write(*,*)'created soil tile: frac=', frac, ' soil tag=',soiltags0(i), ' veg tag=',j
@@ -1345,7 +1346,7 @@ subroutine check_mask_match(idx)
             enddo
             write(*,*)
          enddo
-         write(*,'(a,": ",i5," mask mismatches ",i5," grid points")') trim(tag), k, count(map_g>0)
+         write(*,'(a,": ",i6," mask mismatches ",i6," grid points")') trim(tag), k, count(map_g>0)
          write(*,'(a,": ",a)')trim(tag), 'Legend: G - point in gridSpec but not in restart, R - in restart but not in gridSpec.'
          call mpp_error(FATAL,'land_model_init :: land masks from gridSpec and restart do not match, grep "^'//trim(tag)//'" stdout to see map.')
      endif
@@ -1627,7 +1628,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
      ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
      call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
-
      if (id_tws>0) then
          ! note that subs_LMASS and subs_FMASS are reused here to hold total water masses
          ! alos note that reported value does not include river storage
@@ -1864,6 +1864,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call check_var_range(p_surf,     0.0, HUGE(1.0), 'land model input', 'p_surf',      WARNING)
   ! not checking fluxes and their derivatives, since they can be either positive
   ! or negative, and it is hard to determine valid ranges for them.
+
+!   if (associated(tile%vegn)) then
+!      call vegn_check_cohort_order(tile%vegn,'update_land_model_fast_0d')
+!   endif
 
   Ea0    = tr_flux(isphum) ; DEaDqc  = dfdtr(isphum)
   fco2_0 = tr_flux(ico2)   ; Dfco2Dq = dfdtr(ico2)
@@ -2993,12 +2997,11 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   type(land_data_type)          , intent(inout) :: land2cplr
 
   ! ---- local vars
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
   integer :: l,k
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   integer :: n_cohorts
-  type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce
-  type(land_tile_list_type) :: tmp
 
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
@@ -3044,27 +3047,14 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
-     call land_tile_list_init(tmp)
      do l = lnd%ls,lnd%le
-        ! merge all tiles into temporary list
-        do while (.not.empty(land_tile_map(l)))
-           ce=first_elmt(land_tile_map(l))
-           tile=>current_tile(ce)
-           call remove(ce)
-           call merge_land_tile_into_list(tile,tmp)
-        enddo
-        ! move all tiles from temporary list to tile map
-        do while (.not.empty(tmp))
-           ce=first_elmt(tmp)
-           tile=>current_tile(ce)
-           call remove(ce)
-           call insert(tile,land_tile_map(l))
-        enddo
+        call set_current_point(l,1) ! for watch point
+        call remerge_tile_list(land_tile_map(l))
      enddo
-     call land_tile_list_end(tmp)
   endif
 
   call update_vegn_slow( )
+  call update_dust_slow(lnd%time)
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%time)
 
@@ -4188,7 +4178,6 @@ end subroutine land_sg_diag_init
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
 ! instead of creating their own
 subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
- !Inputs/outputs
   real,dimension(:),intent(in) :: clonb   !<longitudes of grid cells vertices
   real,dimension(:),intent(in) :: clatb   !<latitudes of grid cells vertices
   real,dimension(:),intent(in) :: clon    !<Longitude of grid cell centers.
@@ -4199,7 +4188,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat       ! sizes of respective axes
-  integer             :: axes(1)        ! Array of axes for 1-D unstructured fields.
+  integer             :: axes(1)        ! Array of axes for 1-D unstructured fields
   integer             :: ug_dim_size    ! Size of the unstructured axis
   integer,allocatable :: ug_dim_data(:) ! Unstructured axis data.
   integer             :: id_lon, id_lonb
@@ -5043,7 +5032,7 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_snow_heat = 0.0
   endif
 
-  !Allocate the weights
+  ! allocate the downscaling weights
   allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
   allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
   bnd%dws_t_atm = init_value
