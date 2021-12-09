@@ -2,18 +2,14 @@ module transition_io_mod
 
 use netcdf, only: nf90_max_name
 use constants_mod, only : PI
-use mpp_mod, only: input_nml_file
-use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, get_unit, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+use fms_mod, only : string, lowercase, error_mesg, FATAL, WARNING, NOTE
 
 use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
      operator(//), operator(==)
 use get_cal_time_mod, only : get_cal_time
-use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
-     horiz_interp_new, horiz_interp_del
-use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
+use horiz_interp_mod, only : horiz_interp_type, horiz_interp_new, horiz_interp_del
+use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_file, &
     get_valid, is_valid, variable_exists, get_variable_size, &
     get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
     get_variable_dimension_names, get_variable_num_dimensions

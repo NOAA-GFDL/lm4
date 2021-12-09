@@ -11,14 +11,10 @@ use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
      mpp_pe, lowercase, get_unit, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
-use axis_utils2_mod, only: axis_edges
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
-     operator(//), operator(==), days_in_year, print_date, increment_date, get_time, &
-     valid_calendar_types, get_calendar_type
-use get_cal_time_mod, only : get_cal_time
-use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
-     horiz_interp_new, horiz_interp_del
+     operator(//), operator(==), days_in_year, get_time
+use horiz_interp_mod, only : horiz_interp_init
 use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
 
@@ -32,7 +28,7 @@ use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
-     land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
+     land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
      erase, remove, insert, merge_land_tile_into_list, &
