@@ -50,6 +50,13 @@ subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativ
   integer :: k
   real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
 
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     ! do nothing
+  case default
+     call error_mesg('add_root_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
+  end select
+
   call rhizosphere_frac(vegn, rhiz_frac)
 
   do k = 1,num_l
@@ -68,19 +75,33 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
 
   integer :: k
   real,dimension(num_l) :: NH4,NO3
+  real :: fsc
 
   NH4(:)=0.0
   NO3(:)=0.0
   if(present(ammonium)) NH4=ammonium
-  if(present(nitrate)) NH4=nitrate
+  if(present(nitrate))  NO3=nitrate
 
-  do k=1,num_l
-     call add_C_N_to_rhizosphere(soil%org_matter(k),   &
-                             newCarbon=[exudateC(k),0.0,0.0], &
-                             newNitrogen=[exudateN(k),0.0,0.0]  )
-     soil%org_matter(k)%ammonium = soil%org_matter(k)%ammonium+NH4(k)
-     soil%org_matter(k)%nitrate = soil%org_matter(k)%nitrate+NO3(k)
-  enddo
+  ! ignore exudateN for CENTURY-like soil carbon options
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY)
+     fsc = sum(exudateC(:))
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+     soil%fsc_in(1)      = soil%fsc_in(1)      + fsc ! for soil carbon equilibration
+  case (SOILC_CENTURY_BY_LAYER)
+     do k = 1, num_l
+        soil%fast_soil_C(k) = soil%fast_soil_C(k) + exudateC(k)
+        soil%fsc_in(k)      = soil%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
+     enddo
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
+     do k=1,num_l
+        call add_C_N_to_rhizosphere(soil%org_matter(k),   &
+                                newCarbon=[exudateC(k),0.0,0.0], &
+                                newNitrogen=[exudateN(k),0.0,0.0]  )
+        soil%org_matter(k)%ammonium = soil%org_matter(k)%ammonium+NH4(k)
+        soil%org_matter(k)%nitrate = soil%org_matter(k)%nitrate+NO3(k)
+     enddo
+  end select
 end subroutine add_root_exudates
 
 ! ============================================================================
