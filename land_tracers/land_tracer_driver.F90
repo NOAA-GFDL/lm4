@@ -22,7 +22,8 @@ module land_tracer_driver_mod
   use land_debug_mod, only : is_watch_point, check_var_range
   use land_data_mod, only : lnd, log_version
   use land_tracers_mod, only : ntcana, isphum, ico2
-  use land_tile_mod, only : land_tile_type, land_tile_grnd_T
+  use land_tile_mod, only : land_tile_type, land_tile_grnd_T, loop_over_tiles, &
+       first_elmt, land_tile_enum_type, land_tile_map
   use land_tile_diag_mod, only : set_default_diag_filter, &
        register_tiled_diag_field, send_tile_data
 
@@ -158,7 +159,7 @@ module land_tracer_driver_mod
 
   integer :: id_con_atm
   integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert
-  integer :: id_h2_fm, id_h2_ft, id_h2_diff_soil
+  integer :: id_h2_fm, id_h2_ft, id_h2_sdiff
   integer :: id_h2_n, id_h2_st, id_h2_betab, id_h2_b
 
   ! ---- private module variables ----------------------------------------------
@@ -185,6 +186,11 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     integer :: io           ! i/o status for the namelist
     integer :: ierr         ! error code, returned by i/o routines
 
+    integer :: soil_tag
+    type(land_tile_enum_type)     :: ce   ! tile list enumerator
+    type(land_tile_type), pointer :: tile ! pointer to current tile
+    
+    
     ! write the version and tag name to the logfile
     call log_version(version, module_name, &
          __FILE__)
@@ -321,7 +327,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
           trdata(tr)%id_con_v = &
                register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-               (/id_ug/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
+               (/id_ug/),  lnd%time, 'total conductance between canopy and canopy air for '//trim(name), &
                'm/s', missing_value=-1.0)
           trdata(tr)%id_con_v_v = &
                register_tiled_diag_field(diag_name, trim(name)//'_con_v_v', &
@@ -493,14 +499,16 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time, 'ground desert fraction', &
          'unitless', missing_value=-1.0)
 
+    call set_default_diag_filter('soil')    
     id_h2_fm  = register_tiled_diag_field(diag_name, 'h2_fm', &
          (/id_ug/),  lnd%time, 'h2_fm', &
          'unitless', missing_value=-1.0)
     id_h2_ft  = register_tiled_diag_field(diag_name, 'h2_ft', &
          (/id_ug/),  lnd%time, 'h2_ft', &
          'unitless', missing_value=-1.0)
-    id_h2_diff_soil = register_tiled_diag_field(diag_name, 'h2_diff_soil', &
-         (/id_ug/),  lnd%time, 'h2_diff_soil', &
+
+    id_h2_sdiff = register_tiled_diag_field(diag_name, 'h2_sdiff', &
+         (/id_ug/),  lnd%time, 'h2 soil diffusivity', &
          'm2/s', missing_value=-1.0)
 
     id_h2_n = register_tiled_diag_field(diag_name, 'h2_n', &
@@ -516,9 +524,20 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time, 'Cambpell exponent', &
          'unitless', missing_value=-1.0)
 
-
-
+    !save soil properties used for H2 soil removal
+    ce = first_elmt(land_tile_map)    
+    do while (loop_over_tiles(ce,tile))
+       if (associated(tile%soil)) then
+          soil_tag = tile%soil%tag          
+          if (id_h2_n.gt.0)     call send_tile_data(id_h2_n,     h2_n(soil_tag),     tile%diag)
+          if (id_h2_st.gt.0)    call send_tile_data(id_h2_st,    h2_st(soil_tag),    tile%diag)
+          if (id_h2_betab.gt.0) call send_tile_data(id_h2_betab, h2_betab(soil_tag), tile%diag)
+          if (id_h2_b.gt.0)     call send_tile_data(id_h2_b,     h2_b(soil_tag),     tile%diag)          
+       end if
+    end do
+        
     module_is_initialized = .TRUE.
+    
   end subroutine land_tracer_driver_init
 
 
@@ -1092,7 +1111,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: frac_water_pores_avg, frac_ice_pores_avg, frac_air_pores_avg, porosity
     real,dimension(num_l) :: frac_water_pores, frac_ice_pores
     real    :: dz, T_avg, T_avgC
-    real    :: diff_h2_air, diff_h2_soil
+    real    :: diff_h2_air, diff_h2
     real    :: f_T, f_M
     real    :: h2_gamma, h2_km, h2_depth
     real    :: gdelta, snow_depth, snow_area
@@ -1140,7 +1159,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           frac_air_pores_avg    = max(1.-frac_water_pores_avg-frac_ice_pores_avg,0.)
 
           diff_h2_air    = 0.668e-4*(101325./p)*(T_avg/273)**1.75
-          diff_h2_soil   = diff_h2_air * porosity**2.*frac_air_pores_avg**(2+3./h2_b(soil_tag))
+          diff_h2        = diff_h2_air * porosity**2.*frac_air_pores_avg**(2+3./h2_b(soil_tag))
 
           f_T = 1/(1+exp(-(T_avgC-3.8)/6.7)) + 1./(1.+exp((T_avgC - 62.2)/7.7)) - 1.
 
@@ -1152,7 +1171,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
              f_M = 1/h2_N(soil_tag)*(frac_water_pores_avg-h2_st(soil_tag))**(h2_a-1)*(1.-frac_water_pores_avg)**(h2_betab(soil_tag)-1)
           end if
 
-          con = sqrt(h2_gamma*f_T*f_M*h2_km*diff_h2_soil)
+          con = sqrt(h2_gamma*f_T*f_M*h2_km*diff_h2)
 
           if (associated(tile%snow)) then
              call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
@@ -1163,16 +1182,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 con = (1.-snow_area)*con + snow_area*(con*gdelta)/(con+gdelta)
              end if
           end if
+
+          call send_tile_data(id_h2_fm,f_M,                       tile%diag)
+          call send_tile_data(id_h2_ft,f_T,                       tile%diag)
+          call send_tile_data(id_h2_sdiff,diff_h2,                tile%diag)
+                    
        end if
-
-       call send_tile_data(id_h2_fm,f_M, tile%diag)
-       call send_tile_data(id_h2_ft,f_T, tile%diag)
-       call send_tile_data(id_h2_diff_soil,diff_h2_soil, tile%diag)
-
-       call send_tile_data(id_h2_n,    h2_N(soil_tag),     tile%diag)
-       call send_tile_data(id_h2_st,   h2_st(soil_tag),    tile%diag)
-       call send_tile_data(id_h2_betab,h2_betab(soil_tag), tile%diag)
-       call send_tile_data(id_h2_b,    h2_b(soil_tag),     tile%diag)
 
     end if
 
