@@ -420,10 +420,10 @@ type spec_data_type
 
   ! dry deposition related parameters                                                                                          
   !based on deciduous by default                                                                                               
-  real    :: r_cus = 2500.        !dry cuticle resistance, SO2, s/m
-  real    :: r_cuo = 6000.        !dry cuticle resistance, O3, s/m
-  real    :: r_stems = 1000.      !dry stem resistance, SO2, s/m
-  real    :: r_stemo = 4000.      !dry stem resistance, O3, s/m
+  real    :: r_cus     = 2500.    !dry cuticle resistance, SO2, s/m
+  real    :: r_cuo     = 6000.    !dry cuticle resistance, O3, s/m
+  real    :: r_stems   = 1000.    !dry stem resistance, SO2, s/m
+  real    :: r_stemo   = 3000.    !dry stem resistance, O3, s/m
   real    :: r_cus_wet = 100.     !wet cuticle resistance, SO2, s/m
   real    :: r_cuo_wet = 400.     !wet cuticle resistance, O3, s/m
   real    :: A_aer     = 6.25e-3  !characteristic aerosol radius for deposition, m

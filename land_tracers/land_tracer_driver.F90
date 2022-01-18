@@ -35,6 +35,8 @@ module land_tracer_driver_mod
   use soil_tile_mod, only : num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types
   use snow_mod,      only : snow_get_depth_area
 
+  use sat_vapor_pres_mod, only: compute_qs
+  
   ! import interfaces from non-generic tracer modules, e.g.:
   use land_dust_mod, only : land_dust_init, land_dust_end, update_land_dust
 
@@ -67,7 +69,7 @@ module land_tracer_driver_mod
   real :: r_go_lake         = 500.    !ground resistance, lake, O3 (s/m)
   real :: r_go_wet          = 500.    !ground resistance, wet surface, O3 (s/m)
   real :: r_go_dry          = 200.    !ground resistance, dry surface, O3 (s/m)
-  real :: r_snowo           = 2000.   !ground resistance, snow surface, O3 (s/m)
+  real :: r_snowo           = 7000.   !ground resistance, snow surface, O3 (s/m). Default value updated to match Clifton (2020)
 
   real :: A_aer_lake         = -999   !characteristic aerosol radius for deposition, lake, m
   real :: A_aer_swamp        = 10.e-3 !characteristic aerosol radius for deposition, wet, m
@@ -93,6 +95,8 @@ module land_tracer_driver_mod
           h2_betab(n_dim_soil_types) = (/5.3693, 2.293, 2.232, 2.541, 2.152, 2.270, 2.270, 2.641, 2.942, 2.85, 3.596, 5.3693, 4.977, 4.977/),        &
           h2_a   = 1.4
 
+  real :: c_snow=0.025, c_dry=0.1, c_wet=0.9 !strength of R increase with decreasing T under <5C (Clifton 2020)
+
 
   namelist /land_tracer_nml/ &
        max_scale_snow_T,  max_scale_cold_T, max_scale_desert, cg_aer_frz, &
@@ -102,7 +106,8 @@ module land_tracer_driver_mod
        A_aer_lake,A_aer_swamp,                  &
        gamma_aer_lake,gamma_aer_swamp,gamma_aer_desert,gamma_aer_frz, &
        alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz, &
-       h2_b, h2_st, h2_N, h2_a, h2_betab
+       h2_b, h2_st, h2_N, h2_a, h2_betab, &
+       c_snow, c_dry, c_wet
 
 
   ! ---- module constants ------------------------------------------------------
@@ -126,7 +131,6 @@ module land_tracer_driver_mod
      real    :: alpha         = -1       ! scaling factor relative to SO2
      real    :: r_mx          = 1e-5     ! negligible resistance
      real    :: mw            = -9999.9  ! kg/mol
-     logical :: coldTc        = .false.  ! cold t increases resistance
      real    :: diff_ratio    = 1.6      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
      real    :: scale_stom    = 1.       ! additional
      !for aerosol
@@ -610,6 +614,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: alpha_aere, gamma_aere, A_aere
     real    :: Eb, Eim, Ein
 
+    real    :: RH
+
     if (is_watch_point()) then
        write(*,*) 'update_cana_tracers input'
        __DEBUG1__(tr_flux)
@@ -641,6 +647,11 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     call get_tile_property(tile,gfrac_frz,gfrac_wet,frac_desert)
     gfrac_dry = max(1.-gfrac_wet-gfrac_frz,0.)
 
+    !calculate rh
+    call compute_qs (tile%cana%T, pressure, rh, q=tile%cana%tr(isphum))
+    RH = tile%cana%tr(isphum)/RH
+    !cap RH
+    RH = max(min(RH,0.995),0.)    
 
     ! loop for generic tracers only
     do tr = 1, ntcana
@@ -680,16 +691,17 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                    associate(c=>tile%vegn%cohorts(k),sp=>spdata(tile%vegn%cohorts(k)%species))
 
                      call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
-                     !need to implement rh dependence for con_cu_dry (f1p)
 
-                     con_cu_dry  = ft * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv)
-                     con_cu_wet  = fw * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet)
-                     con_cu_frz  = fs * c%lai * get_conductance_tracer(trdata(tr),r_snows*scale_snow_T(c%Tv),r_snowo)
+                     con_cu_dry  = ft * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
+                     con_cu_wet  = fw * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
+                     con_cu_frz  = fs * c%lai * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
 
                      !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
-
                      con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
-                     con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo) / scale_r_T(c%Tv)
+
+                     !comment-out temperature dependence based on Clifton (2020)
+                     !con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo) / scale_r_T(c%Tv)
+                     con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo)
 
                      con_st_tr    = stomatal_cond(k) * trdata(tr)%scale_stom
 
@@ -703,7 +715,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
                      !calculate contribution of this cohort to the overall vegetation conductance
                      !con_v_v and con_stem are for H2O, we need to scale by (Di/Dw)**(2./3.)
-
                      con_v_v_tr     = con_v_v(k)*1./trdata(tr)%diff_ratio**(2./3.)
                      con_v_stem_tr  = con_v_stem(k)*1./trdata(tr)%diff_ratio**(2./3.)
 
@@ -737,12 +748,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                 !for now set constant conductance
                 con_gr_dry = con_h2(trdata(tr),tile,pressure)
              else
-                con_gr_dry = gfrac_dry     * get_conductance_tracer(trdata(tr),r_gs_dry,r_go_dry) * 1./scale_r_T(land_tile_grnd_T(tile)) * 1./scale_biomass(frac_desert)
+                con_gr_dry = gfrac_dry     * get_conductance_tracer(trdata(tr),r_gs_dry,r_go_dry) * 1./scale_r_T(land_tile_grnd_T(tile),c_dry) * 1./scale_biomass(frac_desert)
              end if
 
-             con_gr_frz =    gfrac_frz     * get_conductance_tracer(trdata(tr),r_snows*scale_snow_T(land_tile_grnd_T(tile)),r_snowo)
+             con_gr_frz =    gfrac_frz     * get_conductance_tracer(trdata(tr),r_snows,r_snowo) * 1./scale_r_T(land_tile_grnd_T(tile),c_snow)
 
-             con_gr_wet =    gfrac_wet     * get_conductance_tracer(trdata(tr),r_gs_wet,r_go_wet)
+             con_gr_wet =    gfrac_wet     * get_conductance_tracer(trdata(tr),r_gs_wet,r_go_wet)  * 1./scale_r_T(land_tile_grnd_T(tile),c_wet)
 
              if (associated(tile%lake)) then
                 if (tile%lake%ws(1).le.ws_min) then
@@ -955,16 +966,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
   end subroutine get_tile_property
 
-  elemental real function snow_scale(T) result(s)
-
-    !erisman (1994) showed that resistance increases as temperature decreases from 70 to 500
-    real, intent(in) :: T
-    real, parameter  :: max_scale = 500./70.
-
-    s = max(min(max_scale,275.15-T),1.)
-
-  end function snow_scale
-
   elemental real function calc_rt(tk) result(r_t)
     !scaling factor for resistance at cold temperature
     real, intent(in) :: tk
@@ -1021,10 +1022,12 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
   end function scale_snow_T
 
 
-  elemental real function scale_r_T(T) result(s)
+  elemental real function scale_r_T(T,c) result(s)
     !zhang (2003) equation 10a
-    real, intent(in) :: T
-    s = min(max(exp(0.2*(-1-T+273.15)),max_scale_cold_T),1.)
+    !updated based on Clifton (2020)
+    real, intent(in) :: T,c
+    !    s = min(max(exp(0.2*(-1-T+273.15)),max_scale_cold_T),1.)
+    s = max(exp(c*(T-273.15-5)),1.)
   end function scale_r_T
 
   elemental real function scale_biomass(frac_desert) result(s)
