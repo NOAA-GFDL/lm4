@@ -287,7 +287,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           end if
           if ( parse(parameters, 'r_mx',  value) > 0 )   trdata(tr)%r_mx  = max(value,epsln)
           if ( parse(parameters, 'radius', value) > 0 )  trdata(tr)%radius  = value
-          if ( parse(parameters, 'rho', value) > 0 ) trdata(tr)%rho = value
+          if ( parse(parameters, 'rho', value) > 0 )     trdata(tr)%rho = value
 
 
        endif
