@@ -494,14 +494,21 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr)
      endif
 
-     call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
-     call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
-     call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
-     call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
-     call get_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
-     call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
-     call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
-     call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
+     if(field_exists(restart2,'fsc_pool_ag')) then
+        call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
+        call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
+        call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
+        call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
+        call get_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
+        call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
+        call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
+        call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
+     else
+        call get_tile_data(restart2,'fsc_pool',vegn_fsc_pool_bg_ptr)
+        call get_tile_data(restart2,'fsc_rate',vegn_fsc_rate_bg_ptr)
+        call get_tile_data(restart2,'ssc_pool',vegn_ssc_pool_bg_ptr)
+        call get_tile_data(restart2,'ssc_rate',vegn_ssc_rate_bg_ptr)
+     endif
 
      if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
         do j = 1,N_LITTER_POOLS
