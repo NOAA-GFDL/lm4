@@ -29,8 +29,8 @@ module land_tracer_driver_mod
 
   use cana_tile_mod, only : canopy_air_mass_for_tracers
   use vegn_data_mod, only : spdata
-  use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
   use vegn_cohort_mod, only : get_vegn_wet_frac
+  use vegn_tile_mod, only : vegn_tile_fw_fs
 
   use soil_tile_mod, only : num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types
   use snow_mod,      only : snow_get_depth_area
@@ -120,6 +120,13 @@ module land_tracer_driver_mod
   real, parameter  :: rgas  = (rdgas*mw_air)
   real, parameter  :: kb     = rgas/avogno
 
+  !for wetness diag
+  integer, parameter :: nwet_diag = 11
+  real      :: wet_diag_thr(nwet_diag) = (/ 0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.95/)
+  character(len=5) :: wet_str(nwet_diag)
+  data wet_str/'wet05','wet10','wet20','wet30','wet40','wet50','wet60','wet70','wet80','wet90','wet95'/
+  
+
   ! ---- data types -----------------------------------------------------------
   type :: tracer_data_type
      character(32) :: name = ''          ! tracer name
@@ -148,7 +155,7 @@ module land_tracer_driver_mod
           id_flux_atm,  id_dfdtr, &
           id_con_v,     id_con_g, &
           id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
-          id_conc,      id_tcond, &
+          id_conc,      id_tcond, id_tcond_wet(nwet_diag), &
           id_econ_v,    id_econ_g, &
           id_ddep_v,    id_ddep_g, &
           id_econ_g_dry,id_econ_g_wet, id_econ_g_frz, &
@@ -161,6 +168,8 @@ module land_tracer_driver_mod
           id_Eb, id_Ein, id_Eim
   end type tracer_data_type
 
+  integer :: id_fw_avg, id_fs_avg, id_fd_avg
+  integer :: id_fw_wet(nwet_diag)
   integer :: id_con_atm
   integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert
   integer :: id_h2_fm, id_h2_ft, id_h2_sdiff
@@ -190,7 +199,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     integer :: io           ! i/o status for the namelist
     integer :: ierr         ! error code, returned by i/o routines
 
-    integer :: soil_tag
+    integer :: soil_tag, iw
     type(land_tile_enum_type)     :: ce   ! tile list enumerator
     type(land_tile_type), pointer :: tile ! pointer to current tile
     
@@ -481,10 +490,10 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                (/id_ug/),  lnd%time, 'deposition to the frozen cuticles for '//trim(name), &
                trim(funits), missing_value=-1.0)
 
-
        endif
     enddo
 
+    
     id_con_atm = &
          register_tiled_diag_field(diag_name, 'con_atm', &
          (/id_ug/),  lnd%time,'1/Ra', &
@@ -528,6 +537,33 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time, 'Cambpell exponent', &
          'unitless', missing_value=-1.0)
 
+    do iw=1,nwet_diag
+       id_fw_wet(iw) =  register_tiled_diag_field(diag_name,'f_wet_'//trim(wet_str(iw)), &
+            (/id_ug/),  lnd%time, 'fraction of the time when canopy is more than '//trim(wet_str(iw))//' wet', &
+            'unitless', missing_value= -1.0)
+
+       do tr = 1, ntcana
+             trdata(tr)%id_tcond_wet(iw) = register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_tot_con_'//trim(wet_str(iw)), &
+                  (/id_ug/),  lnd%time, 'total conductance of '//trim(trdata(tr)%name)//' with fwet>'//trim(wet_str(iw)), &
+                  'm/s', missing_value=-1.0)
+          end do
+       
+    end do
+
+    id_fw_avg = &
+         register_tiled_diag_field(diag_name, 'fw_avg', &
+         (/id_ug/),  lnd%time,'canopy avg wet fraction', &
+         "unitless", missing_value=-1.0)
+    id_fs_avg = &
+         register_tiled_diag_field(diag_name, 'fs_avg', &
+         (/id_ug/),  lnd%time,'canopy avg snow fraction', &
+         "unitless", missing_value=-1.0)
+    id_fd_avg = &
+         register_tiled_diag_field(diag_name, 'fd_avg', &
+         (/id_ug/),  lnd%time,'canopy avg dry fraction', &
+         "unitless", missing_value=-1.0)
+
+    
     !save soil properties used for H2 soil removal
     ce = first_elmt(land_tile_map)    
     do while (loop_over_tiles(ce,tile))
@@ -578,6 +614,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     integer :: tr      ! tracer index
     integer :: k       ! cohort index
+    integer :: iw      ! wet threshold index
     real    :: rho     ! density of canopy air
     real    :: dq      ! canopy air tracer tendency per time step
     real    :: con_v   ! laminar conductance to leaves
@@ -589,8 +626,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: cv, cg  ! total conductances for vegetation and ground surface, m/s
     real    :: f_atm   ! flux of the tracer to the atmosphere, kg/(m2 s)
     real    :: ddep    ! dry deposition of the tracer, kg/(m2 s)
-    real    :: LAI     ! leaf area index, m2/m2
-    real    :: SAI     ! stem area index, m2/m2
     real    :: emis(ntcana) ! tracer sources
     real    ::  ft, & ! fraction of canopy not covered by intercepted water/snow
          fw, & ! fraction of canopy covered by intercepted water
@@ -613,8 +648,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     real    :: alpha_aere, gamma_aere, A_aere
     real    :: Eb, Eim, Ein
+    real    :: fw_avg, fs_avg, rh
 
-    real    :: RH
 
     if (is_watch_point()) then
        write(*,*) 'update_cana_tracers input'
@@ -636,14 +671,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     emis(:) = 0.0
     ! TODO: add non-zero sources for generic tracers
 
-    if (associated(tile%vegn)) then
-       LAI = vegn_tile_LAI(tile%vegn)
-       SAI = vegn_tile_SAI(tile%vegn)
-    else
-       LAI = 0.0
-       SAI = 0.0
-    endif
-
     call get_tile_property(tile,gfrac_frz,gfrac_wet,frac_desert)
     gfrac_dry = max(1.-gfrac_wet-gfrac_frz,0.)
 
@@ -653,6 +680,22 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     !cap RH
     RH = max(min(RH,0.995),0.)    
 
+    !calculate the vegn fw and fs
+    if (associated(tile%vegn)) then
+       call vegn_tile_fw_fs(tile%vegn,fw_avg,fs_avg)
+       call send_tile_data(id_fw_avg,fw_avg, tile%diag)
+       call send_tile_data(id_fs_avg,fs_avg, tile%diag) 
+       call send_tile_data(id_fd_avg,1.-fw_avg-fs_avg, tile%diag)
+       do iw=1,nwet_diag       
+          if ( fw_avg .gt. wet_diag_thr(iw) ) then
+             call send_tile_data(id_fw_wet(iw), 1., tile%diag)
+          else
+             call send_tile_data(id_fw_wet(iw), 0., tile%diag)
+          end if
+       end do       
+    end if
+
+    
     ! loop for generic tracers only
     do tr = 1, ntcana
 
@@ -853,6 +896,18 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        call send_tile_data(trdata(tr)%id_flux_atm,   f_atm,      tile%diag)
        call send_tile_data(trdata(tr)%id_tcond,dvel, tile%diag)
 
+       if (associated(tile%vegn)) then
+          do iw=1,nwet_diag
+             if (trdata(tr)%id_tcond_wet(iw).gt.0) then
+                if (fw_avg.gt.wet_diag_thr(iw)) then
+                   call send_tile_data(trdata(tr)%id_tcond_wet(iw),dvel, tile%diag)
+                else
+                   call send_tile_data(trdata(tr)%id_tcond_wet(iw),0., tile%diag)
+                end if
+             end if
+          end do
+       end if
+       
        !save deposition to the vegetation and ground
        fdiag = min(max(cv/(cv+cg+epsln),0.),1.)
        call send_tile_data(trdata(tr)%id_econ_g, (1.-fdiag)*dvel,tile%diag)
@@ -887,6 +942,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
     enddo
+        
     ! send concentrations for all tracers, generic or not
     do tr = 1, ntcana
        call send_tile_data(trdata(tr)%id_conc,       tile%cana%tr(tr), tile%diag)
@@ -1027,7 +1083,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     !updated based on Clifton (2020)
     real, intent(in) :: T,c
     !    s = min(max(exp(0.2*(-1-T+273.15)),max_scale_cold_T),1.)
-    s = max(exp(c*(T-273.15-5)),1.)
+    s = max(exp(-c*(T-273.15-5)),1.)
   end function scale_r_T
 
   elemental real function scale_biomass(frac_desert) result(s)

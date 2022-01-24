@@ -827,6 +827,7 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
 
       r_sv_evap = 0.0
       r_bl_evap = d_visc/diffusivity_h2o(T_sfc,p)
+      !should not include soil pore resistance
       r_bl_h2o  = r_bl_evap
 
       if (associated(tile%soil).and..not.snow_active) then

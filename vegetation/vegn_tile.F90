@@ -3,7 +3,7 @@ module vegn_tile_mod
 #include "../shared/debug.inc"
 
 use fms_mod,            only : error_mesg, WARNING, FATAL
-use constants_mod,      only : tfreeze, hlf
+use constants_mod,      only : tfreeze, hlf, epsln
 
 use land_constants_mod, only : NBANDS
 use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
@@ -23,7 +23,8 @@ use vegn_data_mod, only : &
      do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohorts_can_be_merged, leaf_area_from_biomass, plant_C
+     cohorts_can_be_merged, leaf_area_from_biomass, plant_C, &
+     get_vegn_wet_frac
 
 use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
@@ -62,6 +63,8 @@ public :: vegn_seed_N_supply
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+
+public :: vegn_tile_fw_fs ! return LAI average fs and fw
 
 integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
           ! fires can burn; dimension of daily history arrays in vegn_tile
@@ -1032,6 +1035,32 @@ function vegn_tile_LAI(vegn) result(LAI) ; real LAI
 end function vegn_tile_LAI
 
 ! ============================================================================
+! returns total leaf area index
+subroutine vegn_tile_fw_fs(vegn,fw_diag,fs_diag)
+  type(vegn_tile_type), intent(in) :: vegn
+  real, intent(out) :: fw_diag, fs_diag
+  integer :: i
+  real :: fw,fs,LAI
+
+  fw_diag=0.
+  fs_diag=0.
+
+  LAI = vegn_tile_LAI(vegn)
+
+  if (LAI.gt.epsln) then
+     do i = 1,vegn%n_cohorts
+        call get_vegn_wet_frac ( vegn%cohorts(i), fw, fs )   
+        fw_diag = fw_diag + vegn%cohorts(i)%lai * vegn%cohorts(i)%layerfrac * fw
+        fs_diag = fs_diag + vegn%cohorts(i)%lai * vegn%cohorts(i)%layerfrac * fs
+     enddo
+     fw_diag = max(fw_diag/LAI,0.)
+     fs_diag = max(fs_diag/LAI,0.)
+  end if
+
+end subroutine vegn_tile_fw_fs
+
+! ============================================================================
+
 ! returns total stem area index
 function vegn_tile_SAI(vegn) result(SAI) ; real SAI
   type(vegn_tile_type), intent(in) :: vegn
