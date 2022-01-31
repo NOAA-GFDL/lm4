@@ -28,7 +28,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
 
 use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
+use soil_carbon_mod, only : soil_carbon_option, &
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 
 implicit none
 private
@@ -47,7 +48,7 @@ public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
 public :: vegn_tile_SAI    ! returns total SAI of vegetation [m2/m2]
 
-public :: vegn_tiles_can_be_merged, merge_vegn_tiles
+public :: vegn_tiles_can_be_merged, vegn_tile_lu_match, merge_vegn_tiles
 public :: vegn_mergecohorts_lm3 ! merge two cohorts in LM3 mode (one cohort per tile)
 public :: vegn_mergecohorts_ppa ! reduce number of cohorts in given vegetation tile
                            ! by merging as many as possible
@@ -285,6 +286,15 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
      response = .true. ! non-secondary tiles of the same land use type can always be merged
   endif
 end function vegn_tiles_can_be_merged
+
+! =============================================================================
+function vegn_tile_lu_match(vegn1,vegn2) result(response)
+  logical :: response
+  type(vegn_tile_type), intent(in) :: vegn1,vegn2
+
+  response = (vegn1%landuse == vegn2%landuse) ! tiny tiles can be merged regardless of
+           ! the biomass, as long as the land use type is the same
+end function vegn_tile_lu_match
 
 
 ! ============================================================================
@@ -1104,7 +1114,15 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
 
   ! Pools associated with aboveground litter CORPSE pools
-  carbon = carbon + sum(vegn%litter_buff_C)
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+     ! no extra pools are needed in this case
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     carbon = carbon + sum(vegn%litter_buff_C)
+  case default
+     call error_mesg('vegn_tile_carbon','The value of soil_carbon_option is invalid. This should never happen.',FATAL)
+  end select
+
 end function vegn_tile_carbon
 
 ! ============================================================================

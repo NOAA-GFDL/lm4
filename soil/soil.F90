@@ -634,7 +634,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
 
-     if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
+     select case (soil_carbon_option)
+     case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
         if(field_exists(restart, 'fsc')) then
            call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
            call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
@@ -644,89 +645,94 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            if (restart_exists) then
               ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
               ! and slow_soil_C arrays
-              call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
-              call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
+              if(field_exists(restart1, 'fsc')) then
+                 call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
+                 call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
+              endif
            endif
            call free_land_restart(restart1)
         endif
-     endif
 
-     if (field_exists(restart,'fast_soil_C')) then
-        ! we are dealing with CORPSE restart
-        ce = first_elmt(land_tile_map)
-        do while(loop_over_tiles(ce,tile))
-            if (.not.associated(tile%soil)) cycle
-            do i = 1,N_LITTER_POOLS
-               call adjust_pool_ncohorts(tile%soil%litter(i))
-            enddo
-            do i = 1,num_l
-               call adjust_pool_ncohorts(tile%soil%org_matter(i))
-            enddo
-        end do
-        do i = 1, N_C_TYPES
-           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr,i)
-           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr,i)
-           call get_tile_data(restart,'soil_DOC_'//trim(c_shortname(i)), 'zfull', sc_DOC_ptr,i)
+     case (SOILC_CORPSE, SOILC_CORPSE_N)
+        if (field_exists(restart,'fast_soil_C')) then
+           ! we are dealing with CORPSE restart
+           ce = first_elmt(land_tile_map)
+           do while(loop_over_tiles(ce,tile))
+               if (.not.associated(tile%soil)) cycle
+               do i = 1,N_LITTER_POOLS
+                  call adjust_pool_ncohorts(tile%soil%litter(i))
+               enddo
+               do i = 1,num_l
+                  call adjust_pool_ncohorts(tile%soil%org_matter(i))
+               enddo
+           end do
+           do i = 1, N_C_TYPES
+              call get_tile_data(restart,trim(c_shortname(i))//'_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr,i)
+              call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr,i)
+              call get_tile_data(restart,'soil_DOC_'//trim(c_shortname(i)), 'zfull', sc_DOC_ptr,i)
 
-           do k = 1, N_LITTER_POOLS
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','litterCCohort',sc_litter_litterC_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','litterCCohort',sc_litter_protectedC_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_DOC_'//trim(c_shortname(i)),sc_litter_dissolved_carbon_ptr,i,k)
+              do k = 1, N_LITTER_POOLS
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','litterCCohort',sc_litter_litterC_ptr,i,k)
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','litterCCohort',sc_litter_protectedC_ptr,i,k)
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_DOC_'//trim(c_shortname(i)),sc_litter_dissolved_carbon_ptr,i,k)
+              enddo
            enddo
-        enddo
-        call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',sc_livingMicrobeC_ptr)
-        call get_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr)
+           call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',sc_livingMicrobeC_ptr)
+           call get_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr)
 
-        do i = 1,N_LITTER_POOLS
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
-        enddo
-
-        if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
-           call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
-           call get_tile_data(restart,'gross_nitrogen_flux_out_of_tile', soil_gross_nitrogen_flux_out_of_tile_ptr)
-         endif
-
-        if(field_exists(restart, 'is_peat')) then
-           call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
-        endif
-     endif
-     if (field_exists(restart,'fast_soil_N')) then
-        do i = 1, N_C_TYPES
-           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr,i)
-           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN', 'zfull','soilCCohort', sc_protected_N_ptr,i)
-           call get_tile_data(restart,'soil_DON_'//trim(c_shortname(i)), 'zfull', sc_DON_ptr,i)
-
-           do k = 1, N_LITTER_POOLS
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N','litterCCohort',sc_litter_litterN_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedN','litterCCohort',sc_litter_protectedN_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_DON_'//trim(c_shortname(i)),sc_litter_dissolved_nitrogen_ptr,i,k)
+           do i = 1,N_LITTER_POOLS
+              call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
+              call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
            enddo
-        enddo
-        call get_tile_data(restart,'liveMicN', 'zfull','soilCCohort', sc_livingMicrobeN_ptr)
-        call get_tile_data(restart,'soil_NO3', 'zfull', sc_nitrate_ptr)
-        call get_tile_data(restart,'soil_NH4', 'zfull', sc_ammonium_ptr)
-        call get_tile_data(restart,'soil_nitrif', 'zfull', sc_nitrif_ptr)
-        call get_tile_data(restart,'soil_denitrif', 'zfull', sc_denitrif_ptr)
 
-        ! Leaving out cohort-level immobilization and mineralization fields for now -- BNS
+           if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
+              call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
+              call get_tile_data(restart,'gross_nitrogen_flux_out_of_tile', soil_gross_nitrogen_flux_out_of_tile_ptr)
+            endif
 
-        do k = 1,N_LITTER_POOLS
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_denitrif', sc_litter_denitrif_ptr,k)
+           if(field_exists(restart, 'is_peat')) then
+              call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
+           endif
+        endif
+        if (field_exists(restart,'fast_soil_N')) then
+           do i = 1, N_C_TYPES
+              call get_tile_data(restart,trim(c_shortname(i))//'_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr,i)
+              call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN', 'zfull','soilCCohort', sc_protected_N_ptr,i)
+              call get_tile_data(restart,'soil_DON_'//trim(c_shortname(i)), 'zfull', sc_DON_ptr,i)
+
+              do k = 1, N_LITTER_POOLS
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N','litterCCohort',sc_litter_litterN_ptr,i,k)
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedN','litterCCohort',sc_litter_protectedN_ptr,i,k)
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_DON_'//trim(c_shortname(i)),sc_litter_dissolved_nitrogen_ptr,i,k)
+              enddo
+           enddo
+           call get_tile_data(restart,'liveMicN', 'zfull','soilCCohort', sc_livingMicrobeN_ptr)
+           call get_tile_data(restart,'soil_NO3', 'zfull', sc_nitrate_ptr)
+           call get_tile_data(restart,'soil_NH4', 'zfull', sc_ammonium_ptr)
+           call get_tile_data(restart,'soil_nitrif', 'zfull', sc_nitrif_ptr)
+           call get_tile_data(restart,'soil_denitrif', 'zfull', sc_denitrif_ptr)
+
+           ! Leaving out cohort-level immobilization and mineralization fields for now -- BNS
+
+           do k = 1,N_LITTER_POOLS
+              call get_tile_data(restart, trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr,k)
+              call get_tile_data(restart, trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr,k)
+              call get_tile_data(restart, trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr,k)
+              call get_tile_data(restart, trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr,k)
+              call get_tile_data(restart, trim(l_shortname(k))//'_litter_denitrif', sc_litter_denitrif_ptr,k)
+           enddo
+        endif
+        do i = 1, N_C_TYPES
+           if(field_exists(restart, 'negative_litter_C_'//trim(c_shortname(i)))) then
+              call get_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i)
+           endif
+           if(field_exists(restart, 'negative_litter_N_'//trim(c_shortname(i)))) then
+              call get_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i)
+           endif
         enddo
-     endif
-     do i = 1, N_C_TYPES
-        if(field_exists(restart, 'negative_litter_C_'//trim(c_shortname(i)))) then
-           call get_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i)
-        endif
-        if(field_exists(restart, 'negative_litter_N_'//trim(c_shortname(i)))) then
-           call get_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i)
-        endif
-     enddo
+     case default
+        call error_mesg('save_init','unrecognized soil carbon option -- this should never happen', FATAL)
+     end select
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
@@ -1532,6 +1538,11 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','litterCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
      enddo
 
+     do i = 1, N_C_TYPES
+        call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i,'accumulated negative '//trim(c_longname(i))//' C litter input','kg/m2')
+        call add_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i,'accumulated negative '//trim(c_longname(i))//' N litter input','kg/m2')
+     enddo
+
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
 
      if (soil_carbon_option == SOILC_CORPSE_N) then
@@ -1568,10 +1579,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case default
      call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
-  do i = 1, N_C_TYPES
-     call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(i)),sc_negative_litter_C_ptr,i,'accumulated negative '//trim(c_longname(i))//' C litter input','kg/m2')
-     call add_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i,'accumulated negative '//trim(c_longname(i))//' N litter input','kg/m2')
-  enddo
 
   call save_land_restart(restart)
   call free_land_restart(restart)
@@ -2876,12 +2883,19 @@ end subroutine soil_step_1
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
 !ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
-   call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
+   select case (soil_carbon_option)
+   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+      total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
+   case(SOILC_CORPSE, SOILC_CORPSE_N)
+      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
             ! output
             total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
+   case default
+      call error_mesg('soil_step_2', 'unrecognized soil carbon option -- this should never happen', FATAL)
+   end select
 
    !FIXME BNS: What if there is net flow of nitrogen into tile from other hillslope tiles?
    soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile &

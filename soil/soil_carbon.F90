@@ -1415,6 +1415,13 @@ subroutine add_litter(pool,litterC,litterN,rhizosphere_frac,&
 
   real :: newLitterC(N_C_TYPES), newLitterN(N_C_TYPES)
 
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     ! do nothing
+  case default
+     call error_mesg('add_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
+  end select
+
   if (present(negativeInputC)) then
      negativeInputC(:) = negativeInputC(:) + min(litterC,0.0)
   else

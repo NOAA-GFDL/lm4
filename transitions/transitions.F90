@@ -413,8 +413,8 @@ end subroutine land_transitions_init
 subroutine land_transitions_end()
   module_is_initialized=.FALSE.
   ! close files and deallocate associated memory
-  call ftran%destroy();
-  call fstate%destroy();
+  call ftran%destroy()
+  call fstate%destroy()
 end subroutine land_transitions_end
 
 ! ============================================================================
@@ -940,7 +940,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   ct = first_elmt(d_list)
   do while (loop_over_tiles(ct, tile))
      if(.not.associated(tile%vegn))  cycle ! skip all non-vegetation tiles
-     if(tile%vegn%landuse /= d_kind) cycle ! skip all tiles that doe not match "donor" LU kind
+     if(tile%vegn%landuse /= d_kind) cycle ! skip all tiles that do not match "donor" LU kind
      darea = vegn_tran_priority(tile%vegn, a_kind, x2)
      if(tile%frac*darea > 0) then
         ! make a copy of current tile
