@@ -97,6 +97,9 @@ module land_tracer_driver_mod
 
   real :: c_snow=0.025, c_dry=0.1, c_wet=0.9 !strength of R increase with decreasing T under <5C (Clifton 2020)
 
+  real :: e_lai_dry=1., e_lai_frz=1., e_lai_wet=1. !exponent for LAI dependence of cuticle conductance (lai**e_lai). Default is 1. Zhang et al. proposes 0.5 for dry condition, 0.25 for wet condition, and 0. for snow covered leaves
+  real :: e_ustar=0. !exponent for ustar dependence of cuticle conductance (u_star**e_ustar). Default is 0. Zhang proposed 1.
+
 
   namelist /land_tracer_nml/ &
        max_scale_snow_T,  max_scale_cold_T, max_scale_desert, cg_aer_frz, &
@@ -107,7 +110,7 @@ module land_tracer_driver_mod
        gamma_aer_lake,gamma_aer_swamp,gamma_aer_desert,gamma_aer_frz, &
        alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz, &
        h2_b, h2_st, h2_N, h2_a, h2_betab, &
-       c_snow, c_dry, c_wet
+       c_snow, c_dry, c_wet, e_lai_dry,e_lai_wet,e_lai_frz, e_ustar
 
 
   ! ---- module constants ------------------------------------------------------
@@ -735,9 +738,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
                      call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
 
-                     con_cu_dry  = ft * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
-                     con_cu_wet  = fw * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
-                     con_cu_frz  = fs * c%lai * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
+                     con_cu_dry  = ft * ustar**e_ustar * c%lai**e_lai_dry * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
+                     con_cu_wet  = fw * ustar**e_ustar * c%lai**e_lai_wet * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
+                     con_cu_frz  = fs * c%lai**e_lai_frz * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
 
                      !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
                      con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
