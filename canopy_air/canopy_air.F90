@@ -67,7 +67,7 @@ integer, parameter :: &
    RESIST_HO2013 = 1    ! soil resistance based on Haghighi and Or (2013) and related papers
 integer, parameter :: &
    USFC_AREA     = 0, & ! based on roughness element area
-   USFC_LOUBET   = 1    ! Loubet (1996) formulation
+   USFC_LOUBET   = 1    ! Loubet et al. (2006) formulation
 
 real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
 
@@ -83,6 +83,8 @@ character(32) :: turbulence_to_use = '' ! "lm3w" or "lm3v" or "Raupach"
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
+! Loubet et al. (2006) parameter
+real :: loubet_lai_factor = 0.6 ! rate of ustar_sfc decay with LAI; Lobet et al. (2006) have 0.6
 ! Raupach (1994) parameters
 real :: c_r = 0.3, c_s = 0.003  ! slope and intercept of LAI+SAI dependence in u*/U(h) ratio
                                 ! i.e. roughness-element and surface drag coefficients
@@ -113,7 +115,7 @@ real,    protected, public :: fog_diss_time = 0.0   ! e-folding time of fog evap
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, roughness_to_use, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
-  k_over_B, &
+  k_over_B, loubet_lai_factor, &
   ! Raupach (1994) parameters
   c_d1, c_s, c_r, max_u_ratio, rsl_factor, &
   ! soil resistance parameters
@@ -504,7 +506,7 @@ subroutine cana_v_turb (ustar, &
      ! and exchange model for short-range dry deposition of atmospheric ammonia. Quarterly
      ! Journal of the Royal Meteorological Society, 132, 1733–1763, doi:10.1256/qj.05.73.
      u_sfc     = utop
-     ustar_sfc = ustar*exp(-0.6*vegn_idx)
+     ustar_sfc = ustar*exp(-loubet_lai_factor*vegn_idx)
   end select
 
   if (is_watch_point()) then
