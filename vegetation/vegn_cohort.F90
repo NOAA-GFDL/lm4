@@ -213,6 +213,7 @@ type :: vegn_cohort_type
 
 ! ---- irrigation-related variables
   real :: evap_demand = 0.0 !transpiration water demand, kg/(indiv s) !possible in restart
+  real :: soil_water_supply = 0.0
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

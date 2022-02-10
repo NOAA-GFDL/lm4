@@ -387,6 +387,11 @@ type :: soil_tile_type
    real :: abst_d = 0. !kg/(m2 s)
    real :: habst_d = 0. !W/m2
    real :: r_pores ! surface pore radius, m
+
+   real :: irr_demand_ac_et = 0. !kg/m2
+   real :: irr_area2frac_input_et = 0. !m2, per tile frac
+   real :: irr_area2frac_real_et = 0. !m2, per tile frac
+
    
 end type soil_tile_type
 

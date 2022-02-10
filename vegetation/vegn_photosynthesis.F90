@@ -398,8 +398,9 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   stomatal_cond = stomatal_cond*cohort%lai
   ! store w_scale for diagnostics
   cohort%w_scale = w_scale
-  ! store evap_demand for irrigation
+  ! store evap_demand and soil_water_supply for irrigation
   cohort%evap_demand = evap_demand
+  cohort%soil_water_supply = soil_water_supply
 end subroutine vegn_photosynthesis_Leuning
 
 
