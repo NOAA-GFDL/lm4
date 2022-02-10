@@ -5952,12 +5952,13 @@ subroutine irrigation_deficit()
   real :: tot_wl_v, tot_v, root_theta
 
   character(len=256)  :: irr_fac_file = 'INPUT/irr_fac.nc' 
-  real, dimension(lnd%ls:lnd%le) :: irr_fac  
+  real, allocatable   :: irr_fac_et(:) 
 !----------------------------------------------------
 
+ allocate(irr_fac_et(lnd%ls:lnd%le))
  if(.not.use_fc_irr_deficit)then
-   irr_fac = 1.
-   call read_field(irr_fac_file, 'irr_fac', irr_fac)
+   irr_fac_et = 1.
+   call read_field(irr_fac_file, 'irr_fac', irr_fac_et, interp='bilinear' )
  endif
  !if (.not. use_irrigation_routine) return
 
@@ -6044,7 +6045,7 @@ subroutine irrigation_deficit()
              do i = 1, vegn%n_cohorts
                 if(vegn%cohorts(i)%evap_demand > vegn%cohorts(i)%soil_water_supply &
                   .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then               
-                  irr_cohorts =  irr_fac(l) &
+                  irr_cohorts =   irr_fac_et(l) &
                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
                                 * vegn%cohorts(i)%nindivs &
                                 * delta_time !kg/m2
@@ -6063,14 +6064,13 @@ subroutine irrigation_deficit()
            irr_area_temp = 0.
          endif
          soil%irr_demand_ac_et = soil%irr_demand_ac_et + irr_demand_ac ! kg/m2
-         !soil%irr_area2frac_input_et = soil%irr_area2frac_input_et + irr_area_input / tile%frac /num_fast_calls !m2
          soil%irr_area2frac_real_et = soil%irr_area2frac_real_et + irr_area_temp / tile%frac /num_fast_calls !m2
          if(n == num_fast_calls)then
            soil%irr_demand_ac = soil%irr_demand_ac_et
            soil%irr_area2frac_input = irr_area_input / tile%frac !m2
            soil%irr_area2frac_real = soil%irr_area2frac_real_et
+           
            soil%irr_demand_ac_et = 0. ! kg/m2
-           soil%irr_area2frac_input_et = 0. !m2
            soil%irr_area2frac_real_et = 0. !m2               
          endif
          call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
@@ -6083,6 +6083,7 @@ subroutine irrigation_deficit()
  enddo
 
  if(n == num_fast_calls) n = 0
+ deallocate(irr_fac_et)
 
  end subroutine irrigation_deficit
 
