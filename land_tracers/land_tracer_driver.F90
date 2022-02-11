@@ -36,7 +36,7 @@ module land_tracer_driver_mod
   use snow_mod,      only : snow_get_depth_area
 
   use sat_vapor_pres_mod, only: compute_qs
-  
+
   ! import interfaces from non-generic tracer modules, e.g.:
   use land_dust_mod, only : land_dust_init, land_dust_end, update_land_dust
 
@@ -97,6 +97,12 @@ module land_tracer_driver_mod
 
   real :: c_snow=0.025, c_dry=0.1, c_wet=0.9 !strength of R increase with decreasing T under <5C (Clifton 2020)
 
+  real :: e_lai_dry=1.0, e_lai_frz=1.0, e_lai_wet=1.0 ! exponent for LAI dependence of cuticle
+             ! conductance (lai**e_lai). Zhang et al. (2003, doi:10.5194/acp-3-2067-2003) proposes
+             ! 0.5 for dry condition, 0.25 for wet condition, and 0 for snow covered leaves
+  real :: e_ustar=0.0 ! exponent for ustar dependence of cuticle conductance (u_star**e_ustar).
+             ! Zhang proposed 1.
+
 
   namelist /land_tracer_nml/ &
        max_scale_snow_T,  max_scale_cold_T, max_scale_desert, cg_aer_frz, &
@@ -107,7 +113,7 @@ module land_tracer_driver_mod
        gamma_aer_lake,gamma_aer_swamp,gamma_aer_desert,gamma_aer_frz, &
        alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz, &
        h2_b, h2_st, h2_N, h2_a, h2_betab, &
-       c_snow, c_dry, c_wet
+       c_snow, c_dry, c_wet, e_lai_dry,e_lai_wet,e_lai_frz, e_ustar
 
 
   ! ---- module constants ------------------------------------------------------
@@ -125,7 +131,7 @@ module land_tracer_driver_mod
   real      :: wet_diag_thr(nwet_diag) = (/ 0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.95/)
   character(len=5) :: wet_str(nwet_diag)
   data wet_str/'wet05','wet10','wet20','wet30','wet40','wet50','wet60','wet70','wet80','wet90','wet95'/
-  
+
 
   ! ---- data types -----------------------------------------------------------
   type :: tracer_data_type
@@ -202,8 +208,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     integer :: soil_tag, iw
     type(land_tile_enum_type)     :: ce   ! tile list enumerator
     type(land_tile_type), pointer :: tile ! pointer to current tile
-    
-    
+
+
     ! write the version and tag name to the logfile
     call log_version(version, module_name, &
          __FILE__)
@@ -493,7 +499,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        endif
     enddo
 
-    
+
     id_con_atm = &
          register_tiled_diag_field(diag_name, 'con_atm', &
          (/id_ug/),  lnd%time,'1/Ra', &
@@ -512,7 +518,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time, 'ground desert fraction', &
          'unitless', missing_value=-1.0)
 
-    call set_default_diag_filter('soil')    
+    call set_default_diag_filter('soil')
     id_h2_fm  = register_tiled_diag_field(diag_name, 'h2_fm', &
          (/id_ug/),  lnd%time, 'h2_fm', &
          'unitless', missing_value=-1.0)
@@ -547,7 +553,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                   (/id_ug/),  lnd%time, 'total conductance of '//trim(trdata(tr)%name)//' with fwet>'//trim(wet_str(iw)), &
                   'm/s', missing_value=-1.0)
           end do
-       
+
     end do
 
     id_fw_avg = &
@@ -563,21 +569,21 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          (/id_ug/),  lnd%time,'canopy avg dry fraction', &
          "unitless", missing_value=-1.0)
 
-    
+
     !save soil properties used for H2 soil removal
-    ce = first_elmt(land_tile_map)    
+    ce = first_elmt(land_tile_map)
     do while (loop_over_tiles(ce,tile))
        if (associated(tile%soil)) then
-          soil_tag = tile%soil%tag          
+          soil_tag = tile%soil%tag
           if (id_h2_n.gt.0)     call send_tile_data(id_h2_n,     h2_n(soil_tag),     tile%diag)
           if (id_h2_st.gt.0)    call send_tile_data(id_h2_st,    h2_st(soil_tag),    tile%diag)
           if (id_h2_betab.gt.0) call send_tile_data(id_h2_betab, h2_betab(soil_tag), tile%diag)
-          if (id_h2_b.gt.0)     call send_tile_data(id_h2_b,     h2_b(soil_tag),     tile%diag)          
+          if (id_h2_b.gt.0)     call send_tile_data(id_h2_b,     h2_b(soil_tag),     tile%diag)
        end if
     end do
-        
+
     module_is_initialized = .TRUE.
-    
+
   end subroutine land_tracer_driver_init
 
 
@@ -678,24 +684,24 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     call compute_qs (tile%cana%T, pressure, rh, q=tile%cana%tr(isphum))
     RH = tile%cana%tr(isphum)/RH
     !cap RH
-    RH = max(min(RH,0.995),0.)    
+    RH = max(min(RH,0.995),0.)
 
     !calculate the vegn fw and fs
     if (associated(tile%vegn)) then
        call vegn_tile_fw_fs(tile%vegn,fw_avg,fs_avg)
        call send_tile_data(id_fw_avg,fw_avg, tile%diag)
-       call send_tile_data(id_fs_avg,fs_avg, tile%diag) 
+       call send_tile_data(id_fs_avg,fs_avg, tile%diag)
        call send_tile_data(id_fd_avg,1.-fw_avg-fs_avg, tile%diag)
-       do iw=1,nwet_diag       
+       do iw=1,nwet_diag
           if ( fw_avg .gt. wet_diag_thr(iw) ) then
              call send_tile_data(id_fw_wet(iw), 1., tile%diag)
           else
              call send_tile_data(id_fw_wet(iw), 0., tile%diag)
           end if
-       end do       
+       end do
     end if
 
-    
+
     ! loop for generic tracers only
     do tr = 1, ntcana
 
@@ -735,9 +741,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
                      call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
 
-                     con_cu_dry  = ft * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
-                     con_cu_wet  = fw * c%lai * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
-                     con_cu_frz  = fs * c%lai * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
+                     con_cu_dry  = ft * ustar**e_ustar * c%lai**e_lai_dry * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
+                     con_cu_wet  = fw * ustar**e_ustar * c%lai**e_lai_wet * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
+                     con_cu_frz  = fs * c%lai**e_lai_frz * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
 
                      !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
                      con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
@@ -907,7 +913,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
              end if
           end do
        end if
-       
+
        !save deposition to the vegetation and ground
        fdiag = min(max(cv/(cv+cg+epsln),0.),1.)
        call send_tile_data(trdata(tr)%id_econ_g, (1.-fdiag)*dvel,tile%diag)
@@ -942,7 +948,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
     enddo
-        
+
     ! send concentrations for all tracers, generic or not
     do tr = 1, ntcana
        call send_tile_data(trdata(tr)%id_conc,       tile%cana%tr(tr), tile%diag)
@@ -1245,7 +1251,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           call send_tile_data(id_h2_fm,f_M,                       tile%diag)
           call send_tile_data(id_h2_ft,f_T,                       tile%diag)
           call send_tile_data(id_h2_sdiff,diff_h2,                tile%diag)
-                    
+
        end if
 
     end if
