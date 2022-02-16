@@ -192,6 +192,8 @@ logical :: use_irrigation_routine = .false.
 real :: irr_fac = 0.5
 real :: irr_tau = 1. !days
 logical :: use_fc_irr_deficit = .false.
+logical :: use_irr_fac_et_glob = .false.
+real :: irr_fac_et_glob = 5.
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -221,7 +223,8 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     tau_smooth_frozen_freq, &
                     fix_neg_subsurface_wl_revisited, excess_soil_water_to_numerical_runoff, &
                     push_up_sfc_excess, predefined_wtd, &
-                    use_irrigation_routine, irr_fac, irr_tau, use_fc_irr_deficit
+                    use_irrigation_routine, irr_fac, irr_tau, use_fc_irr_deficit, &
+                    use_irr_fac_et_glob, irr_fac_et_glob
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -5957,8 +5960,12 @@ subroutine irrigation_deficit()
 
  allocate(irr_fac_et(lnd%ls:lnd%le))
  if(.not.use_fc_irr_deficit)then
-   irr_fac_et = 1.
-   call read_field(irr_fac_file, 'irr_fac', irr_fac_et, interp='bilinear' )
+   if(.not.use_irr_fac_et_glob)then
+     irr_fac_et = 1.
+     call read_field(irr_fac_file, 'irr_fac', irr_fac_et, interp='bilinear' )
+   else
+     irr_fac_et = irr_fac_et_glob
+   endif
  endif
  !if (.not. use_irrigation_routine) return
 
