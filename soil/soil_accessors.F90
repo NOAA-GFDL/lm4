@@ -245,6 +245,15 @@ subroutine soil_tau_groundwater_ptr(t,p)
     endif
 end subroutine
 
+subroutine soil_irr_fac_et_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%irr_fac_et
+    endif
+end subroutine
+
 subroutine soil_hillslope_length_ptr(t,p)
     type(land_tile_type),pointer::t
     real,pointer::p

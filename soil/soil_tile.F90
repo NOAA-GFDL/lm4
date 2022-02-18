@@ -211,6 +211,8 @@ type :: soil_pars_type
   real hand_bedges(11)
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
   real iwtd             ! Initial water table depth
+
+  real irr_fac_et
 end type soil_pars_type
 
 

@@ -251,7 +251,7 @@ integer ::  &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
     id_hie, id_hsn, id_hbf, id_hif, id_hal, id_hnu, id_hsc, &
     id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, &
-    id_slope_Z, id_zeta_bar, id_e_depth, id_vwc_sat, id_vwc_fc, &
+    id_slope_Z, id_zeta_bar, id_e_depth, id_vwc_sat, id_vwc_fc, id_irr_fac_et, &
     id_vwc_wilt, id_K_sat, id_K_gw, id_w_fc, id_alpha, &
     id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir, &
     id_f_iso_dry, id_f_vol_dry, id_f_geo_dry, &
@@ -572,6 +572,17 @@ subroutine soil_init (id_ug,id_band,id_zfull)
                         WARNING)
      end if
   endif ! single geo
+
+  if(use_irrigation_routine .and. .not.use_fc_irr_deficit)then
+      allocate(gw_param(lnd%ls:lnd%le))
+      if(.not.use_irr_fac_et_glob)then
+          call read_field( 'INPUT/irr_fac.nc', 'irr_fac', gw_param, interp='bilinear' )
+      else
+          gw_param(lnd%ls:lnd%le) = irr_fac_et_glob
+      endif
+      call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_irr_fac_et_ptr )
+      deallocate(gw_param)
+  endif
 
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
@@ -973,6 +984,7 @@ subroutine soil_init (id_ug,id_band,id_zfull)
   call send_tile_data_r0d_fptr(id_tau,          soil_tau_ptr)
   call send_tile_data_r0d_fptr(id_vwc_wilt,     soil_vwc_wilt_ptr)
   call send_tile_data_r0d_fptr(id_vwc_fc,       soil_vwc_fc_ptr)
+  call send_tile_data_r0d_fptr(id_irr_fac_et,   soil_irr_fac_et_ptr)  
   call send_tile_data_r0d_fptr(id_vwc_sat,      soil_vwc_sat_ptr)
   call send_tile_data_r0d_fptr(id_K_sat,        soil_k_sat_ref_ptr)  
   call send_tile_data_r0d_fptr(id_K_gw,         soil_k_sat_gw_ptr)
@@ -1675,6 +1687,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes(1:1), 'wilting water content', '-', missing_value=-100.0 )
   id_vwc_fc = register_tiled_static_field ( module_name, 'soil_fc',  &
        axes(1:1), 'field capacity', '-', missing_value=-100.0 )
+  id_irr_fac_et = register_tiled_static_field ( module_name, 'irr_fac_et',  &
+       axes(1:1), 'irrigation factor used in ET-based irrigation estimates', '-', missing_value=-100.0 )  
   id_vwc_sat = register_tiled_static_field ( module_name, 'soil_sat',  &
        axes(1:1), 'soil porosity', '-', missing_value=-100.0 )
   id_K_sat = register_tiled_static_field ( module_name, 'soil_Ksat',  &
@@ -5953,20 +5967,7 @@ subroutine irrigation_deficit()
   integer, save :: n = 0  ! fast time step with each slow time step
   real,dimension(lnd%ls:lnd%le) :: atots
   real :: tot_wl_v, tot_v, root_theta
-
-  character(len=256)  :: irr_fac_file = 'INPUT/irr_fac.nc' 
-  real, allocatable   :: irr_fac_et(:) 
 !----------------------------------------------------
-
- allocate(irr_fac_et(lnd%ls:lnd%le))
- if(.not.use_fc_irr_deficit)then
-   if(.not.use_irr_fac_et_glob)then
-     irr_fac_et = 1.
-     call read_field(irr_fac_file, 'irr_fac', irr_fac_et, interp='bilinear' )
-   else
-     irr_fac_et = irr_fac_et_glob
-   endif
- endif
  !if (.not. use_irrigation_routine) return
 
  atots = 0.
@@ -6051,11 +6052,18 @@ subroutine irrigation_deficit()
            if(use_irrigation_routine)then
              do i = 1, vegn%n_cohorts
                 if(vegn%cohorts(i)%evap_demand > vegn%cohorts(i)%soil_water_supply &
-                  .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then               
-                  irr_cohorts =   irr_fac_et(l) &
+                  .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then     
+                  if(.not.use_irr_fac_et_glob)then        
+                    irr_cohorts = soil%pars%irr_fac_et &
                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
                                 * vegn%cohorts(i)%nindivs &
                                 * delta_time !kg/m2
+                  else
+                    irr_cohorts = irr_fac_et_glob &
+                                * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
+                                * vegn%cohorts(i)%nindivs &
+                                * delta_time !kg/m2      
+                  endif                            
                 else
                   irr_cohorts = 0.
                 endif
@@ -6090,7 +6098,6 @@ subroutine irrigation_deficit()
  enddo
 
  if(n == num_fast_calls) n = 0
- deallocate(irr_fac_et)
 
  end subroutine irrigation_deficit
 
