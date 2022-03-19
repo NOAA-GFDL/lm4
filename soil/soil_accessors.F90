@@ -583,7 +583,7 @@ subroutine sc_litter_nitrate_ptr(t,i,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%nitrate
+        if(associated(t%soil))p=>t%soil%litter_corpse(i)%nitrate
     endif
 end subroutine
 
@@ -593,7 +593,7 @@ subroutine sc_litter_ammonium_ptr(t,i,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%ammonium
+        if(associated(t%soil))p=>t%soil%litter_corpse(i)%ammonium
     endif
 end subroutine
 
@@ -603,7 +603,7 @@ subroutine sc_litter_nitrif_ptr(t,i,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%nitrif
+        if(associated(t%soil))p=>t%soil%litter_corpse(i)%nitrif
     endif
 end subroutine
 
@@ -613,7 +613,7 @@ subroutine sc_litter_denitrif_ptr(t,i,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(i)%denitrif
+        if(associated(t%soil))p=>t%soil%litter_corpse(i)%denitrif
     endif
 end subroutine
 
@@ -623,7 +623,7 @@ subroutine sc_litter_C_in_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%C_in(i)
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%C_in(i)
     endif
 end subroutine
 
@@ -633,7 +633,7 @@ subroutine sc_litter_N_in_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%N_in(i)
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%N_in(i)
     endif
 end subroutine
 
@@ -643,7 +643,7 @@ subroutine sc_litter_C_turnover_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%C_turnover(i)
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%C_turnover(i)
     endif
 end subroutine
 
@@ -653,7 +653,7 @@ subroutine sc_litter_N_turnover_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%N_turnover(i)
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%N_turnover(i)
     endif
 end subroutine
 
@@ -663,7 +663,7 @@ subroutine sc_litter_dissolved_carbon_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%dissolved_carbon(i)
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%dissolved_carbon(i)
     endif
 end subroutine
 
@@ -673,7 +673,7 @@ subroutine sc_litter_dissolved_nitrogen_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%dissolved_nitrogen(i)
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%dissolved_nitrogen(i)
     endif
 end subroutine
 
@@ -683,7 +683,7 @@ subroutine sc_litter_livingMicrobeC_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%livingMicrobeC
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%litterCohorts(i)%livingMicrobeC
     endif
 end subroutine
 
@@ -693,7 +693,7 @@ subroutine sc_litter_livingMicrobeN_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%livingMicrobeN
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%litterCohorts(i)%livingMicrobeN
     endif
 end subroutine
 
@@ -703,7 +703,7 @@ subroutine sc_litter_CO2_ptr(t,i,j,p)
     real,pointer::p
     p=>NULL()
     if(associated(t)) then
-        if(associated(t%soil))p=>t%soil%litter(j)%litterCohorts(i)%CO2
+        if(associated(t%soil))p=>t%soil%litter_corpse(j)%litterCohorts(i)%CO2
     endif
 end subroutine
 
@@ -713,7 +713,7 @@ subroutine sc_litter_litterC_ptr(t,i,j,k,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%litterC(j)
+        if(associated(t%soil))p=>t%soil%litter_corpse(k)%litterCohorts(i)%litterC(j)
     endif
 end subroutine
 
@@ -723,7 +723,7 @@ subroutine sc_litter_protectedC_ptr(t,i,j,k,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%protectedC(j)
+        if(associated(t%soil))p=>t%soil%litter_corpse(k)%litterCohorts(i)%protectedC(j)
     endif
 end subroutine
 
@@ -733,7 +733,7 @@ subroutine sc_litter_litterN_ptr(t,i,j,k,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%litterN(j)
+        if(associated(t%soil))p=>t%soil%litter_corpse(k)%litterCohorts(i)%litterN(j)
     endif
 end subroutine
 
@@ -743,7 +743,7 @@ subroutine sc_litter_protectedN_ptr(t,i,j,k,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter(k)%litterCohorts(i)%protectedN(j)
+        if(associated(t%soil))p=>t%soil%litter_corpse(k)%litterCohorts(i)%protectedN(j)
     endif
 end subroutine
 

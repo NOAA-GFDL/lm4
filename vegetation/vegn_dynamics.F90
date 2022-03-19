@@ -2329,7 +2329,7 @@ subroutine update_soil_pools(vegn, soil)
      delta_N = vegn%litter_rate_N*dt_fast_yr
 
      do i = 1,N_LITTER_POOLS
-        call add_litter(soil%litter(i), delta_C(:,i), delta_N(:,i))
+        call add_litter(soil%litter_corpse(i), delta_C(:,i), delta_N(:,i))
      enddo
      vegn%litter_buff_C = vegn%litter_buff_C - delta_C
      vegn%litter_buff_N = vegn%litter_buff_N - delta_N

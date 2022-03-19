@@ -186,8 +186,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
      call borrow_to_negatives(wood_litt_N,soil%neg_litt_N) ! borrow from wood litter first
      call borrow_to_negatives(leaf_litt_C,soil%neg_litt_C) ! and from leaf litter second
      call borrow_to_negatives(leaf_litt_N,soil%neg_litt_N) ! and from leaf litter second
-     call add_litter(soil%litter(LEAF),  leaf_litt_C, leaf_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
-     call add_litter(soil%litter(CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
+     call add_litter(soil%litter_corpse(LEAF),  leaf_litt_C, leaf_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
+     call add_litter(soil%litter_corpse(CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      call rhizosphere_frac(vegn, rhiz_frac)
      do l = 1,num_l
         call add_litter(soil%org_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l), &

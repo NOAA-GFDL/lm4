@@ -473,8 +473,8 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
 
        if (grazing_freq==GRAZING_DAILY) then
           ! Put carbon directly in soil pools
-          call add_litter(soil%litter(LEAF),leaflitter_C,leaflitter_N)
-          call add_litter(soil%litter(CWOOD),woodlitter_C,woodlitter_N)
+          call add_litter(soil%litter_corpse(LEAF),leaflitter_C,leaflitter_N)
+          call add_litter(soil%litter_corpse(CWOOD),woodlitter_C,woodlitter_N)
           call add_root_litter(soil,vegn,bglitter_C,bglitter_N)
        else
           vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + &

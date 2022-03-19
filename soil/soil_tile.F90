@@ -242,7 +242,7 @@ type :: soil_tile_type
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
    ! values for CORPSE
-   type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
+   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
    real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
@@ -706,7 +706,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
      call init_soil_pool(ptr%org_matter(i), Qmax=ptr%pars%Qmax)
   enddo
   do i = 1,N_LITTER_POOLS
-     call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
+     call init_soil_pool(ptr%litter_corpse(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
   enddo
 end function soil_tile_ctor
 
@@ -1202,7 +1202,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
   do i = 1, N_LITTER_POOLS
-     call combine_pools(s1%litter(i),s2%litter(i),w1,w2)
+     call combine_pools(s1%litter_corpse(i),s2%litter_corpse(i),w1,w2)
   enddo
   s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
   s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
@@ -1955,7 +1955,7 @@ real function soil_tile_carbon (soil)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
      do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter(i),totalCarbon=temp)
+        call poolTotals(soil%litter_corpse(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
   case default
@@ -1980,7 +1980,7 @@ real function soil_tile_nitrogen (soil)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
      do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter(i),totalNitrogen=temp)
+        call poolTotals(soil%litter_corpse(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
   case default
@@ -2003,7 +2003,7 @@ subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
      litter_slow_C    = soil%slow_soil_C(1)
      litter_deadmic_C = 0.0
   case(SOILC_CORPSE, SOILC_CORPSE_N)
-     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+     call poolTotals(soil%litter_corpse(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
   case default
      call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select

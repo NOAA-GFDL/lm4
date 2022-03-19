@@ -3014,7 +3014,7 @@ subroutine update_vegn_slow( )
         if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
         do ii = 1,N_LITTER_POOLS
-           call cull_cohorts(tile%soil%litter(ii))
+           call cull_cohorts(tile%soil%litter_corpse(ii))
         enddo
         do ii=1,num_l
            call cull_cohorts(tile%soil%org_matter(ii))

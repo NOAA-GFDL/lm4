@@ -2172,7 +2172,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     endif
 
     do i = 1, N_LITTER_POOLS
-       call poolTotals(soil%litter(i),totalCarbon=litter_total_C(i))
+       call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C(i))
     enddo
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
@@ -2504,7 +2504,7 @@ subroutine vegn_burn_ppa(tile)
      end associate
 
      do i = 1,N_LITTER_POOLS
-        call remove_C_N_fraction_from_pool (tile%soil%litter(i), CC_litter*BF, CC_litter*BF, &
+        call remove_C_N_fraction_from_pool (tile%soil%litter_corpse(i), CC_litter*BF, CC_litter*BF, &
             litterC_removed=burned_C_1, protectedC_removed=burned_C_2, liveMicrobeC_removed=burned_C_3, &
             litterN_removed=burned_N_1, protectedN_removed=burned_N_2, liveMicrobeN_removed=burned_N_3  )
         burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
@@ -2650,7 +2650,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
      ! combustion completeness is the same for all litters except leaf litter
      do i = 1,N_LITTER_POOLS
-        call remove_C_N_fraction_from_pool(soil%litter(i), CC_litt(i)*burned_frac, CC_litt(i)*burned_frac, &
+        call remove_C_N_fraction_from_pool(soil%litter_corpse(i), CC_litt(i)*burned_frac, CC_litt(i)*burned_frac, &
               burned_C_1, burned_C_2, burned_C_3, &
               burned_N_1, burned_N_2, burned_N_3  )
         burned_litt_C(i) = sum(burned_C_1) + sum(burned_C_2) + burned_C_3
@@ -3421,7 +3421,7 @@ subroutine update_fire_agb(vegn,soil)
       ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
       do i = 1, N_LITTER_POOLS
          if (i == CWOOD) cycle
-         call poolTotals(soil%litter(i),totalCarbon=litter_total_C)
+         call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C)
          vegn%fire_agb = vegn%fire_agb + litter_total_C
       enddo
    endif

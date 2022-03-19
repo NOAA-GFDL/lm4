@@ -660,7 +660,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            do while(loop_over_tiles(ce,tile))
                if (.not.associated(tile%soil)) cycle
                do i = 1,N_LITTER_POOLS
-                  call adjust_pool_ncohorts(tile%soil%litter(i))
+                  call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
                enddo
                do i = 1,num_l
                   call adjust_pool_ncohorts(tile%soil%org_matter(i))
@@ -1514,7 +1514,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      do while (loop_over_tiles(ce,tile))
          if (.not.associated(tile%soil)) cycle
          do i = 1,N_LITTER_POOLS
-            call adjust_pool_ncohorts(tile%soil%litter(i))
+            call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
          enddo
          do i = 1,num_l
             call adjust_pool_ncohorts(tile%soil%org_matter(i))
@@ -2833,7 +2833,7 @@ end subroutine soil_step_1
         call dpri('gw=',soil%groundwater(l))
         write(*,*)
      enddo
-     call debug_pool(soil%litter(LEAF), 'leaf_litter')
+     call debug_pool(soil%litter_corpse(LEAF), 'leaf_litter')
   endif
 
   active_layer_thickness = 0.
@@ -2870,7 +2870,7 @@ end subroutine soil_step_1
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
       do l = 1,N_LITTER_POOLS
-         call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
+         call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
       enddo
       do l = 1, num_l
          write(*,'(i2.2,x)',advance='NO') l
@@ -2887,7 +2887,7 @@ end subroutine soil_step_1
    case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
       total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
    case(SOILC_CORPSE, SOILC_CORPSE_N)
-      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
+      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter_corpse(LEAF), soil%litter_corpse(CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
@@ -3100,19 +3100,19 @@ subroutine soil_step_3(soil, diag)
      ! leaf litter diagnostics
      total_litter_C = 0.0; total_litter_N = 0.0
      do k = 1, N_LITTER_POOLS
-        call poolTotals1 (soil%litter(k), ncohorts=litter_ncohorts, &
+        call poolTotals1 (soil%litter_corpse(k), ncohorts=litter_ncohorts, &
             litterC=litter_C(:), livemicC=litter_livemic_C, protectedC=litter_protected_C(:), dissolvedC=litter_dissolved_C(:), totalC=litter_total_C, &
             litterN=litter_N(:), livemicN=litter_livemic_N, protectedN=litter_protected_N(:), dissolvedN=litter_dissolved_N(:), totalN=litter_total_N  )
         total_C(:)      = total_C(:) + litter_C(:)
         total_livemic_C = total_livemic_C + litter_livemic_C
-        total_diss_C    = total_diss_C + sum(soil%litter(k)%dissolved_carbon(:))
+        total_diss_C    = total_diss_C + sum(soil%litter_corpse(k)%dissolved_carbon(:))
         total_prot_C    = total_prot_C + sum(litter_protected_C(:))
         total_N(:)      = total_N(:) + litter_N(:)
         total_livemic_N = total_livemic_N + litter_livemic_N
-        total_diss_N    = total_diss_N + sum(soil%litter(k)%dissolved_nitrogen(:))
+        total_diss_N    = total_diss_N + sum(soil%litter_corpse(k)%dissolved_nitrogen(:))
         total_prot_N    = total_prot_N + sum(litter_protected_N(:))
-        total_NO3       = total_NO3 + soil%litter(k)%nitrate
-        total_NH4       = total_NO3 + soil%litter(k)%ammonium
+        total_NO3       = total_NO3 + soil%litter_corpse(k)%nitrate
+        total_NH4       = total_NO3 + soil%litter_corpse(k)%ammonium
         total_litter_C  = total_litter_C + litter_total_C
         total_litter_N  = total_litter_N + litter_total_N
 
@@ -3121,15 +3121,15 @@ subroutine soil_step_3(soil, diag)
         call send_tile_data(id_litter_livemic_N(k), litter_livemic_N, diag)
         call send_tile_data(id_litter_total_C(k), litter_total_C, diag)
         call send_tile_data(id_litter_total_N(k), litter_total_N, diag)
-        call send_tile_data(id_litter_nitrate(k), soil%litter(k)%nitrate, diag)
-        call send_tile_data(id_litter_ammonium(k), soil%litter(k)%ammonium, diag)
+        call send_tile_data(id_litter_nitrate(k), soil%litter_corpse(k)%nitrate, diag)
+        call send_tile_data(id_litter_ammonium(k), soil%litter_corpse(k)%ammonium, diag)
         do i = 1, N_C_TYPES
            call send_tile_data(id_litter_C(k,i), litter_C(i), diag)
            call send_tile_data(id_litter_N(k,i), litter_N(i), diag)
            call send_tile_data(id_litter_protected_C(k,i), litter_protected_C(i), diag)
            call send_tile_data(id_litter_protected_N(k,i), litter_protected_N(i), diag)
-           call send_tile_data(id_litter_dissolved_C(k,i), soil%litter(k)%dissolved_carbon(i), diag)
-           call send_tile_data(id_litter_dissolved_N(k,i), soil%litter(k)%dissolved_nitrogen(i), diag)
+           call send_tile_data(id_litter_dissolved_C(k,i), soil%litter_corpse(k)%dissolved_carbon(i), diag)
+           call send_tile_data(id_litter_dissolved_N(k,i), soil%litter_corpse(k)%dissolved_nitrogen(i), diag)
         enddo
         ! CMOR diagnostics
         if (k==CWOOD) then
@@ -3209,7 +3209,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
-     call update_pool(soil%litter(k), decomp_T(1), decomp_theta(1), &
+     call update_pool(soil%litter_corpse(k), decomp_T(1), decomp_theta(1), &
             1.0-(decomp_theta(1)+ice_porosity(1)), dt_fast_yr, dz(1), &
             litter_C_loss_rate, litter_N_loss_rate, CO2prod, &
             litter_nitrif(k), litter_denitrif(k),&
@@ -4485,12 +4485,12 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   ! Mycorrhizae should have access to litter layer too
   ! Assuming volumetric concentration in litter layer is the same as top soil layer
   do k = 1,N_LITTER_POOLS
-    call poolTotals(soil%litter(k),totalCarbon=totalC)
+    call poolTotals(soil%litter_corpse(k),totalCarbon=totalC)
     litterThickness=max(totalC/litterDensity,1e-2)
-     call mycorrhizal_mineral_N_uptake_rate(soil%litter(k),total_myc_scav_biomass(1)/dz(1)*litterThickness,litterThickness,&
+     call mycorrhizal_mineral_N_uptake_rate(soil%litter_corpse(k),total_myc_scav_biomass(1)/dz(1)*litterThickness,litterThickness,&
              nitrate_uptake, ammonium_uptake)
-     ammonium_uptake = min(ammonium_uptake,soil%litter(k)%ammonium/dt)
-     nitrate_uptake  = min(nitrate_uptake,soil%litter(k)%nitrate/dt)
+     ammonium_uptake = min(ammonium_uptake,soil%litter_corpse(k)%ammonium/dt)
+     nitrate_uptake  = min(nitrate_uptake,soil%litter_corpse(k)%nitrate/dt)
 
      do i=1,N
        if(cc(i)%nindivs>0) &
@@ -4498,8 +4498,8 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      enddo
 
      if (update_pools .and. .not. myc_biomass_is_zero) then
-        soil%litter(k)%ammonium=soil%litter(k)%ammonium-ammonium_uptake*dt
-        soil%litter(k)%nitrate=soil%litter(k)%nitrate-nitrate_uptake*dt
+        soil%litter_corpse(k)%ammonium=soil%litter_corpse(k)%ammonium-ammonium_uptake*dt
+        soil%litter_corpse(k)%nitrate=soil%litter_corpse(k)%nitrate-nitrate_uptake*dt
      endif
   enddo
 
@@ -4585,9 +4585,9 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   enddo
 
   do k = 1, N_LITTER_POOLS
-     call poolTotals(soil%litter(k),totalCarbon=totalC)
+     call poolTotals(soil%litter_corpse(k),totalCarbon=totalC)
      litterThickness=max(totalC/litterDensity,1e-2)
-     call mycorrhizal_decomposition(soil%litter(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
+     call mycorrhizal_decomposition(soil%litter_corpse(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
           T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,&
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod  = total_CO2prod + CO2prod
@@ -4629,16 +4629,16 @@ subroutine redistribute_peat_carbon(soil)
     total_C_before=total_C_before+layer_total_C
     enddo
 
-    call poolTotals(soil%litter(LEAF),totalCarbon=leaflitter_total_C)
-    call poolTotals(soil%litter(CWOOD),totalCarbon=woodlitter_total_C)
+    call poolTotals(soil%litter_corpse(LEAF),totalCarbon=leaflitter_total_C)
+    call poolTotals(soil%litter_corpse(CWOOD),totalCarbon=woodlitter_total_C)
     layer_total_C=leaflitter_total_C+woodlitter_total_C
 
     layer_max_C=max_litter_thickness*max_soil_C_density
     layer_extra_C = layer_total_C-layer_max_C
     if(layer_extra_C>0) then
         fraction_to_remove=1.0-layer_max_C/layer_total_C
-        call transfer_pool_fraction(soil%litter(LEAF),soil%org_matter(1),fraction_to_remove)
-        call transfer_pool_fraction(soil%litter(CWOOD),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter_corpse(LEAF),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter_corpse(CWOOD),soil%org_matter(1),fraction_to_remove)
     endif
 
     !Move carbon down if it exceeds layer_max_C
