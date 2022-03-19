@@ -62,7 +62,7 @@ public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
-public :: get_soil_litter_C ! returns litter carbon pools
+public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 
 ! public data
 public :: max_lev ! max number of soil layers (max dimension of arrays)
@@ -1990,7 +1990,7 @@ end function soil_tile_nitrogen
 
 ! ============================================================================
 ! given soil tile, returns carbon content of various components of litter
-subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
   type(soil_tile_type), intent(in)  :: soil
   real, intent(out) :: &
      litter_fast_C,    & ! fast litter carbon, [kgC/m2]
@@ -2005,9 +2005,9 @@ subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_
   case(SOILC_CORPSE, SOILC_CORPSE_N)
      call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
   case default
-     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
-end subroutine get_soil_litter_C
+end subroutine get_rav_C
 
 
 end module soil_tile_mod
