@@ -36,7 +36,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
-     mycorrhizal_turnover_time, N_fixer_turnover_time, tau_lflitter_decomp, tau_cwlitter_decomp
+     mycorrhizal_turnover_time, N_fixer_turnover_time, tau_lflitt_transfer, tau_cwlitt_transfer
 use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_species, &
