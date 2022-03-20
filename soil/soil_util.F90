@@ -9,7 +9,7 @@ use soil_carbon_mod, only: N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
      add_C_N_to_rhizosphere
 use soil_tile_mod, only: soil_tile_type, dz, num_l, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_exudate_profile
-use vegn_data_mod, only: spdata
+use vegn_data_mod, only: spdata, tau_lflitter_decomp, tau_cwlitter_decomp
 use vegn_tile_mod, only: vegn_tile_type
 implicit none
 private
@@ -159,16 +159,35 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
-     fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST) + sum(root_litt_C(:,C_FAST))
-     ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW) + sum(root_litt_C(:,C_SLOW))
+     if (tau_cwlitter_decomp>0.or.tau_lflitter_decomp>0) then
+        ! put litterfall in litter pools
+        soil%litter_century_C(LEAF, :) = soil%litter_century_C(LEAF, :) + leaf_litt_C(:)
+        soil%litter_century_C(CWOOD,:) = soil%litter_century_C(CWOOD,:) + wood_litt_C(:)
+        fsc = sum(root_litt_C(:,C_FAST))
+        ssc = sum(root_litt_C(:,C_SLOW))
+     else
+        ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
+        ! reproducibility with older code versions
+        fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST) + sum(root_litt_C(:,C_FAST))
+        ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW) + sum(root_litt_C(:,C_SLOW))
+     endif
      soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
      ! for budget tracking
      soil%fsc_in(1) = soil%fsc_in(1) + fsc
      soil%ssc_in(1) = soil%ssc_in(1) + ssc
   case (SOILC_CENTURY_BY_LAYER)
-     fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST)
-     ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW)
+     if (tau_cwlitter_decomp>0.or.tau_lflitter_decomp>0) then
+        ! put litterfall in litter pools
+        soil%litter_century_C(LEAF, :) = soil%litter_century_C(LEAF, :) + leaf_litt_C(:)
+        soil%litter_century_C(CWOOD,:) = soil%litter_century_C(CWOOD,:) + wood_litt_C(:)
+        fsc = 0.0; ssc = 0.0
+     else
+        ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
+        ! reproducibility with older code versions
+        fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST)
+        ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW)
+     endif
      soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
      ! for budget tracking

@@ -717,6 +717,16 @@ subroutine sc_litter_litterC_ptr(t,i,j,k,p)
     endif
 end subroutine
 
+subroutine litter_century_C_ptr(t,j,k,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::j,k
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%litter_century_C(k,j)
+    endif
+end subroutine
+
 subroutine sc_litter_protectedC_ptr(t,i,j,k,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i,j,k

@@ -652,6 +652,13 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            endif
            call free_land_restart(restart1)
         endif
+        if (field_exists(restart,'leaf_litter_fast_C')) then
+           do i = 1, N_C_TYPES
+              do k = 1, N_LITTER_POOLS
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C',litter_century_C_ptr,i,k)
+              enddo
+           enddo
+        endif
 
      case (SOILC_CORPSE, SOILC_CORPSE_N)
         if (field_exists(restart,'fast_soil_C')) then
@@ -1508,6 +1515,12 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
      call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
+     do i = 1, N_C_TYPES
+        do k = 1,N_LITTER_POOLS
+           call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C',litter_century_C_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
+        enddo
+     enddo
+
   case (SOILC_CORPSE, SOILC_CORPSE_N)
      ! make sure all arrays of carbon cohorts are of the same length
      ce = first_elmt(land_tile_map)

@@ -36,9 +36,9 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
-     mycorrhizal_turnover_time, N_fixer_turnover_time
+     mycorrhizal_turnover_time, N_fixer_turnover_time, tau_lflitter_decomp, tau_cwlitter_decomp
 use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS
+use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
@@ -2296,6 +2296,25 @@ subroutine deplete_pool(pool, rate, dest, accum)
 end subroutine deplete_pool
 
 ! =============================================================================
+! given an intermediate pool of C or N, and its e-folding time scale, move the amount
+! of mass corresponding to one fats time step from the pool to the destination.
+subroutine deplete_pool1(pool, tau, dest, accum)
+   real, intent(inout) :: pool ! C or N intermediate pool, kg
+   real, intent(in)    :: tau  ! C or N e-folding time scale, years
+   real, intent(inout) :: dest ! C or N destination pool, kg
+   real, intent(inout), optional :: accum ! accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
+
+   real :: rate ! rate of depletion, kgC/m2/year
+
+   if (tau > 0) then
+      rate = pool/tau
+   else
+      rate = pool/dt_fast_yr
+   endif
+   call deplete_pool(pool, rate, dest, accum)
+end subroutine deplete_pool1
+
+! =============================================================================
 subroutine update_soil_pools(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
@@ -2307,6 +2326,7 @@ subroutine update_soil_pools(vegn, soil)
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
   real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
   real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
+  real :: tau ! time scale of CENTURY-mode litter transfer to soil pools
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
@@ -2315,6 +2335,15 @@ subroutine update_soil_pools(vegn, soil)
 
      call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1), soil%fsc_in(1))
      call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
+
+     ! transfer litter to soil pools, with constant time scales
+     call deplete_pool1(soil%litter_century_C(LEAF,C_FAST),  tau_lflitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(LEAF,C_MIC) ,  tau_lflitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(LEAF,C_SLOW),  tau_lflitter_decomp, soil%slow_soil_C(1), soil%ssc_in(1))
+
+     call deplete_pool1(soil%litter_century_C(CWOOD,C_FAST), tau_cwlitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(CWOOD,C_MIC) , tau_cwlitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(CWOOD,C_SLOW), tau_cwlitter_decomp, soil%slow_soil_C(1), soil%ssc_in(1))
 
   case (SOILC_CORPSE,SOILC_CORPSE_N)
 

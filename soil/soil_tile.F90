@@ -241,6 +241,7 @@ type :: soil_tile_type
    real, allocatable :: &
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
+   real :: litter_century_C(N_LITTER_POOLS,N_C_TYPES) ! surface litter (kgC/m2)
    ! values for CORPSE
    type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
@@ -775,6 +776,7 @@ subroutine soil_data_init_0d(soil)
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0
   soil%slow_soil_C(:)         = 0.0
+  soil%litter_century_C(:,:)  = 0.0
   soil%asoil_in(:)            = 0.0
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
@@ -1196,6 +1198,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   ! merge soil carbon
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
+  s2%litter_century_C(:,:) = s1%litter_century_C(:,:)*x1 + s2%litter_century_C(:,:)*x2
   do i=1,num_l
     call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
   enddo
@@ -1959,7 +1962,8 @@ real function soil_tile_carbon (soil)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
   case default
-     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)) &
+                      + sum(soil%litter_century_C(:,:))
   end select
 end function soil_tile_carbon
 

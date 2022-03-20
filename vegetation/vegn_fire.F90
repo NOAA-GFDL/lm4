@@ -2171,9 +2171,18 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
        height = 0.0      ; F_parameter = 0.0
     endif
 
-    do i = 1, N_LITTER_POOLS
-       call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C(i))
-    enddo
+    select case (soil_carbon_option)
+    case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+       do i = 1, N_LITTER_POOLS
+          litter_total_C(i) = sum(soil%litter_century_C(i,:))
+       enddo
+    case (SOILC_CORPSE,SOILC_CORPSE_N)
+       do i = 1, N_LITTER_POOLS
+          call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C(i))
+       enddo
+    case default
+       call error_mesg('vegn_fire_intensity','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+    end select
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
@@ -3417,14 +3426,22 @@ subroutine update_fire_agb(vegn,soil)
          )
    enddo
 
-   if (soil_carbon_option==SOILC_CORPSE) then
+   select case (soil_carbon_option)
+   case (SOILC_CORPSE,SOILC_CORPSE_N)
       ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
       do i = 1, N_LITTER_POOLS
          if (i == CWOOD) cycle
          call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C)
          vegn%fire_agb = vegn%fire_agb + litter_total_C
       enddo
-   endif
+   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+      do i = 1, N_LITTER_POOLS
+         if (i == CWOOD) cycle
+         vegn%fire_agb = vegn%fire_agb + sum(soil%litter_century_C(i,:))
+      enddo
+   case default
+      call error_mesg('update_fire_agb','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+   end select
 
 end subroutine update_fire_agb
 
