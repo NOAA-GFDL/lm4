@@ -717,13 +717,13 @@ subroutine sc_litter_litterC_ptr(t,i,j,k,p)
     endif
 end subroutine
 
-subroutine litter_century_C_ptr(t,j,k,p)
+subroutine litter_century_C_ptr(t,i,k,p)
     type(land_tile_type),pointer::t
-    integer,intent(in)::j,k
+    integer,intent(in)::i,k
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%litter_century_C(k,j)
+        if(associated(t%soil))p=>t%soil%litter_century_C(i,k)
     endif
 end subroutine
 

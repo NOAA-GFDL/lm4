@@ -3049,9 +3049,9 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
      do k = 1, N_LITTER_POOLS
-        if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(k,:)), diag)
+        if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(:,k)), diag)
         do i = 1, N_C_TYPES
-           call send_tile_data(id_litter_C(k,i), soil%litter_century_C(k,i), diag)
+           call send_tile_data(id_litter_C(k,i), soil%litter_century_C(i,k), diag)
         enddo
      enddo
 
@@ -3062,7 +3062,7 @@ subroutine soil_step_3(soil, diag)
      if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
      if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
      if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
-     if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(CWOOD,:)), diag)
+     if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,CWOOD)), diag)
      ! --- end of CMOR vars
 
   case (SOILC_CORPSE, SOILC_CORPSE_N)

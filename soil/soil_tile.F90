@@ -237,11 +237,11 @@ type :: soil_tile_type
                                      ! (relative to tfreeze) [W/m^2]
 
    ! soil carbon
-   ! CENTURY-style values
+   ! values for CENTURY-style soil carbon model
    real, allocatable :: &
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
-   real :: litter_century_C(N_LITTER_POOLS,N_C_TYPES) ! surface litter (kgC/m2)
+   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C ! surface litter (kgC/m2)
    ! values for CORPSE
    type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type

@@ -2174,7 +2174,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     select case (soil_carbon_option)
     case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
        do i = 1, N_LITTER_POOLS
-          litter_total_C(i) = sum(soil%litter_century_C(i,:))
+          litter_total_C(i) = sum(soil%litter_century_C(:,i))
        enddo
     case (SOILC_CORPSE,SOILC_CORPSE_N)
        do i = 1, N_LITTER_POOLS
@@ -3437,7 +3437,7 @@ subroutine update_fire_agb(vegn,soil)
    case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
       do i = 1, N_LITTER_POOLS
          if (i == CWOOD) cycle
-         vegn%fire_agb = vegn%fire_agb + sum(soil%litter_century_C(i,:))
+         vegn%fire_agb = vegn%fire_agb + sum(soil%litter_century_C(:,i))
       enddo
    case default
       call error_mesg('update_fire_agb','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)

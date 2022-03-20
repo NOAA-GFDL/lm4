@@ -2337,13 +2337,13 @@ subroutine update_soil_pools(vegn, soil)
      call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
 
      ! transfer litter to soil pools, with constant time scales
-     call deplete_pool1(soil%litter_century_C(LEAF,C_FAST),  tau_lflitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(LEAF,C_MIC) ,  tau_lflitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(LEAF,C_SLOW),  tau_lflitter_decomp, soil%slow_soil_C(1), soil%ssc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_FAST, LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_MIC,  LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_SLOW, LEAF),  tau_lflitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
 
-     call deplete_pool1(soil%litter_century_C(CWOOD,C_FAST), tau_cwlitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(CWOOD,C_MIC) , tau_cwlitter_decomp, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(CWOOD,C_SLOW), tau_cwlitter_decomp, soil%slow_soil_C(1), soil%ssc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_FAST, CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_MIC,  CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_SLOW, CWOOD), tau_cwlitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
 
   case (SOILC_CORPSE,SOILC_CORPSE_N)
 

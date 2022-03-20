@@ -161,8 +161,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   case (SOILC_CENTURY)
      if (tau_cwlitter_decomp>0.or.tau_lflitter_decomp>0) then
         ! put litterfall in litter pools
-        soil%litter_century_C(LEAF, :) = soil%litter_century_C(LEAF, :) + leaf_litt_C(:)
-        soil%litter_century_C(CWOOD,:) = soil%litter_century_C(CWOOD,:) + wood_litt_C(:)
+        soil%litter_century_C(:,LEAF)  = soil%litter_century_C(:,LEAF)  + leaf_litt_C(:)
+        soil%litter_century_C(:,CWOOD) = soil%litter_century_C(:,CWOOD) + wood_litt_C(:)
         fsc = sum(root_litt_C(:,C_FAST))
         ssc = sum(root_litt_C(:,C_SLOW))
      else
@@ -179,8 +179,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   case (SOILC_CENTURY_BY_LAYER)
      if (tau_cwlitter_decomp>0.or.tau_lflitter_decomp>0) then
         ! put litterfall in litter pools
-        soil%litter_century_C(LEAF, :) = soil%litter_century_C(LEAF, :) + leaf_litt_C(:)
-        soil%litter_century_C(CWOOD,:) = soil%litter_century_C(CWOOD,:) + wood_litt_C(:)
+        soil%litter_century_C(:,LEAF)  = soil%litter_century_C(:,LEAF)  + leaf_litt_C(:)
+        soil%litter_century_C(:,CWOOD) = soil%litter_century_C(:,CWOOD) + wood_litt_C(:)
         fsc = 0.0; ssc = 0.0
      else
         ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
