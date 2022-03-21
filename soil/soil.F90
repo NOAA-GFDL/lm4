@@ -282,9 +282,9 @@ integer :: id_st_diff
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
-    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, &
+    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
     id_cSoilAbove1m, &
-    id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
+    id_nSoil, id_nLitter, id_nLitterCwd, id_nLitterLeaf, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1440,6 +1440,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
        fill_missing=.TRUE.)
+  id_cLitterLeaf = register_tiled_diag_field ( cmor_name, 'cLitterLeaf', axes(1:1), &
+       lnd%time, 'Carbon Mass in Leaf Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='leaf_debris_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
@@ -1472,6 +1476,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_nLitterCwd = register_tiled_diag_field ( cmor_name, 'nLitterCwd', axes(1:1), &
        lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
+       fill_missing=.TRUE.)
+  id_nLitterLeaf = register_tiled_diag_field ( cmor_name, 'nLitterLeaf', axes(1:1), &
+       lnd%time, 'Nitrogen Mass in Leaf Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='leaf_debris_mass_content_of_nitrogen', &
        fill_missing=.TRUE.)
 
 end subroutine soil_diag_init
@@ -3065,6 +3073,7 @@ subroutine soil_step_3(soil, diag)
      if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
      if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
      if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,CWOOD)), diag)
+     if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LEAF)), diag)
      ! --- end of CMOR vars
 
   case (SOILC_CORPSE, SOILC_CORPSE_N)
@@ -3158,10 +3167,14 @@ subroutine soil_step_3(soil, diag)
            call send_tile_data(id_litter_dissolved_N(k,i), soil%litter_corpse(k)%dissolved_nitrogen(i), diag)
         enddo
         ! CMOR diagnostics
-        if (k==CWOOD) then
+        select case (k)
+        case (CWOOD)
            call send_tile_data(id_cLitterCwd, litter_total_C, diag)
            call send_tile_data(id_nLitterCwd, litter_total_N, diag)
-        endif
+        case (LEAF)
+           call send_tile_data(id_cLitterLeaf, litter_total_C, diag)
+           call send_tile_data(id_nLitterLeaf, litter_total_N, diag)
+        end select
      enddo
 
      ! diagnostic of totals
