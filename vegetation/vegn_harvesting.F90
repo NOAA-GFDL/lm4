@@ -797,18 +797,8 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      cc%leaf_N = cc%leaf_N * (1-grazing_intensity)
 
      ! add carbon to intermediate pools
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-        ! add litter to intermediate carbon pools
-        vegn%fsc_pool_ag = vegn%fsc_pool_ag + littC*sp%fsc_liv
-        vegn%ssc_pool_ag = vegn%ssc_pool_ag + littC*(1-sp%fsc_liv)
-        ! note that we assume microbial biomass is zero
-     case (SOILC_CORPSE, SOILC_CORPSE_N)
-        vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-        vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-     case default
-        call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-     end select
+     vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
      end associate
   enddo
   end associate ! vegn
@@ -865,20 +855,10 @@ subroutine vegn_harvest_crop_ppa(tile)
   enddo
 
   ! add carbon to intermediate pools
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     ! add litter to intermediate carbon pools
-     vegn%fsc_pool_ag = vegn%fsc_pool_ag + wood_litt_C(C_FAST) + leaf_litt_C(C_FAST)
-     vegn%ssc_pool_ag = vegn%ssc_pool_ag + wood_litt_C(C_SLOW) + leaf_litt_C(C_SLOW)
-     ! note that we assume microbial biomass is zero
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
-     vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + wood_litt_C(:)
-     vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + wood_litt_N(:)
-     vegn%litter_buff_C(:,LEAF)  = vegn%litter_buff_C(:,LEAF)  + leaf_litt_C(:)
-     vegn%litter_buff_N(:,LEAF)  = vegn%litter_buff_N(:,LEAF)  + leaf_litt_N(:)
-  case default
-     call error_mesg('vegn_harvest_crop_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
+  vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + wood_litt_C(:)
+  vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + wood_litt_N(:)
+  vegn%litter_buff_C(:,LEAF)  = vegn%litter_buff_C(:,LEAF)  + leaf_litt_C(:)
+  vegn%litter_buff_N(:,LEAF)  = vegn%litter_buff_N(:,LEAF)  + leaf_litt_N(:)
 
   vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_FAST))+sum(root_litt_C(:,C_MIC))
   vegn%fsn_pool_bg = vegn%fsn_pool_bg + sum(root_litt_N(:,C_FAST))+sum(root_litt_N(:,C_MIC))
@@ -973,24 +953,13 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
           + sum(wood_harv_N)*(1-frac_wood_wasted)
   endif
 
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     ! add litter to intermediate carbon pools
-     vegn%fsc_pool_ag = vegn%fsc_pool_ag + &
-         wood_harv_C(C_FAST)*frac_wood_wasted + wood_litt_C(C_FAST) + leaf_litt_C(C_FAST)
-     vegn%ssc_pool_ag = vegn%ssc_pool_ag + &
-         wood_harv_C(C_SLOW)*frac_wood_wasted + wood_litt_C(C_SLOW) + leaf_litt_C(C_SLOW)
-     ! note that we assume microbial biomass is zero
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
-     vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
-        wood_litt_C(:) + wood_harv_C(:)*frac_wood_wasted
-     vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
-        wood_litt_N(:) + wood_harv_N(:)*frac_wood_wasted
-     vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + leaf_litt_C(:)
-     vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + leaf_litt_N(:)
-  case default
-     call error_mesg('vegn_cut_forest_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
+  vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
+     wood_litt_C(:) + wood_harv_C(:)*frac_wood_wasted
+  vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
+     wood_litt_N(:) + wood_harv_N(:)*frac_wood_wasted
+  vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + leaf_litt_C(:)
+  vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + leaf_litt_N(:)
+
   vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_FAST))+sum(root_litt_C(:,C_MIC))
   vegn%fsn_pool_bg = vegn%fsn_pool_bg + sum(root_litt_N(:,C_FAST))+sum(root_litt_N(:,C_MIC))
   vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt_C(:,C_SLOW))

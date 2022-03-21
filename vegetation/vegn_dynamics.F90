@@ -2330,8 +2330,12 @@ subroutine update_soil_pools(vegn, soil)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     call deplete_pool(vegn%fsc_pool_ag, vegn%fsc_rate_ag, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool(vegn%ssc_pool_ag, vegn%ssc_rate_ag, soil%slow_soil_C(1), soil%ssc_in(1))
+     ! move carbon from intermediate spike-process buffers to litter
+     do i = 1,N_C_TYPES
+        do k = 1, N_LITTER_POOLS
+           call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soil%litter_century_C(i,k))
+        enddo
+     enddo
 
      call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1), soil%fsc_in(1))
      call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
