@@ -90,6 +90,8 @@ real :: min_lai_for_grazing_range = 0.0     ! no grazing if LAI lower than this 
   ! grazing frequency; still goes through intermediate pools in case of annual grazing.
 real :: max_grazing_height_past  = 9999.0  ! m, no grazing of vegetation above this height.
 real :: max_grazing_height_range = 3.0     ! m, no grazing of vegetation above this height.
+logical :: grazing_daily_litter_bug = .FALSE. ! if TRUE, PPA daily grazing stores the litter in intermediate
+                                           ! buffers, instead of moving it immediately to litter pools
 
 real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested in PPA, m
 real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting in PPA
@@ -123,6 +125,7 @@ namelist/harvesting_nml/ do_harvesting, &
      grazing_intensity_past, grazing_intensity_range, &
      max_grazing_height_past, max_grazing_height_range, &
      min_lai_for_grazing_past, min_lai_for_grazing_range, &
+     grazing_daily_litter_bug, &
      ! wood harvesting and clearance parameters
      wood_harv_DBH, frac_trampled, &
      frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
@@ -766,16 +769,17 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
   real, intent(in) :: grazing_intensity
   real, intent(in) :: max_grazing_height ! meters. Vegetation taller than this threshold is not grazed
 
-  real    :: littC, littN ! litter from grazing, kg/m2
-  real    :: LAI ! leaf area index of *grazed* vegetation. Does not include plants taller
-                 ! than max grazing height.
+  real :: littC, littN ! litter from grazing of individual cohorts, kg/m2
+  real :: buffC(N_C_TYPES), buffN(N_C_TYPES) ! accumulators of litter, kg/m2
+  real :: LAI ! leaf area index of *grazed* vegetation. Does not include plants taller
+              ! than max grazing height.
   integer :: i
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, nmass0
 
   call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
-  associate (vegn=>tile%vegn)
+  associate (vegn=>tile%vegn,soil=>tile%soil)
   LAI = 0.0
   do i = 1,vegn%n_cohorts
      if (vegn%cohorts(i)%height < max_grazing_height) &
@@ -783,6 +787,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
   enddo
   if (LAI < min_lai_for_grazing) return
 
+  buffC(:) = 0.0; buffN(:) = 0.0
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      if (cc%height >= max_grazing_height) continue ! do nothing to vegetation browsers cannot reach.
@@ -796,11 +801,36 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      cc%bl     = cc%bl     * (1-grazing_intensity)
      cc%leaf_N = cc%leaf_N * (1-grazing_intensity)
 
-     ! add carbon to intermediate pools
-     vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-     vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     ! add litter
+     ! if grazing is daily, litter goes directly to the soil litter pools; otherwise (in
+     ! case of annual grazing) it goes into intermediate buffers to be gradually transferred
+     ! into the soil pools later.
+     ! NOTE that the code below is more convoluted than it could be, to preserve the
+     ! numerical answers of the previous version. The straightforward version would accumulate
+     ! buffC and buffN and then deal with them after the loop.
+     if (grazing_freq.ne.GRAZING_DAILY .or. grazing_daily_litter_bug) then
+        ! litter goes to intermediate pool directly
+        vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+        vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     else
+        ! accumulate litter in local pools
+        buffC(:) = buffC(:) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+        buffN(:) = buffN(:) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     endif
      end associate
   enddo
+  if (grazing_freq==GRAZING_DAILY) then
+     ! move local pools to litter right away; in case of grazing_daily_litter_bug buffC
+     ! and buffN are zero, so nothing happens
+     select case (soil_carbon_option)
+     case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+        soil%litter_century_C(:,LEAF) = soil%litter_century_C(:,LEAF) + buffC(:)
+     case (SOILC_CORPSE,SOILC_CORPSE_N)
+        call add_litter(soil%litter_corpse(LEAF),buffC,buffN)
+     case default
+        call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     end select
+  endif
   end associate ! vegn
 
   call check_conservation_2(tile,'vegn_graze_pasture_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
