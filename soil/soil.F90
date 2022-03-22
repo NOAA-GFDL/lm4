@@ -1795,7 +1795,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
         __DEBUG3__(soil%w_wilt(l),soil%w_fc(l), soil%alpha(l))
      enddo
 !     do l = 1,N_LITTER_POOLS
-!        call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
+!        call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
 !     enddo
 !      do l = 1, num_l
 !         write(*,'(i2.2,x)',advance='NO') l
