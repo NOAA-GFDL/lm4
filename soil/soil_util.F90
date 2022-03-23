@@ -216,6 +216,10 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
      call error_mesg('add_soil_carbon','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
 
+  ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
+  soil%litterfall_C(:,LEAF)  = soil%litterfall_C(:,LEAF)  + leaf_litt_C(:)
+  soil%litterfall_C(:,CWOOD) = soil%litterfall_C(:,CWOOD) + wood_litt_C(:)
+
 contains
 
   ! given litter and amount of negative litter from previous time step, attempts to borrow

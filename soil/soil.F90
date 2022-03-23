@@ -255,6 +255,10 @@ integer :: &
 integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, id_litter_total_C_leaching, id_litter_total_ON_leaching, id_litter_NO3_leaching, id_litter_NH4_leaching,&
     id_litter_livemic_N, id_litter_total_N, id_litter_nitrate, id_litter_ammonium
+
+integer :: & ! litterfall diagnostics
+    id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C
+
 integer, dimension(N_C_TYPES) :: &
     id_soil_C,           id_soil_N, &
     id_soil_dissolved_C, id_soil_dissolved_N, &
@@ -1020,6 +1024,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_nlittercohorts(:) = register_litter_diag_fields ( module_name, '<ltype>litt_n_cohorts', axes(1:1),  &
        lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
 
+  id_litterfall_C = register_tiled_diag_field(module_name,'litt_fall_C',axes(1:1),lnd%time,&
+       'total litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+  id_litterfall_lf_C = register_tiled_diag_field(module_name,'lflitt_fall_C',axes(1:1),lnd%time,&
+       'leaf litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+  id_litterfall_cw_C = register_tiled_diag_field(module_name,'cwlitt_fall_C',axes(1:1),lnd%time,&
+       'wood litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+
   id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_DON_leaching', &
        axes(1:1), lnd%time, '<ltype> litter <ctype> DON leaching','kg/(m2 s)', missing_value=-100.0)
   id_litter_total_C_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_C_leaching', &
@@ -1114,13 +1125,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
        missing_value=initval)
   id_fsc = register_tiled_diag_field ( module_name, 'fsc', axes(1:1),  &
-       lnd%time, 'total fast soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total fast soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
   id_fsn = register_tiled_diag_field ( module_name, 'fsn', axes(1:1),  &
-       lnd%time, 'total fast soil nitrogen', 'kg N/m2', missing_value=-100.0 )
+       lnd%time, 'total fast soil nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
   id_ssc = register_tiled_diag_field ( module_name, 'ssc', axes(1:1),  &
-       lnd%time, 'total slow soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total slow soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
   id_ssn = register_tiled_diag_field ( module_name, 'ssn', axes(1:1),  &
-       lnd%time, 'total slow soil nitrogen', 'kg N/m2', missing_value=-100.0 )
+       lnd%time, 'total slow soil nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
   id_lwc = register_tiled_diag_field ( module_name, 'soil_liq', axes,  &
        lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'soil_ice',  axes,  &
@@ -3035,7 +3046,7 @@ end subroutine soil_step_2
 
 ! ============================================================================
 subroutine soil_step_3(soil, diag)
-  type(soil_tile_type), intent(in) :: soil
+  type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
   real :: soil_C(N_C_TYPES, num_l),      soil_N(N_C_TYPES, num_l), &
@@ -3053,11 +3064,11 @@ subroutine soil_step_3(soil, diag)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
-     call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
+     call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
+     call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
      call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
-     call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
+     call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(:,:)), diag)
      do k = 1, N_LITTER_POOLS
         if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(:,k)), diag)
         do i = 1, N_C_TYPES
@@ -3199,6 +3210,11 @@ subroutine soil_step_3(soil, diag)
   case default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
+  ! send litterfall data
+  if (id_litterfall_C>0)    call send_tile_data(id_litterfall_C,    sum(soil%litterfall_C(:,:))/dt_fast_yr,     diag)
+  if (id_litterfall_lf_C>0) call send_tile_data(id_litterfall_lf_C, sum(soil%litterfall_C(:,LEAF))/dt_fast_yr,  diag)
+  if (id_litterfall_cw_C>0) call send_tile_data(id_litterfall_cw_C, sum(soil%litterfall_C(:,CWOOD))/dt_fast_yr, diag)
+  soil%litterfall_C(:,:) = 0.0 ! reset for the next time step
 
 end subroutine soil_step_3
 

@@ -830,6 +830,8 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      case default
         call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
+     ! for litterfall diagnostics
+     soil%litterfall_C(:,LEAF) = soil%litterfall_C(:,LEAF) + buffC(:)
   endif
   end associate ! vegn
 

@@ -2333,7 +2333,7 @@ subroutine update_soil_pools(vegn, soil)
      ! move carbon from intermediate spike-process buffers to litter
      do i = 1,N_C_TYPES
         do k = 1, N_LITTER_POOLS
-           call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soil%litter_century_C(i,k))
+           call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soil%litter_century_C(i,k),soil%litterfall_C(i,k))
         enddo
      enddo
 
@@ -2366,6 +2366,8 @@ subroutine update_soil_pools(vegn, soil)
      enddo
      vegn%litter_buff_C = vegn%litter_buff_C - delta_C
      vegn%litter_buff_N = vegn%litter_buff_N - delta_N
+     ! for litterfall diagnostics
+     soil%litterfall_C(:,:) = soil%litterfall_C(:,:) + delta_C(:,:)
 
      deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
      deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)
