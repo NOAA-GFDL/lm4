@@ -1067,7 +1067,7 @@ end subroutine print_river_tracer_data
     gw_s_abst_ug(:) = 0. ; gw_d_abst_ug(:) = 0. !m3
     gw_s_habst_ug(:) = 0. ; gw_d_habst_ug(:) = 0. !J  
 
-  if(.not.use_predefined_tiles)then
+  if(1==1)then
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile,k=k))
