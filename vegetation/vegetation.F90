@@ -26,7 +26,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use vegn_accessors_mod ! use everything
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
-     N_LITTER_POOLS, LEAF, l_shortname, l_longname
+     N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -212,6 +212,7 @@ namelist /vegn_nml/ &
 logical :: module_is_initialized =.FALSE.
 real    :: delta_time      ! fast time step
 real    :: dt_fast_yr      ! fast time step in years
+real    :: dt_slow_yr      ! slow time step in years
 real    :: steps_per_day   ! number of fast time steps per day
 real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 integer :: seed_transport_option = -1 ! type of requested seed transport algorithm
@@ -246,10 +247,12 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
    id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
-   id_age_since_disturbance, id_age_since_landuse
+   id_age_since_disturbance, id_age_since_landuse, &
+   id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
+
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cStem, id_cMisc, id_cProduct, id_cAnt, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
@@ -355,6 +358,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   delta_time = time_type_to_real(lnd%dt_fast)
   steps_per_day = 86400.0/delta_time
   dt_fast_yr = delta_time/seconds_per_year
+  dt_slow_yr = time_type_to_real(lnd%dt_slow)/seconds_per_year
 
   ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
   weight_av_phen = delta_time/(delta_time+tau_smooth_theta_phen*86400.0)
@@ -1135,6 +1139,14 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_ssc_rate_bg = register_tiled_diag_field ('soil', 'ssc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
+
+  ! litterfall rates (only carbon now)
+  id_litterfall_C = register_tiled_diag_field('soil','litterfall_C',(/id_ug/),lnd%time,&
+       'total litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+  id_litterfall_lf_C = register_tiled_diag_field('soil','lflitterfall_C',(/id_ug/),lnd%time,&
+       'leaf litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+  id_litterfall_cw_C = register_tiled_diag_field('soil','cwlitterfall_C',(/id_ug/),lnd%time,&
+       'wood litterfall rate', 'kg C/m2/year', missing_value=-100.0)
 
   id_csmoke_pool = register_tiled_diag_field ( module_name, 'csmoke', (/id_ug/), &
        time, 'carbon lost through fire', 'kg C/m2', missing_value=-999.0)
@@ -2992,6 +3004,16 @@ subroutine update_vegn_slow( )
         enddo
      enddo
   endif
+
+  ! send litterfall data
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l,k))
+     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+     if (id_litterfall_C>0)    call send_tile_data(id_litterfall_C,    sum(tile%vegn%litterfall_C(:,:))    /dt_slow_yr, tile%diag)
+     if (id_litterfall_lf_C>0) call send_tile_data(id_litterfall_lf_C, sum(tile%vegn%litterfall_C(:,LEAF)) /dt_slow_yr, tile%diag)
+     if (id_litterfall_cw_C>0) call send_tile_data(id_litterfall_cw_C, sum(tile%vegn%litterfall_C(:,CWOOD))/dt_slow_yr, tile%diag)
+     tile%vegn%litterfall_C(:,:) = 0.0 ! reset for the accumulation on next time step
+  enddo
 
   ! override with static vegetation
   if(day1/=day0) &

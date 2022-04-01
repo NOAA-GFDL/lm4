@@ -108,7 +108,7 @@ end subroutine add_root_exudates
 subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
                                      leaf_litter_N,wood_litter_N,root_litter_N)
   type(soil_tile_type), intent(inout) :: soil
-  type(vegn_tile_type), intent(in)    :: vegn
+  type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in), optional :: leaf_litter_C(N_C_TYPES)
   real, intent(in), optional :: wood_litter_C(N_C_TYPES)
   real, intent(in), optional :: root_litter_C(num_l,N_C_TYPES)
@@ -217,8 +217,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   end select
 
   ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
-  soil%litterfall_C(:,LEAF)  = soil%litterfall_C(:,LEAF)  + leaf_litt_C(:)
-  soil%litterfall_C(:,CWOOD) = soil%litterfall_C(:,CWOOD) + wood_litt_C(:)
+  vegn%litterfall_C(:,LEAF)  = vegn%litterfall_C(:,LEAF)  + leaf_litt_C(:)
+  vegn%litterfall_C(:,CWOOD) = vegn%litterfall_C(:,CWOOD) + wood_litt_C(:)
 
 contains
 

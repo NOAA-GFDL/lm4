@@ -256,9 +256,6 @@ integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, id_litter_total_C_leaching, id_litter_total_ON_leaching, id_litter_NO3_leaching, id_litter_NH4_leaching,&
     id_litter_livemic_N, id_litter_total_N, id_litter_nitrate, id_litter_ammonium
 
-integer :: & ! litterfall diagnostics
-    id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C
-
 integer, dimension(N_C_TYPES) :: &
     id_soil_C,           id_soil_N, &
     id_soil_dissolved_C, id_soil_dissolved_N, &
@@ -1023,13 +1020,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
   id_nlittercohorts(:) = register_litter_diag_fields ( module_name, '<ltype>litt_n_cohorts', axes(1:1),  &
        lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
-
-  id_litterfall_C = register_tiled_diag_field(module_name,'litt_fall_C',axes(1:1),lnd%time,&
-       'total litterfall rate', 'kg C/m2/year', missing_value=-100.0)
-  id_litterfall_lf_C = register_tiled_diag_field(module_name,'lflitt_fall_C',axes(1:1),lnd%time,&
-       'leaf litterfall rate', 'kg C/m2/year', missing_value=-100.0)
-  id_litterfall_cw_C = register_tiled_diag_field(module_name,'cwlitt_fall_C',axes(1:1),lnd%time,&
-       'wood litterfall rate', 'kg C/m2/year', missing_value=-100.0)
 
   id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_DON_leaching', &
        axes(1:1), lnd%time, '<ltype> litter <ctype> DON leaching','kg/(m2 s)', missing_value=-100.0)
@@ -3210,11 +3200,6 @@ subroutine soil_step_3(soil, diag)
   case default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
-  ! send litterfall data
-  if (id_litterfall_C>0)    call send_tile_data(id_litterfall_C,    sum(soil%litterfall_C(:,:))/dt_fast_yr,     diag)
-  if (id_litterfall_lf_C>0) call send_tile_data(id_litterfall_lf_C, sum(soil%litterfall_C(:,LEAF))/dt_fast_yr,  diag)
-  if (id_litterfall_cw_C>0) call send_tile_data(id_litterfall_cw_C, sum(soil%litterfall_C(:,CWOOD))/dt_fast_yr, diag)
-  soil%litterfall_C(:,:) = 0.0 ! reset for the next time step
 
 end subroutine soil_step_3
 

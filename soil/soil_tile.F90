@@ -248,9 +248,6 @@ type :: soil_tile_type
    integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
    real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
 
-   ! litterfall diagnostic fields
-   real :: litterfall_C(N_C_TYPES, N_LITTER_POOLS) = 0.0
-
    real, allocatable :: frozen_freq(:) ! Keeps track of frequency of frozen conditions,
         ! for permafrost detection in root profile calculations.
 
@@ -1215,8 +1212,6 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
-  ! merge litterfall diagnostics
-  s2%litterfall_C(:,:) = s1%litterfall_C(:,:)*x1 + s2%litterfall_C(:,:)*x2
 
   s2%NO3_leached=s1%NO3_leached*x1 + s2%NO3_leached*x2
   s2%NH4_leached=s1%NH4_leached*x1 + s2%NH4_leached*x2

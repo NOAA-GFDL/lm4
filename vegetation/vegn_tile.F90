@@ -104,6 +104,8 @@ type :: vegn_tile_type
    real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
        litter_buff_C = 0.0, litter_rate_C = 0.0, &
        litter_buff_N = 0.0, litter_rate_N = 0.0
+   ! litterfall diagnostic fields
+   real :: litterfall_C(N_C_TYPES, N_LITTER_POOLS) = 0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -394,6 +396,9 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(t_cold_acm) ! temperature of the coldest month in current year
   __MERGE__(p_ann_acm)  ! accumulated annual precipitation for p_ann
   __MERGE__(ncm_acm)    ! accumulated number of cold months
+
+  ! merge litterfall diagnostics
+  __MERGE__(litterfall_C)
 
 #undef __MERGE__
 
