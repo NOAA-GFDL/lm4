@@ -127,7 +127,6 @@ type :: vegn_tile_type
    real :: disturbance_rate(0:1) = 0 ! 1/year
    real :: lambda = 0.0 ! cumulative drought months per year
    real :: fuel   = 0.0 ! fuel over dry months
-   real :: litter = 0.0 ! litter flux
 
    ! monthly accumulated/averaged values
    real :: theta_av_phen = 0.0 ! relative soil_moisture availability not soil moisture
@@ -370,7 +369,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(disturbance_rate)
   __MERGE__(lambda)     ! cumulative drought months per year
   __MERGE__(fuel)       ! fuel over dry months
-  __MERGE__(litter)     ! litter flux
 
   ! accumulated/averaged values
   __MERGE__(theta_av_phen)   ! relative soil_moisture availability not soil moisture

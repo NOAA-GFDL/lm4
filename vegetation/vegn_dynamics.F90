@@ -200,8 +200,6 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_dbh_growth = register_cohort_diag_field ( diag_mod_name, 'dbh_gr',  &
        (/id_ug/), time, 'growth rathe of DBH', 'm/year', &
        missing_value=-100.0)
-  id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_ug/), &
-       time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
   id_resp = register_cohort_diag_field ( diag_mod_name, 'resp', (/id_ug/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0)
   id_resl = register_cohort_diag_field ( diag_mod_name, 'resl', (/id_ug/), &
@@ -919,7 +917,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_tile_data(id_nep,vegn%nep,diag)
-  call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resl, diag, c(1:N), resl(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resr, diag, c(1:N), resr(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
@@ -1259,7 +1256,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_gpp,  diag, c(1:M), gpp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_npp,  diag, c(1:M), npp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
   call send_tile_data(id_nep,vegn%nep,diag)
-  call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:M), resp(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resl, diag, c(1:M), resl(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resr, diag, c(1:M), resr(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
@@ -1992,7 +1988,6 @@ subroutine vegn_phenology_lm3(vegn, soil)
   integer :: i, l
 
   wilt = soil%w_wilt(1)/soil%pars%vwc_sat
-  vegn%litter = 0
 
   leaf_litt_C = 0 ; root_litt_C = 0 ; leaf_litt_N = 0 ; root_litt_N = 0
   do i = 1,vegn%n_cohorts
@@ -2040,7 +2035,6 @@ subroutine vegn_phenology_lm3(vegn, soil)
                    [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_N
            enddo
 
-           vegn%litter = vegn%litter + leaf_litter_C + root_litter_C
            vegn%veg_out = vegn%veg_out + leaf_litter_C + root_litter_C
 
            cc%blv = cc%blv + sp%leaf_C_retrans_frac*cc%bl + sp%root_C_retrans_frac*cc%br
@@ -2096,7 +2090,6 @@ subroutine vegn_phenology_ppa(tile)
 
   associate(vegn=>tile%vegn, soil=>tile%soil)
 
-  vegn%litter = 0 ;
   leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
   root_litt_C    = 0.0 ; root_litt_N    = 0.0
   do i = 1,vegn%n_cohorts
@@ -2213,7 +2206,6 @@ subroutine vegn_phenology_ppa(tile)
          leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
          leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
-         vegn%litter = vegn%litter + leaf_litter_C
          vegn%veg_out = vegn%veg_out + leaf_litter_C
 
          root_litter_C = (1-sp%root_C_retrans_frac) * dead_roots_C * cc%nindivs
