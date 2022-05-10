@@ -36,9 +36,9 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
-     mycorrhizal_turnover_time, N_fixer_turnover_time
+     mycorrhizal_turnover_time, N_fixer_turnover_time, tau_lflitt_transfer, tau_cwlitt_transfer
 use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS
+use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
@@ -200,8 +200,6 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_dbh_growth = register_cohort_diag_field ( diag_mod_name, 'dbh_gr',  &
        (/id_ug/), time, 'growth rathe of DBH', 'm/year', &
        missing_value=-100.0)
-  id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_ug/), &
-       time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
   id_resp = register_cohort_diag_field ( diag_mod_name, 'resp', (/id_ug/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0)
   id_resl = register_cohort_diag_field ( diag_mod_name, 'resl', (/id_ug/), &
@@ -919,7 +917,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_tile_data(id_nep,vegn%nep,diag)
-  call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resl, diag, c(1:N), resl(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resr, diag, c(1:N), resr(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
@@ -1259,7 +1256,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_gpp,  diag, c(1:M), gpp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_npp,  diag, c(1:M), npp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
   call send_tile_data(id_nep,vegn%nep,diag)
-  call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:M), resp(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resl, diag, c(1:M), resl(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resr, diag, c(1:M), resr(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
@@ -1992,7 +1988,6 @@ subroutine vegn_phenology_lm3(vegn, soil)
   integer :: i, l
 
   wilt = soil%w_wilt(1)/soil%pars%vwc_sat
-  vegn%litter = 0
 
   leaf_litt_C = 0 ; root_litt_C = 0 ; leaf_litt_N = 0 ; root_litt_N = 0
   do i = 1,vegn%n_cohorts
@@ -2040,7 +2035,6 @@ subroutine vegn_phenology_lm3(vegn, soil)
                    [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_N
            enddo
 
-           vegn%litter = vegn%litter + leaf_litter_C + root_litter_C
            vegn%veg_out = vegn%veg_out + leaf_litter_C + root_litter_C
 
            cc%blv = cc%blv + sp%leaf_C_retrans_frac*cc%bl + sp%root_C_retrans_frac*cc%br
@@ -2096,7 +2090,6 @@ subroutine vegn_phenology_ppa(tile)
 
   associate(vegn=>tile%vegn, soil=>tile%soil)
 
-  vegn%litter = 0 ;
   leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
   root_litt_C    = 0.0 ; root_litt_N    = 0.0
   do i = 1,vegn%n_cohorts
@@ -2213,7 +2206,6 @@ subroutine vegn_phenology_ppa(tile)
          leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
          leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
-         vegn%litter = vegn%litter + leaf_litter_C
          vegn%veg_out = vegn%veg_out + leaf_litter_C
 
          root_litter_C = (1-sp%root_C_retrans_frac) * dead_roots_C * cc%nindivs
@@ -2277,7 +2269,7 @@ end subroutine
 
 ! =============================================================================
 ! given an intermediate pool of C or N, and its spending rate, move the amount
-! of mass corresponding to one fats time step from the pool to the destination.
+! of mass corresponding to one fast time step from the pool to the destination.
 ! The spending rate is adjusted so that intermediate pool is never depleted below zero.
 ! NOTE that the spending rate is also updated, to be correctly reported to diagnostics
 subroutine deplete_pool(pool, rate, dest, accum)
@@ -2296,6 +2288,25 @@ subroutine deplete_pool(pool, rate, dest, accum)
 end subroutine deplete_pool
 
 ! =============================================================================
+! given an intermediate pool of C or N, and its e-folding time scale, move the amount
+! of mass corresponding to one fats time step from the pool to the destination.
+subroutine deplete_pool1(pool, tau, dest, accum)
+   real, intent(inout) :: pool ! C or N intermediate pool, kg
+   real, intent(in)    :: tau  ! C or N e-folding time scale, years
+   real, intent(inout) :: dest ! C or N destination pool, kg
+   real, intent(inout), optional :: accum ! accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
+
+   real :: rate ! rate of depletion, kgC/m2/year
+
+   if (tau > 0) then
+      rate = pool/tau
+   else
+      rate = pool/dt_fast_yr
+   endif
+   call deplete_pool(pool, rate, dest, accum)
+end subroutine deplete_pool1
+
+! =============================================================================
 subroutine update_soil_pools(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
@@ -2307,14 +2318,28 @@ subroutine update_soil_pools(vegn, soil)
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
   real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
   real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
+  real :: tau ! time scale of CENTURY-mode litter transfer to soil pools
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     call deplete_pool(vegn%fsc_pool_ag, vegn%fsc_rate_ag, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool(vegn%ssc_pool_ag, vegn%ssc_rate_ag, soil%slow_soil_C(1), soil%ssc_in(1))
+     ! move carbon from intermediate spike-process buffers to litter
+     do i = 1,N_C_TYPES
+        do k = 1, N_LITTER_POOLS
+           call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soil%litter_century_C(i,k),vegn%litterfall_C(i,k))
+        enddo
+     enddo
 
      call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1), soil%fsc_in(1))
      call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
+
+     ! transfer litter to soil pools, with constant time scales
+     call deplete_pool1(soil%litter_century_C(C_FAST, LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_MIC,  LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_SLOW, LEAF),  tau_lflitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
+
+     call deplete_pool1(soil%litter_century_C(C_FAST, CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_MIC,  CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_SLOW, CWOOD), tau_cwlitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
 
   case (SOILC_CORPSE,SOILC_CORPSE_N)
 
@@ -2329,10 +2354,12 @@ subroutine update_soil_pools(vegn, soil)
      delta_N = vegn%litter_rate_N*dt_fast_yr
 
      do i = 1,N_LITTER_POOLS
-        call add_litter(soil%litter(i), delta_C(:,i), delta_N(:,i))
+        call add_litter(soil%litter_corpse(i), delta_C(:,i), delta_N(:,i))
      enddo
      vegn%litter_buff_C = vegn%litter_buff_C - delta_C
      vegn%litter_buff_N = vegn%litter_buff_N - delta_N
+     ! for litterfall diagnostics
+     vegn%litterfall_C(:,:) = vegn%litterfall_C(:,:) + delta_C(:,:)
 
      deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
      deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)

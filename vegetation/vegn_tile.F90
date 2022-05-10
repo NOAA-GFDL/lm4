@@ -95,8 +95,6 @@ type :: vegn_tile_type
 
    ! fields for smoothing out the contribution of the spike-type processes (e.g.
    ! harvesting) to the soil carbon pools over some period of time
-   real :: fsc_pool_ag=0.0, fsc_rate_ag=0.0 ! for fast soil carbon above ground
-   real :: ssc_pool_ag=0.0, ssc_rate_ag=0.0 ! for slow soil carbon above ground
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
 
@@ -106,6 +104,8 @@ type :: vegn_tile_type
    real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
        litter_buff_C = 0.0, litter_rate_C = 0.0, &
        litter_buff_N = 0.0, litter_rate_N = 0.0
+   ! litterfall diagnostic fields
+   real :: litterfall_C(N_C_TYPES, N_LITTER_POOLS) = 0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -127,7 +127,6 @@ type :: vegn_tile_type
    real :: disturbance_rate(0:1) = 0 ! 1/year
    real :: lambda = 0.0 ! cumulative drought months per year
    real :: fuel   = 0.0 ! fuel over dry months
-   real :: litter = 0.0 ! litter flux
 
    ! monthly accumulated/averaged values
    real :: theta_av_phen = 0.0 ! relative soil_moisture availability not soil moisture
@@ -342,8 +341,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(age_since_disturbance)
   __MERGE__(age_since_landuse)
 
-  __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
-  __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
 
@@ -371,7 +368,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(disturbance_rate)
   __MERGE__(lambda)     ! cumulative drought months per year
   __MERGE__(fuel)       ! fuel over dry months
-  __MERGE__(litter)     ! litter flux
 
   ! accumulated/averaged values
   __MERGE__(theta_av_phen)   ! relative soil_moisture availability not soil moisture
@@ -397,6 +393,9 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(t_cold_acm) ! temperature of the coldest month in current year
   __MERGE__(p_ann_acm)  ! accumulated annual precipitation for p_ann
   __MERGE__(ncm_acm)    ! accumulated number of cold months
+
+  ! merge litterfall diagnostics
+  __MERGE__(litterfall_C)
 
 #undef __MERGE__
 
@@ -1077,18 +1076,8 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
          plant_C(vegn%cohorts(i))*vegn%cohorts(i)%nindivs
   enddo
   carbon = carbon + sum(vegn%harv_pool_C) + sum(vegn%drop_seed_C) + &
-           vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
+           sum(vegn%litter_buff_C) + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
-
-  ! Pools associated with aboveground litter CORPSE pools
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     ! no extra pools are needed in this case
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
-     carbon = carbon + sum(vegn%litter_buff_C)
-  case default
-     call error_mesg('vegn_tile_carbon','The value of soil_carbon_option is invalid. This should never happen.',FATAL)
-  end select
 
 end function vegn_tile_carbon
 

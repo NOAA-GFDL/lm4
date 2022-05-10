@@ -58,7 +58,7 @@ public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
-public :: get_soil_litter_C ! returns litter carbon pools
+public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 
 ! public data
 public :: max_lev ! max number of soil layers (max dimension of arrays)
@@ -233,12 +233,13 @@ type :: soil_tile_type
                                      ! (relative to tfreeze) [W/m^2]
 
    ! soil carbon
-   ! CENTURY-style values
+   ! values for CENTURY-style soil carbon model
    real, allocatable :: &
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
+   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C ! surface litter (kgC/m2)
    ! values for CORPSE
-   type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
+   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
    real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
@@ -700,7 +701,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
      call init_soil_pool(ptr%org_matter(i), Qmax=ptr%pars%Qmax)
   enddo
   do i = 1,N_LITTER_POOLS
-     call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
+     call init_soil_pool(ptr%litter_corpse(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
   enddo
 end function soil_tile_ctor
 
@@ -769,6 +770,7 @@ subroutine soil_data_init_0d(soil)
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0
   soil%slow_soil_C(:)         = 0.0
+  soil%litter_century_C(:,:)  = 0.0
   soil%asoil_in(:)            = 0.0
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
@@ -1190,13 +1192,14 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   ! merge soil carbon
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
+  s2%litter_century_C(:,:) = s1%litter_century_C(:,:)*x1 + s2%litter_century_C(:,:)*x2
   do i=1,num_l
     call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
   do i = 1, N_LITTER_POOLS
-     call combine_pools(s1%litter(i),s2%litter(i),w1,w2)
+     call combine_pools(s1%litter_corpse(i),s2%litter_corpse(i),w1,w2)
   enddo
   s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
   s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
@@ -1949,11 +1952,12 @@ real function soil_tile_carbon (soil)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
      do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter(i),totalCarbon=temp)
+        call poolTotals(soil%litter_corpse(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
   case default
-     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)) &
+                      + sum(soil%litter_century_C(:,:))
   end select
 end function soil_tile_carbon
 
@@ -1974,7 +1978,7 @@ real function soil_tile_nitrogen (soil)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
      do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter(i),totalNitrogen=temp)
+        call poolTotals(soil%litter_corpse(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
   case default
@@ -1984,7 +1988,7 @@ end function soil_tile_nitrogen
 
 ! ============================================================================
 ! given soil tile, returns carbon content of various components of litter
-subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
   type(soil_tile_type), intent(in)  :: soil
   real, intent(out) :: &
      litter_fast_C,    & ! fast litter carbon, [kgC/m2]
@@ -1997,11 +2001,11 @@ subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_
      litter_slow_C    = soil%slow_soil_C(1)
      litter_deadmic_C = 0.0
   case(SOILC_CORPSE, SOILC_CORPSE_N)
-     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+     call poolTotals(soil%litter_corpse(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
   case default
-     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
-end subroutine get_soil_litter_C
+end subroutine get_rav_C
 
 
 end module soil_tile_mod
