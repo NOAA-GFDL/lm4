@@ -2015,8 +2015,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
      if(sp%phent == PHEN_DECIDUOUS) then ! deciduous species
         ! actually either fact_crit_phen or cnst_crit_phen is zero, enforced
         ! by logic in the vegn_data.F90
-        theta_crit = sp%cnst_crit_phen &
-              + wilt*sp%fact_crit_phen
+        theta_crit = sp%cnst_crit_phen + wilt*sp%fact_crit_phen
         theta_crit = max(0.0,min(1.0, theta_crit))
         psi_stress_crit = sp%psi_stress_crit_phen
         if (      (psi_stress_crit <= 0. .and. vegn%theta_av_phen < theta_crit) &

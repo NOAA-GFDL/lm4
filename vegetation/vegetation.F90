@@ -71,22 +71,18 @@ use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, 
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
      co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
-use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
-     read_static_vegn
+use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
-     vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
-     vegn_reproduction_ppa
-use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, &
-     vegn_disturbance, update_fuel
+     vegn_growth, vegn_starvation_ppa, vegn_biogeography, vegn_reproduction_ppa
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
-     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
+     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport, save_harvesting_restart
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
-     soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
-     cull_cohorts
+     soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
 
 implicit none
@@ -329,8 +325,6 @@ subroutine read_vegn_namelist()
   call vegn_photosynthesis_init()
 
 end subroutine read_vegn_namelist
-
-
 ! ============================================================================
 ! initialize vegetation
 subroutine vegn_init ( id_ug, id_band, id_cellarea )
@@ -341,8 +335,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  integer :: n_accum
-  integer :: nmn_acm
+  integer :: n_accum, nmn_acm, ndy_acm
   type(land_restart_type) :: restart1, restart2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
@@ -363,6 +356,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
+  ndy_acm = 0
   call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
   call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
   if (restart_1_exists) then
@@ -380,6 +374,11 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      ! read global variables
      call get_scalar_data(restart2,'n_accum',n_accum)
      call get_scalar_data(restart2,'nmn_acm',nmn_acm)
+     if(field_exists(restart2,'ndy_acm')) then
+       call get_scalar_data(restart2,'ndy_acm',ndy_acm)
+     else
+       ndy_acm = 0
+     endif
 
      ! read cohort data
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
@@ -633,6 +632,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      tile%vegn%n_accum = n_accum
      tile%vegn%nmn_acm = nmn_acm
+     tile%vegn%ndy_acm = ndy_acm
 
      if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
 
@@ -735,11 +735,11 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   call static_vegn_init ()
   call read_static_vegn ( lnd%time )
 
-  ! initialize harvesting options
-  call vegn_harvesting_init(id_ug)
-
   ! initialize fire
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
+
+  ! initialize harvesting options
+  call vegn_harvesting_init(id_ug)
 
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_ug, id_band, lnd%time )
@@ -758,7 +758,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   if (allocated(ncm))    deallocate(ncm)
 
 end subroutine vegn_init
-
 ! ============================================================================
 subroutine add_extra_cohorts()
 
@@ -857,7 +856,6 @@ subroutine add_extra_cohorts()
      call vegn_relayer_cohorts_ppa(tile%vegn) ! this can change the number of cohorts
   enddo
 end subroutine add_extra_cohorts
-
 ! ============================================================================
 subroutine vegn_diag_init ( id_ug, id_band, time )
   integer        , intent(in) :: id_ug   !<Unstructured axis id.
@@ -1315,8 +1313,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        standard_name='nitrogen_mass_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
 end subroutine
-
-
 ! ============================================================================
 ! write restart file and release memory
 subroutine vegn_end ()
@@ -1328,8 +1324,6 @@ subroutine vegn_end ()
   call static_vegn_end()
   call vegn_dynamics_end()
 end subroutine vegn_end
-
-
 ! ============================================================================
 subroutine save_vegn_restart(tile_dim_length,timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
@@ -1339,7 +1333,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   integer ::  i, j
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  integer :: n_accum, nmn_acm
+  integer :: n_accum, nmn_acm, ndy_acm
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
@@ -1381,21 +1375,23 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
 
   ! store global variables
-  ! find first tile and get n_accum and nmn_acm from it
-  n_accum = 0; nmn_acm = 0
+  ! find first tile and get n_accum, nmn_acm and ndy_acm from it
+  n_accum = 0; nmn_acm = 0; ndy_acm = 0
   ce = first_elmt(land_tile_map)
   do while (loop_over_tiles(ce,tile))
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
+        ndy_acm = tile%vegn%ndy_acm
      endif
   enddo
-  ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max
+  ! n_accum, nmn_acm  and ndy_acm are currently the same for all tiles; we only call mpp_max
   ! to handle the situation when there are no tiles in the current domain
-  call mpp_max(n_accum); call mpp_max(nmn_acm)
+  call mpp_max(n_accum); call mpp_max(nmn_acm); call mpp_max(ndy_acm)
 
-  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
+  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps within the month')
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
+  call add_scalar_data(restart2,'ndy_acm',ndy_acm,'number of accumulated steps within the day')
 
   call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
   call add_cohort_data(restart2,'hite', cohort_height_ptr, 'vegetation height','m')
@@ -1567,9 +1563,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call save_land_restart(restart2)
   call free_land_restart(restart2)
+  call save_harvesting_restart(tile_dim_length,timestamp)
 end subroutine save_vegn_restart
-
-
 ! ============================================================================
 ! given vegetation state and snow depth, calculate integral diffusion-related
 ! properties
@@ -1604,8 +1599,6 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
   end associate ! F2003
 
 end subroutine vegn_diffusion
-
-
 ! ============================================================================
 subroutine vegn_step_1 ( vegn, soil, diag, &
         p_surf, drag_q, &
@@ -1947,8 +1940,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_resp_uninhib, diag, cc(:), resp_uninhib(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
 
 end subroutine vegn_step_1
-
-
 ! ============================================================================
 ! Given the surface solution, substitute it back into the vegetation equations
 ! to determine new vegetation state.
@@ -2124,8 +2115,6 @@ subroutine vegn_step_2 ( vegn, diag, &
   if (id_cw>0)       call send_tile_data(id_cw, sum((c(1:N)%Wl+c(1:N)%Ws)*c(1:N)%nindivs), diag)
   end associate
 end subroutine vegn_step_2
-
-
 ! ============================================================================
 ! do the vegetation calculations that require updated (end-of-timestep) values
 ! of prognostic land variables
@@ -2245,6 +2234,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   vegn%psist_av  = vegn%psist_av + psist
 
   vegn%n_accum   = vegn%n_accum+1
+  vegn%ndy_acm   = vegn%ndy_acm+1
 
   ! --- accumulate values for daily averaging
   vegn%tc_daily    = vegn%tc_daily + cana_T
@@ -2263,7 +2253,6 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   endif
   end associate
 end subroutine vegn_step_3
-
 ! ===========================================================================
 ! given soil state and model settings, calculate relative soil moisture for
 ! phenology, with specified depth of averaging
@@ -2497,8 +2486,6 @@ subroutine update_derived_vegn_data(vegn, soil)
 
   deallocate(layer_area,area_t,area_g,scale_t,scale_g)
 end subroutine update_derived_vegn_data
-
-
 ! ============================================================================
 ! update slow components of the vegetation model
 subroutine update_vegn_slow( )
@@ -2518,6 +2505,7 @@ subroutine update_vegn_slow( )
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
   real :: age_increment ! slow time step in years, for average year length in our calendar
+  real :: daily_tca
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -2541,6 +2529,8 @@ subroutine update_vegn_slow( )
   call update_fire_data(lnd%time)
 
   if (day0/=day1) then
+     ! It looks like this shouldn't be called here
+     ! Looks like it should be called at the beginning of vegn_harvesting
      call crop_seed_transport(doy)
   endif
 
@@ -2684,8 +2674,7 @@ subroutine update_vegn_slow( )
      call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0,nmass0)
 
      if  (month1 /= month0 .and. do_phenology) then
-        if (.not.do_ppa) &
-            call vegn_phenology_lm3 (tile%vegn,tile%soil)
+        if (.not.do_ppa) call vegn_phenology_lm3 (tile%vegn,tile%soil)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
      call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
@@ -2974,6 +2963,10 @@ subroutine update_vegn_slow( )
         tile%vegn%fuel       = 0
      endif
 
+     if ( day1 /= day0) then
+        tile%vegn%ndy_acm  = 0
+     endif
+
      ! zstar diagnostics
      if (id_zstar_1 > 0) then
         do ii = 1, tile%vegn%n_cohorts
@@ -3020,9 +3013,6 @@ subroutine update_vegn_slow( )
        call  read_static_vegn(lnd%time)
 
 end subroutine update_vegn_slow
-
-
-
 ! ============================================================================
 subroutine vegn_seed_transport_lm3(seed_transport_option)
   integer :: seed_transport_option
@@ -3079,8 +3069,6 @@ subroutine vegn_seed_transport_lm3(seed_transport_option)
           f_demand_N*vegn_seed_demand(tile%vegn)/C2N_seed-f_supply_N*vegn_seed_N_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport_lm3
-
-
 ! ============================================================================
 ! reads species table (if exists) from the input netcdf file and replaces
 ! species indices with the indices that correspond to the current set of
@@ -3139,7 +3127,6 @@ subroutine read_remap_species(restart)
   enddo
   deallocate(text, spnames, sptable)
 end subroutine read_remap_species
-
 ! =====================================================================================
 ! given vegetation tile and cohort test function, returns the fraction of tile area
 ! occupied by the cohorts selected by the test function, as visible from above.
@@ -3186,7 +3173,6 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
 
   deallocate(layer_area,c_area)
 end function cohort_area_frac
-
 ! ============================================================================
 ! converts character array to string
 subroutine array2str(a,s)

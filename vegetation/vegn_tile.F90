@@ -73,6 +73,30 @@ interface new_vegn_tile
    module procedure vegn_tile_copy_ctor
 end interface
 
+! ======= types related to crops =================================================================
+
+ interface assignment(=)
+   module procedure crop_assignment
+ end interface
+
+ type :: crop_type
+   real :: tc_av_climate(12)
+   real :: precip_av_climate(12)
+   real :: T_mid_mth(12)
+   real :: P_mid_mth(12)
+   ! The dates of the crop calendars below are in the following sequence:
+   ! crop_cal_....(1: 6) = plant beg, plant optimal, plant end, harvest beg, harvest optimal, harvest end for irrigated crop
+   ! crop_cal_....(7:12) = plant beg, plant optimal, plant end, harvest beg, harvest optimal, harvest end for rainfed crop
+   real :: crop_cal_Maize(12)
+   real :: crop_cal_Soy(12)
+   real :: crop_cal_SW(12)
+   real :: crop_cal_WW(12)
+   real :: crop_cal_Rice_1(12) ! main season
+   real :: crop_cal_Rice_2(12) ! second season
+   integer :: current_crop
+   real :: plant_beg, plant_opt, plant_end, harvest_beg, harvest_opt, harvest_end ! The calendar of the current_crop is assigned to these
+ end type crop_type
+
 ! ==== types =================================================================
 type :: vegn_tile_type
    integer :: tag ! kind of the tile
@@ -134,7 +158,7 @@ type :: vegn_tile_type
    real :: theta_av_fire = 0.0
    real :: psist_av = 0.0 ! soil water stress index
    real :: tsoil_av = 0.0 ! bulk soil temperature
-   real :: tc_av    = 0.0 ! leaf temperature
+   real :: tc_av    = 0.0 ! canopy air temperature
    real :: precip_av= 0.0 ! precipitation
 
    ! accumulation counters for long-term averages (monthly and annual). Having
@@ -143,6 +167,7 @@ type :: vegn_tile_type
    ! switch to exponential averaging in any case.
    integer :: n_accum = 0 ! number of accumulated values for monthly averages
    integer :: nmn_acm = 0 ! number of accumulated values for annual averages
+   integer :: ndy_acm = 0 ! number of accumulated values for daily averages
    ! annual-mean values
    real :: t_ann  = 0.0 ! annual mean T, degK
    real :: t_cold = 0.0 ! average temperature of the coldest month, degK
@@ -207,6 +232,7 @@ type :: vegn_tile_type
    ! it is probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
    real :: rh =0.0 ! soil carbon lost to the atmosphere
+   type(crop_type) :: Crop
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
@@ -217,7 +243,29 @@ real, public :: &
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+! ============================================================================
+ subroutine crop_assignment(crop1,crop2)
+  type(crop_type), intent(out) :: crop1
+  type(crop_type), intent(in)  :: crop2
 
+   crop1%tc_av_climate    = crop2%tc_av_climate
+   crop1%precip_av_climate= crop2%precip_av_climate
+   crop1%T_mid_mth        = crop2%T_mid_mth
+   crop1%P_mid_mth        = crop2%P_mid_mth
+   crop1%crop_cal_Maize   = crop2%crop_cal_Maize
+   crop1%crop_cal_Soy     = crop2%crop_cal_Soy
+   crop1%crop_cal_SW      = crop2%crop_cal_SW
+   crop1%crop_cal_WW      = crop2%crop_cal_WW
+   crop1%crop_cal_Rice_1  = crop2%crop_cal_Rice_1
+   crop1%crop_cal_Rice_2  = crop2%crop_cal_Rice_2
+   crop1%current_crop     = crop2%current_crop
+   crop1%plant_beg        = crop2%plant_beg
+   crop1%plant_opt        = crop2%plant_opt
+   crop1%plant_end        = crop2%plant_end
+   crop1%harvest_beg      = crop2%harvest_beg
+   crop1%harvest_opt      = crop2%harvest_opt
+   crop1%harvest_end      = crop2%harvest_end
+ end subroutine crop_assignment
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)
   type(vegn_tile_type), pointer :: ptr ! return value
@@ -951,8 +999,6 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
      pri = max(min(tau,1.0),0.0)
   endif
 end function vegn_tran_priority
-
-
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 ! creates and initializes a field of fractional vegn coverage
@@ -966,7 +1012,6 @@ function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
 
 end function vegn_cover_cold_start
-
 ! =============================================================================
 ! returns true if tile fits the specified selector
 function vegn_is_selected(vegn, sel)
