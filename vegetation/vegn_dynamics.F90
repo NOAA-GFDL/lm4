@@ -81,14 +81,8 @@ namelist /vegn_dynamics_nml/ &
 
 ! ---- end of namelist
 
-real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
-real, allocatable :: ug_soilfrac(:) ! fraction of grid cell area occupied by soil, for
-  ! normalization in seed transort
-real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
-  ! normalization in seed transort
-real, allocatable :: ug_area_factor(:) ! conversion factor from land area to vegetation area
+real :: dt_fast_yr    ! fast (physical) time step, yr (year is defined as 365 days)
 real :: tot_area_land ! global land area, m2 (for normalization in conservation checks)
-real :: tot_area_soil ! global soil area, m2
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
@@ -150,30 +144,9 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
 
-  ! calculate fraction of the grid cell occupied by soil in ug_area_factor
-  allocate(ug_soilfrac(lnd%ls:lnd%le))
-  ug_soilfrac = 0.0
-  ce = first_elmt(land_tile_map,lnd%ls)
-  do while (loop_over_tiles(ce,tile,l))
-     if(associated(tile%vegn)) &
-          ug_soilfrac(l) = ug_soilfrac(l) + tile%frac
-  enddo
-  ! calculate soil fraction in a grid cell
-  allocate (sg_soilfrac(lnd%isd:lnd%ied, lnd%jsd:lnd%jed))
-  sg_soilfrac = 0.0
-  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_soilfrac*lnd%ug_landfrac,sg_soilfrac)
-  call mpp_update_domains(sg_soilfrac,lnd%sg_domain)
-  ! calculate conversion factor from land area to soil area
-  allocate(ug_area_factor(lnd%ls:lnd%le))
-  ug_area_factor = 0.0
-  where(ug_soilfrac>0) &
-        ug_area_factor = 1.0/ug_soilfrac
-
   ! calculate total land and soil areas
   tot_area_land = sum(lnd%ug_area)
   call mpp_sum(tot_area_land)
-  tot_area_soil = sum(lnd%ug_area*ug_soilfrac)
-  call mpp_sum(tot_area_soil)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
@@ -336,7 +309,7 @@ end subroutine vegn_dynamics_init
 
 ! =======================================================================================
 subroutine vegn_dynamics_end()
-   deallocate(sg_soilfrac, ug_area_factor)
+
 end subroutine vegn_dynamics_end
 
 ! =======================================================================================
@@ -2411,6 +2384,9 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
 
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
+  real, dimension(lnd%ls:lnd%le) :: &
+     ug_soilfrac,   & ! fraction of grid cell area occupied by soil, for normalization in seed transort
+     ug_area_factor   ! conversion factor from land area to vegetation area
   real, dimension(lnd%ls:lnd%le,0:nspecies-1) :: &
      ug_dispersed_C,   ug_dispersed_N,   &  ! dispersed seeds, kg per m2 of land
      ug_transported_C, ug_transported_N     ! dispersed seeds, kg per m2 of land
@@ -2443,6 +2419,22 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
   do while (loop_over_tiles(ce,tile,l))
      if(associated(tile%vegn)) n = n+1
   end do
+
+  ! calculate soil fraction. Note that while mathematically soil fraction can be calculated only
+  ! once on initialization, the changes in number and areas of tiles lead to tiny numerical
+  ! differences as the model runs. Those differences lead to non-reproducibility across
+  ! restarts, when an intermediate restart -- and therefore model initialization -- happens
+  ! between the start of the test and the time of seed transport application.
+  ug_soilfrac = 0.0
+  ce = first_elmt(land_tile_map,lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
+     if(associated(tile%vegn)) &
+          ug_soilfrac(l) = ug_soilfrac(l) + tile%frac
+  enddo
+  ! calculate conversion factor from land area to soil area
+  ug_area_factor = 0.0
+  where(ug_soilfrac>0) &
+        ug_area_factor = 1.0/ug_soilfrac
 
   ! calculate amount of seeds (kgC per tile area, by species) for each of the vegetation tiles
   allocate(seed_C(n,0:nspecies-1), seed_N(n,0:nspecies-1))
@@ -2484,22 +2476,8 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
      enddo
      ! diffuse the seeds
      do s = 0,nspecies-1
-!         if(do_check_conservation) then
-!            btot0 = sum(ug_transported_C(:,s)*lnd%ug_area); call mpp_sum(btot0)
-!            ntot0 = sum(ug_transported_N(:,s)*lnd%ug_area); call mpp_sum(ntot0)
-!         endif
-        call transport_seeds(seed_transport_option, ug_transported_C(:,s))
-        call transport_seeds(seed_transport_option, ug_transported_N(:,s))
-!         if (do_check_conservation) then
-!            btot1 = sum(ug_transported_C(:,s)*lnd%ug_area); call mpp_sum(btot1)
-!            ntot1 = sum(ug_transported_N(:,s)*lnd%ug_area); call mpp_sum(ntot1)
-!            if (mpp_pe()==mpp_root_pe()) then
-!               call check_conservation ('transport_seeds','total carbon', &
-!                    btot0/tot_area_land, btot1/tot_area_land, carbon_cons_tol, severity=FATAL)
-!               call check_conservation ('transport_seeds','total nitrogen', &
-!                    ntot0/tot_area_land, ntot1/tot_area_land, nitrogen_cons_tol, severity=FATAL)
-!            endif
-!         end if
+        call transport_seeds(seed_transport_option, ug_soilfrac, ug_transported_C(:,s))
+        call transport_seeds(seed_transport_option, ug_soilfrac, ug_transported_N(:,s))
      enddo
   endif
 
@@ -2556,18 +2534,20 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
 end subroutine vegn_reproduction_ppa
 
 ! =======================================================================================
-! Given the amount seeds undergoing transport (kg per m2 of land), on unstructured grid,
-! updates it to take into account transport among grid cells.
-subroutine transport_seeds(seed_transport_option, ug_bseed)
-  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
-       ! grid, kg per m2 of land
-  integer, intent(in) :: seed_transport_option
+!\brief transport seeds across grid cells
+!!
+!! Given the amount seeds undergoing transport (kg per m2 of land), on unstructured grid,
+!! updates it to take into account transport among grid cells.
+subroutine transport_seeds(seed_transport_option, ug_soilfrac, ug_bseed)
+  integer, intent(in)    :: seed_transport_option      !< type of seed transport algorithm
+  real,    intent(in)    :: ug_soilfrac(lnd%ls:lnd%le) !< fraction of soil in each grid cell, on unstructured grid, m2 of soil per m2 of land
+  real,    intent(inout) :: ug_bseed   (lnd%ls:lnd%le) !< amount of transported seeds on unstructured grid, kg per m2 of land
 
   select case (seed_transport_option)
   case (SEED_TRANSPORT_DIFFUSE)
-     call diffuse_seeds(ug_bseed)
+     call diffuse_seeds(ug_soilfrac, ug_bseed)
   case (SEED_TRANSPORT_SPREAD)
-     call spread_seeds(ug_bseed)
+     call spread_seeds(ug_soilfrac, ug_bseed)
   case default
      call error_mesg('transport_seeds', &
        'seed_transport_option is invalid in this subroutine, this should never happen; contact developer.', FATAL)
@@ -2575,19 +2555,27 @@ subroutine transport_seeds(seed_transport_option, ug_bseed)
 end subroutine transport_seeds
 
 ! =======================================================================================
-! transports seeds by horizontal-diffusion-like process
-subroutine diffuse_seeds(ug_bseed)
-  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
-       ! grid, kg per m2 of land
+!\brief Transport seeds by horizontal-diffusion-like process
+subroutine diffuse_seeds(ug_soilfrac, ug_bseed)
+  real, intent(in)    :: ug_soilfrac(lnd%ls:lnd%le) !< fraction of soil in each grid cell, on unstructured grid, m2 of soil per m2 of land
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le)    !< amount of transported seeds on unstructured grid, kg per m2 of land
 
-  real :: sg_bseed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
-  real :: tend    (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
+  ! the 2D fields below are on data domain -- that is, the arrays include halo that is
+  ! exchanged with other processors
+  real :: sg_soilfrac(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! fraction of soil in each on unstructured grid, m2 of soil per m2 of land
+  real :: sg_bseed   (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
+  real :: tend       (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
   integer :: i,j,ii,jj
 
   real, parameter :: kernel(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
       0.0,  0.25, 0.0,  &
       0.25, 0.0,  0.25, &
       0.0,  0.25, 0.0   ],[3,3] )
+
+  ! move soil fraction to structural grid
+  sg_soilfrac = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_soilfrac*lnd%ug_landfrac,sg_soilfrac)
+  call mpp_update_domains(sg_soilfrac,lnd%sg_domain)
 
   ! move dispersed seeds to structured grid
   sg_bseed = 0.0
@@ -2596,7 +2584,6 @@ subroutine diffuse_seeds(ug_bseed)
 
   ! update halo
   call mpp_update_domains(sg_bseed,lnd%sg_domain)
-
   tend = 0.0
   do j = lnd%js, lnd%je
   do i = lnd%is, lnd%ie
@@ -2624,18 +2611,20 @@ subroutine diffuse_seeds(ug_bseed)
   call mpp_pass_SG_to_UG(lnd%ug_domain,sg_bseed,ug_bseed)
   ! renormalize seed amount from total to kg C per unit land area
   ug_bseed(:) = ug_bseed(:)/lnd%ug_area(:)
-
 end subroutine diffuse_seeds
 
 ! =======================================================================================
 ! transports seeds by spreading them globally (uniformly) across entire soil area
-subroutine spread_seeds(ug_bseed)
-  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
-       ! grid, kg per m2 of land
+subroutine spread_seeds(ug_soilfrac, ug_bseed)
+  real, intent(in)    :: ug_soilfrac(lnd%ls:lnd%le) !< soil fraction, m2 of soil per m2 of land
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le)    !< amount of transported seeds, kg per m2 of land
 
-  real :: tot_seed
+  real :: tot_area_soil, tot_seed
   integer :: l
 
+  ! calculate total soil area
+  tot_area_soil = sum(lnd%ug_area*ug_soilfrac)
+  call mpp_sum(tot_area_soil)
   ! calculate total amount of seeds and total vegetated area
   tot_seed = sum(ug_bseed*lnd%ug_area)
   call mpp_sum(tot_seed)
