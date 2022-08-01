@@ -71,13 +71,13 @@ type :: atmos_land_boundary_type
         drag_q    => NULL(), &   ! product of cd_q by wind
         p_surf    => NULL(), &   ! surface pressure, Pa
         con_atm   => NULL()      ! conductance between atmosphere and canopy, m/s
-   
+
 
    real, dimension(:,:,:), pointer :: & ! (grid index, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
         dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value,
                                  ! including evap over surface specific humidity
-   
+
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type atmos_land_boundary_type
 
@@ -96,6 +96,7 @@ type :: land_data_type
         albedo_nir_dif => NULL(),  & ! albedo for diffuse NIR radiation
         rough_mom      => NULL(),  & ! surface roughness length for momentum, m
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
+        rsl_scale      => NULL(),  & ! roughness sublayer scale, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)

@@ -160,7 +160,7 @@ type :: land_tile_type
    real, allocatable :: Sdn_dir(:,:), Sdn_dif(:,:)
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
 
-   real :: land_d, land_z0m, land_z0s, grnd_z0m, grnd_z0s
+   real :: land_d, land_z0m, land_z0s, land_RSL, grnd_z0m, grnd_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
    ! black-background long-wave radiative properties of the vegetation cohorts
    real, allocatable :: vegn_refl_lw(:)  ! reflectance

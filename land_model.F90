@@ -277,7 +277,7 @@ integer :: &
   id_cellarea, id_landfrac,                                                &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
-  id_z0m,      id_z0s,      id_displ,    id_con_g_h,  id_con_g_v,          &
+  id_z0m,      id_z0s,      id_RSL,      id_displ,    id_con_g_h,  id_con_g_v,          &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
@@ -1331,7 +1331,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
-!$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
+!$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
   do l = lnd%ls, lnd%le
@@ -1377,6 +1377,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_area, tile%frac*lnd%ug_area(l),     tile%diag)
         call send_tile_data(id_z0m,  land2cplr%rough_mom(l,k),     tile%diag)
         call send_tile_data(id_z0s,  land2cplr%rough_heat(l,k),    tile%diag)
+        call send_tile_data(id_RSL,  land2cplr%rsl_scale(l,k),     tile%diag)
         call send_tile_data(id_Trad, land2cplr%t_surf(l,k),        tile%diag)
         call send_tile_data(id_Tca,  land2cplr%t_ca(l,k),          tile%diag)
         call send_tile_data(id_qca,  land2cplr%tr(l,k,isphum),     tile%diag)
@@ -1491,6 +1492,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      __CHECK__(land2cplr%albedo)
      __CHECK__(land2cplr%rough_mom)
      __CHECK__(land2cplr%rough_heat)
+     __CHECK__(land2cplr%rsl_scale)
      __CHECK__(land2cplr%rough_scale)
      __CHECK__(land2cplr%discharge)
      __CHECK__(land2cplr%discharge_heat)
@@ -3701,7 +3703,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover,  vegn_height, vegn_lai, vegn_sai, &
-     tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0m, tile%grnd_z0s)
+     tile%land_d, tile%land_z0m, tile%land_z0s, tile%land_rsl, tile%grnd_z0m, tile%grnd_z0s)
 
   if(is_watch_point()) then
      __DEBUG1__(tile%land_z0m)
@@ -3717,6 +3719,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%albedo_nir_dif (l,k) = 0.0
   land2cplr%rough_mom      (l,k) = 0.1
   land2cplr%rough_heat     (l,k) = 0.1
+  land2cplr%rsl_scale      (l,k) = 0.0
 
   ! Calculate radiative surface temperature. lwup cannot be calculated here
   ! based on the available temperatures because it is a result of the implicit
@@ -3748,6 +3751,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%albedo         (l,k) = SUM(tile%land_refl_dir + tile%land_refl_dif)/4 ! incorrect, replace with proper weighting later
   land2cplr%rough_mom      (l,k) = tile%land_z0m
   land2cplr%rough_heat     (l,k) = tile%land_z0s
+  land2cplr%rsl_scale      (l,k) = tile%land_RSL
 
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
@@ -3758,6 +3762,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      call dpri('land2cplr%albedo',land2cplr%albedo(l,k));         write(*,*)
      call dpri('land2cplr%rough_mom',land2cplr%rough_mom(l,k));   write(*,*)
      call dpri('land2cplr%rough_heat',land2cplr%rough_heat(l,k)); write(*,*)
+     call dpri('land2cplr%rsl_scale',land2cplr%rsl_scale(l,k)); write(*,*)
      call dpri('land2cplr%tr',land2cplr%tr(l,k,:));               write(*,*)
      write(*,*)'#### update_land_bc_fast ### end of output ####'
   endif
@@ -4311,6 +4316,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'scalar roughness', 'm', missing_value=-1.0e+20 )
   id_displ   = register_tiled_diag_field ( module_name, 'displ', axes, time, &
              'displacement height', 'm', missing_value=-1.0e+20 )
+  id_RSL     = register_tiled_diag_field ( module_name, 'rsl', axes, time, &
+             'roughness sublayer scale', 'm', missing_value=-1.0e+20 )
   id_con_g_h = register_tiled_diag_field ( module_name, 'con_g_h', axes, time, &
        'conductance for sensible heat between ground surface and canopy air', &
        'm/s', missing_value=-1.0 )
@@ -4806,6 +4813,7 @@ subroutine realloc_land2cplr ( bnd )
   allocate( bnd%albedo_nir_dif(lnd%ls:lnd%le,n_tiles) )
   allocate( bnd%rough_mom(lnd%ls:lnd%le,n_tiles) )
   allocate( bnd%rough_heat(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%rsl_scale(lnd%ls:lnd%le,n_tiles) )
   allocate( bnd%rough_scale(lnd%ls:lnd%le,n_tiles) )
 
   bnd%mask              = .FALSE.
@@ -4820,6 +4828,7 @@ subroutine realloc_land2cplr ( bnd )
   bnd%albedo_nir_dif    = init_value
   bnd%rough_mom         = init_value
   bnd%rough_heat        = init_value
+  bnd%rsl_scale         = init_value
   bnd%rough_scale       = init_value
 
   ! in contrast to the rest of the land boundary condition fields, discharges
@@ -4868,6 +4877,7 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%albedo_nir_dif )
   __DEALLOC__( bnd%rough_mom )
   __DEALLOC__( bnd%rough_heat )
+  __DEALLOC__( bnd%rsl_scale )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
 
@@ -5066,6 +5076,7 @@ subroutine land_data_type_chksum(id, timestep, land)
     write(outunit,100) 'land%albedo_nir_dif    ',mpp_chksum(land%albedo_nir_dif)
     write(outunit,100) 'land%rough_mom         ',mpp_chksum(land%rough_mom)
     write(outunit,100) 'land%rough_heat        ',mpp_chksum(land%rough_heat)
+    write(outunit,100) 'land%rsl_scale         ',mpp_chksum(land%rsl_scale)
     write(outunit,100) 'land%rough_scale       ',mpp_chksum(land%rough_scale)
 
     do n = 1, size(land%tr,3)

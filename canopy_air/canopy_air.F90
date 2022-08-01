@@ -690,7 +690,7 @@ subroutine cana_roughness(lm2, &
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover, vegn_height, vegn_lai, vegn_sai, &
-     land_d, land_z0m, land_z0s, grnd_z0m, grnd_z0s )
+     land_d, land_z0m, land_z0s, land_rsl, grnd_z0m, grnd_z0s )
   logical, intent(in) :: lm2
   real, intent(in) :: &
        subs_z0m, subs_z0s, snow_z0m, snow_z0s, snow_area, vegn_cover, vegn_height, &
@@ -699,6 +699,7 @@ subroutine cana_roughness(lm2, &
        land_d    ,&
        land_z0m  ,&
        land_z0s  ,&
+       land_rsl  ,& ! roughness sublayer scale, m
        grnd_z0m  ,&
        grnd_z0s
 
@@ -738,10 +739,12 @@ subroutine cana_roughness(lm2, &
         land_d   = d_h*vegn_height
         land_z0m = z0m_h*vegn_height
         land_z0s = z0s_h*vegn_height
+        land_rsl = max(0.0,3*vegn_height-2*land_d)
      else
         land_d   = 0
         land_z0m = grnd_z0m
         land_z0s = grnd_z0s
+        land_rsl = 0
      endif
 
   case(ROUGH_LM3V)
@@ -754,9 +757,11 @@ subroutine cana_roughness(lm2, &
         else
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
+        land_rsl = max(0.0,3*height-2*land_d)
      else
         land_d   = 0
         land_z0m = grnd_z0m
+        land_rsl = 0
      endif
      land_z0s = land_z0m*exp(-k_over_B)
 
@@ -768,10 +773,12 @@ subroutine cana_roughness(lm2, &
      x = sqrt(c_d1*vegn_idx)
      if (x>1e-4) then
         land_d = vegn_height*(1-(1-exp(-x))/x)
+        land_rsl = max(0.0,3*vegn_height-2*land_d)
      else
         ! in limiting case of very low LAI+SAI limiting case, use Taylor expansion
         ! exp(-x) = 1-x+x^2/2+O(x^3) to avoid loss of precision and division by 0
         land_d = x/2
+        land_rsl = 0.0
      endif
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
      land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
