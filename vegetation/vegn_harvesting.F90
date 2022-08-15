@@ -1319,7 +1319,7 @@ subroutine save_harvesting_restart(tile_dim_length,timestamp)
    integer, intent(in) :: tile_dim_length
    character(*), intent(in) :: timestamp
 
-   call save_crop_restart(tile_dim_length,timestamp)
+   if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call save_crop_restart(tile_dim_length,timestamp)
 end subroutine save_harvesting_restart
 
 end module

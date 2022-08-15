@@ -1200,7 +1200,6 @@ use fms_mod, only: open_namelist_file
 ! Read the restart data
  text = 'INPUT/'//trim(restart_file_name)
  call open_land_restart(restart,trim(text),restart_exists)
- if(.not.restart_exists) call error_mesg('crop_init',trim(text)//' does not exist', FATAL)
  if(restart_exists) then
    call error_mesg('crop_init', 'reading NetCDF restart "'//trim(text)//'"', NOTE)
    call get_tile_data(restart, 'T_mid_mth',         'month',  vegn_T_mid_mth_ptr)
@@ -1478,7 +1477,7 @@ use fms_mod, only: open_namelist_file
  id_crop_cal_WW     = register_tiled_diag_field(module_name,'crop_cal_WW',    (/id_ug,id_crop_cal/),lnd%time,'winter wheat crop calendar',      missing_value= 0.0)
  id_crop_cal_Rice_1 = register_tiled_diag_field(module_name,'crop_cal_Rice_1',(/id_ug,id_crop_cal/),lnd%time,'rice crop calendar. Main crop.',  missing_value= 0.0)
  id_crop_cal_Rice_2 = register_tiled_diag_field(module_name,'crop_cal_Rice_2',(/id_ug,id_crop_cal/),lnd%time,'rice crop calendar. Second crop.',missing_value= 0.0)
- id_MIRCA_crop_frac = register_static_field(module_name,'MIRCA_crop_frac',(/id_ug,id_crop_num/),'crop fraction','unitless',missing_value=0.0)
+ id_MIRCA_crop_frac = register_static_field(module_name,'MIRCA_crop_frac',(/id_ug,id_crop_num/),'crop fraction','unitless')
  call diag_field_add_attribute(id_MIRCA_crop_frac,'ocean_fillvalue',0.0)
 
  end subroutine crop_diag_init
