@@ -2786,7 +2786,10 @@ subroutine land_turbulence(tile, &
        a,      & ! parameter of exponential wind profile within canopy
        d_visc, & ! depth of viscous sublayer, m
        r_sens, &
-       r_evap    ! surface resistance for evaporation, s/m
+       r_evap, &    ! surface resistance for evaporation, s/m
+       u_ratio,&  ! ratio u*/U(h)
+       L_c,    &  ! adjustment lengthscale in meters L_c=1/(cd_leaf*lad) modeled as h/(cd_leaf*vegn_idx)
+       L_m        ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
 
 
   if(associated(tile%vegn)) then
@@ -2806,7 +2809,7 @@ subroutine land_turbulence(tile, &
         cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
         tile%land_d, tile%land_z0m, &
         ! output:
-        con_v_h, con_v_v, con_v_stem, a, u_sfc, ustar_sfc, &
+        con_v_h, con_v_v, con_v_stem, a, u_sfc, ustar_sfc, L_m, &
         ! for diagnostic output
         tile%diag)
 
@@ -2818,7 +2821,7 @@ subroutine land_turbulence(tile, &
      ! calculate aerodynamic conductance coefficients between canopy air and ground
      call cana_g_turb (ustar, a, 1-gaps, tile%vegn%aerodyn_height, &
        cc(:)%layerfrac, cc(:)%lai, cc(:)%sai, &
-       tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, d_visc, &
+       tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, d_visc,L_m, &
        ! output:
        con_g_h, con_g_v)
 
