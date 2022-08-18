@@ -57,9 +57,9 @@ character(len=*), parameter :: diag_mod_name = 'cana'
 #include "../shared/version_variable.inc"
 
 ! options for turbulence parameter calculations
-integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2, TURB_R1996 = 3
+integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2, TURB_R1996 = 3, TURB_KMG2022 = 4
 ! options for roughness parameter calculations
-integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2, ROUGH_R1994 = 3
+integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2, ROUGH_R1994 = 3, ROUGH_KMG2022 = 4
 
 ! options of soil surface resistance calculations
 integer, parameter :: &
@@ -67,7 +67,8 @@ integer, parameter :: &
    RESIST_HO2013 = 1    ! soil resistance based on Haghighi and Or (2013) and related papers
 integer, parameter :: &
    USFC_AREA     = 0, & ! based on roughness element area
-   USFC_LOUBET   = 1    ! Loubet et al. (2006) formulation
+   USFC_LOUBET   = 1, & ! Loubet et al. (2006) formulation
+   USFC_KMG2022  = 2    ! Ghannam et al. (2022) formulation
 
 real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
 
@@ -92,6 +93,9 @@ real :: max_u_ratio = 0.3       ! imposed maximum value of u*/U(h) ratio
 real :: c_d1 = 7.5              ! LAI+SAI scale parameter in displacement height expression
 real :: rsl_factor = 2.0        ! ratio of roughness sublayer depth to vegetation height
                                 ! above displacement height (vegn_height - land_d)
+                                
+real :: cd_leaf = 0.25          ! leaf-level drag coefficient (appears in the formula Fd = Cd*LAD*U^2)
+                                ! Typical of forests (need to add reference by Katul, Bonan, etc..)
 ! resistance-related namelist variables
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
 character(32) :: usfc_to_use = 'area-based' ! or 'Loubet'
@@ -118,6 +122,8 @@ namelist /cana_nml/ &
   k_over_B, loubet_lai_factor, &
   ! Raupach (1994) parameters
   c_d1, c_s, c_r, max_u_ratio, rsl_factor, &
+  ! Ghannam (2022) parameters
+  cd_leaf, &
   ! soil resistance parameters
   soil_resistance_to_use, usfc_to_use, &
   d_visc_max, &
@@ -137,7 +143,8 @@ real    :: rsl_corr ! value of roughness sublayer correction, pre-calculated in 
 ! ---- diag field IDs
 integer :: id_r_litt_evap, id_r_bl_sens, id_r_bl_evap, id_r_sv_evap, &
            id_c_litt_evap, id_c_bl_sens, id_c_bl_evap, id_c_sv_evap, &
-           id_d_visc, id_ustar_sfc, id_u_sfc, id_theta_sfc, id_wind_decay
+           id_d_visc, id_ustar_sfc, id_u_sfc, id_theta_sfc, id_wind_decay, &
+           id_Lc, id_Lm, id_u_ratio
 
 contains
 
@@ -178,9 +185,11 @@ subroutine read_cana_namelist()
      turbulence_option = TURB_LM3W
   else if (trim(lowercase(turbulence_to_use))=='raupach') then
      turbulence_option = TURB_R1996
+  else if (trim(lowercase(turbulence_to_use))=='ghannam2022') then
+     turbulence_option = TURB_KMG2022
   else
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
-          trim(turbulence_to_use)//'" is invalid, use "lm3w", "lm3v", or "Raupach"', FATAL)
+          trim(turbulence_to_use)//'" is invalid, use "lm3w", "lm3v", "Raupach", or "Ghannam2022"', FATAL)
   endif
 
   if (trim(lowercase(roughness_to_use))=='lm3v') then
@@ -189,9 +198,11 @@ subroutine read_cana_namelist()
      roughness_option = ROUGH_LM3W
   else if (trim(lowercase(roughness_to_use))=='raupach') then
      roughness_option = ROUGH_R1994
+  else if (trim(lowercase(roughness_to_use))=='ghannam2022') then
+     roughness_option = ROUGH_KMG2022
   else
      call error_mesg('cana_init', 'canopy air roughness option roughness_to_use="'// &
-          trim(roughness_to_use)//'" is invalid, use "lm3w", "lm3v", or "Raupach"', FATAL)
+          trim(roughness_to_use)//'" is invalid, use "lm3w", "lm3v", "Raupach", or "Ghannam2022"', FATAL)
   endif
 
   ! pre-calculate RSL correction
@@ -214,10 +225,12 @@ subroutine read_cana_namelist()
      usfc_option = USFC_AREA
   else if (trim(lowercase(usfc_to_use))=='loubet') then
      usfc_option = USFC_LOUBET
+    else if (trim(lowercase(usfc_to_use))=='ghannam2022') then
+     usfc_option = USFC_KMG2022
   else
      call error_mesg('surface_resistance_init',&
           'soil resistance option usfc_to_use="'//&
-          trim(soil_resistance_to_use)//'" is invalid, use "area-based" or "Loubet"',&
+          trim(soil_resistance_to_use)//'" is invalid, use "area-based", "Loubet", or "Ghannam2022"',&
           FATAL)
   endif
 
@@ -340,6 +353,15 @@ subroutine cana_init (id_ug)
 
   id_wind_decay = register_tiled_diag_field( diag_mod_name, 'wind_decay', &
        (/id_ug/), lnd%time, 'rate of wind speed decay with canopy depth', '1/m', missing_value=-9999.0 )
+       
+  id_Lc = register_tiled_diag_field( diag_mod_name, 'L_c', &
+       (/id_ug/), lnd%time, 'Canopy adjustment lengthscale (h/cd_lead*vegn_idx)', 'm', missing_value=-9999.0 )
+       
+  id_Lm = register_tiled_diag_field( diag_mod_name, 'L_m', &
+       (/id_ug/), lnd%time, 'Canopy mixing length', 'm', missing_value=-9999.0 )
+       
+  id_u_ratio = register_tiled_diag_field( diag_mod_name, 'u_ratio', &
+       (/id_ug/), lnd%time, 'ratio of u* to U_h at canopy top', 'unitless', missing_value=-9999.0 )
 end subroutine cana_init
 
 
@@ -388,7 +410,7 @@ subroutine cana_v_turb (ustar, &
      vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, &
      ! output
-     con_v_h, con_v_v, con_v_stem, a, u_sfc, ustar_sfc, diag )
+     con_v_h, con_v_v, con_v_stem, a, u_sfc, ustar_sfc, L_m, diag )
   real, intent(in) ::     &
        ustar,             & ! friction velocity, m/s
        land_d,            & ! displacement height, m
@@ -407,8 +429,9 @@ subroutine cana_v_turb (ustar, &
        con_v_stem(:),     & ! stem-CAS conductances for tracers, per unit ground area
        a,                 & ! parameter of exponential wind profile within canopy:
                             ! u = u(ztop)*exp(-a*(1-z/ztop))
-       u_sfc,             & ! near-surface wind speed, m/s
-       ustar_sfc            ! near-surface friction velocity, m/s
+       u_sfc,             & ! near-surface wind speed (wind speed at canopy top), m/s
+       ustar_sfc,          &  ! near-surface friction velocity (this is u* on ground/substrate surface), m/s
+       L_m                  ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
 
   type(diag_buff_type), intent(inout) :: diag
 
@@ -424,7 +447,12 @@ subroutine cana_v_turb (ustar, &
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: h0       ! height of the canopy bottom, m
   real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
+  
+  ! The below are now moved as output to the subroutine cana_v_turb to be available elsewhere 
   real :: u_ratio  ! ratio u*/U(h)
+  real :: L_c      ! adjustment lengthscale in meters L_c=1/(cd_leaf*lad) modeled as h/(cd_leaf*vegn_idx)
+!  real :: L_m      ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
+
 
   integer :: i
 
@@ -432,6 +460,24 @@ subroutine cana_v_turb (ustar, &
 
   vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
 
+  u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994) (now available regardless of case)
+   ztop = max(aerodyn_height,min_height)
+    ! Calculate adjustment lengthscale L_c (needed for Ghannam 2022)
+    ! Note: the model is built on the premise that a canopy exists, and so it may not be
+    ! well behaved in the limit vegn_idx \to 0. This is evident in the expression for L_c below,
+    ! which tends to infinity in the limit vegn_idx \to 0, and then L_m \to infinity, 
+    ! and then the wind parameter 'a' \to 0
+    ! We need an upper bound for L_c when vegn_idx <0.001, say, or any other very small lai value
+    ! Choosing vegn_idx = 0.001 as a threshold, and given that L_c = ztop/(cd_leaf*vegn_idx),
+    ! then L_c = ztop/(0.25*0.001) = 4000*ztop. This makes L_m large, and hence wind decay very small 
+    if(vegn_idx>0.001) then  
+     L_c = ztop/(cd_leaf*vegn_idx)
+    else
+    L_c =4000*ztop
+    end if
+    ! Calculate mixing length L_m (needed for Ghannam 2022)
+     L_m = 2*(u_ratio**3)*L_c
+  
   select case(turbulence_option)
   case(TURB_LM3W)
      a  = max(vegn_cover,0.0)*a_max
@@ -471,7 +517,7 @@ subroutine cana_v_turb (ustar, &
      ! Meteorology 25th Anniversary Volume, 1970–1995, J. R. Garratt and P. A. Taylor,
      ! eds., Springer Netherlands, 351–382, doi: 10.1007/978-94-017-0944- 6 15.
      ztop    = max(aerodyn_height,min_height)
-     u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
+     !u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
      utop    = ustar/u_ratio
      ! exponent of wind profile within canopy
      a       = u_ratio/(VONKARM*rsl_factor)*ztop/(ztop - land_d)
@@ -489,6 +535,34 @@ subroutine cana_v_turb (ustar, &
         con_v_stem(i) = vegn_sai(i)*gb
      enddo
 
+  case(TURB_KMG2022)
+     ! Ghannam et al. 2022
+     ztop    = max(aerodyn_height,min_height)
+     
+     ! For now, we use Raupach's parameterization for u*/Uh (u_ratio calculated above)
+     !u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
+     utop    = ustar/u_ratio
+     
+    if (is_watch_point()) then
+      __DEBUG4__(utop,u_ratio,L_c,L_m)
+      __DEBUG3__(vegn_idx,ztop,cd_leaf)
+   endif
+   
+     ! exponent of wind profile within canopy
+     a       = ztop*u_ratio/L_m
+
+     do i = 1,size(vegn_lai)
+        call cohort_gb(ztop, vegn_bottom(i), vegn_height(i), utop, ustar, land_d, a, vegn_d_leaf(i), gb)
+
+        con_v_v(i) = vegn_lai(i)*gb
+        ! should we use 2*LAI+SAI for heat, since leaves are two-sided?
+        if (use_SAI_for_heat_exchange) then
+           con_v_h(i) = (vegn_lai(i)+vegn_sai(i))*gb
+        else
+           con_v_h(i) = vegn_lai(i)*gb
+        endif
+        con_v_stem(i) = vegn_sai(i)*gb
+     enddo
   end select
 
   !for now
@@ -507,6 +581,11 @@ subroutine cana_v_turb (ustar, &
      ! Journal of the Royal Meteorological Society, 132, 1733–1763, doi:10.1256/qj.05.73.
      u_sfc     = utop
      ustar_sfc = ustar*exp(-loubet_lai_factor*vegn_idx)
+     
+  case (USFC_KMG2022)
+     ! Ghannam et al. (2022)
+     u_sfc     = utop
+     ustar_sfc = ustar*exp(-0.5*cd_leaf*vegn_idx/(u_ratio**2))
   end select
 
   if (is_watch_point()) then
@@ -526,6 +605,9 @@ subroutine cana_v_turb (ustar, &
   endif
 
   call send_tile_data(id_wind_decay, a, diag)
+  call send_tile_data(id_Lc, L_c, diag)
+  call send_tile_data(id_Lm, L_m, diag)
+  call send_tile_data(id_u_ratio, u_ratio, diag)
 
 end subroutine cana_v_turb
 
@@ -549,10 +631,12 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
   real :: h1, h2, h3, h4 ! integration boundaries below and above Ha, respectively
   real :: b, u, gb1, gb2
 
-!   if (is_watch_point()) then
-!      __DEBUG4__(Ha,Hb,Ht,Utop)
-!      __DEBUG2__(a,d_leaf)
-!   endif
+   if (is_watch_point()) then
+      __DEBUG4__(Ha,Hb,Ht,Utop)
+      __DEBUG2__(a,d_leaf)
+   endif
+   
+   
   if(Ht-Hb > min_thickness) then
      ! canopy of finite thickness
      ! part of the canopy below Ha
@@ -583,9 +667,9 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
         gb = leaf_co*sqrt(Utop/d_leaf) * exp(-a/2*(Ha-Ht)/Ha)
      endif
   endif
-!   if (is_watch_point()) then
-!      __DEBUG1__(gb)
-!   endif
+   if (is_watch_point()) then
+      __DEBUG1__(gb)
+   endif
   call check_var_range(gb, 0.0, HUGE(1.0), 'cohort_gb', 'gb', WARNING)
 end subroutine
 
@@ -605,7 +689,7 @@ end function func
 ! between canopy air and ground
 subroutine cana_g_turb (ustar, a, &
        vegn_cover, aerodyn_height, vegn_layerfrac, vegn_lai, vegn_sai, &
-       land_d, land_z0m, land_z0s, grnd_z0s, d_visc, &
+       land_d, land_z0m, land_z0s, grnd_z0s, d_visc, L_m, &
        con_g_h, con_g_v)
   real, intent(in) :: &
        ustar,  & ! friction velocity in the atm surface layer, m/s
@@ -617,7 +701,9 @@ subroutine cana_g_turb (ustar, a, &
        land_d, & ! displacement height, m
        land_z0m, land_z0s, & ! roughness for momentum and scalars, m
        grnd_z0s, & ! ground surface roughness for scalars, m
-       d_visc      ! depth of viscous sublayer, m
+       d_visc, &      ! depth of viscous sublayer, m
+       L_m                  ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
+       
   real, intent(out) :: &
        con_g_h, con_g_v  ! ground-CAS turbulent conductance per unit ground area
 
@@ -662,6 +748,24 @@ subroutine cana_g_turb (ustar, a, &
      ! limit conductance to reasonable range
      rah_sca = max(rah_sca,bare_rah_sca)
      con_g_h = 1.0/rah_sca
+     
+  case(TURB_KMG2022)
+     
+     ztop = aerodyn_height
+     
+     ! In pricinple, we have Km (not Kh), and assuming they are equal is essentially invoking 
+     ! the Reynolds analogy, but one can also use a turbulent Prandtl.Schmidt number 
+     ! to relate the two. Pr_t = Km/Kh, where Pr_t is typically 0.7
+     Kh_top = ustar*L_m
+     rah_sca = ztop/a/Kh_top * &
+          (exp(a*(1-d_visc/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
+     ! rah_sca can be very small or even negative depending on the vegetation
+     ! roughness properties and d_visc; for example for very small vegetation
+     ! and little wind. Therefore we need to impose some minimum value that would
+     ! limit conductance to reasonable range
+     rah_sca = max(rah_sca,bare_rah_sca)
+     con_g_h = 1.0/rah_sca
+     
   end select
 
   con_g_v = con_g_h
@@ -781,6 +885,27 @@ subroutine cana_roughness(lm2, &
         land_rsl = 0.0
      endif
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
+     land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
+     land_z0m = max(land_z0m,grnd_z0m)
+     land_z0s = land_z0m*exp(-k_over_B)
+     
+     
+       case(ROUGH_KMG2022)
+     ! following Ghannam et al. (2022): 
+     vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
+     
+     ! For now, using u*/Uh from Raupach ()
+     u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
+     
+     x = (u_ratio**2)/(cd_leaf*vegn_idx)
+     if (x<1) then
+        land_d = vegn_height*(1-x)
+     else
+        ! quantity x may be larger than 1 so need to make sure d is always positive
+        
+        land_d = 0.1*vegn_height
+     endif
+     
      land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
      land_z0m = max(land_z0m,grnd_z0m)
      land_z0s = land_z0m*exp(-k_over_B)
