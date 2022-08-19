@@ -93,7 +93,7 @@ real :: max_u_ratio = 0.3       ! imposed maximum value of u*/U(h) ratio
 real :: c_d1 = 7.5              ! LAI+SAI scale parameter in displacement height expression
 real :: rsl_factor = 2.0        ! ratio of roughness sublayer depth to vegetation height
                                 ! above displacement height (vegn_height - land_d)
-                                
+
 real :: cd_leaf = 0.25          ! leaf-level drag coefficient (appears in the formula Fd = Cd*LAD*U^2)
                                 ! Typical of forests (need to add reference by Katul, Bonan, etc..)
 ! resistance-related namelist variables
@@ -353,13 +353,13 @@ subroutine cana_init (id_ug)
 
   id_wind_decay = register_tiled_diag_field( diag_mod_name, 'wind_decay', &
        (/id_ug/), lnd%time, 'rate of wind speed decay with canopy depth', '1/m', missing_value=-9999.0 )
-       
+
   id_Lc = register_tiled_diag_field( diag_mod_name, 'L_c', &
        (/id_ug/), lnd%time, 'Canopy adjustment lengthscale (h/cd_lead*vegn_idx)', 'm', missing_value=-9999.0 )
-       
+
   id_Lm = register_tiled_diag_field( diag_mod_name, 'L_m', &
        (/id_ug/), lnd%time, 'Canopy mixing length', 'm', missing_value=-9999.0 )
-       
+
   id_u_ratio = register_tiled_diag_field( diag_mod_name, 'u_ratio', &
        (/id_ug/), lnd%time, 'ratio of u* to U_h at canopy top', 'unitless', missing_value=-9999.0 )
 end subroutine cana_init
@@ -447,8 +447,8 @@ subroutine cana_v_turb (ustar, &
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: h0       ! height of the canopy bottom, m
   real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
-  
-  ! The below are now moved as output to the subroutine cana_v_turb to be available elsewhere 
+
+  ! The below are now moved as output to the subroutine cana_v_turb to be available elsewhere
   real :: u_ratio  ! ratio u*/U(h)
   real :: L_c      ! adjustment lengthscale in meters L_c=1/(cd_leaf*lad) modeled as h/(cd_leaf*vegn_idx)
 !  real :: L_m      ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
@@ -465,19 +465,19 @@ subroutine cana_v_turb (ustar, &
     ! Calculate adjustment lengthscale L_c (needed for Ghannam 2022)
     ! Note: the model is built on the premise that a canopy exists, and so it may not be
     ! well behaved in the limit vegn_idx \to 0. This is evident in the expression for L_c below,
-    ! which tends to infinity in the limit vegn_idx \to 0, and then L_m \to infinity, 
+    ! which tends to infinity in the limit vegn_idx \to 0, and then L_m \to infinity,
     ! and then the wind parameter 'a' \to 0
     ! We need an upper bound for L_c when vegn_idx <0.001, say, or any other very small lai value
     ! Choosing vegn_idx = 0.001 as a threshold, and given that L_c = ztop/(cd_leaf*vegn_idx),
-    ! then L_c = ztop/(0.25*0.001) = 4000*ztop. This makes L_m large, and hence wind decay very small 
-    if(vegn_idx>0.001) then  
+    ! then L_c = ztop/(0.25*0.001) = 4000*ztop. This makes L_m large, and hence wind decay very small
+    if(vegn_idx>0.001) then
      L_c = ztop/(cd_leaf*vegn_idx)
     else
     L_c =4000*ztop
     end if
     ! Calculate mixing length L_m (needed for Ghannam 2022)
      L_m = 2*(u_ratio**3)*L_c
-  
+
   select case(turbulence_option)
   case(TURB_LM3W)
      a  = max(vegn_cover,0.0)*a_max
@@ -538,16 +538,16 @@ subroutine cana_v_turb (ustar, &
   case(TURB_KMG2022)
      ! Ghannam et al. 2022
      ztop    = max(aerodyn_height,min_height)
-     
+
      ! For now, we use Raupach's parameterization for u*/Uh (u_ratio calculated above)
      !u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
      utop    = ustar/u_ratio
-     
+
     if (is_watch_point()) then
       __DEBUG4__(utop,u_ratio,L_c,L_m)
       __DEBUG3__(vegn_idx,ztop,cd_leaf)
    endif
-   
+
      ! exponent of wind profile within canopy
      a       = ztop*u_ratio/L_m
 
@@ -581,7 +581,7 @@ subroutine cana_v_turb (ustar, &
      ! Journal of the Royal Meteorological Society, 132, 1733–1763, doi:10.1256/qj.05.73.
      u_sfc     = utop
      ustar_sfc = ustar*exp(-loubet_lai_factor*vegn_idx)
-     
+
   case (USFC_KMG2022)
      ! Ghannam et al. (2022)
      u_sfc     = utop
@@ -635,8 +635,8 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
       __DEBUG4__(Ha,Hb,Ht,Utop)
       __DEBUG2__(a,d_leaf)
    endif
-   
-   
+
+
   if(Ht-Hb > min_thickness) then
      ! canopy of finite thickness
      ! part of the canopy below Ha
@@ -703,7 +703,7 @@ subroutine cana_g_turb (ustar, a, &
        grnd_z0s, & ! ground surface roughness for scalars, m
        d_visc, &      ! depth of viscous sublayer, m
        L_m                  ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
-       
+
   real, intent(out) :: &
        con_g_h, con_g_v  ! ground-CAS turbulent conductance per unit ground area
 
@@ -748,13 +748,13 @@ subroutine cana_g_turb (ustar, a, &
      ! limit conductance to reasonable range
      rah_sca = max(rah_sca,bare_rah_sca)
      con_g_h = 1.0/rah_sca
-     
+
   case(TURB_KMG2022)
-     
+
      ztop = aerodyn_height
-     
-     ! In pricinple, we have Km (not Kh), and assuming they are equal is essentially invoking 
-     ! the Reynolds analogy, but one can also use a turbulent Prandtl.Schmidt number 
+
+     ! In pricinple, we have Km (not Kh), and assuming they are equal is essentially invoking
+     ! the Reynolds analogy, but one can also use a turbulent Prandtl.Schmidt number
      ! to relate the two. Pr_t = Km/Kh, where Pr_t is typically 0.7
      Kh_top = ustar*L_m
      rah_sca = ztop/a/Kh_top * &
@@ -765,7 +765,7 @@ subroutine cana_g_turb (ustar, a, &
      ! limit conductance to reasonable range
      rah_sca = max(rah_sca,bare_rah_sca)
      con_g_h = 1.0/rah_sca
-     
+
   end select
 
   con_g_v = con_g_h
@@ -879,7 +879,7 @@ subroutine cana_roughness(lm2, &
         land_d = vegn_height*(1-(1-exp(-x))/x)
         land_rsl = max(0.0,3*vegn_height-2*land_d)
      else
-        ! in limiting case of very low LAI+SAI limiting case, use Taylor expansion
+        ! in edge case of very low LAI+SAI case, use Taylor expansion
         ! exp(-x) = 1-x+x^2/2+O(x^3) to avoid loss of precision and division by 0
         land_d = x/2
         land_rsl = 0.0
@@ -888,27 +888,25 @@ subroutine cana_roughness(lm2, &
      land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
      land_z0m = max(land_z0m,grnd_z0m)
      land_z0s = land_z0m*exp(-k_over_B)
-     
-     
-       case(ROUGH_KMG2022)
-     ! following Ghannam et al. (2022): 
+
+  case(ROUGH_KMG2022)
+     ! following Ghannam et al. (2022):
      vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
-     
+
      ! For now, using u*/Uh from Raupach ()
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
-     
+
      x = (u_ratio**2)/(cd_leaf*vegn_idx)
      if (x<1) then
         land_d = vegn_height*(1-x)
      else
         ! quantity x may be larger than 1 so need to make sure d is always positive
-        
         land_d = 0.1*vegn_height
      endif
-     
      land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
      land_z0m = max(land_z0m,grnd_z0m)
      land_z0s = land_z0m*exp(-k_over_B)
+     land_rsl = max(0.0,3*vegn_height-2*land_d)
 
   end select
 
