@@ -33,6 +33,8 @@ module land_tracer_driver_mod
   use vegn_tile_mod, only : vegn_tile_fw_fs
 
   use soil_tile_mod, only : num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types
+  use soil_carbon_mod, only: SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, soil_carbon_option
+  use soil_carbon_mod, only: poolTotals1
   use snow_mod,      only : snow_get_depth_area
 
   use sat_vapor_pres_mod, only: compute_qs
@@ -126,6 +128,9 @@ module land_tracer_driver_mod
   real, parameter  :: rgas  = (rdgas*mw_air)
   real, parameter  :: kb     = rgas/avogno
 
+  !H2 km mod
+  integer :: H2_KM_MOD_C = 1
+
   !for wetness diag
   integer, parameter :: nwet_diag = 11
   real      :: wet_diag_thr(nwet_diag) = (/ 0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.95/)
@@ -140,8 +145,8 @@ module land_tracer_driver_mod
      logical :: is_generic    = .TRUE.   ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
      logical :: do_deposition = .FALSE.  ! if true, generic dry deposition is used
      ! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)
-     real    :: reactivity    = 1.0      ! normalized reactivity factor
-     real    :: alpha         = -1       ! scaling factor relative to SO2
+     real    :: reactivity    = 0.0      ! normalized reactivity factor
+     real    :: alpha         = 0.0      ! scaling factor relative to SO2
      real    :: r_mx          = 1e-5     ! negligible resistance
      real    :: mw            = -9999.9  ! kg/mol
      real    :: diff_ratio    = 1.6      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
@@ -154,14 +159,15 @@ module land_tracer_driver_mod
 
      logical        :: is_h2=.FALSE.
 
-     real           :: gamma=1., km=0.03, depth=0.1, con_gr = -999  !for h2
+     real           :: km=0.03, depth=0.1, con_gr=-999, ilayer=-1.  !for h2
+     integer        :: km_mod=-1
 
      integer :: & ! diag field IDs
           id_emis,      id_ddep,  &
           id_flux_atm,  id_dfdtr, &
           id_con_v,     id_con_g, &
           id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
-          id_conc,      id_tcond, id_tcond_wet(nwet_diag), &
+          id_conc,      id_tcond, id_tcond_wet(nwet_diag), id_tcond_new, &
           id_econ_v,    id_econ_g, &
           id_ddep_v,    id_ddep_g, &
           id_econ_g_dry,id_econ_g_wet, id_econ_g_frz, &
@@ -178,7 +184,9 @@ module land_tracer_driver_mod
   integer :: id_fw_wet(nwet_diag)
   integer :: id_con_atm
   integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert
-  integer :: id_h2_fm, id_h2_ft, id_h2_sdiff
+  integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km
+  integer :: id_frac_water_pores_avg, id_frac_water_pores, id_frac_ice_pores
+  integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow
   integer :: id_h2_n, id_h2_st, id_h2_betab, id_h2_b
 
   ! ---- private module variables ----------------------------------------------
@@ -280,10 +288,11 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
           if ( parse(parameters, 'mw',  value) > 0 )         trdata(tr)%mw          = value
 
-          if ( parse(parameters, 'gamma',  value) > 0 )    trdata(tr)%gamma  = value
           if ( parse(parameters, 'km',  value) > 0 )       trdata(tr)%km     = value
+          if ( parse(parameters, 'km_mod',  value) > 0 )   trdata(tr)%km_mod = INT(value)
           if ( parse(parameters, 'depth',  value) > 0 )    trdata(tr)%depth  = value
           if ( parse(parameters, 'con_gr',  value) > 0 )   trdata(tr)%con_gr = value
+          if ( parse(parameters, 'ilayer',  value) > 0 )   trdata(tr)%ilayer = value
 
           !ratio of h2o to tracer diffusivity
           if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
@@ -385,6 +394,10 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
           trdata(tr)%id_tcond = &
                register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_tot_con', &
                (/id_ug/),  lnd%time,'total conductance of '//trim(trdata(tr)%name), &
+               "m/s", missing_value=-1.0)
+          trdata(tr)%id_tcond_new = &
+               register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_tot_con_new', &
+               (/id_ug/),  lnd%time,'total conductance of '//trim(trdata(tr)%name)//' new', &
                "m/s", missing_value=-1.0)
           trdata(tr)%id_con_mx_st = &
                register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_con_mx_st', &
@@ -519,6 +532,30 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          'unitless', missing_value=-1.0)
 
     call set_default_diag_filter('soil')
+
+    ! id_frac_water_pores = register_tiled_diag_field ( diag_name, 'frac_water_pores', (/id_ug,id_zfull/),  &
+    !      lnd%time, 'frac_water_pores', 'unitless', missing_value=-1.0 )
+    ! id_frac_ice_pores = register_tiled_diag_field ( diag_name, 'frac_ice_pores', (/id_ug,id_zfull/),  &
+    !      lnd%time, 'frac_ice_pores', 'unitless', missing_value=-1.0 )
+    id_frac_water_pores_avg  = register_tiled_diag_field(diag_name, 'frac_water_pores_avg', &
+         (/id_ug/),  lnd%time, 'frac_water_pores_avg', &
+         'm', missing_value=-1.0)
+    id_h2_ilayer  = register_tiled_diag_field(diag_name, 'h2_ilayer', &
+         (/id_ug/),  lnd%time, 'h2_ilayer', &
+         'm', missing_value=-1.0)
+    id_h2_R_bact  = register_tiled_diag_field(diag_name, 'h2_R_bact', &
+         (/id_ug/),  lnd%time, 'h2_R_bact', &
+         's/m', missing_value=-1.0)
+    id_h2_R_inactive  = register_tiled_diag_field(diag_name, 'h2_R_inactive', &
+         (/id_ug/),  lnd%time, 'h2_R_inactive', &
+         's/m', missing_value=-1.0)
+    id_h2_R_snow  = register_tiled_diag_field(diag_name, 'h2_R_snow', &
+         (/id_ug/),  lnd%time, 'h2_R_snow', &
+         's/m', missing_value=-1.0)
+
+    id_h2_km  = register_tiled_diag_field(diag_name, 'h2_km', &
+         (/id_ug/),  lnd%time, 'h2_km', &
+         '1/s', missing_value=-1.0)
     id_h2_fm  = register_tiled_diag_field(diag_name, 'h2_fm', &
          (/id_ug/),  lnd%time, 'h2_fm', &
          'unitless', missing_value=-1.0)
@@ -649,7 +686,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     real    :: con_v_v_tr_diag, con_v_stem_tr_diag
     real    :: econ_cu, econ_stem, econ_mx_st
     real    :: econ_cu_dry, econ_cu_wet, econ_cu_frz
-    real    :: dvel
+    real    :: dvel, dvel_new
     real    :: tmp
 
     real    :: alpha_aere, gamma_aere, A_aere
@@ -895,12 +932,15 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        f_atm = tr_flux(tr)+dfdtr(tr)*dq*trdata(tr)%conv_flux
        ! ---- diagnostic section
        dvel = con_atm*(cv+cg)/(con_atm+cv+cg)
+       dvel_new =  dfdtr(tr)*(cv+cg)/(dfdtr(tr)+rho*(cv+cg))
+
        call send_tile_data(trdata(tr)%id_con_v,      cv,         tile%diag)
        call send_tile_data(trdata(tr)%id_con_g,      cg,         tile%diag)
        call send_tile_data(trdata(tr)%id_emis,       emis(tr),   tile%diag)
        call send_tile_data(trdata(tr)%id_ddep,       ddep,       tile%diag)
        call send_tile_data(trdata(tr)%id_flux_atm,   f_atm,      tile%diag)
        call send_tile_data(trdata(tr)%id_tcond,dvel, tile%diag)
+       call send_tile_data(trdata(tr)%id_tcond_new,dvel_new, tile%diag)
 
        if (associated(tile%vegn)) then
           do iw=1,nwet_diag
@@ -1173,14 +1213,17 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     real    :: delta !inactive layer
     integer :: isoil, soil_tag
-    real    :: frac_water_pores_avg, frac_ice_pores_avg, frac_air_pores_avg, porosity
-    real,dimension(num_l) :: frac_water_pores, frac_ice_pores
-    real    :: dz, T_avg, T_avgC
-    real    :: diff_h2_air, diff_h2
+    real    :: frac_water_pores_avg, frac_ice_pores_avg, frac_air_pores_avg
+    real,dimension(num_l) :: frac_water_pores, frac_ice_pores, soil_C
+    real    :: dz, T_avg, T_avgC, dz_tot, soil_C_avg
+    real    :: diff_h2
     real    :: f_T, f_M
-    real    :: h2_gamma, h2_km, h2_depth
+    real    :: h2_km, h2_depth
     real    :: gdelta, snow_depth, snow_area
-    real, parameter :: snow_porosity = 0.64
+
+    real    :: R_inactive, R_snow, R_bact, inactive_layer, inactive_layer2
+
+    logical :: top_layer = .FALSE.
 
     con = 0.
 
@@ -1188,74 +1231,173 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        con = tr_data%con_gr
 
     else
-       delta = 0. !no inactive layer for now
-
        if (associated(tile%soil)) then
 
-          h2_gamma = tr_data%gamma
-          h2_km    = tr_data%km
-          h2_depth = tr_data%depth
+          soil_C = 0.
 
-          soil_tag = tile%soil%tag
+          h2_km             = tr_data%km
+          h2_depth          = tr_data%depth
 
-          frac_water_pores  = soil_theta(tile%soil)
-          frac_ice_pores    = soil_ice_porosity(tile%soil)
+          soil_tag          = tile%soil%tag
 
-          porosity          = tile%soil%pars%vwc_sat
+          frac_water_pores  = max(min(soil_theta(tile%soil),1.),0.)
+          frac_ice_pores    = max(min(soil_ice_porosity(tile%soil),1.),0.)
 
           isoil = 1
           T_avg = 0.
           frac_water_pores_avg = 0.
           frac_ice_pores_avg   = 0.
 
+          R_inactive = 0.
+          R_snow     = 0.
+          R_bact     = 1.e20
+          dz_tot     = 0.
+          inactive_layer  = 0.
+          inactive_layer2 = 0.
+          top_layer = .TRUE.
+
+          !loop over soil layers
           do while (zhalf(isoil).lt.h2_depth)
-             dz                   = min(zhalf(isoil+1),h2_depth)-zhalf(isoil)
-             T_avg                = T_avg + dz*tile%soil%T(isoil)
-             frac_water_pores_avg = frac_water_pores_avg + dz*frac_water_pores(isoil)
-             frac_ice_pores_avg   = frac_ice_pores_avg + dz*frac_ice_pores(isoil)
+             dz = min(zhalf(isoil+1),h2_depth)-zhalf(isoil)
+             if (frac_water_pores(isoil).lt.h2_st(soil_tag)) then
+                if (TOP_LAYER) then
+                   !there is no uptake of h2 in this layer (too dry)
+                   R_inactive = R_inactive + dz/max(diff_H2_soil(tile%soil%T(isoil),p,                             &
+                                                                 tile%soil%pars%vwc_sat,                           &
+                                                                 frac_water_pores(isoil)+frac_ice_pores(isoil),    &
+                                                                 h2_b(soil_tag)),1.e-20)
+
+                   inactive_layer = inactive_layer + dz
+                end if
+             else
+                T_avg                = T_avg                + dz*tile%soil%T(isoil)
+                frac_water_pores_avg = frac_water_pores_avg + dz*frac_water_pores(isoil)
+                frac_ice_pores_avg   = frac_ice_pores_avg   + dz*frac_ice_pores(isoil)
+                dz_tot               = dz_tot               + dz
+
+                !get C for modulation
+                select case (soil_carbon_option)
+                case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+                   soil_C(isoil) =(tile%soil%fast_soil_C(isoil)+tile%soil%slow_soil_C(isoil))
+                case (SOILC_CORPSE, SOILC_CORPSE_N)
+                   call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C(isoil))
+                end select
+
+                top_layer            = .FALSE.
+
+             end if
              isoil                = isoil+1
           end do
 
-          T_avg                 = T_avg/(h2_depth-delta)
-          T_avgC                = T_avg - 273.15
-
-          frac_water_pores_avg  = max(frac_water_pores_avg/(h2_depth-delta),0.)
-          frac_ice_pores_avg    = max(frac_ice_pores_avg/(h2_depth-delta),0.)
-          frac_air_pores_avg    = max(1.-frac_water_pores_avg-frac_ice_pores_avg,0.)
-
-          diff_h2_air    = 0.668e-4*(101325./p)*(T_avg/273)**1.75
-          diff_h2        = diff_h2_air * porosity**2.*frac_air_pores_avg**(2+3./h2_b(soil_tag))
-
-          f_T = 1/(1+exp(-(T_avgC-3.8)/6.7)) + 1./(1.+exp((T_avgC - 62.2)/7.7)) - 1.
-
-          if (frac_water_pores_avg.gt.1.) then
-             f_M = 0.
-          elseif (frac_water_pores_avg.lt.h2_st(soil_tag)) then
-             f_M = 0.
-          else
-             f_M = 1/h2_N(soil_tag)*(frac_water_pores_avg-h2_st(soil_tag))**(h2_a-1)*(1.-frac_water_pores_avg)**(h2_betab(soil_tag)-1)
-          end if
-
-          con = sqrt(h2_gamma*f_T*f_M*h2_km*diff_h2)
-
+          R_snow = 0.
           if (associated(tile%snow)) then
              call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
              if (snow_depth.gt.epsln) then
-                snow_depth = snow_depth/(snow_area+epsln)
-                gdelta = diff_h2_air*snow_porosity/(snow_depth+epsln)
-
-                con = (1.-snow_area)*con + snow_area*(con*gdelta)/(con+gdelta)
+                R_snow     = snow_depth/diff_H2_snow(tile%soil%T(isoil),p)
              end if
           end if
 
+          soil_C_avg = 0.
+          if (dz_tot.gt.epsln) then
+             soil_C_avg             = sum(soil_C)/dz_tot !kg/m3
+             T_avg                 = T_avg/dz_tot
+             T_avgC                = T_avg - 273.15
+             frac_water_pores_avg  = frac_water_pores_avg/dz_tot
+             frac_ice_pores_avg    = frac_ice_pores_avg/dz_tot
+
+             if (tr_data%ilayer .gt. 0.) then
+                !calculate inactive layer depth (m)
+                inactive_layer2 =  0.109e-2 * ((1.-frac_water_pores_avg-frac_ice_pores_avg)/(frac_water_pores_avg+frac_ice_pores_avg))**1.8
+                inactive_layer2 = min(inactive_layer2,dz_tot)
+
+                R_inactive = R_inactive + inactive_layer2/max(diff_H2_soil(T_avg,p,                            &
+                                                                           tile%soil%pars%vwc_sat,             &
+                                                                           h2_st(soil_tag)+frac_ice_pores_avg, &
+                                                                           h2_b(soil_tag)),1.e-20)
+
+                !update frac_water_pores_avg
+                if (inactive_layer2.lt.dz_tot) then
+                   frac_water_pores_avg = frac_water_pores_avg*dz_tot - h2_st(soil_tag)*inactive_layer2
+                   frac_water_pores_avg = frac_water_pores_avg/(dz_tot-inactive_layer2)
+                else
+                   frac_water_pores_avg = h2_st(soil_tag)/2. !this shuts down uptake
+                end if
+
+                inactive_layer = inactive_layer+inactive_layer2
+             end if
+
+             if (frac_water_pores_avg.gt.1.) then
+                f_M = 0.
+             elseif (frac_water_pores_avg.lt.h2_st(soil_tag)) then
+                f_M = 0.
+             else
+                f_M = 1/h2_N(soil_tag)*(frac_water_pores_avg-h2_st(soil_tag))**(h2_a-1.)*(1.-frac_water_pores_avg)**(h2_betab(soil_tag)-1.)
+             end if
+
+             f_T = 1/(1+exp(-(T_avgC-3.8)/6.7)) + 1./(1.+exp((T_avgC - 62.2)/7.7)) - 1.
+
+             diff_H2 = diff_H2_soil( T_avg,                                            &
+                                  p,                                                &
+                                  tile%soil%pars%vwc_sat,                           &
+                                  frac_water_pores_avg,                             &
+                                  h2_b(soil_tag) )
+             if (tr_data%km_mod.eq.h2_km_mod_c) then
+                h2_km = h2_km*soil_C_avg/(soil_C_avg+7.)
+             end if
+
+             R_bact = 1./max(sqrt(f_T*f_M*h2_km*diff_H2),1.e-20)
+
+          else
+
+             h2_km   = 0.
+             f_M     = 0.
+             f_T     = 0.
+             diff_H2 = 0.
+
+          end if
+
+
+          con = 1./(R_inactive+R_snow+R_bact)
+
+          call send_tile_data(id_h2_km,h2_km,                     tile%diag)
           call send_tile_data(id_h2_fm,f_M,                       tile%diag)
           call send_tile_data(id_h2_ft,f_T,                       tile%diag)
           call send_tile_data(id_h2_sdiff,diff_h2,                tile%diag)
+          call send_tile_data(id_h2_R_bact,R_bact,                tile%diag)
+          call send_tile_data(id_h2_R_inactive,R_inactive,        tile%diag)
+          call send_tile_data(id_h2_ilayer,inactive_layer,        tile%diag)
+
+!          call send_tile_data(id_frac_water_pores,frac_water_pores, tile%diag)
+!          call send_tile_data(id_frac_ice_pores,frac_ice_pores, tile%diag)
+          call send_tile_data(id_frac_water_pores_avg,frac_water_pores_avg, tile%diag)
 
        end if
 
     end if
 
   end function con_h2
+
+  elemental real function diff_H2_air(T,p) result(D)
+    real, intent(in) :: T,p
+    D = 0.611e-4*(101325./p)*(T/273.15)**1.75
+  end function diff_H2_air
+
+  elemental real function diff_H2_snow(T,p) result(D)
+    real, intent(in) :: T,p
+    real, parameter  :: snow_porosity = 0.64
+
+    D = diff_H2_air(T,p) * snow_porosity**2
+
+  end function diff_H2_snow
+
+  elemental real function diff_H2_soil(T,p,n,st,b) result(D)
+    !T: temperature (K)
+    !p: pressure
+    !n: porosity
+    !st: water+ice fraction
+    !b
+    real, intent(in) :: T,p,n,st,b
+    D = diff_H2_air(T,p) * n**2 * (max(1.-st,0.))**(2.+3./b)
+  end function diff_H2_soil
 
 end module land_tracer_driver_mod
