@@ -1,22 +1,19 @@
 module transition_io_mod
 
+use netcdf, only: nf90_max_name
 use constants_mod, only : PI
-use mpp_mod, only : mpp_error, FATAL
-use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+use fms_mod, only : string, lowercase, error_mesg, FATAL, WARNING, NOTE
 
-use time_manager_mod, only : time_type, set_date, get_date, set_time, &
+use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
-     operator(//), operator(==), days_in_year, print_date, increment_date, get_time, &
-     valid_calendar_types, get_calendar_type
+     operator(//), operator(==)
 use get_cal_time_mod, only : get_cal_time
-use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
-     horiz_interp_new, horiz_interp_del
-use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec, &
-     nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
-
-use land_tile_io_mod, only : print_netcdf_error
+use horiz_interp_mod, only : horiz_interp_type, horiz_interp_new, horiz_interp_del
+use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_file, &
+    get_valid, is_valid, variable_exists, get_variable_size, &
+    get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
+    get_variable_dimension_names, get_variable_num_dimensions
+use axis_utils2_mod, only: axis_edges
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
 
 implicit none
@@ -44,10 +41,6 @@ public :: varset_T
 character(len=*), parameter :: module_name = 'transitions_io_mod'
 #include "../shared/version_variable.inc"
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 ! ==== data types ===========================================================
 
 !> container for information about input file and grid information
@@ -57,12 +50,13 @@ include 'netcdf.inc'
 !! normalization factor (if any) must be applied to all of them
 type :: infile_T
   character(1024) :: path      = '' !< file path
-  character(1024) :: static    = '' !< static file path
+  character(1024) :: static    = '' !< static path
   character(16)   :: data_type = '' !< type of input data (LUH1 or LUH2). Due to differences
       !! in the normalization in the input data sets (per unit area of land or per unit area
       !! of grid cell) and differences in definition of valid values mask, interpolation is set
       !! up slightly differently depending on the type of the data set.
-  integer         :: ncid = -1 !< netcdf file ID; switch to io2 file structure in future
+  type(FmsNetcdfFile_t)        :: statobj !< static fms2_io file object
+  type(FmsNetcdfFile_t)        :: ncobj !< netcdf fms_io2 file object
 
   type(time_type), allocatable :: time_in(:)   !< input data time axis
 
@@ -74,7 +68,6 @@ type :: infile_T
 contains
   procedure :: init         => infile_init
   procedure :: destroy      => infile_destroy
-  procedure :: inq_var      => infile_inq_var
 end type infile_T
 
 !> structure that represents a set of variables
@@ -88,9 +81,9 @@ end type infile_T
 !! and are added together to get one model field
 type :: varset_T
   type(infile_T), pointer :: file => NULL() !< pointer to input file object
-  character(NF_MAX_NAME) :: name  = '' !< internal name of the field
+  character(len=nf90_max_name) :: name  = '' !< internal name of the field
   integer       :: nvars = 0  !< number of variable ids
-  character(NF_MAX_NAME), allocatable :: varname(:) !< names of the input fields
+  character(len=nf90_max_name), dimension(:), allocatable :: varname !< names of the input fields
 contains
   procedure :: addvar   => varset_add_var
   procedure :: descr    => varset_descr
@@ -100,6 +93,9 @@ end type varset_T
 
 ! ---- module variables
 logical :: module_is_initialized = .FALSE.
+integer :: ndims
+integer, dimension(:), allocatable :: dimlens
+character(len=nf90_max_name), dimension(:), allocatable :: dimnames
 
 contains
 
@@ -124,16 +120,20 @@ subroutine infile_init(this, path, static, data_type)
   character(*),    intent(in)    :: static !< static file path
   character(*),    intent(in)    :: data_type !< data type, LUH1 or LUH2
 
-  integer :: ierr
+  logical :: path_exists, static_exists
 
   this%path      = path
   this%static    = static
   this%data_type = data_type
-  ierr = nf_open(path,NF_NOWRITE,this%ncid)
-  if(ierr/=NF_NOERR) call mpp_error(FATAL, &
-      'file "'//trim(path)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+  path_exists = open_file(this%ncobj, this%path, "read")
+  if(.not. path_exists) call error_mesg('land_transition_io_infile_init', &
+      trim(path)//'" could not be opened.', FATAL)
+  static_exists = open_file(this%statobj, this%static, "read")
+  if(trim(lowercase(this%data_type)) == 'luh2' .and. .not. static_exists) call &
+      error_mesg('land_transition_io_infile_init', &
+      trim(static)//'" could not be opened.', FATAL)
   ! get time axis
-  call get_time_axis(this%ncid,this%time_in)
+  call get_time_axis(this%ncobj,this%time_in)
 end subroutine infile_init
 
 ! ============================================================================
@@ -141,9 +141,8 @@ end subroutine infile_init
 subroutine infile_destroy(this)
   class(infile_T), intent(inout) :: this
 
-  integer :: ierr
   ! close input file
-  if (this%ncid > 0) ierr = nf_close(this%ncid)
+  call close_file(this%ncobj)
   ! deallocate timeline
   if (allocated(this%time_in)) deallocate(this%time_in)
   ! deallocate interpolator, if it exists
@@ -154,61 +153,28 @@ subroutine infile_destroy(this)
   this%grid_initialized = .FALSE.
 end subroutine infile_destroy
 
-! ============================================================================
-subroutine infile_inq_var(this, varname, found)
-  class(infile_T), intent(inout) :: this
-  character(*),    intent(in)    :: varname
-  logical,         intent(out)   :: found
-
-  integer :: ierr
-  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
-
-  ierr = nfu_inq_var(this%ncid, trim(varname), dimids=dimids, dimlens=dimlens)
-
-  select case(ierr)
-  case (NF_NOERR)
-     found = .TRUE.
-  case (NF_ENOTVAR)
-     found = .FALSE.
-!       call error_mesg('land_transitions_init',&
-!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
-!            NOTE)
-     ! do nothing in this case, it is OK for only subset of variables
-     ! to be present in the file
-     return
-  case default
-     call mpp_error(FATAL,&
-          'error initializing field "'//varname//&
-          '" from file "'//trim(this%path)//'" : '//nf_strerror(ierr))
-  end select
-end subroutine infile_inq_var
-
 ! ==== end of infile_T member functions ======================================
 
 ! ============================================================================
 !> read time axis from a file
-subroutine get_time_axis(ncid, time_in)
-  integer, intent(in) :: ncid
+subroutine get_time_axis(ncobj, time_in)
+    type(FmsNetcdfFile_t), intent(in) :: ncobj
   type(time_type), allocatable :: time_in(:)
 
-  integer :: timedim ! id of the record (time) dimension
-  integer :: timevar ! id of the time variable
-  character(len=NF_MAX_NAME) :: timename  ! name of the time variable
+  character(len=nf90_max_name) :: timename  ! name of the time variable
   character(len=256)         :: timeunits ! units ot time in the file
   character(len=32) :: calendar ! model calendar
   real, allocatable :: time(:)  ! real values of time coordinate
   integer :: i, nrec
 
   ! get the time axis
-  __NF_ASRT__(nf_inq_unlimdim(ncid, timedim))
-  __NF_ASRT__(nf_inq_dimlen(ncid, timedim, nrec))
+  call get_unlimited_dimension_name(ncobj, timename)
+  call get_dimension_size(ncobj, timename, nrec)
   allocate(time(nrec), time_in(nrec))
-  __NF_ASRT__(nfu_get_dim(ncid, timedim, time))
   ! get units of time
-  __NF_ASRT__(nf_inq_dimname(ncid, timedim, timename))
-  __NF_ASRT__(nf_inq_varid(ncid, timename, timevar))
+  call read_data(ncobj, timename, time)
   timeunits = ' '
-  __NF_ASRT__(nf_get_att_text(ncid,timevar,'units',timeunits))
+  call get_variable_attribute(ncobj, timename, "units", timeunits)
   ! get model calendar
   calendar=valid_calendar_types(get_calendar_type())
 
@@ -236,34 +202,37 @@ subroutine setup_hgrid(this,varname)
   real, allocatable :: lon_in(:,:),lat_in(:,:) ! horizontal grid of input data
   real, allocatable :: buffer_in(:,:) ! buffers for input data reading
   real, allocatable :: mask_in  (:,:) ! valid data mask on the input data grid
-  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
-  type(nfu_validtype) :: v ! valid values range
-  integer :: ncid1 ! ID of static file
-  integer :: ierr
 
+  type(Valid_t) :: v
   if (this%grid_initialized) return ! do nothing if grid is already set up
   ! TODO: possibly check that variable size is the same
 
-  __NF_ASRT__(nfu_inq_var(this%ncid, trim(varname), dimids=dimids, dimlens=dimlens))
+  ndims = get_variable_num_dimensions(this%ncobj, varname)
+  allocate(dimlens(ndims))
+  call get_variable_size(this%ncobj, varname, dimlens)
   this%nlon_in = dimlens(1); this%nlat_in=dimlens(2)
-
-  ! get the boundaries of the horizontal axes
-  allocate(lon_in(this%nlon_in+1,1), lat_in(1,this%nlat_in+1) )
-  __NF_ASRT__(nfu_get_dim_bounds(this%ncid, dimids(1), lon_in(:,1)))
-  __NF_ASRT__(nfu_get_dim_bounds(this%ncid, dimids(2), lat_in(1,:)))
+  deallocate(dimlens)
 
   ! allocate temporary variables
   allocate(buffer_in    (this%nlon_in,this%nlat_in), &
            mask_in      (this%nlon_in,this%nlat_in), &
            this%norm_in (this%nlon_in,this%nlat_in)  )
+  allocate(lon_in(this%nlon_in+1,1), lat_in(1,this%nlat_in+1) )
+
+  ! get the boundaries of the horizontal axes
+  allocate(dimnames(ndims))
+  call get_variable_dimension_names(this%ncobj, varname, dimnames)
+  call axis_edges(this%ncobj, dimnames(1), lon_in(:,1))
+  call axis_edges(this%ncobj, dimnames(2), lat_in(1,:))
+  deallocate(dimnames)
 
   ! get the first record from variable and obtain the mask of valid data
   ! assume that valid mask does not change with time
-  __NF_ASRT__(nfu_get_rec(this%ncid,varname,1,buffer_in))
+  call read_data(this%ncobj, varname, buffer_in, unlim_dim_level=1)
   ! get the valid range for the variable
-  __NF_ASRT__(nfu_get_valid_range(this%ncid,varname,v))
+  v = get_valid(this%ncobj, varname)
   ! get the mask
-  where (nfu_is_valid(buffer_in,v))
+  where (is_valid(buffer_in,v))
      mask_in = 1
   elsewhere
      mask_in = 0
@@ -278,20 +247,14 @@ subroutine setup_hgrid(this,varname)
   case ('luh2')
      ! read static file and calculate normalizing factor
      ! LUH2 data are in [fraction of cell area per year]
-     if (trim(this%static)=='') call mpp_error(FATAL, &
-          'using LUH2 data set, but static data file is not specified')
-     ierr=nf_open(this%static,NF_NOWRITE,ncid1)
-     if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
-          'using LUH2 data set, but static data file "'// &
-          trim(this%static)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-     __NF_ASRT__(nfu_get_var(ncid1,'landfrac',buffer_in))
+     call read_data(this%statobj, 'landfrac', buffer_in)
      where (buffer_in > 0.0)
         this%norm_in = 1.0/buffer_in
      elsewhere
         this%norm_in = 0.0
         mask_in = 0
      end where
-     ierr = nf_close(ncid1)
+     call close_file(this%statobj)
   case default
      call error_mesg('land_transitions_init','unknown data_type "'&
                     //trim(this%data_type)//'", use "luh1" or "luh2"', FATAL)
@@ -318,13 +281,12 @@ subroutine varset_add_var(this,infile,varname)
    class(infile_T), target        :: infile   !< input file
    character(*),    intent(in)    :: varname  !< name of the variable in input file
 
-   character(NF_MAX_NAME), allocatable :: varname_(:)
-   logical :: found
+   character(len=nf90_max_name), allocatable :: varname_(:)
 
    if (.not.associated(this%file)) then
       this%file => infile
    else if (.not.associated(this%file,infile)) then
-      call mpp_error(FATAL, 'variable set already associated with different file')
+      call error_mesg('transition_io_varset_add_var', 'variable set already associated with different file', FATAL)
    endif
 
    ! allocate space for variable names on the first call
@@ -342,8 +304,7 @@ subroutine varset_add_var(this,infile,varname)
       call move_alloc(varname_,this%varname)
    endif
 
-   call this%file%inq_var(varname,found)
-   if (found) then
+   if (variable_exists(this%file%ncobj, varname)) then
       call error_mesg('land_transitions_init',&
            'adding field "'//trim(varname)//'" from file "'//trim(this%file%path)//'"'//&
            ' to transition "'//trim(this%name)//'"',&
@@ -373,14 +334,14 @@ subroutine varset_get_data(this,rec,frac)
    frac = 0.0
    if (this%nvars == 0) return
 
-   if (.not.associated(this%file)) call mpp_error(FATAL, &
-       'variable set "'//trim(this%name)//'" has no associated file')
+   if (.not.associated(this%file)) call error_mesg('transition_io_varset_get_data', &
+       'variable set "'//trim(this%name)//'" has no associated file', FATAL)
 
    allocate(buff0(this%file%nlon_in,this%file%nlat_in), &
             buff1(this%file%nlon_in,this%file%nlat_in)  )
    buff1 = 0.0
    do i = 1,this%nvars
-      __NF_ASRT__(nfu_get_rec(this%file%ncid,this%varname(i),rec,buff0))
+      call read_data(this%file%ncobj, this%varname(i), buff0, unlim_dim_level=rec)
       buff1 = buff1 + buff0
    enddo
    call horiz_interp_ug(this%file%interp,buff1*this%file%norm_in,frac)
@@ -394,7 +355,7 @@ function varset_descr(this) result(str)
   character(:), allocatable :: str
   class(varset_T), intent(in) :: this
 
-  character(NF_MAX_NAME) :: varname
+  character(len=nf90_max_name) :: varname
   integer :: i
 
   str = trim(this%name)//' = '

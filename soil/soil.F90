@@ -5,14 +5,11 @@ module soil_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
+
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
 use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+     stdlog, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
@@ -87,6 +84,9 @@ use river_mod, only : river_tracer_index
 
 ! Test tridiagonal solution for advection
 use land_numerics_mod, only : tridiag
+
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
+
 implicit none
 private
 
@@ -263,6 +263,7 @@ integer :: &
 integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, id_litter_total_C_leaching, id_litter_total_ON_leaching, id_litter_NO3_leaching, id_litter_NH4_leaching,&
     id_litter_livemic_N, id_litter_total_N, id_litter_nitrate, id_litter_ammonium
+
 integer, dimension(N_C_TYPES) :: &
     id_soil_C,           id_soil_N, &
     id_soil_dissolved_C, id_soil_dissolved_N, &
@@ -293,9 +294,9 @@ integer :: id_st_diff
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
-    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, &
+    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
     id_cSoilAbove1m, &
-    id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
+    id_nSoil, id_nLitter, id_nLitterCwd, id_nLitterLeaf, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -318,21 +319,8 @@ subroutine read_soil_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=soil_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'soil_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_nml)
@@ -383,7 +371,9 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
-  character(*), parameter :: restart_file_name = 'INPUT/soil.res.nc'
+  character(*), parameter :: restart_file_name = 'INPUT/soil.nc'
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -413,16 +403,27 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      select case (gw_option)
      case (GW_LINEAR,GW_LM2)
         allocate(gw_param(lnd%ls:lnd%le))
-        call read_field( 'INPUT/groundwater_residence.nc','tau', gw_param, interp='bilinear' )
+        exists = open_file(fileobj, "INPUT/groundwater_residence.nc", "read")
+        if (.not. exists) then
+          call error_mesg("soil_init", "INPUT/groundwater_residence.nc does not exist", &
+                          FATAL)
+        endif
+        call read_field( fileobj, 'tau', gw_param, interp='bilinear' )
+        call close_file(fileobj)
         call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_tau_groundwater_ptr )
         deallocate(gw_param)
      case (GW_HILL, GW_HILL_AR5)
         allocate(gw_param (lnd%ls:lnd%le))
         allocate(gw_param2(lnd%ls:lnd%le))
         allocate(gw_param3(lnd%ls:lnd%le))
-        call read_field( 'INPUT/geohydrology.nc','hillslope_length', gw_param, interp='bilinear' )
+        exists = open_file(fileobj, "INPUT/geohydrology.nc", "read")
+        if (.not. exists) then
+          call error_mesg("soil_init", "INPUT/geohydrology.nc does not exist", &
+                          FATAL)
+        endif
+        call read_field( fileobj, 'hillslope_length', gw_param, interp='bilinear' )
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-        call read_field( 'INPUT/geohydrology.nc','slope', gw_param2, interp='bilinear' )
+        call read_field( fileobj, 'slope', gw_param2, interp='bilinear' )
         gw_param = gw_param*gw_param2
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
 
@@ -431,20 +432,20 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             gw_param = 1.
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_n_ptr )
-!            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
+!            call read_field( fileobj, 'hillslope_zeta_bar', &
 !              lnd%sg_lon, lnd%sg_lat, gw_param, interp='bilinear' )
             gw_param = 0.5
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
         else
-            call read_field( 'INPUT/geohydrology.nc','hillslope_a', gw_param, interp='bilinear' )
+            call read_field( fileobj, 'hillslope_a', gw_param, interp='bilinear' )
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
-            call read_field( 'INPUT/geohydrology.nc','hillslope_n', gw_param2, interp='bilinear' )
+            call read_field( fileobj, 'hillslope_n', gw_param2, interp='bilinear' )
             call put_to_tiles_r0d_fptr( gw_param2, land_tile_map, soil_hillslope_n_ptr )
             gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
             call put_to_tiles_r0d_fptr( gw_param3, land_tile_map, soil_hillslope_zeta_bar_ptr )
         endif
 
-        call read_field( 'INPUT/geohydrology.nc','soil_e_depth', gw_param, interp='bilinear' )
+        call read_field( fileobj, 'soil_e_depth', gw_param, interp='bilinear' )
         if (slope_exp.gt.0.01) then
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
                                                   land_tile_map, soil_soil_e_depth_ptr )
@@ -452,7 +453,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
         endif
         if (gw_option /= GW_HILL_AR5) then
-            call read_field( 'INPUT/geohydrology.nc','perm', gw_param, interp='bilinear' )
+            call read_field( fileobj, 'perm', gw_param, interp='bilinear' )
             call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                             soil_k_sat_gw_ptr )
         endif
@@ -467,18 +468,24 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
                 call soil_data_init_derive_subsurf_pars_ar5(tile%soil)
             end select
         enddo
+        call close_file(fileobj)
      case (GW_TILED)
         if (use_geohydrodata) then
+           exists = open_file(fileobj, "INPUT/geohydrology.nc", "read")
+           if (.not. exists) then
+             call error_mesg("soil_init", "INPUT/geohydrology.nc does not exist", &
+                             FATAL)
+           endif
            allocate(gw_param (lnd%ls:lnd%le), gw_param2(lnd%ls:lnd%le))
-           call read_field( 'INPUT/geohydrology.nc','hillslope_length', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'hillslope_length', gw_param, interp='bilinear' )
            call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-           call read_field( 'INPUT/geohydrology.nc','slope', gw_param2, interp='bilinear' )
+           call read_field( fileobj, 'slope', gw_param2, interp='bilinear' )
            gw_param = gw_param*gw_param2
            call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
-           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'hillslope_zeta_bar', gw_param, interp='bilinear' )
            if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
-           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'soil_e_depth', gw_param, interp='bilinear' )
 
            if (slope_exp.gt.0.01) then
            ! ZMS It is probably inconsistent to leave in this if statement.
@@ -489,10 +496,11 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            else
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
            endif
-           call read_field( 'INPUT/geohydrology.nc','perm', gw_param, interp='bilinear' )
+           call read_field( fileobj, 'perm', gw_param, interp='bilinear' )
            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                           soil_k_sat_gw_ptr )
            deallocate(gw_param, gw_param2)
+           call close_file(fileobj)
         end if
         ce = first_elmt(land_tile_map)
         do while(loop_over_tiles(ce,tile))
@@ -515,8 +523,14 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
      allocate(albedo(lnd%ls:lnd%le,NBANDS))
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
+     exists = open_file(fileobj, "INPUT/soil_albedo.nc", "read")
+     if (.not. exists) then
+       call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", &
+                       FATAL)
+     endif
+     call read_field( fileobj, 'SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
+     call close_file(fileobj)
      call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
@@ -530,12 +544,18 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      allocate(   f_vol(lnd%ls:lnd%le,NBANDS))
      allocate(   f_geo(lnd%ls:lnd%le,NBANDS))
      allocate(refl_dif(lnd%ls:lnd%le,NBANDS))
-     call read_field( 'INPUT/soil_brdf.nc','f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_geo_vis', f_geo(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_iso_nir', f_iso(:,BAND_NIR),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_vol_nir', f_vol(:,BAND_NIR),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_geo_nir', f_geo(:,BAND_NIR),'bilinear')
+     exists = open_file(fileobj, "INPUT/soil_brdf.nc", "read")
+     if (.not. exists) then
+       call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", &
+                       FATAL)
+     endif
+     call read_field( fileobj, 'f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'f_geo_vis', f_geo(:,BAND_VIS),'bilinear')
+     call read_field( fileobj, 'f_iso_nir', f_iso(:,BAND_NIR),'bilinear')
+     call read_field( fileobj, 'f_vol_nir', f_vol(:,BAND_NIR),'bilinear')
+     call read_field( fileobj, 'f_geo_nir', f_geo(:,BAND_NIR),'bilinear')
+     call close_file(fileobj)
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
      call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_dry_ptr )
      call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_dry_ptr )
@@ -571,8 +591,14 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
   if (use_coldstart_wtt_data) then
      allocate(ref_soil_t(lnd%ls:lnd%le), wetmask(lnd%ls:lnd%le))
-     call read_field( coldstart_datafile, 'REFSOILT', ref_soil_t, interp='bilinear' )
-     call read_field( coldstart_datafile, 'WETMASK', wetmask, interp='bilinear' )
+     exists = open_file(fileobj, coldstart_datafile, "read")
+     if (.not. exists) then
+       call error_mesg("soil_init", trim(coldstart_datafile)//" does not exist.", &
+                       FATAL)
+     endif
+     call read_field( fileobj, 'REFSOILT', ref_soil_t, interp='bilinear' )
+     call read_field( fileobj, 'WETMASK', wetmask, interp='bilinear' )
+     call close_file(fileobj)
   end if
 
   ce = first_elmt(land_tile_map, ls=lnd%ls) ! Use global indices here because element indices
@@ -668,6 +694,15 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            endif
            call free_land_restart(restart1)
         endif
+        ! name is deliberately different from similar CORPSE fields so that we can start
+        ! with CORPSE restarts with zero litter
+        if (field_exists(restart,trim(l_shortname(1))//'_litt_'//trim(c_shortname(1))//'_C')) then
+           do i = 1, N_C_TYPES
+              do k = 1, N_LITTER_POOLS
+                 call get_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_century_C_ptr,i,k)
+              enddo
+           enddo
+        endif
 
      case (SOILC_CORPSE, SOILC_CORPSE_N)
         if (field_exists(restart,'fast_soil_C')) then
@@ -676,7 +711,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            do while(loop_over_tiles(ce,tile))
                if (.not.associated(tile%soil)) cycle
                do i = 1,N_LITTER_POOLS
-                  call adjust_pool_ncohorts(tile%soil%litter(i))
+                  call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
                enddo
                do i = 1,num_l
                   call adjust_pool_ncohorts(tile%soil%org_matter(i))
@@ -1119,13 +1154,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
        missing_value=initval)
   id_fsc = register_tiled_diag_field ( module_name, 'fsc', axes(1:1),  &
-       lnd%time, 'total fast soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total fast soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
   id_fsn = register_tiled_diag_field ( module_name, 'fsn', axes(1:1),  &
-       lnd%time, 'total fast soil nitrogen', 'kg N/m2', missing_value=-100.0 )
+       lnd%time, 'total fast soil nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
   id_ssc = register_tiled_diag_field ( module_name, 'ssc', axes(1:1),  &
-       lnd%time, 'total slow soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total slow soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
   id_ssn = register_tiled_diag_field ( module_name, 'ssn', axes(1:1),  &
-       lnd%time, 'total slow soil nitrogen', 'kg N/m2', missing_value=-100.0 )
+       lnd%time, 'total slow soil nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
   id_lwc = register_tiled_diag_field ( module_name, 'soil_liq', axes,  &
        lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'soil_ice',  axes,  &
@@ -1445,6 +1480,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
        fill_missing=.TRUE.)
+  id_cLitterLeaf = register_tiled_diag_field ( cmor_name, 'cLitterLeaf', axes(1:1), &
+       lnd%time, 'Carbon Mass in Leaf Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='leaf_debris_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
@@ -1477,6 +1516,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
        fill_missing=.TRUE.)
+  id_nLitterLeaf = register_tiled_diag_field ( cmor_name, 'nLitterLeaf', axes(1:1), &
+       lnd%time, 'Nitrogen Mass in Leaf Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='leaf_debris_mass_content_of_nitrogen', &
+       fill_missing=.TRUE.)
 
   !Std output
   call set_default_diag_filter('soil')
@@ -1508,12 +1551,12 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'soil.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'soil.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
   if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
-     call add_restart_axis(restart,'litterCCohort',(/1.0/),'CC')
+     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/), .false.)
+     call add_restart_axis(restart,'litterCCohort',(/1.0/),.false.)
   endif
 
   ! write out fields
@@ -1528,13 +1571,19 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
      call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
+     do i = 1, N_C_TYPES
+        do k = 1,N_LITTER_POOLS
+           call add_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_century_C_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
+        enddo
+     enddo
+
   case (SOILC_CORPSE, SOILC_CORPSE_N)
      ! make sure all arrays of carbon cohorts are of the same length
      ce = first_elmt(land_tile_map)
      do while (loop_over_tiles(ce,tile))
          if (.not.associated(tile%soil)) cycle
          do i = 1,N_LITTER_POOLS
-            call adjust_pool_ncohorts(tile%soil%litter(i))
+            call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
          enddo
          do i = 1,num_l
             call adjust_pool_ncohorts(tile%soil%org_matter(i))
@@ -1604,9 +1653,9 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 
   if (write_soil_carbon_restart) then
-     filename = trim(timestamp)//'soil_carbon.res.nc'
+     filename = 'RESTART/'//trim(timestamp)//'soil_carbon.nc'
      call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-     call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
      select case (soil_carbon_option)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -1792,7 +1841,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
         __DEBUG3__(soil%w_wilt(l),soil%w_fc(l), soil%alpha(l))
      enddo
 !     do l = 1,N_LITTER_POOLS
-!        call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
+!        call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
 !     enddo
 !      do l = 1, num_l
 !         write(*,'(i2.2,x)',advance='NO') l
@@ -2875,7 +2924,7 @@ end subroutine soil_step_1
         call dpri('gw=',soil%groundwater(l))
         write(*,*)
      enddo
-     call debug_pool(soil%litter(LEAF), 'leaf_litter')
+     call debug_pool(soil%litter_corpse(LEAF), 'leaf_litter')
   endif
 
   active_layer_thickness = 0.
@@ -2912,7 +2961,7 @@ end subroutine soil_step_1
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
       do l = 1,N_LITTER_POOLS
-         call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
+         call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
       enddo
       do l = 1, num_l
          write(*,'(i2.2,x)',advance='NO') l
@@ -2929,7 +2978,7 @@ end subroutine soil_step_1
    case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
       total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
    case(SOILC_CORPSE, SOILC_CORPSE_N)
-      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter(LEAF), soil%litter(CWOOD), &
+      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter_corpse(LEAF), soil%litter_corpse(CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
@@ -3058,7 +3107,7 @@ end subroutine soil_step_2
 
 ! ============================================================================
 subroutine soil_step_3(soil, diag)
-  type(soil_tile_type), intent(in) :: soil
+  type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
   real :: soil_C(N_C_TYPES, num_l),      soil_N(N_C_TYPES, num_l), &
@@ -3076,17 +3125,29 @@ subroutine soil_step_3(soil, diag)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
-     call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
+     call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
+     call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
      call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
+     call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(:,:)), diag)
+     do k = 1, N_LITTER_POOLS
+        if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(:,k)), diag)
+        do i = 1, N_C_TYPES
+           call send_tile_data(id_litter_C(k,i), soil%litter_century_C(i,k), diag)
+        enddo
+     enddo
+
      ! --- CMOR vars
      if (id_csoilfast>0)   call send_tile_data(id_csoilfast,   sum(soil%fast_soil_C(:)), diag)
      if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
      call send_tile_data(id_csoilslow, 0.0, diag)
      if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
      if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
+     if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
+     if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,CWOOD)), diag)
+     if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LEAF)), diag)
      ! --- end of CMOR vars
+
   case (SOILC_CORPSE, SOILC_CORPSE_N)
 !     total_carbon=0.0
 
@@ -3146,19 +3207,19 @@ subroutine soil_step_3(soil, diag)
      ! leaf litter diagnostics
      total_litter_C = 0.0; total_litter_N = 0.0
      do k = 1, N_LITTER_POOLS
-        call poolTotals1 (soil%litter(k), ncohorts=litter_ncohorts, &
+        call poolTotals1 (soil%litter_corpse(k), ncohorts=litter_ncohorts, &
             litterC=litter_C(:), livemicC=litter_livemic_C, protectedC=litter_protected_C(:), dissolvedC=litter_dissolved_C(:), totalC=litter_total_C, &
             litterN=litter_N(:), livemicN=litter_livemic_N, protectedN=litter_protected_N(:), dissolvedN=litter_dissolved_N(:), totalN=litter_total_N  )
         total_C(:)      = total_C(:) + litter_C(:)
         total_livemic_C = total_livemic_C + litter_livemic_C
-        total_diss_C    = total_diss_C + sum(soil%litter(k)%dissolved_carbon(:))
+        total_diss_C    = total_diss_C + sum(soil%litter_corpse(k)%dissolved_carbon(:))
         total_prot_C    = total_prot_C + sum(litter_protected_C(:))
         total_N(:)      = total_N(:) + litter_N(:)
         total_livemic_N = total_livemic_N + litter_livemic_N
-        total_diss_N    = total_diss_N + sum(soil%litter(k)%dissolved_nitrogen(:))
+        total_diss_N    = total_diss_N + sum(soil%litter_corpse(k)%dissolved_nitrogen(:))
         total_prot_N    = total_prot_N + sum(litter_protected_N(:))
-        total_NO3       = total_NO3 + soil%litter(k)%nitrate
-        total_NH4       = total_NO3 + soil%litter(k)%ammonium
+        total_NO3       = total_NO3 + soil%litter_corpse(k)%nitrate
+        total_NH4       = total_NO3 + soil%litter_corpse(k)%ammonium
         total_litter_C  = total_litter_C + litter_total_C
         total_litter_N  = total_litter_N + litter_total_N
 
@@ -3167,21 +3228,25 @@ subroutine soil_step_3(soil, diag)
         call send_tile_data(id_litter_livemic_N(k), litter_livemic_N, diag)
         call send_tile_data(id_litter_total_C(k), litter_total_C, diag)
         call send_tile_data(id_litter_total_N(k), litter_total_N, diag)
-        call send_tile_data(id_litter_nitrate(k), soil%litter(k)%nitrate, diag)
-        call send_tile_data(id_litter_ammonium(k), soil%litter(k)%ammonium, diag)
+        call send_tile_data(id_litter_nitrate(k), soil%litter_corpse(k)%nitrate, diag)
+        call send_tile_data(id_litter_ammonium(k), soil%litter_corpse(k)%ammonium, diag)
         do i = 1, N_C_TYPES
            call send_tile_data(id_litter_C(k,i), litter_C(i), diag)
            call send_tile_data(id_litter_N(k,i), litter_N(i), diag)
            call send_tile_data(id_litter_protected_C(k,i), litter_protected_C(i), diag)
            call send_tile_data(id_litter_protected_N(k,i), litter_protected_N(i), diag)
-           call send_tile_data(id_litter_dissolved_C(k,i), soil%litter(k)%dissolved_carbon(i), diag)
-           call send_tile_data(id_litter_dissolved_N(k,i), soil%litter(k)%dissolved_nitrogen(i), diag)
+           call send_tile_data(id_litter_dissolved_C(k,i), soil%litter_corpse(k)%dissolved_carbon(i), diag)
+           call send_tile_data(id_litter_dissolved_N(k,i), soil%litter_corpse(k)%dissolved_nitrogen(i), diag)
         enddo
         ! CMOR diagnostics
-        if (k==CWOOD) then
+        select case (k)
+        case (CWOOD)
            call send_tile_data(id_cLitterCwd, litter_total_C, diag)
            call send_tile_data(id_nLitterCwd, litter_total_N, diag)
-        endif
+        case (LEAF)
+           call send_tile_data(id_cLitterLeaf, litter_total_C, diag)
+           call send_tile_data(id_nLitterLeaf, litter_total_N, diag)
+        end select
      enddo
 
      ! diagnostic of totals
@@ -3255,7 +3320,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
-     call update_pool(soil%litter(k), decomp_T(1), decomp_theta(1), &
+     call update_pool(soil%litter_corpse(k), decomp_T(1), decomp_theta(1), &
             1.0-(decomp_theta(1)+ice_porosity(1)), dt_fast_yr, dz(1), &
             litter_C_loss_rate, litter_N_loss_rate, CO2prod, &
             litter_nitrif(k), litter_denitrif(k),&
@@ -4919,12 +4984,12 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   ! Mycorrhizae should have access to litter layer too
   ! Assuming volumetric concentration in litter layer is the same as top soil layer
   do k = 1,N_LITTER_POOLS
-    call poolTotals(soil%litter(k),totalCarbon=totalC)
+    call poolTotals(soil%litter_corpse(k),totalCarbon=totalC)
     litterThickness=max(totalC/litterDensity,1e-2)
-     call mycorrhizal_mineral_N_uptake_rate(soil%litter(k),total_myc_scav_biomass(1)/dz(1)*litterThickness,litterThickness,&
+     call mycorrhizal_mineral_N_uptake_rate(soil%litter_corpse(k),total_myc_scav_biomass(1)/dz(1)*litterThickness,litterThickness,&
              nitrate_uptake, ammonium_uptake)
-     ammonium_uptake = min(ammonium_uptake,soil%litter(k)%ammonium/dt)
-     nitrate_uptake  = min(nitrate_uptake,soil%litter(k)%nitrate/dt)
+     ammonium_uptake = min(ammonium_uptake,soil%litter_corpse(k)%ammonium/dt)
+     nitrate_uptake  = min(nitrate_uptake,soil%litter_corpse(k)%nitrate/dt)
 
      do i=1,N
        if(cc(i)%nindivs>0) &
@@ -4932,8 +4997,8 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      enddo
 
      if (update_pools .and. .not. myc_biomass_is_zero) then
-        soil%litter(k)%ammonium=soil%litter(k)%ammonium-ammonium_uptake*dt
-        soil%litter(k)%nitrate=soil%litter(k)%nitrate-nitrate_uptake*dt
+        soil%litter_corpse(k)%ammonium=soil%litter_corpse(k)%ammonium-ammonium_uptake*dt
+        soil%litter_corpse(k)%nitrate=soil%litter_corpse(k)%nitrate-nitrate_uptake*dt
      endif
   enddo
 
@@ -5019,9 +5084,9 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   enddo
 
   do k = 1, N_LITTER_POOLS
-     call poolTotals(soil%litter(k),totalCarbon=totalC)
+     call poolTotals(soil%litter_corpse(k),totalCarbon=totalC)
      litterThickness=max(totalC/litterDensity,1e-2)
-     call mycorrhizal_decomposition(soil%litter(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
+     call mycorrhizal_decomposition(soil%litter_corpse(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
           T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,&
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod  = total_CO2prod + CO2prod
@@ -5063,16 +5128,16 @@ subroutine redistribute_peat_carbon(soil)
     total_C_before=total_C_before+layer_total_C
     enddo
 
-    call poolTotals(soil%litter(LEAF),totalCarbon=leaflitter_total_C)
-    call poolTotals(soil%litter(CWOOD),totalCarbon=woodlitter_total_C)
+    call poolTotals(soil%litter_corpse(LEAF),totalCarbon=leaflitter_total_C)
+    call poolTotals(soil%litter_corpse(CWOOD),totalCarbon=woodlitter_total_C)
     layer_total_C=leaflitter_total_C+woodlitter_total_C
 
     layer_max_C=max_litter_thickness*max_soil_C_density
     layer_extra_C = layer_total_C-layer_max_C
     if(layer_extra_C>0) then
         fraction_to_remove=1.0-layer_max_C/layer_total_C
-        call transfer_pool_fraction(soil%litter(LEAF),soil%org_matter(1),fraction_to_remove)
-        call transfer_pool_fraction(soil%litter(CWOOD),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter_corpse(LEAF),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter_corpse(CWOOD),soil%org_matter(1),fraction_to_remove)
     endif
 
     !Move carbon down if it exceeds layer_max_C
