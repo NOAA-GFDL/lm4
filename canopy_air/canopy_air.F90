@@ -93,6 +93,7 @@ real :: max_u_ratio = 0.3       ! imposed maximum value of u*/U(h) ratio
 real :: c_d1 = 7.5              ! LAI+SAI scale parameter in displacement height expression
 real :: rsl_factor = 2.0        ! ratio of roughness sublayer depth to vegetation height
                                 ! above displacement height (vegn_height - land_d)
+real :: stable_rsl_factor = 1.0 ! factor applied to z_RSL in stable case
 
 real :: cd_leaf = 0.25          ! leaf-level drag coefficient (appears in the formula Fd = Cd*LAD*U^2)
                                 ! Typical of forests (need to add reference by Katul, Bonan, etc..)
@@ -121,7 +122,9 @@ namelist /cana_nml/ &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
   k_over_B, loubet_lai_factor, &
   ! Raupach (1994) parameters
-  c_d1, c_s, c_r, max_u_ratio, rsl_factor, &
+  c_d1, c_s, c_r, max_u_ratio,  &
+  ! roughness sublayer parameters
+  rsl_factor, stable_rsl_factor, &
   ! Ghannam (2022) parameters
   cd_leaf, &
   ! soil resistance parameters
@@ -794,11 +797,13 @@ subroutine cana_roughness(lm2, &
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover, vegn_height, vegn_lai, vegn_sai, &
+     bstar, &
      land_d, land_z0m, land_z0s, land_rsl, grnd_z0m, grnd_z0s )
   logical, intent(in) :: lm2
   real, intent(in) :: &
        subs_z0m, subs_z0s, snow_z0m, snow_z0s, snow_area, vegn_cover, vegn_height, &
        vegn_lai, vegn_sai
+  real, intent(in) :: bstar ! turbulent buoyancy scale, used as an indicator of stability for RSL scaling
   real, intent(out) :: &
        land_d    ,&
        land_z0m  ,&
@@ -910,6 +915,8 @@ subroutine cana_roughness(lm2, &
 
   end select
 
+  if (bstar < 0) & ! stable case
+        land_rsl = land_rsl*stable_rsl_factor
 end subroutine cana_roughness
 
 ! ============================================================================

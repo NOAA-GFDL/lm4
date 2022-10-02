@@ -455,6 +455,7 @@ subroutine land_model_init &
      if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
      if (field_exists(restart, 'e_res_1')) call get_tile_data(restart,'e_res_1',land_e_res_1_ptr)
      if (field_exists(restart, 'e_res_2')) call get_tile_data(restart,'e_res_2',land_e_res_2_ptr)
+     if (field_exists(restart, 'bstar'))   call get_tile_data(restart,'bstar',  land_bstar_ptr)
   else
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
@@ -729,6 +730,8 @@ subroutine land_model_restart(timestamp)
        'energy residual in canopy air energy balance equation', 'W/m2')
   call add_tile_data(restart,'e_res_2',land_e_res_2_ptr,&
        'energy residual in canopy energy balance equation', 'W/m2')
+  call add_tile_data(restart,'bstar',land_bstar_ptr,&
+       'buoyancy scale', 'm/s2')
 
   ! [5] close file
   call save_land_restart(restart)
@@ -1349,6 +1352,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         ISa_dn_dif(BAND_NIR) = cplr2land%sw_flux_down_total_dif(l,k)&
                               -cplr2land%sw_flux_down_vis_dif(l,k)
 
+        tile%bstar = cplr2land%bstar(l,k)
         ! n_cohorts is calculated and passed down to update_land_model_fast_0d
         ! for convenience, so that there is no need to make a lot of by-cohort arrays
         ! allocatable -- instead they are created on stack with the size passed
@@ -3526,14 +3530,13 @@ end subroutine land_sw_radiation
 ! ============================================================================
 subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   type(land_tile_type), intent(inout) :: tile
-  integer             , intent(in) :: N ! number of cohorts, 1 if no vegetation
+  integer             , intent(in) :: N ! number of cohorts, 1 if no vegetation.
+  ! N is calculated and passed down to update_land_bc_fast simply for convenience, so
+  ! that there is no need to make a lot of by-cohort arrays allocatable -- instead they
+  ! are created on stack with the size passed as an argument.
   integer             , intent(in) :: l,k
   type(land_data_type), intent(inout) :: land2cplr
   logical, optional :: is_init
-  ! Note that N is calculated and passed down to update_land_bc_fast simply
-  ! for convenience, so that there is no need to make a lot of by-cohort arrays
-  ! allocatable -- instead they are created on stack with the size passed
-  ! as an argument.
 
   ! ---- local vars
   real :: grnd_T, subs_z0m, subs_z0s, &
@@ -3706,6 +3709,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover,  vegn_height, vegn_lai, vegn_sai, &
+     tile%bstar, &
      tile%land_d, tile%land_z0m, tile%land_z0s, tile%land_rsl, tile%grnd_z0m, tile%grnd_z0s)
 
   if(is_watch_point()) then
@@ -5108,6 +5112,7 @@ DEFINE_LAND_ACCESSOR_0D(real,frac)
 DEFINE_LAND_ACCESSOR_0D(real,lwup)
 DEFINE_LAND_ACCESSOR_0D(real,e_res_1)
 DEFINE_LAND_ACCESSOR_0D(real,e_res_2)
+DEFINE_LAND_ACCESSOR_0D(real,bstar)
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

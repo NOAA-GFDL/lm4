@@ -65,7 +65,7 @@ type :: atmos_land_boundary_type
         cd_m      => NULL(), &   ! drag coefficient for momentum, dimensionless
         cd_t      => NULL(), &   ! drag coefficient for tracers, dimensionless
         ustar     => NULL(), &   ! turbulent wind scale, m/s
-        bstar     => NULL(), &   ! turbulent buoyancy scale, m/s
+        bstar     => NULL(), &   ! turbulent buoyancy scale, m/s2
         wind      => NULL(), &   ! abs wind speed at the bottom of the atmos, m/s
         z_bot     => NULL(), &   ! height of the bottom atmospheric layer above the surface, m
         drag_q    => NULL(), &   ! product of cd_q by wind
