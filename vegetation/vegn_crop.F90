@@ -1116,7 +1116,7 @@ use fms_mod, only: open_namelist_file
  krange = nint(0.1*max_range_length)
  k2 = modulo_no_zero(k_at_pday-krange,num_test_days)
  pday_beg = 5*k2 ! overwritten below if an unsuitable date is found before k_at_pday - krange is reached.
- k_loop_1: do k=k_at_pday-1,k_at_pday-krange,-1 ! Go back in time up to 30 days to find the first date where SI < SI_crit
+ k_loop_1: do k=k_at_pday-1,k_at_pday-krange,-1 ! Go back in time to find the first date where SI < SI_crit
    k2 = modulo_no_zero(k,num_test_days)
    if(SI(k2) > SI_crit) then
      k2p = modulo_no_zero(k2+1,num_test_days) ! move forward one step to get first date where SI < SI_crit
@@ -1127,7 +1127,7 @@ use fms_mod, only: open_namelist_file
 
  k2 = modulo_no_zero(k_at_pday+krange,num_test_days)
  pday_end = 5*k2 ! overwritten below if an unsuitable date is found before k_at_pday + krange is reached.
- k_loop_2: do k=k_at_pday+1,k_at_pday+krange ! Go forward in time up to 30 days to find the last date where SI < SI_crit
+ k_loop_2: do k=k_at_pday+1,k_at_pday+krange ! Go forward in time to find the last date where SI < SI_crit
    k2 = modulo_no_zero(k,num_test_days)
    if(SI(k2) > SI_crit) then
      k2m = modulo_no_zero(k2-1,num_test_days) ! back up one step to get last date where SI < SI_crit
