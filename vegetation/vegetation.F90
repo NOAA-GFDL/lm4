@@ -2,15 +2,9 @@ module vegetation_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
      check_nml_error, stdlog, string, lowercase
-use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
+use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe, input_nml_file
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
 use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, &

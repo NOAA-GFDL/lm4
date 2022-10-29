@@ -1,14 +1,8 @@
 module vegn_data_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use constants_mod, only : PI, TFREEZE
 use fms_mod, only : &
-     file_exist, check_nml_error, &
+     file_exist, input_nml_file, check_nml_error, &
      close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
@@ -651,21 +645,9 @@ subroutine read_vegn_data_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   unit=stdlog()
   write (unit, nml=vegn_data_nml)

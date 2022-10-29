@@ -5,13 +5,7 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only: file_exist, check_nml_error, open_namelist_file, close_file, &
+use fms_mod, only: file_exist, check_nml_error, input_nml_file, close_file, &
      check_nml_error, stdlog, error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
 use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
@@ -159,21 +153,8 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   call log_version(version, module_name, &
   __FILE__)
 
-#ifdef INTERNAL_FILE_NML
-    read (input_nml_file, nml=vegn_dynamics_nml, iostat=io)
-    ierr = check_nml_error(io, 'vegn_dynamics_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_dynamics_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_dynamics_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=vegn_dynamics_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_dynamics_nml')
 
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
