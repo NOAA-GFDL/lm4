@@ -9,7 +9,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
-     close_file, check_nml_error, stdlog, string, lowercase
+     check_nml_error, stdlog, string, lowercase
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 
@@ -26,7 +26,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use vegn_accessors_mod ! use everything
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
-     N_LITTER_POOLS, LEAF, l_shortname, l_longname
+     N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -88,6 +88,8 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
+    get_variable_size
 
 implicit none
 private
@@ -219,6 +221,7 @@ namelist /vegn_nml/ &
 logical :: module_is_initialized =.FALSE.
 real    :: delta_time      ! fast time step
 real    :: dt_fast_yr      ! fast time step in years
+real    :: dt_slow_yr      ! slow time step in years
 real    :: steps_per_day   ! number of fast time steps per day
 real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 integer :: seed_transport_option = -1 ! type of requested seed transport algorithm
@@ -241,8 +244,7 @@ integer :: id_vegn_type, id_height_tallest, id_height_ave, id_height_aerodyn, &
    id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_out, id_veg_in, id_veg_out, &
    id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
-   id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
-   id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
+   id_fsc_pool_bg, id_fsc_rate_bg, id_ssc_pool_bg, id_ssc_rate_bg,&
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand, &
@@ -255,10 +257,12 @@ integer :: id_vegn_type, id_height_tallest, id_height_ave, id_height_aerodyn, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
    id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
-   id_age_since_disturbance, id_age_since_landuse
+   id_age_since_disturbance, id_age_since_landuse, &
+   id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
+
 ! CMOR/CMIP variables
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cStem, id_cMisc, id_cProduct, id_cAnt, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
@@ -280,21 +284,8 @@ subroutine read_vegn_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-    read (input_nml_file, nml=vegn_nml, iostat=io)
-    ierr = check_nml_error(io, 'vegn_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=vegn_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_nml')
 
   unit=stdlog()
 
@@ -366,6 +357,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
   integer :: i,j,l,n ! indices of current tile
+  logical :: exists
+  type(FmsNetcdfFile_t) :: fileobj
+
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
 
   module_is_initialized = .TRUE.
@@ -374,6 +368,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   delta_time = time_type_to_real(lnd%dt_fast)
   steps_per_day = 86400.0/delta_time
   dt_fast_yr = delta_time/seconds_per_year
+  dt_slow_yr = time_type_to_real(lnd%dt_slow)/seconds_per_year
 
   ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
   weight_av_phen = delta_time/(delta_time+tau_smooth_theta_phen*86400.0)
@@ -381,8 +376,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
-  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
+  call open_land_restart(restart1,'INPUT/vegn1.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.nc',restart_2_exists)
+
   if (restart_1_exists) then
      call error_mesg('vegn_init',&
           'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
@@ -396,8 +392,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
 
      ! read global variables
-     call get_scalar_data(restart2,'n_accum',n_accum)
-     call get_scalar_data(restart2,'nmn_acm',nmn_acm)
+     call read_data(restart2%rhandle, "n_accum", n_accum)
+     call read_data(restart2%rhandle, "nmn_acm", nmn_acm)
 
      ! read cohort data
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
@@ -512,13 +508,9 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr)
      endif
 
-     if(field_exists(restart2,'fsc_pool_ag')) then
-        call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
-        call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
+     if(field_exists(restart2,'fsc_pool_bg')) then
         call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
         call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
-        call get_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
-        call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
         call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
         call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
      else
@@ -528,14 +520,14 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_tile_data(restart2,'ssc_rate',vegn_ssc_rate_bg_ptr)
      endif
 
-     if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-        do j = 1,N_LITTER_POOLS
-           do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
-              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
-              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
-           enddo
+     do j = 1,N_LITTER_POOLS
+        do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
+           if (.not.field_exists(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i))) cycle
+           call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
+           call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
         enddo
-     endif
+     enddo
+
      if (soil_carbon_option==SOILC_CORPSE_N.and.field_exists(restart2,'fsn_pool_bg')) then
         call get_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr)
         call get_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr)
@@ -623,21 +615,23 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   call free_land_restart(restart2)
 
   ! read climatological fields for initialization of species distribution
-  if (file_exist('INPUT/biodata.nc'))then
+  exists = open_file(fileobj, "INPUT/biodata.nc", mode="read")
+  if (exists) then
      allocate(&
           t_ann (lnd%ls:lnd%le),&
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
+     call read_field(fileobj, 'T_ANN', t_ann, interp='nearest')
+     call read_field(fileobj, 'T_COLD', t_cold, interp='nearest')
+     call read_field(fileobj, 'P_ANN', p_ann, interp='nearest')
+     call read_field(fileobj, 'NCM', ncm, interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
      did_read_biodata = .FALSE.
      call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
+     call close_file(fileobj)
   endif
 
   ! create a list of species indices for initialization
@@ -1150,17 +1144,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil nitrogen', 'kg N/(m2 yr)', missing_value=-999.0)
 
   ! intermediate carbon pools for CENTURY-like soil carbon configurations
-  id_fsc_pool_ag = register_tiled_diag_field ('soil', 'fsc_pool_ag', (/id_ug/), &
-       time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_ag = register_tiled_diag_field ('soil', 'fsc_rate_ag', (/id_ug/), &
-       time, 'rate of conversion of above-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
-  id_ssc_pool_ag = register_tiled_diag_field ('soil', 'ssc_pool_ag', (/id_ug/), &
-       time, 'intermediate pool of above-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_ag = register_tiled_diag_field ('soil', 'ssc_rate_ag', (/id_ug/), &
-       time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
-
   id_fsc_pool_bg = register_tiled_diag_field ('soil', 'fsc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
   id_fsc_rate_bg = register_tiled_diag_field ('soil', 'fsc_rate_bg', (/id_ug/), &
@@ -1171,6 +1154,14 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_ssc_rate_bg = register_tiled_diag_field ('soil', 'ssc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
+
+  ! litterfall rates (only carbon now)
+  id_litterfall_C = register_tiled_diag_field('soil','litterfall_C',(/id_ug/),lnd%time,&
+       'total litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+  id_litterfall_lf_C = register_tiled_diag_field('soil','lflitterfall_C',(/id_ug/),lnd%time,&
+       'leaf litterfall rate', 'kg C/m2/year', missing_value=-100.0)
+  id_litterfall_cw_C = register_tiled_diag_field('soil','cwlitterfall_C',(/id_ug/),lnd%time,&
+       'wood litterfall rate', 'kg C/m2/year', missing_value=-100.0)
 
   id_csmoke_pool = register_tiled_diag_field ( module_name, 'csmoke', (/id_ug/), &
        time, 'carbon lost through fire', 'kg C/m2', missing_value=-999.0)
@@ -1370,12 +1361,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
-  character:: spnames(fm_field_name_len, nspecies) ! names of the species
+  character(len=fm_field_name_len) :: spnames(nspecies) ! names of the species
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
   ! create output file, including internal structure necessary for tile output
-  filename = trim(timestamp)//'vegn1.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn1.nc'
   call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
 
   ! create compressed dimension for vegetation cohorts -- must be called even
@@ -1390,19 +1381,19 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call free_land_restart(restart1)
 
 
-  filename = trim(timestamp)//'vegn2.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'vegn2.nc'
   call init_land_restart(restart2, filename, vegn_tile_exists, tile_dim_length)
   ! create compressed dimension for vegetation cohorts -- see note above
   call create_cohort_dimension(restart2)
   ! store table of species names
-  call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)],'Z')
-  call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],'Z')
+  call add_restart_axis(restart2,'nspecies',[(real(i),i=0,nspecies-1)], .false.,"Z")
+  call add_restart_axis(restart2,'textlen',[(real(i),i=1,fm_field_name_len)],.false.,"Z")
   do i = 0, nspecies-1
-     do j = 1,size(spnames,1)
-        spnames(j,i+1) = ' '
+     do j = 1,fm_field_name_len
+        spnames(i+1)(j:j) = ' '
      enddo
-     do j = 1,min(len(spdata(i)%name),size(spnames,1))
-        spnames(j,i+1) = spdata(i)%name(j:j)
+     do j = 1,min(len(spdata(i)%name),fm_field_name_len)
+        spnames(i+1)(j:j) = spdata(i)%name(j:j)
      enddo
   enddo
   call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
@@ -1512,25 +1503,19 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr,'time since last land use disturbance', 'yr')
 
   ! write carbon pools and rates
-  call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for aboveground fast soil carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr,'conversion rate of aboveground fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
-  call add_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr,'intermediate pool for aboveground slow soil carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr,'conversion rate of aboveground ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
   call add_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr,'intermediate pool for belowground fast soil carbon input', 'kg C/m2')
   call add_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr,'conversion rate of belowground fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
   call add_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr,'intermediate pool for belowground slow soil carbon input', 'kg C/m2')
   call add_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr,'conversion rate of belowground ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
 
-  if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-     do j = 1,N_LITTER_POOLS
-        do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
-           call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//trim(c_shortname(i)),vegn_litter_buff_C_ptr, i, j, &
-               'intermediate pool for '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter carbon input', 'kg C/m2')
-           call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//trim(c_shortname(i)),vegn_litter_rate_C_ptr, i, j, &
-               'conversion rate of '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter to litter carbon pool', 'kg C/(m2 yr)')
-        enddo
+  do j = 1,N_LITTER_POOLS
+     do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
+        call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//trim(c_shortname(i)),vegn_litter_buff_C_ptr, i, j, &
+            'intermediate pool for '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter carbon input', 'kg C/m2')
+        call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//trim(c_shortname(i)),vegn_litter_rate_C_ptr, i, j, &
+            'conversion rate of '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter to litter carbon pool', 'kg C/(m2 yr)')
      enddo
-  endif
+  enddo
 
   if (soil_carbon_option==SOILC_CORPSE_N) then
      call add_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr,'intermediate pool for belowground fast soil nitrogen input', 'kg N/m2')
@@ -2809,8 +2794,6 @@ subroutine update_vegn_slow( )
      call vegn_harvesting(tile, year0/=year1, month0/=month1, day0/=day1, doy, l)
 
      if (year1 /= year0) then
-        tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time
-        tile%vegn%ssc_rate_ag = tile%vegn%ssc_pool_ag/ssc_pool_spending_time
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
         tile%vegn%ssc_rate_bg = tile%vegn%ssc_pool_bg/ssc_pool_spending_time
         tile%vegn%fsn_rate_bg = tile%vegn%fsn_pool_bg/fsc_pool_spending_time
@@ -2949,11 +2932,6 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs, op=OP_AVERAGE)
      call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs, op=OP_AVERAGE)
      call send_cohort_data(id_dbh_max,   tile%diag, cc(1:N), cc(1:N)%dbh, op=OP_MAX)
-
-     call send_tile_data(id_fsc_pool_ag,tile%vegn%fsc_pool_ag,tile%diag)
-     call send_tile_data(id_fsc_rate_ag,tile%vegn%fsc_rate_ag,tile%diag)
-     call send_tile_data(id_ssc_pool_ag,tile%vegn%ssc_pool_ag,tile%diag)
-     call send_tile_data(id_ssc_rate_ag,tile%vegn%ssc_rate_ag,tile%diag)
 
      call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_bg,tile%diag)
      call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_bg,tile%diag)
@@ -3118,13 +3096,23 @@ subroutine update_vegn_slow( )
         if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
         do ii = 1,N_LITTER_POOLS
-           call cull_cohorts(tile%soil%litter(ii))
+           call cull_cohorts(tile%soil%litter_corpse(ii))
         enddo
         do ii=1,num_l
            call cull_cohorts(tile%soil%org_matter(ii))
         enddo
      enddo
   endif
+
+  ! send litterfall data
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l,k))
+     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+     if (id_litterfall_C>0)    call send_tile_data(id_litterfall_C,    sum(tile%vegn%litterfall_C(:,:))    /dt_slow_yr, tile%diag)
+     if (id_litterfall_lf_C>0) call send_tile_data(id_litterfall_lf_C, sum(tile%vegn%litterfall_C(:,LEAF)) /dt_slow_yr, tile%diag)
+     if (id_litterfall_cw_C>0) call send_tile_data(id_litterfall_cw_C, sum(tile%vegn%litterfall_C(:,CWOOD))/dt_slow_yr, tile%diag)
+     tile%vegn%litterfall_C(:,:) = 0.0 ! reset for the accumulation on next time step
+  enddo
 
   ! override with static vegetation
   if(day1/=day0) &
@@ -3202,8 +3190,8 @@ subroutine read_remap_species(restart)
   ! ---- local vars
   integer :: nsp ! number of input species
   integer :: i, sp
-  character(fm_field_name_len), allocatable :: spnames(:)
-  character, allocatable :: text(:,:)
+  integer :: sp_dims(2)
+  character(len=256), allocatable :: spnames(:)
   integer, allocatable :: sptable(:) ! table for remapping
   type(land_tile_enum_type)     :: ce ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
@@ -3215,13 +3203,13 @@ subroutine read_remap_species(restart)
      ! list of LM3 species
   endif
 
-  call get_text_data(restart, 'species_names', text)
-  nsp = size(text,2)
-  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
+  call get_variable_size(restart%rhandle, "species_names", sp_dims)
+  nsp = sp_dims(2)
+  allocate(spnames(1:nsp))
+  allocate(sptable(1:nsp))
+  call get_text_data(restart, 'species_names', nsp, spnames)
   sptable(:) = -1
-  do i = 0, nsp-1
-     ! convert character array to strings
-     call array2str(text(:,i+1),spnames(i))
+  do i = 1, nsp
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then
@@ -3241,14 +3229,14 @@ subroutine read_remap_species(restart)
         sp = tile%vegn%cohorts(i)%species
         if (sp<0.or.sp>=nsp) &
              call error_mesg('vegn_init','species index is outside of the bounds', FATAL)
-        if (sptable(sp)<0) &
-             call error_mesg('vegn_init','species "'//trim(spnames(sp))// &
+        if (sptable(sp+1)<0) &
+             call error_mesg('vegn_init','species "'//trim(spnames(sp+1))// &
                             '" from restart are not found in the model species parameter list',&
                             FATAL)
-        tile%vegn%cohorts(i)%species = sptable(sp)
+        tile%vegn%cohorts(i)%species = sptable(sp+1)
      enddo
   enddo
-  deallocate(text, spnames, sptable)
+  deallocate(spnames, sptable)
 end subroutine read_remap_species
 
 ! =====================================================================================

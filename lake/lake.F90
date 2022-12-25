@@ -85,8 +85,8 @@ namelist /lake_nml/ init_temp, init_w,       &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
-		    K_z_background, K_z_min, K_z_factor, &
-		    lake_depth_max, lake_depth_min, max_plain_slope
+                    K_z_background, K_z_min, K_z_factor, &
+                    lake_depth_max, lake_depth_min, max_plain_slope
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
@@ -177,7 +177,7 @@ subroutine lake_init ( id_ug )
   real, allocatable :: buffer(:),bufferc(:),buffert(:)
   integer :: i, g, l
   logical :: river_data_exist
-  character(*), parameter :: restart_file_name = 'INPUT/lake.res.nc'
+  character(*), parameter :: restart_file_name = 'INPUT/lake.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -318,9 +318,9 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call error_mesg('lake_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'lake.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'lake.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
   ! write out fields
   call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
@@ -474,9 +474,8 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
                 else  ! arbitrary constant for unstable mixing
                   lake%K_z(l) = K_z_large
                 endif
-	      if (lake%pars%depth_sill.gt.2.01) &
-	          lake%K_z(l) = K_z_factor &
-		   * max(lake%K_z(l) + K_z_background, K_z_min)
+              if (lake%pars%depth_sill.gt.2.01) &
+                     lake%K_z(l) = K_z_factor * max(lake%K_z(l) + K_z_background, K_z_min)
               aaa(l+1) = - lake%K_z(l) * delta_time / (dz_alt(l+1)*dz_mid)
               ccc(l)   = - lake%K_z(l) * delta_time / (dz_alt(l  )*dz_mid)
             else

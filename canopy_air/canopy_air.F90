@@ -5,14 +5,9 @@ module canopy_air_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, file_exist, &
-     close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string, lowercase
+use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, &
+     check_nml_error, mpp_pe, mpp_root_pe, stdlog, string, lowercase
 use constants_mod, only : VONKARM, dens_h2o, pi, grav
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
@@ -34,7 +29,7 @@ use land_tile_diag_mod, only : register_tiled_diag_field, &
      send_tile_data, diag_buff_type, set_default_diag_filter
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_bwood, vegn_tile_LAI, vegn_tile_SAI
 use soil_tile_mod, only: soil_tile_type, soil_data_hydraulic_properties, dz, &
-        get_soil_litter_C
+        get_rav_C
 
 implicit none
 private
@@ -160,21 +155,8 @@ subroutine read_cana_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=cana_nml, iostat=io)
      ierr = check_nml_error(io, 'cana_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=cana_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'cana_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=cana_nml)
@@ -247,7 +229,7 @@ subroutine cana_init (id_ug)
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/cana.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -389,7 +371,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'cana.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'cana.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
   ! write temperature
@@ -1041,7 +1023,7 @@ real function evap_resistance_litter(tile, snow_active) result(rav_lit)
   if (.not.associated(tile%soil)) return
   if (snow_active)               return
 
-  call get_soil_litter_C(tile%soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  call get_rav_C(tile%soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
   rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(tile%vegn)+vegn_tile_SAI(tile%vegn)) &
                       + rav_lit_fsc * litter_fast_C &
                       + rav_lit_ssc * litter_slow_C &

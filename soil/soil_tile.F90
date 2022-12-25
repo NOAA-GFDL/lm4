@@ -1,24 +1,20 @@
 module soil_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, &
-     close_file, stdlog, read_data, error_mesg, FATAL
+use mpp_mod, only : input_nml_file
+use fms_mod, only : check_nml_error, &
+     stdlog, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
-use land_io_mod, only : print_netcdf_error
 use soil_carbon_mod, only : soil_carbon_option, &
     SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
+                       open_file, read_data, get_variable_num_dimensions
 
 implicit none
 private
@@ -62,7 +58,7 @@ public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
-public :: get_soil_litter_C ! returns litter carbon pools
+public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 
 ! public data
 public :: max_lev ! max number of soil layers (max dimension of arrays)
@@ -237,12 +233,13 @@ type :: soil_tile_type
                                      ! (relative to tfreeze) [W/m^2]
 
    ! soil carbon
-   ! CENTURY-style values
+   ! values for CENTURY-style soil carbon model
    real, allocatable :: &
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
+   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C ! surface litter (kgC/m2)
    ! values for CORPSE
-   type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
+   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
    real                 :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
@@ -527,24 +524,17 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: i, ncid, varid, dimids(3)
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
+  integer, dimension(:), allocatable :: dimlens
+  integer :: ndims
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=soil_data_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1
-     do while (ierr /= 0)
-        read (unit, nml=soil_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'soil_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
   unit=stdlog()
   write(unit, nml=soil_data_nml)
 
@@ -597,18 +587,29 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
 
   if (gw_option==GW_HILL_AR5.and..not.use_single_geo) then
      num_storage_pts = 26
-     call read_data('INPUT/geohydrology_table.nc', 'gw_flux_norm', &
-                 gw_flux_table, no_domain=.true.)
-     call read_data('INPUT/geohydrology_table.nc', 'gw_area_norm', &
-                 gw_area_table, no_domain=.true.)
+     exists = open_file(fileobj, "INPUT/geohydrology_table.nc", "read")
+     if (.not. exists) then
+       call error_mesg("read_soil_data_namelist", &
+                       "file INPUT/geohydrology_table.nc does not exist.", &
+                       FATAL)
+     endif
+     call read_data(fileobj, "gw_flux_norm", gw_flux_table)
+     call read_data(fileobj, "gw_area_norm", gw_area_table)
+     call close_file(fileobj)
   else if (gw_option==GW_HILL) then
-     __NF_ASRT__(nf_open('INPUT/geohydrology_table_2a2n.nc',NF_NOWRITE,ncid))
-     __NF_ASRT__(nf_inq_varid(ncid,'log_rho_a0n1',varid))
-     __NF_ASRT__(nf_inq_vardimid(ncid,varid,dimids))
-     __NF_ASRT__(nf_inq_dimlen(ncid,dimids(1),num_storage_pts))
-     __NF_ASRT__(nf_inq_dimlen(ncid,dimids(2),num_tau_pts))
-     __NF_ASRT__(nf_inq_dimlen(ncid,dimids(3),num_zeta_pts))
-     __NF_ASRT__(nf_close(ncid))
+     exists = open_file(fileobj, 'INPUT/geohydrology_table_2a2n.nc', "read")
+     if (.not. exists) then
+       call error_mesg("read_soil_data_namelist", &
+                       "file INPUT/geohydrology_table_2a2n.nc does not exist.", &
+                       FATAL)
+     endif
+     ndims = get_variable_num_dimensions(fileobj, "log_rho_a0n1")
+     allocate(dimlens(ndims))
+     call get_variable_size(fileobj, "log_rho_a0n1", dimlens)
+     num_storage_pts = dimlens(1)
+     num_tau_pts = dimlens(2)
+     num_zeta_pts = dimlens(3)
+     deallocate(dimlens)
 
      allocate (log_rho_table(num_storage_pts, num_tau_pts, num_zeta_pts, 2, 2))
      allocate (log_deficit_list(num_storage_pts))
@@ -616,24 +617,18 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
      allocate (log_zeta_s(num_zeta_pts))
 
      if (.not.retro_a0n1) then
-         call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_rho_a0n1', &
-                 log_rho_table(:,:,:,1,1), no_domain=.true.)
+         call read_data(fileobj, "log_rho_a0n1", log_rho_table(:,:,:,1,1))
      else
-         call read_data('INPUT/geohydrology_table_2a2n.nc', 'retro_log_rho_a0n1', &
-                 log_rho_table(:,:,:,1,1), no_domain=.true.)
+         call read_data(fileobj, "retro_log_rho_a0n1", log_rho_table(:,:,:,1,1))
      endif
-     call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_rho_a0n2', &
-             log_rho_table(:,:,:,1,2), no_domain=.true.)
-     call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_rho_a1n1', &
-             log_rho_table(:,:,:,2,1), no_domain=.true.)
-     call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_rho_a1n2', &
-             log_rho_table(:,:,:,2,2), no_domain=.true.)
-     call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_deficit', &
-             log_deficit_list, no_domain=.true.)
-     call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_tau', &
-             log_tau, no_domain=.true.)
-     call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_zeta_s', &
-             log_zeta_s, no_domain=.true.)
+     call read_data(fileobj, "log_rho_a0n2", log_rho_table(:,:,:,1,2))
+     call read_data(fileobj, "log_rho_a1n1", log_rho_table(:,:,:,2,1))
+     call read_data(fileobj, "log_rho_a1n2", log_rho_table(:,:,:,2,2))
+     call read_data(fileobj, "log_deficit",  log_deficit_list)
+     call read_data(fileobj, "log_tau", log_tau)
+     call read_data(fileobj, "log_zeta_s", log_zeta_s)
+     call close_file(fileobj)
+
   endif
 
 
@@ -706,7 +701,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
      call init_soil_pool(ptr%org_matter(i), Qmax=ptr%pars%Qmax)
   enddo
   do i = 1,N_LITTER_POOLS
-     call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
+     call init_soil_pool(ptr%litter_corpse(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
   enddo
 end function soil_tile_ctor
 
@@ -775,6 +770,7 @@ subroutine soil_data_init_0d(soil)
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0
   soil%slow_soil_C(:)         = 0.0
+  soil%litter_century_C(:,:)  = 0.0
   soil%asoil_in(:)            = 0.0
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
@@ -1196,13 +1192,14 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   ! merge soil carbon
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
+  s2%litter_century_C(:,:) = s1%litter_century_C(:,:)*x1 + s2%litter_century_C(:,:)*x2
   do i=1,num_l
     call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
   do i = 1, N_LITTER_POOLS
-     call combine_pools(s1%litter(i),s2%litter(i),w1,w2)
+     call combine_pools(s1%litter_corpse(i),s2%litter_corpse(i),w1,w2)
   enddo
   s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
   s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
@@ -1955,11 +1952,12 @@ real function soil_tile_carbon (soil)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
      do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter(i),totalCarbon=temp)
+        call poolTotals(soil%litter_corpse(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
   case default
-     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)) &
+                      + sum(soil%litter_century_C(:,:))
   end select
 end function soil_tile_carbon
 
@@ -1980,7 +1978,7 @@ real function soil_tile_nitrogen (soil)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
      do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter(i),totalNitrogen=temp)
+        call poolTotals(soil%litter_corpse(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
   case default
@@ -1990,7 +1988,7 @@ end function soil_tile_nitrogen
 
 ! ============================================================================
 ! given soil tile, returns carbon content of various components of litter
-subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
   type(soil_tile_type), intent(in)  :: soil
   real, intent(out) :: &
      litter_fast_C,    & ! fast litter carbon, [kgC/m2]
@@ -2003,11 +2001,11 @@ subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_
      litter_slow_C    = soil%slow_soil_C(1)
      litter_deadmic_C = 0.0
   case(SOILC_CORPSE, SOILC_CORPSE_N)
-     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+     call poolTotals(soil%litter_corpse(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
   case default
-     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
-end subroutine get_soil_litter_C
+end subroutine get_rav_C
 
 
 end module soil_tile_mod
