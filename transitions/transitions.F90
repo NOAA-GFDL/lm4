@@ -559,7 +559,12 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: input parameters ###'
      do i = 1, size(d_kinds)
-        __DEBUG4__(i,d_kinds(i),a_kinds(i),area(i))
+        write(*,'(i2.2,2x)', advance='no') i
+        call dpri('from LU',landuse_name(d_kinds(i)))
+        call dpri('to LU',  landuse_name(a_kinds(i)))
+        call dpri('frac',   landuse_name(area(i)))
+!         __DEBUG4__(i,d_kinds(i),a_kinds(i),area(i))
+        write(*,*)
      enddo
 
      write(*,*)'### land_transitions_0d: land fractions before transitions (initial state) ###'
@@ -567,8 +572,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (loop_over_tiles(ts,ptr))
         if (associated(ptr%vegn)) then
             write(*,'(i2.2,2x)', advance='no') k; k = k+1
-            call dpri('landuse',ptr%vegn%landuse)
-            call dpri('area',ptr%frac)
+            call dpri('LU',landuse_name(ptr%vegn%landuse))
+            call dpri('frac',ptr%frac)
             call dpri('heat',vegn_tile_heat(ptr%vegn))
             call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
             write(*,*)
@@ -617,19 +622,28 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   end select
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions after splitting changing parts ###'
-     atot = 0 ; ts = first_elmt(d_list)
+     atot = 0 ; ts = first_elmt(d_list); k = 1
      do while (loop_over_tiles(ts,ptr))
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'   donor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(i2.2,2x)', advance='no') k; k = k+1
+        call dpri('donor LU',landuse_name(ptr%vegn%landuse))
+        call dpri('frac',ptr%frac)
+        write(*,*)
+!         write(*,'(2(a,g23.16,2x))')'   donor: LU = '//landuse_name(ptr%vegn%landuse),' frac=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     ts = first_elmt(a_list)
+     ts = first_elmt(a_list); k = 1
      do while (loop_over_tiles(ts, ptr))
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'acceptor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(i2.2,2x)', advance='no') k; k = k+1
+        call dpri('acceptor LU',landuse_name(ptr%vegn%landuse))
+        call dpri('frac',ptr%frac)
+        write(*,*)
+!         write(*,'(2(a,g23.16,2x))')'acceptor: LU = '//landuse_name(ptr%vegn%landuse),' frac=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     write(*,*)
   endif
 
   ! move all tiles from the donor list to the acceptor list -- this will ensure
@@ -667,8 +681,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (loop_over_tiles(ts,ptr))
         if (associated(ptr%vegn)) then
             write(*,'(i2.2,2x)', advance='no') k; k = k+1
-            call dpri('landuse',ptr%vegn%landuse)
-            call dpri('area',ptr%frac)
+            call dpri('LU',landuse_name(ptr%vegn%landuse))
+            call dpri('frac',ptr%frac)
             call dpri('heat',vegn_tile_heat(ptr%vegn))
             call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
             write(*,*)
