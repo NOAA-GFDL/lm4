@@ -44,6 +44,8 @@ use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
+use crop_debug_mod, only: debug_crop
+
 implicit none
 private
 
@@ -819,6 +821,7 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
+        call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! calculate remaining area of transition
         tfrac = tfrac-darea
      endif
@@ -948,6 +951,8 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         ! event in the new tile
         temp%vegn%age_since_disturbance = 0.0
         temp%vegn%age_since_landuse     = 0.0
+
+        call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif
