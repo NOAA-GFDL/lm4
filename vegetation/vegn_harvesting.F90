@@ -109,6 +109,8 @@ real :: crop_seed_c2n          = 30    ! crop seed C:N ratio, used to calculate 
 logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported
         ! from outside of cropland can start growing on croplands; if FALSE they are not
         ! allowed to germinate.
+logical :: clear_cropland_before_planting = .TRUE. ! if TRUE, all vegetation
+        ! is removed from croplands right before planting
 logical :: transport_crop_seeds = .TRUE. ! if true, seeds are transported horizontally
         ! to satisfy the demand
 
@@ -128,7 +130,7 @@ namelist/harvesting_nml/ do_harvesting, &
      crop_schedule, crop_schedule_file, &
      crop_distribution, luh2_state_file, &
      c3_crop_species, c4_crop_species, &
-     crop_seed_density, allow_weeds_on_crops, &
+     crop_seed_density, allow_weeds_on_crops, clear_cropland_before_planting, &
      transport_crop_seeds, crop_seed_c2n
 
 integer :: grazing_freq = -1 ! indicator of grazing frequency (GRAZING_ANNUAL or GRAZING_DAILY)
@@ -1029,6 +1031,14 @@ subroutine vegn_plant_crop_ppa(tile)
 
   call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
+  ! prepare cropland for planting: right now just kill all vegetation; in the
+  ! future we possibly need to add some soil carbon mixing by plows, perhaps
+  ! other agricultural processes
+  if (clear_cropland_before_planting) &
+        call vegn_cut_forest_ppa(tile, tile%vegn%landuse)
+
+  ! determine crop species: now using the same biogeography rules that LM3 was using
+  ! to determine c3/c4 photosynthesis type
   associate (vegn=>tile%vegn, soil=>tile%soil)
   select case(crop_distribution_option)
   case (CROP_DISTR_LM3)
@@ -1047,6 +1057,7 @@ subroutine vegn_plant_crop_ppa(tile)
      call error_mesg('vegn_plant_crop_ppa','Unknown crop distribution option; this should never happen.', FATAL)
   end select
 
+  ! plant crops:
   ! borrow biomass (crop_seed_density) from harvest pools, in order of preference
   seedC(:) = 0.0; seedN(:) = 0.0
   do i = 1, size(seed_source_pools)
