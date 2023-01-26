@@ -36,7 +36,7 @@ use land_tile_mod, only : land_tile_map, &
 use land_tile_diag_mod, only : cmor_name
 
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
-use vegn_harvesting_mod, only : vegn_cut_forest
+use vegn_harvesting_mod, only : vegn_cut_forest, clear_all_on_conversion_to_crop
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
@@ -811,8 +811,13 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%frac = darea
         tile%frac = tile%frac-darea
         ! convert land use type of the tile: cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
-                call vegn_cut_forest(temp, a_kind)
+        if( temp%vegn%landuse==LU_NTRL.or.  &
+            temp%vegn%landuse==LU_SCND.or.  &
+            temp%vegn%landuse==LU_RANGE.or. &
+           ((temp%vegn%landuse/=LU_CROP.and.a_kind==LU_CROP).and.clear_all_on_conversion_to_crop) &
+          ) then
+           call vegn_cut_forest(temp, a_kind)
+        endif
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! reset time elapsed since last disturbance and time elapsed since last land use
@@ -941,10 +946,14 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         temp => new_land_tile(tile)
         temp%frac = tile%frac*darea
         tile%frac = tile%frac*(1.0-darea)
-        ! convert land use type of the tile:
-        ! cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
-             call vegn_cut_forest(temp, a_kind)
+        ! convert land use type of the tile: cut the forest, if necessary
+        if( temp%vegn%landuse==LU_NTRL.or.  &
+            temp%vegn%landuse==LU_SCND.or.  &
+            temp%vegn%landuse==LU_RANGE.or. &
+           ((temp%vegn%landuse/=LU_CROP.and.a_kind==LU_CROP).and.clear_all_on_conversion_to_crop) &
+          ) then
+           call vegn_cut_forest(temp, a_kind)
+        endif
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! reset time elapsed since last disturbance and time elapsed since last land use
