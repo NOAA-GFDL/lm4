@@ -289,7 +289,10 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
   case(LU_CROP)  ! crop
      select case(crop_schedule_option)
      case (CROP_SCHEDULE_LM3)
-        if (end_of_year) call vegn_harvest_cropland (tile)
+        if (end_of_year) then
+            call vegn_harvest_cropland (tile)
+            call vegn_plant_crop (tile)
+        endif
      case (CROP_SCHEDULE_PRESCRIBED)
         if (end_of_day.AND.day_of_year==nint(crop_harvest_day(l))) then
            call vegn_harvest_cropland (tile)
