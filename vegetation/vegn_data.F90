@@ -159,7 +159,7 @@ public :: &
     critical_root_density, &
     spdata, &
     min_cosz, &
-    agf_bs, K1,K2, &
+    agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
@@ -182,7 +182,7 @@ public :: &
     excess_stored_N_leakage_rate, min_N_stress, &
     et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
 
-    seedling_relayer_bug, zbot_assumption_bug
+    seedling_relayer_bug, zbot_assumption_bug, root_length_double_norm
 
 logical, public, protected :: do_ppa = .FALSE.
 logical, public, protected :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
@@ -485,6 +485,8 @@ real, protected :: soil_carbon_depth_scale = 0.2   ! depth of active soil for ca
 real, protected :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real, protected :: agf_bs       = 0.8   ! ratio of above ground stem to total stem
 real, protected :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
+real, protected :: tau_lflitt_transfer = 0.0 ! e-folding time scale of leaf litter transfer to soil pools in CENTURY mode, yr; 0 means instant transfer
+real, protected :: tau_cwlitt_transfer = 0.0 ! e-folding time scale of coarse wood litter transfer to soil pools in CENTURY mode, yr; 0 means instant transfer
 real, protected :: tau_drip_l = 21600.0 ! canopy water residence time, for drip calculations
 real, protected :: tau_drip_s = 86400.0 ! canopy snow residence time, for drip calculations
 real, protected :: GR_factor = 0.33     ! growth respiration factor
@@ -597,7 +599,9 @@ logical, protected :: zbot_assumption_bug = .FALSE. ! if TRUE, triggers buggy be
            ! height" -- e.g. when "trees squeeze grass" or "trees top grass," grasses are
            ! always at the end of the cohort array regardless of their height; "effective
            ! height" also affected by species layer_height_factor.
-
+logical, protected :: root_length_double_norm = .FALSE. ! if TRUE, triggers the bug in
+           ! calculations of root length per layer, where the vertical distribution
+           ! normalizing factor was applied twice.
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -606,7 +610,7 @@ namelist /vegn_data_nml/ &
   min_cosz, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  agf_bs, K1,K2, &
+  agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   T_transp_min, &
@@ -634,7 +638,7 @@ namelist /vegn_data_nml/ &
   excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
   et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
 
-  seedling_relayer_bug, zbot_assumption_bug
+  seedling_relayer_bug, zbot_assumption_bug, root_length_double_norm
 
 contains ! ###################################################################
 

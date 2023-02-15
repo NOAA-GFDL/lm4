@@ -12,7 +12,7 @@ use vegn_data_mod, only : spdata, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
-   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, root_length_double_norm, &
    snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
 use soil_tile_mod, only : soil_tile_type, max_lev, num_l, dz
@@ -379,9 +379,14 @@ subroutine update_cohort_root_properties(soil, cohort)
   cohort%br_profile(:) = cohort%br_profile(:)*factor
   do l = 1, num_l
      ! calculate the vertical fine root biomass density [kgC/m] for current layer
-     ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by normalizing
-     ! factor
-     vbr = cohort%br * cohort%br_profile(l)*factor/dz(l)
+     ! NOTE: sum(vbr*dz) must be equal to cohort%br, which is achieved by normalizing
+     ! br_profile by "factor" in front of the loop
+     if (root_length_double_norm) then
+        ! "factor" is double-counted here
+        vbr = cohort%br * cohort%br_profile(l)*factor/dz(l)
+     else
+        vbr = cohort%br * cohort%br_profile(l)/dz(l)
+     endif
      ! calculate fine root length per unit depth
      cohort%root_length(l) = vbr*sp%srl
   enddo

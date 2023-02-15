@@ -346,7 +346,6 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
     ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
     ! __DEBUG4__(cc%nindivs,cc%stored_N,cc%total_N,cc%total_N-cc%stored_N)
 
-    vegn%litter = vegn%litter + failed_seed_C
     litt_C(:) = litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_C
     litt_N(:) = litt_N(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_N
     vegn%veg_out = vegn%veg_out + failed_seed_C
