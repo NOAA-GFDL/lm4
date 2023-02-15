@@ -2188,7 +2188,6 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
     FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*sum(litter_total_C)/0.45
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
-
     SH_parameter = F_parameter * (fire_intensity**0.6667)
     crown_scorch_frac = ((SH_parameter-height+CL_parameter)/CL_parameter)*0.01 ! percent to fraction
     if (crown_scorch_frac<0.or.SH_parameter==0.or.height==0) crown_scorch_frac = 0.0

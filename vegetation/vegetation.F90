@@ -1693,6 +1693,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      enddo
      __DEBUG2__(precip_l, precip_s)
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
+     __DEBUG1__(vegn%landuse)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
      __DEBUG1__(cc%species)

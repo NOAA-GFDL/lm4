@@ -2284,7 +2284,7 @@ end subroutine
 
 ! =============================================================================
 ! given an intermediate pool of C or N, and its spending rate, move the amount
-! of mass corresponding to one fats time step from the pool to the destination.
+! of mass corresponding to one fast time step from the pool to the destination.
 ! The spending rate is adjusted so that intermediate pool is never depleted below zero.
 ! NOTE that the spending rate is also updated, to be correctly reported to diagnostics
 subroutine deplete_pool(pool, rate, dest, accum)
@@ -2295,16 +2295,28 @@ subroutine deplete_pool(pool, rate, dest, accum)
 
    real :: delta ! change in pool over time step, kg
 
-   rate  = MAX( 0.0, MIN(rate, pool/dt_fast_yr) ) ! adjust rate
-   delta = rate * dt_fast_yr
-   dest  = dest + delta
-   pool  = pool - delta
+   if(rate == pool/dt_fast_yr) then
+     ! In the special case where rate = pool/dt_fast_yr, it is possible
+     ! that rate * dt_fast_yr may result in a value of rate that is not
+     ! identically equal to pool, which it should be. The code in this
+     ! part of the if block ensures that it will be. -- pjp
+     rate  = MAX( 0.0, rate)
+     delta = pool
+     dest  = dest + pool
+     pool = 0.0
+   else
+     rate  = MAX( 0.0, MIN(rate, pool/dt_fast_yr) ) ! adjust rate
+     delta = rate * dt_fast_yr
+     dest  = dest + delta
+     pool  = pool - delta
+   endif
    if (present(accum)) accum = accum + delta ! increment accumulator
 end subroutine deplete_pool
 
 ! =============================================================================
 ! given an intermediate pool of C or N, and its e-folding time scale, move the amount
 ! of mass corresponding to one fats time step from the pool to the destination.
+
 subroutine deplete_pool1(pool, tau, dest, accum)
    real, intent(inout) :: pool ! C or N intermediate pool, kg
    real, intent(in)    :: tau  ! C or N e-folding time scale, years

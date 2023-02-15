@@ -254,5 +254,6 @@ subroutine rhizosphere_frac(vegn, rhiz_frac)
   ! If root_length is m/m3, then we should not divide by dz here
   rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:))
 end subroutine rhizosphere_frac
+! ============================================================================
 
 end module soil_util_mod

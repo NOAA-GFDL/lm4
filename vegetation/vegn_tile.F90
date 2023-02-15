@@ -95,6 +95,7 @@ end interface
    real :: crop_cal_Rice_2(12) ! second season
    integer :: current_crop
    real :: plant_beg, plant_opt, plant_end, harvest_beg, harvest_opt, harvest_end ! The calendar of the current_crop is assigned to these
+   logical :: idle, watchpoint
  end type crop_type
 
 ! ==== types =================================================================

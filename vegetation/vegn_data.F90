@@ -29,7 +29,7 @@ integer, public, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulos
 integer, public, parameter :: & ! indices of carbon chemical species
     C_FAST = 1, & ! cellulose (fast)
     C_SLOW = 2, & ! lignin (slow)
-    C_MIC  = 3    ! microbial producs
+    C_MIC  = 3    ! microbial products
 
 
 integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors

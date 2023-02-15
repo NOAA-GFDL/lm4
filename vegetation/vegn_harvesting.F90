@@ -37,6 +37,7 @@ use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
 use vegn_crop_mod, only: crop_init, crop_calendar, crop_end, save_crop_restart
+use crop_debug_mod, only: debug_crop
 
 implicit none
 private
@@ -353,11 +354,18 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
         ! Note that vegn%Crop%plant_opt and vegn%Crop%harvest_opt are zero where the MIRCA data has no crop area
         ! or where the crop calendar algorithm determines that conditions are unsuitable for the dominant crop.
         ! In such cases vegn_harvest_cropland and vegn_plant_crop will not be called.
-        if (end_of_day.AND.day_of_year==nint(vegn%Crop%harvest_opt)) then
-           call vegn_harvest_cropland (tile)
-        endif
-        if (end_of_day.AND.day_of_year==nint(vegn%Crop%plant_opt)) then
-           call vegn_plant_crop (tile)
+        if(nint(vegn%Crop%plant_opt) == 0 .OR. nint(vegn%Crop%harvest_opt) == 0) then
+          if (end_of_year) then
+             call vegn_harvest_cropland (tile)
+             call vegn_plant_crop (tile)
+          endif
+        else
+          if (end_of_day.AND.day_of_year==nint(vegn%Crop%harvest_opt)) then
+             call vegn_harvest_cropland (tile)
+          endif
+          if (end_of_day.AND.day_of_year==nint(vegn%Crop%plant_opt)) then
+             call vegn_plant_crop (tile)
+          endif
         endif
      end select ! crop_schedule_option
   end select
@@ -397,6 +405,8 @@ subroutine vegn_harvest_cropland(tile)
   else
      call vegn_harvest_crop_lm3(tile)
   endif
+  tile%vegn%Crop%idle = .true.
+  call debug_crop(tile%vegn,'HelloZ vegn_harvest_cropland called') ! debug
 end subroutine vegn_harvest_cropland
 
 
@@ -409,6 +419,8 @@ subroutine vegn_plant_crop(tile)
   else
      ! do nothing at the moment -- later add turning phenology on
   endif
+  tile%vegn%Crop%idle = .false.
+  call debug_crop(tile%vegn,'HelloZ vegn_plant_crop called') ! debug
 end subroutine vegn_plant_crop
 
 ! ============================================================================
