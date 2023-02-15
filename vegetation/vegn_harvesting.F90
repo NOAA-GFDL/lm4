@@ -1,18 +1,11 @@
 module vegn_harvesting_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 #include "../shared/debug.inc"
 
 use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, WARNING, &
-     mpp_pe, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe, lowercase
-use mpp_mod, only: mpp_sum
+     mpp_pe, check_nml_error, stdlog, mpp_root_pe, lowercase
+use mpp_mod, only: mpp_sum, input_nml_file
 use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year
@@ -38,6 +31,7 @@ use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
 use vegn_crop_mod, only: crop_init, crop_calendar, crop_end, save_crop_restart
 use crop_debug_mod, only: debug_crop
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
 private
@@ -124,6 +118,13 @@ real :: crop_seed_c2n          = 30    ! crop seed C:N ratio, used to calculate 
 logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported
         ! from outside of cropland can start growing on croplands; if FALSE they are not
         ! allowed to germinate.
+logical :: clear_crop_before_planting = .TRUE. ! if TRUE, all vegetation is removed from
+        ! croplands right before planting; otherwise planting adds crops to existing
+        ! (presumably small) vegetation
+logical, public, protected :: clear_all_on_conversion_to_crop = .TRUE. ! if TRUE
+        ! then all vegetation is removed in transition any -> crop; otherwise for some LU
+        ! types (e.g. pastures) vegetation remains unchanged, resulting in crops contaminated
+        ! by other species (including woody) that happened to grow there.
 logical :: transport_crop_seeds = .TRUE. ! if true, seeds are transported horizontally
         ! to satisfy the demand
 
@@ -143,7 +144,7 @@ namelist/harvesting_nml/ do_harvesting, &
      crop_schedule, crop_schedule_file, &
      crop_distribution, luh2_state_file, &
      c3_crop_species, c4_crop_species, maize_crop_species, wheat_crop_species, rice_crop_species, soybean_crop_species, &
-     crop_seed_density, allow_weeds_on_crops, &
+     crop_seed_density, allow_weeds_on_crops, clear_crop_before_planting, clear_all_on_conversion_to_crop, &
      transport_crop_seeds, crop_seed_c2n
 
 integer :: grazing_freq = -1 ! indicator of grazing frequency (GRAZING_ANNUAL or GRAZING_DAILY)
@@ -165,25 +166,13 @@ subroutine vegn_harvesting_init(id_ug)
 
   integer :: unit, ierr, io, i
   logical :: used
+  type(FmsNetcdfFile_t) :: fileobj
+  logical :: exists
 
   call log_version(version, module_name, __FILE__)
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=harvesting_nml, iostat=io)
   ierr = check_nml_error(io, 'harvesting_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1
-     do while (ierr /= 0)
-        read (unit, nml=harvesting_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'harvesting_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=harvesting_nml)
@@ -216,9 +205,14 @@ subroutine vegn_harvesting_init(id_ug)
   case('prescribed')
      crop_schedule_option = CROP_SCHEDULE_PRESCRIBED
      ! read input data
+     exists = open_file(fileobj, crop_schedule_file, "read")
+     if (.not. exists) then
+        call error_mesg("vegn_harvesting_init", trim(crop_schedule_file)//" does not exist.", FATAL)
+     endif
      allocate (crop_planting_day(lnd%ls:lnd%le),crop_harvest_day(lnd%ls:lnd%le))
-     call read_field( crop_schedule_file, 'plantingdy', crop_planting_day, interp='nearest' )
-     call read_field( crop_schedule_file, 'harvestdy',  crop_harvest_day,  interp='nearest' )
+     call read_field( fileobj, 'plantingdy', crop_planting_day, interp='nearest' )
+     call read_field( fileobj, 'harvestdy',  crop_harvest_day,  interp='nearest' )
+     call close_file(fileobj)
   case('computed')
      crop_schedule_option = CROP_SCHEDULE_COMPUTED
   case default
@@ -342,7 +336,10 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
   case(LU_CROP)  ! crop
      select case(crop_schedule_option)
      case (CROP_SCHEDULE_LM3)
-        if (end_of_year) call vegn_harvest_cropland (tile)
+        if (end_of_year) then
+            call vegn_harvest_cropland (tile)
+            call vegn_plant_crop (tile)
+        endif
      case (CROP_SCHEDULE_PRESCRIBED)
         if (end_of_day.AND.day_of_year==nint(crop_harvest_day(L))) then
            call vegn_harvest_cropland (tile)
@@ -1111,6 +1108,14 @@ subroutine vegn_plant_crop_ppa(tile)
 
   call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
+  ! prepare cropland for planting: right now just kill all vegetation; in the
+  ! future we possibly need to add some soil carbon mixing by plows, perhaps
+  ! other agricultural processes
+  if (clear_crop_before_planting) &
+        call vegn_cut_forest_ppa(tile, tile%vegn%landuse)
+
+  ! determine crop species: now using the same biogeography rules that LM3 was using
+  ! to determine c3/c4 photosynthesis type
   associate (vegn=>tile%vegn, soil=>tile%soil)
   select case(crop_distribution_option)
   case (CROP_DISTR_LM3)
@@ -1154,6 +1159,7 @@ subroutine vegn_plant_crop_ppa(tile)
      call error_mesg('vegn_plant_crop_ppa','Unknown crop distribution option; this should never happen.', FATAL)
   end select
 
+  ! plant crops:
   ! borrow biomass (crop_seed_density) from harvest pools, in order of preference
   seedC(:) = 0.0; seedN(:) = 0.0
   do i = 1, size(seed_source_pools)

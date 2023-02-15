@@ -140,7 +140,7 @@ subroutine snow_init()
   integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/snow.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -201,9 +201,9 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'snow.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
-  call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1)
+  call add_restart_axis(restart,'zfull',zz(1:num_l),.false.,"Z",longname='depth of level centers',sense=-1)
 
   call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
   call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')

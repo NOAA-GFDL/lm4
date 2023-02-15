@@ -3,31 +3,20 @@ module land_transitions_mod
 
 #include "../shared/debug.inc"
 
+use netcdf, only: nf90_max_name
 use constants_mod, only : PI
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
-
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, file_exist, close_file, &
+     mpp_pe, lowercase, get_unit, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
-
+use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
-     operator(//), operator(==), days_in_year, print_date, increment_date, get_time, &
-     valid_calendar_types, get_calendar_type
-use get_cal_time_mod, only : get_cal_time
-use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
-     horiz_interp_new, horiz_interp_del
+     operator(//), operator(==), days_in_year, get_time
+use horiz_interp_mod, only : horiz_interp_init
 use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
-
-use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec, &
-     nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
@@ -39,22 +28,23 @@ use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
-     land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
+     land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
      erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat
-use land_tile_io_mod, only : print_netcdf_error
 use land_tile_diag_mod, only : cmor_name
 
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
-use vegn_harvesting_mod, only : vegn_cut_forest
+use vegn_harvesting_mod, only : vegn_cut_forest, clear_all_on_conversion_to_crop
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
 use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
+
+use crop_debug_mod, only: debug_crop
 
 implicit none
 private
@@ -87,10 +77,6 @@ integer, parameter :: &
 integer, parameter :: tran_order(N_LU_TYPES) = (/LU_URBN, LU_CROP, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
 
 ! TODO: describe differences between data sets
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 ! ==== data types ===========================================================
 ! a description of single transition
@@ -146,6 +132,7 @@ integer :: &
 ! translation table: model land use types -> LUMIP types: for each of the model
 ! LU types it lists the corresponding LUMIP type.
 integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB, LUMIP_PST]
+logical :: close_state_file = .false.
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -182,13 +169,17 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   integer, intent(in) :: id_cellarea !<id of cell area diagnostic fields
 
   ! ---- local vars
-  integer        :: unit, ierr, io, ncid1
+  integer        :: unit, ierr, io
   integer        :: year,month,day,hour,min,sec
   integer        :: k1,k2,k3, n1,n2
   character(12)  :: fieldname
 
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
+  logical :: exists
+  character(len=nf90_max_name) :: name
+  type(FmsNetcdfFile_t) :: fileobj_static
+  integer :: ndims
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
@@ -198,35 +189,22 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   call horiz_interp_init()
   call transition_io_init()
 
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=landuse_nml, iostat=io)
   ierr = check_nml_error(io, 'landuse_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file ( )
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=landuse_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'landuse_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=landuse_nml)
   endif
 
   ! read restart file, if any
-  if (file_exist('INPUT/landuse.res')) then
+  if (file_exists('INPUT/landuse.res')) then
      call error_mesg('land_transitions_init','reading restart "INPUT/landuse.res"',&
           NOTE)
-     call mpp_open(unit,'INPUT/landuse.res', action=MPP_RDONLY, form=MPP_ASCII)
+     unit = get_unit()
+     open(unit=unit, file='INPUT/landuse.res', action="read")
      read(unit,*) year,month,day,hour,min,sec
      time0 = set_date(year,month,day,hour,min,sec)
-     call mpp_close(unit)
+     close(unit)
   else
      call error_mesg('land_transitions_init','cold-starting land transitions',&
           NOTE)
@@ -423,13 +401,14 @@ subroutine save_land_transitions_restart(timestamp)
 
   integer :: unit,year,month,day,hour,min,sec
 
-  call mpp_open( unit, 'RESTART/'//trim(timestamp)//'landuse.res', nohdrs=.TRUE. )
   if (mpp_pe() == mpp_root_pe()) then
+     unit = get_unit()
+     open(unit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
      call get_date(time0, year,month,day,hour,min,sec)
      write(unit,'(6i6,8x,a)') year,month,day,hour,min,sec, &
           'Time of previous landuse transition calculation'
+     close(unit)
   endif
-  call mpp_close(unit)
 
 end subroutine save_land_transitions_restart
 
@@ -470,7 +449,7 @@ subroutine land_transitions (time)
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (time0==set_date(0001,01,01).and.fstate%ncid>0) then
+     if (time0==set_date(0001,01,01).and.fstate%ncobj%is_open) then
         ! read initial transition from state file
         call time_interp(time, fstate%time_in, w, i1,i2)
         call input_state(k1,k2)%get_data(i1,frac)
@@ -582,7 +561,12 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: input parameters ###'
      do i = 1, size(d_kinds)
-        __DEBUG4__(i,d_kinds(i),a_kinds(i),area(i))
+        write(*,'(i2.2,2x)', advance='no') i
+        call dpri('from LU',landuse_name(d_kinds(i)))
+        call dpri('to LU',  landuse_name(a_kinds(i)))
+        call dpri('frac',   landuse_name(area(i)))
+!         __DEBUG4__(i,d_kinds(i),a_kinds(i),area(i))
+        write(*,*)
      enddo
 
      write(*,*)'### land_transitions_0d: land fractions before transitions (initial state) ###'
@@ -590,8 +574,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (loop_over_tiles(ts,ptr))
         if (associated(ptr%vegn)) then
             write(*,'(i2.2,2x)', advance='no') k; k = k+1
-            call dpri('landuse',ptr%vegn%landuse)
-            call dpri('area',ptr%frac)
+            call dpri('LU',landuse_name(ptr%vegn%landuse))
+            call dpri('frac',ptr%frac)
             call dpri('heat',vegn_tile_heat(ptr%vegn))
             call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
             write(*,*)
@@ -640,19 +624,28 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   end select
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions after splitting changing parts ###'
-     atot = 0 ; ts = first_elmt(d_list)
+     atot = 0 ; ts = first_elmt(d_list); k = 1
      do while (loop_over_tiles(ts,ptr))
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'   donor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(i2.2,2x)', advance='no') k; k = k+1
+        call dpri('donor LU',landuse_name(ptr%vegn%landuse))
+        call dpri('frac',ptr%frac)
+        write(*,*)
+!         write(*,'(2(a,g23.16,2x))')'   donor: LU = '//landuse_name(ptr%vegn%landuse),' frac=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     ts = first_elmt(a_list)
+     ts = first_elmt(a_list); k = 1
      do while (loop_over_tiles(ts, ptr))
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'acceptor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(i2.2,2x)', advance='no') k; k = k+1
+        call dpri('acceptor LU',landuse_name(ptr%vegn%landuse))
+        call dpri('frac',ptr%frac)
+        write(*,*)
+!         write(*,'(2(a,g23.16,2x))')'acceptor: LU = '//landuse_name(ptr%vegn%landuse),' frac=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     write(*,*)
   endif
 
   ! move all tiles from the donor list to the acceptor list -- this will ensure
@@ -690,8 +683,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (loop_over_tiles(ts,ptr))
         if (associated(ptr%vegn)) then
             write(*,'(i2.2,2x)', advance='no') k; k = k+1
-            call dpri('landuse',ptr%vegn%landuse)
-            call dpri('area',ptr%frac)
+            call dpri('LU',landuse_name(ptr%vegn%landuse))
+            call dpri('frac',ptr%frac)
             call dpri('heat',vegn_tile_heat(ptr%vegn))
             call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
             write(*,*)
@@ -818,8 +811,13 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%frac = darea
         tile%frac = tile%frac-darea
         ! convert land use type of the tile: cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
-                call vegn_cut_forest(temp, a_kind)
+        if( temp%vegn%landuse==LU_NTRL.or.  &
+            temp%vegn%landuse==LU_SCND.or.  &
+            temp%vegn%landuse==LU_RANGE.or. &
+           ((temp%vegn%landuse/=LU_CROP.and.a_kind==LU_CROP).and.clear_all_on_conversion_to_crop) &
+          ) then
+           call vegn_cut_forest(temp, a_kind)
+        endif
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! reset time elapsed since last disturbance and time elapsed since last land use
@@ -828,6 +826,7 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
+        call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! calculate remaining area of transition
         tfrac = tfrac-darea
      endif
@@ -947,16 +946,22 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         temp => new_land_tile(tile)
         temp%frac = tile%frac*darea
         tile%frac = tile%frac*(1.0-darea)
-        ! convert land use type of the tile:
-        ! cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
-             call vegn_cut_forest(temp, a_kind)
+        ! convert land use type of the tile: cut the forest, if necessary
+        if( temp%vegn%landuse==LU_NTRL.or.  &
+            temp%vegn%landuse==LU_SCND.or.  &
+            temp%vegn%landuse==LU_RANGE.or. &
+           ((temp%vegn%landuse/=LU_CROP.and.a_kind==LU_CROP).and.clear_all_on_conversion_to_crop) &
+          ) then
+           call vegn_cut_forest(temp, a_kind)
+        endif
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! reset time elapsed since last disturbance and time elapsed since last land use
         ! event in the new tile
         temp%vegn%age_since_disturbance = 0.0
         temp%vegn%age_since_landuse     = 0.0
+
+        call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif

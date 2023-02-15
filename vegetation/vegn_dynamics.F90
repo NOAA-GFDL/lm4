@@ -80,7 +80,7 @@ logical :: seed_transport_repro_fix = .TRUE. ! turn to FALSE to trigger old beha
    ! where the order-of-operation differences resulted in loss of seed transport
    ! reproducibility across restarts.
    !
-   ! While mathematically soil fraction can be calculated only once and fo all on
+   ! While mathematically soil fraction can be calculated only once and for all on
    ! initialization, the changes in number and areas of tiles lead to tiny numerical
    ! differences as the model runs. Those differences lead to non-reproducibility
    ! across restarts, when an intermediate restart -- and therefore model
@@ -2175,7 +2175,7 @@ subroutine vegn_phenology_ppa(tile)
             dead_stem_C = min(stem_mort_rate * cc%bsw_max, &
                    cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
             dead_stem_C = max(dead_stem_C,0.0)
-            ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
+            ! ToDo - it is necessary to implement an online adjustment of dbh, height and crown area as the plant shrinks
             !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
             !        biomass and its dimensions
             ! just set initial height
@@ -2341,7 +2341,7 @@ subroutine update_soil_pools(vegn, soil)
   ! ---- local vars
   integer :: i,k
   real :: deltafast, deltaslow, deltafast_N, deltaslow_N
-  real :: profile(num_l), profile1(num_l), psum ! for depostion profile calculation
+  real :: profile(num_l), profile1(num_l), psum ! for deposition profile calculation
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
   real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
   real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
@@ -2404,7 +2404,7 @@ subroutine update_soil_pools(vegn, soil)
         vegn%ssn_pool_bg = 0.0
      endif
 
-     ! vertical profile of litter is proportional to the average of liiter profiles
+     ! vertical profile of litter is proportional to the average of litter profiles
      ! of all cohorts, weighted with biomasses of fine roots. This does not seem to
      ! be a very good assumption, since fine roots sometimes die (mass is zero),
      ! but profile should not be zero in this case.

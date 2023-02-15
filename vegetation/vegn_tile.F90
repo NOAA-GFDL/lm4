@@ -338,7 +338,6 @@ function vegn_tile_lu_match(vegn1,vegn2) result(response)
            ! the biomass, as long as the land use type is the same
 end function vegn_tile_lu_match
 
-
 ! ============================================================================
 ! merges two vegetation tiles into one with given weights
 subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)

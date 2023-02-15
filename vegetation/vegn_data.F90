@@ -382,7 +382,7 @@ type spec_data_type
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
   real    :: dx=0.0, dl=0.0     ! Breakpoint of Weibull function, MPa
-  real    :: cx=1.0, cl=1.0	    ! Exponent of Weibull function, unitless
+  real    :: cx=1.0, cl=1.0     ! Exponent of Weibull function, unitless
   real    :: psi_tlp=0.0        ! psi at turgor loss point
 
   logical :: do_N_mining_strategy = .TRUE.
