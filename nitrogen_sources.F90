@@ -8,16 +8,15 @@ use time_manager_mod, only : time_type, get_date, operator(/=), operator(-), &
      operator(<), valid_calendar_types, get_calendar_type, time_type_to_real
 use mpp_mod, only: input_nml_file
 use fms_mod, only : &
-     file_exist, open_namelist_file, &
      check_nml_error, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
      FATAL, NOTE, string
-use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
+use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_file, &
                        get_valid, is_valid, variable_exists, get_variable_size, &
                        get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
                        get_variable_dimension_names, get_variable_num_dimensions
 use axis_utils2_mod, only: axis_edges
 use mpp_domains_mod, only : mpp_pass_SG_to_UG
-use time_interp_external_mod, only : init_external_field, time_interp_external, &
+use time_interp_external2_mod, only : init_external_field, time_interp_external, &
      time_interp_external_init
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
      horiz_interp_new, horiz_interp_del, horiz_interp

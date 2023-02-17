@@ -6,7 +6,7 @@ module soil_carbon_mod
 #include "../shared/debug.inc"
 
 use land_constants_mod, only : Rugas
-use fms_mod, only: check_nml_error, file_exist, close_file, &
+use fms_mod, only: check_nml_error, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
@@ -283,21 +283,8 @@ subroutine read_soil_carbon_namelist
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=soil_carbon_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'soil_carbon_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_carbon_nml)

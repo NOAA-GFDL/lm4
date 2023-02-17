@@ -50,7 +50,6 @@ module river_mod
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
   use fms_mod,             only : check_nml_error, string, get_unit
   use fms_mod,             only : CLOCK_FLAG_DEFAULT, error_mesg
-  use fms_io_mod,          only : get_instance_filename
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
                          read_restart, close_file, write_data, &
@@ -346,7 +345,6 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file
-    call get_instance_filename('INPUT/river.nc', filename)
     exists = open_file(river_restart, filename, "read", domain, &
                        is_restart=.true.)
     if (exists) then

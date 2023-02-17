@@ -5,17 +5,12 @@ module lake_tile_mod
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, read_data, close_file, stdlog
+use fms_mod, only : check_nml_error, stdlog
 use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version
-use land_io_mod, only : init_cover_field
+use land_io_mod, only : init_cover_field, domain_read_data
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 
 implicit none
@@ -243,21 +238,9 @@ subroutine read_lake_data_namelist(lake_n_lev)
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=lake_data_nml, iostat=io)
-     ierr = check_nml_error(io, 'lake_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=lake_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'lake_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+  read (input_nml_file, nml=lake_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'lake_data_nml')
+
   unit=stdlog()
   write(unit, nml=lake_data_nml)
 
@@ -387,9 +370,7 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
 
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
-     if (file_exist('INPUT/river_data.nc', domain)) then
-         call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, &
-                        domain=domain)
+     if (domain_read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, domain)) then
          call mpp_pass_sg_to_ug(lnd%ug_domain, lake_frac_sg, lake_frac(:,1))
      endif
      ! make sure 'missing values' don't get into the result

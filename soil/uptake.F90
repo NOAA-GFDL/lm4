@@ -5,14 +5,10 @@ module uptake_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
-use fms_mod, only: error_mesg, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL
+use fms_mod, only: error_mesg, check_nml_error, &
+     stdlog, mpp_pe, mpp_root_pe, FATAL
 use constants_mod, only: PI
 
 use soil_tile_mod, only : soil_tile_type, max_lev, psi_wilt
@@ -86,21 +82,9 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
   integer :: unit, ierr, io
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=uptake_nml, iostat=io)
   ierr = check_nml_error(io, 'uptake_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=uptake_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'uptake_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=uptake_nml)
