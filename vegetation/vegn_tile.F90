@@ -65,6 +65,7 @@ public :: vegn_tran_priority ! returns transition priority for land use
 public :: vegn_add_bliving
 
 integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
+integer, public, parameter :: ITRUE = -1, IFALSE = 0 ! Used as an integer alternative to logical data
           ! fires can burn; dimension of daily history arrays in vegn_tile
 ! =====end of public interfaces ==============================================
 
@@ -95,7 +96,8 @@ end interface
    real :: crop_cal_Rice_2(12) ! second season
    integer :: current_crop
    real :: plant_beg, plant_opt, plant_end, harvest_beg, harvest_opt, harvest_end ! The calendar of the current_crop is assigned to these
-   logical :: idle, watchpoint
+   integer :: idle
+   logical :: watchpoint
  end type crop_type
 
 ! ==== types =================================================================

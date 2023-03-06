@@ -23,7 +23,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
 use soil_tile_mod, only : num_l, LEAF, CWOOD
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_LAI, vegn_tile_type
+     vegn_tile_LAI, vegn_tile_type, ITRUE, IFALSE
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
@@ -216,7 +216,7 @@ subroutine vegn_harvesting_init(id_ug)
   case('computed')
      crop_schedule_option = CROP_SCHEDULE_COMPUTED
   case default
-     call error_mesg('vegn_harvesting_init','crop_schedule must be "lm3" or "prescribed"',FATAL)
+     call error_mesg('vegn_harvesting_init','crop_schedule must be "lm3", "prescribed", or "computed"',FATAL)
   end select
 
   ! initialize crop C3/C4 distribution option
@@ -350,7 +350,7 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
      case (CROP_SCHEDULE_COMPUTED)
         ! Note that vegn%Crop%plant_opt and vegn%Crop%harvest_opt are zero where the MIRCA data has no crop area
         ! or where the crop calendar algorithm determines that conditions are unsuitable for the dominant crop.
-        ! In such cases vegn_harvest_cropland and vegn_plant_crop will not be called.
+        ! In such cases planting and harvesting defaults to the CROP_SCHEDULE_LM3 behavior.
         if(nint(vegn%Crop%plant_opt) == 0 .OR. nint(vegn%Crop%harvest_opt) == 0) then
           if (end_of_year) then
              call vegn_harvest_cropland (tile)
@@ -402,7 +402,7 @@ subroutine vegn_harvest_cropland(tile)
   else
      call vegn_harvest_crop_lm3(tile)
   endif
-  tile%vegn%Crop%idle = .true.
+  tile%vegn%Crop%idle = ITRUE
   call debug_crop(tile%vegn,'HelloZ vegn_harvest_cropland called') ! debug
 end subroutine vegn_harvest_cropland
 
@@ -416,7 +416,7 @@ subroutine vegn_plant_crop(tile)
   else
      ! do nothing at the moment -- later add turning phenology on
   endif
-  tile%vegn%Crop%idle = .false.
+  tile%vegn%Crop%idle = IFALSE
   call debug_crop(tile%vegn,'HelloZ vegn_plant_crop called') ! debug
 end subroutine vegn_plant_crop
 

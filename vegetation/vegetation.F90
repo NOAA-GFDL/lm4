@@ -2520,7 +2520,8 @@ subroutine update_vegn_slow( )
   ! would happen if we used average length of year for given calendar.
   age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
-  if(month0 /= month1) then
+  if(day0 /= day1) then ! debug_pjp
+! if(month0 /= month1) then
      ! heartbeat
      write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
