@@ -142,7 +142,7 @@ public :: &
     vegn_to_use,  input_cover_types, &
     mcv_min, mcv_lai, use_bucket, vegn_index_constant, &
     critical_root_density, &
-    spdata, &
+    spdata, splist, &
     min_cosz, &
     agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
@@ -440,6 +440,9 @@ end type
 
 ! ---- species parameters ----------------------------------------------------
 type(spec_data_type), allocatable, protected :: spdata(:)
+
+! ---- list of species names, for by-species diagnostic axis attribute
+character(len=:), allocatable, protected :: splist ! list of species names
 
 ! ---- namelist --------------------------------------------------------------
 logical, protected :: use_bucket = .false.
@@ -783,6 +786,13 @@ subroutine read_vegn_data_namelist()
   spdata(:)%fact_crit_fire = max(0.0,spdata(:)%fact_crit_fire)
   where (spdata(:)%cnst_crit_fire/=0) spdata(:)%fact_crit_fire=0.0
   write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
+
+  ! create a list of species names
+  splist = trim(spdata(0)%name)
+  do i = 1,nspecies-1
+    splist = splist//", "//trim(spdata(i)%name)
+  enddo
+!   write(*,*) splist
 
   call print_species_data(stdout(),.TRUE.)
   call print_species_data(stdlog(),.TRUE.)
