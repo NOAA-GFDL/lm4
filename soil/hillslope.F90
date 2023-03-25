@@ -257,7 +257,7 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
   frac_topo_hlsps(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
   if (.not. use_geohydrodata) then
-     call read_field( fileobj, 'SOIL_E_DEPTH', rbuffer, interp=hlsp_interpmethod )  
+     call read_field( fileobj, 'SOIL_E_DEPTH', rbuffer, interp=hlsp_interpmethod )
      soil_e_depth(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   else
      soil_e_depth(:,:) = initval ! will not be used
@@ -848,8 +848,7 @@ subroutine hlsp_config_check()
 end subroutine hlsp_config_check
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function soil_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    soil_tile_exists = associated(tile%soil)

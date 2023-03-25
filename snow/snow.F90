@@ -898,8 +898,7 @@ subroutine print_snow_integrals(snow)
 end subroutine print_snow_integrals
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function snow_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    snow_tile_exists = associated(tile%snow)
