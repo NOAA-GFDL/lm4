@@ -53,7 +53,7 @@ subroutine debug_crop(vegn, tag)
   call dpri('current_crop', vegn%Crop%current_crop)
   call dpri('plant_opt',    vegn%Crop%plant_opt)
   call dpri('harvest_opt',  vegn%Crop%harvest_opt)
-  call dpri('idle',         vegn%Crop%idle)
+  call dpri('status',       vegn%Crop%status)
   write(*,*)
 
 end subroutine debug_crop

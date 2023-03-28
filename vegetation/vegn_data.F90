@@ -44,6 +44,7 @@ integer, public, parameter :: & ! life form of the plant
  FORM_WOODY = 1
  ! in future, possibly add mosses...
 
+integer, public, parameter :: IDLE = 0, ACTIVE = 1
 integer, public, parameter :: &
  NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has no crop area.
                      ! In such cases the crop tile is treated the same way as it was before vegn_crop_mod was introduced.

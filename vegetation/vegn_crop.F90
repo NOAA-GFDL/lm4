@@ -34,8 +34,8 @@ use fms_mod, only: open_namelist_file
  use field_manager_mod, only: fm_field_name_len
  use constants_mod, only: TFREEZE, SECONDS_PER_DAY, PI
  use land_tile_mod, only: land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles, land_tile_map
- use vegn_tile_mod, only: vegn_tile_type, ITRUE
- use vegn_data_mod, only: LEAF_ON, LEAF_OFF, LU_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, WINTER_WHEAT, NO_CROP
+ use vegn_tile_mod, only: vegn_tile_type
+ use vegn_data_mod, only: LEAF_ON, LEAF_OFF, LU_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, WINTER_WHEAT, NO_CROP, IDLE
  use land_data_mod, only: lnd
  use land_tile_io_mod, only: land_restart_type, init_land_restart, open_land_restart, save_land_restart, &
                               free_land_restart, add_restart_axis, add_tile_data, get_tile_data, field_exists, add_int_tile_data, get_int_tile_data
@@ -44,7 +44,6 @@ use fms_mod, only: open_namelist_file
  use land_tile_diag_mod,only: register_tiled_diag_field, send_tile_data, diag_buff_type, set_default_diag_filter
  use land_numerics_mod, only: ludcmp, lubksb
  use land_io_mod, only: init_cover_field
- use crop_debug_mod, only: debug_crop
 
  implicit none
  private
@@ -60,7 +59,7 @@ use fms_mod, only: open_namelist_file
  real, parameter :: unsuitable = 1000. ! suitablity index is set to unsuitable whenever it exeeds SI_crit. (Is this necessary?)
  real, parameter :: aPTT_interval = 200. ! Wheat suitablity is tested at intervals of aPTT_interval units of photo-thermal time.
  integer, parameter :: GP_Maize = 149, GP_Soy = 142, GP_Rice = 137 ! Time from planting to harvest
- character(len=10), parameter :: cwater(2) = (/' irrigated',' rainfed  '/)
+ character(len=9), parameter :: cwater(2) = (/'irrigated','rainfed  '/)
  character(len=5), parameter :: cseason(2) = (/' main'," 2'nd"/)
  character(len=16), parameter :: restart_file_name = 'crop.nc'
 
@@ -125,13 +124,13 @@ use fms_mod, only: open_namelist_file
  character(len=6) :: date_from_doy(0:365), date1, date2
 
  real :: t_mid_month(0:13)
-! Note that t_mid_month is dimensioned (0:13) where t_mid_month(0) is negative because it's the middle of Dec
-! of the previous year and t_mid_month(13) is > 365. because it's the middle of Jan of the following year.
+! Note that t_mid_month is dimensioned (0:13) where t_mid_month(0) is negative because it is the middle of Dec
+! of the previous year and t_mid_month(13) is > 365. because it is the middle of Jan of the following year.
 
  character(len=256) :: text
  integer :: id_T_ave, id_P_ave
  integer :: id_crop_cal_Maize, id_crop_cal_Soy, id_crop_cal_SW, id_crop_cal_WW, id_crop_cal_Rice_1, id_crop_cal_Rice_2
- integer :: id_MIRCA_crop_frac, id_current_crop
+ integer :: id_MIRCA_crop_frac, id_current_crop, id_status
 
  real :: weight_climate=.10
  real :: Twt_Maize=1./3., Pwt_Maize=1./3.
@@ -153,7 +152,7 @@ use fms_mod, only: open_namelist_file
  real :: lat_watch = 100.0, lon_watch = 400.0
  logical :: all_potential_growing_areas=.FALSE.
  character(len=9) :: crop_calendar_option = 'rainfed  ' ! valid options are 'rainfed' and 'irrigated'
- logical :: cold_start_idle = .FALSE.
+ logical :: cold_start_status = .FALSE.
  ! all_potential_growing_areas affects only diagnostic output.
  ! If .TRUE., then the diagnostic output will include crop calendars for all tiles,
  ! whether or not they are crop tiles and whether or not the MIRCA data shows any crop area.
@@ -166,7 +165,7 @@ use fms_mod, only: open_namelist_file
             SI_crit_Maize, SI_crit_Soy, SI_crit_SW, SI_crit_WW, SI_crit_Rice , &
             max_planting_SI_SW, Tbase_Wheat, length_of_vernalization_period, &
             max_T_for_vernalization, min_planting_T_Wheat, absolute_min_T_for_Wheat, &
-            lat_watch, lon_watch, all_potential_growing_areas, crop_calendar_option, cold_start_idle
+            lat_watch, lon_watch, all_potential_growing_areas, crop_calendar_option, cold_start_status
  contains
 !============================================================================
  subroutine crop_calendar(vegn,diag,L)
@@ -180,7 +179,7 @@ use fms_mod, only: open_namelist_file
 
  ! The routines for Maize, Soybean and Wheat return dates for irrigated crop
  ! as the first element of pday etc. and rainfed as the second element.
- ! CCA_Rice returns dates for the main and 2'nd season crops as the first element and second elements.
+ ! CCA_Rice returns dates for the main and second season crops as the first element and second elements.
  ! CCA_Rice is called twice. Once each for irrigated and rainfed Rice.
  integer, dimension(2) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
 
@@ -191,7 +190,7 @@ use fms_mod, only: open_namelist_file
  watch_unit = 0
  vegn%Crop%watchpoint = .false.
  if(vegn%landuse == LU_CROP) then
-   if(abs(lon_watch - 180*lnd%ug_lon(L)/PI) < 0.7 .and. abs(lat_watch - 180*lnd%ug_lat(L)/PI) < 0.7) then
+   if(abs(lon_watch - 180*lnd%ug_lon(L)/PI) < 0.6 .and. abs(lat_watch - 180*lnd%ug_lat(L)/PI) < 0.6) then
      outname = 'crop_calendar.      E.      N.out'
      write(outname(15:20),'(f6.2)') 180*lnd%ug_lon(L)/PI
      write(outname(23:28),'(f6.2)') 180*lnd%ug_lat(L)/PI
@@ -206,19 +205,18 @@ use fms_mod, only: open_namelist_file
      write(text( 4: 8),'(i5)') L
      write(text(21:28),'(f8.3)') 180*lnd%ug_lon(L)/PI
      write(text(40:47),'(f8.3)') 180*lnd%ug_lat(L)/PI
-     write(watch_unit,'(a)') ' Watchpoint: HelloZ '//trim(text)
-     call error_mesg('Watchpoint: HelloZ',trim(text),NOTE)
+     write(watch_unit,'(a)') ''
+     write(watch_unit,'(a)') ' HelloA  subroutine crop_calendar called. The watchpoint is at '//trim(text)
      vegn%Crop%watchpoint = .true.
    endif
  endif
  if(new_month) then
     vegn%Crop%tc_av_climate(month1) = weight_climate*vegn%tc_av + (1-weight_climate)*vegn%Crop%tc_av_climate(month1)
     vegn%Crop%precip_av_climate(month1) = weight_climate*vegn%precip_av + (1-weight_climate)*vegn%Crop%precip_av_climate(month1)
-    if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-      write(watch_unit,'(2(a,3i4))') ' year1,month1,day1=',year1,month1,day1,' year0,month0,day0=',year0,month0,day0
-      write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
-      write(watch_unit,'(a,f7.3,a)') ' '//month_name(month1)//' Ave precipitation =',3401.6*days_in_month(month1)*vegn%Crop%precip_av_climate(month1),' inches'
-      write(watch_unit,'(a,f7.3,a)') ' '//month_name(month1)//' Ave temperature   =',(vegn%Crop%tc_av_climate(month1)-273.15),'◦C'
+    if(watch_unit > 0) then
+      write(watch_unit,'(2(a,i5,i3,i3))') ' year1,month1,day1=',year1,month1,day1,' year0,month0,day0=',year0,month0,day0
+!     write(watch_unit,'(a,f7.3,a)') ' '//month_name(month1)//' Ave precipitation =',3401.6*days_in_month(month1)*vegn%Crop%precip_av_climate(month1),' inches'
+!     write(watch_unit,'(a,f7.3,a)') ' '//month_name(month1)//' Ave temperature   =',(vegn%Crop%tc_av_climate(month1)-273.15),'C'
     endif
  endif
  if(all_potential_growing_areas) then
@@ -232,35 +230,33 @@ use fms_mod, only: open_namelist_file
     vegn%Crop%P_mid_mth = 4*vegn%Crop%precip_av_climate ! 4*tcprecip_av_climate is the rhs. lubksb overwrites it with the solution.
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%P_mid_mth)
     if(watch_unit > 0) then
-      write(watch_unit,'(a)') ''
-      write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
-      do mth=1,12
-        write(watch_unit,'(a,2(f6.2,a))') ' '//month_name(mth)//' T_mid_mth =',vegn%Crop%T_mid_mth(mth)-273.15,'C  tc_av_climate=',vegn%Crop%tc_av_climate(mth)-273.15,'C'
-      enddo
-      do mth=1,12
-        write(watch_unit,'(a,2(f6.2,a))') ' '//month_name(mth)//' P_mid_mth =',3401.6*days_in_month(mth)*vegn%Crop%P_mid_mth(mth),' inches  vegn%Crop%precip_av_climate=', &
-                                             3401.6*days_in_month(mth)*vegn%Crop%precip_av_climate(mth),' inches'
-      enddo
-      if(vegn%Crop%current_crop == NO_CROP)      write(watch_unit,'(a)') ' current_crop = NO_CROP'
-      if(vegn%Crop%current_crop == MAIZE)        write(watch_unit,'(a)') ' current_crop = MAIZE'
-      if(vegn%Crop%current_crop == SOYBEAN)      write(watch_unit,'(a)') ' current_crop = SOYBEAN'
-      if(vegn%Crop%current_crop == RICE)         write(watch_unit,'(a)') ' current_crop = RICE'
-      if(vegn%Crop%current_crop == SPRING_WHEAT) write(watch_unit,'(a)') ' current_crop = SPRING_WHEAT'
-      if(vegn%Crop%current_crop == WINTER_WHEAT) write(watch_unit,'(a)') ' current_crop = WINTER_WHEAT'
+!     do mth=1,12
+!       write(watch_unit,'(a,2(f6.2,a))') ' '//month_name(mth)//' T_mid_mth =',vegn%Crop%T_mid_mth(mth)-273.15,'C  tc_av_climate=',vegn%Crop%tc_av_climate(mth)-273.15,'C'
+!     enddo
+!     do mth=1,12
+!       write(watch_unit,'(a,2(f6.2,a))') ' '//month_name(mth)//' P_mid_mth =',3401.6*days_in_month(mth)*vegn%Crop%P_mid_mth(mth),' inches  vegn%Crop%precip_av_climate=', &
+!                                            3401.6*days_in_month(mth)*vegn%Crop%precip_av_climate(mth),' inches'
+!     enddo
+      if(watch_unit > 0 .and. vegn%Crop%current_crop == NO_CROP)      write(watch_unit,'(a)') ' current_crop = NO_CROP'
+      if(watch_unit > 0 .and. vegn%Crop%current_crop == MAIZE)        write(watch_unit,'(a)') ' current_crop = MAIZE'
+      if(watch_unit > 0 .and. vegn%Crop%current_crop == SOYBEAN)      write(watch_unit,'(a)') ' current_crop = SOYBEAN'
+      if(watch_unit > 0 .and. vegn%Crop%current_crop == RICE)         write(watch_unit,'(a)') ' current_crop = RICE'
+      if(watch_unit > 0 .and. vegn%Crop%current_crop == SPRING_WHEAT) write(watch_unit,'(a)') ' current_crop = SPRING_WHEAT'
+      if(watch_unit > 0 .and. vegn%Crop%current_crop == WINTER_WHEAT) write(watch_unit,'(a)') ' current_crop = WINTER_WHEAT'
     endif
     if(all_potential_growing_areas .or. vegn%Crop%current_crop == MAIZE) then
       call CCA_Maize_Soy('Maize', watch_unit, vegn, L, central_T_Maize, variance_T_Maize, central_P_Maize, variance_P_Maize, &
                          central_D_Maize, variance_D_Maize, Twt_Maize, Pwt_Maize, SI_crit_Maize, pday, pday_beg, pday_end, hday, hday_beg, hday_end)
-      if(vegn%Crop%idle == ITRUE) then
+      if(vegn%Crop%status == IDLE) then
         ! The crop calendar should not be changed while the crop is actively growing.
         ! It should be changed only in the off season. It is the harvest date that is at issue here.
         ! Once a crop is planted one is committed to the harvest date that was determined at the time of planting.
         vegn%Crop%crop_cal_Maize(1: 6) = (/pday_beg(1), pday(1), pday_end(1), hday_beg(1), hday(1), hday_end(1)/)
         vegn%Crop%crop_cal_Maize(7:12) = (/pday_beg(2), pday(2), pday_end(2), hday_beg(2), hday(2), hday_end(2)/)
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' Maize cropland is idle')   ! debug
+        write(watch_unit,'(a)') ' HelloB '//trim(crop_calendar_option)//' Maize cropland is idle'
       else
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' Maize cropland is active') ! debug
-      endif ! if(vegn%Crop%idle == ITRUE) then
+        write(watch_unit,'(a)') ' HelloC '//trim(crop_calendar_option)//' Maize cropland is active'
+      endif ! if(vegn%Crop%status == IDLE) then
       if(watch_unit > 0) then
         write(watch_unit,'(a)') ''
         write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
@@ -282,12 +278,12 @@ use fms_mod, only: open_namelist_file
     if(all_potential_growing_areas .or. vegn%Crop%current_crop == SOYBEAN) then
       call CCA_Maize_Soy('Soybean', watch_unit, vegn, L, central_T_Soy, variance_T_Soy, central_P_Soy, variance_P_Soy, central_D_Soy, variance_D_Soy, &
                          Twt_Soy, Pwt_Soy, SI_crit_Soy, pday, pday_beg, pday_end, hday, hday_beg, hday_end)
-      if(vegn%Crop%idle == ITRUE) then
+      if(vegn%Crop%status == IDLE) then
         vegn%Crop%crop_cal_Soy(1: 6) = (/pday_beg(1), pday(1), pday_end(1), hday_beg(1), hday(1), hday_end(1)/)
         vegn%Crop%crop_cal_Soy(7:12) = (/pday_beg(2), pday(2), pday_end(2), hday_beg(2), hday(2), hday_end(2)/)
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' Soybean cropland is idle')   ! debug
+        write(watch_unit,'(a)') ' HelloD '//trim(crop_calendar_option)//' Soybean cropland is idle'
       else
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' Soybean cropland is active') ! debug
+        write(watch_unit,'(a)') ' HelloE '//trim(crop_calendar_option)//' Soybean cropland is active'
       endif
       if(watch_unit > 0) then
         write(watch_unit,'(a)') ''
@@ -312,12 +308,12 @@ use fms_mod, only: open_namelist_file
                      Twt_SW, Pwt_SW, SI_crit_SW, max_planting_SI_SW, Tbase_Wheat, aPTTtH_range_SW, & ! intent(in)
                      length_of_vernalization_period, max_T_for_vernalization, min_planting_T_Wheat, & ! intent(in)
                      pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
-      if(vegn%Crop%idle == ITRUE) then
+      if(vegn%Crop%status == IDLE) then
         vegn%Crop%crop_cal_SW(1: 6) = (/pday_beg(1), pday(1), pday_end(1), hday_beg(1), hday(1), hday_end(1)/)
         vegn%Crop%crop_cal_SW(7:12) = (/pday_beg(2), pday(2), pday_end(2), hday_beg(2), hday(2), hday_end(2)/)
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' SW cropland is idle')   ! debug
+        write(watch_unit,'(a)') ' HelloF '//trim(crop_calendar_option)//' SW cropland is idle'
       else
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' SW cropland is active') ! debug
+        write(watch_unit,'(a)') ' HelloG '//trim(crop_calendar_option)//' SW cropland is active'
       endif
       if(watch_unit > 0) then
         write(watch_unit,'(a)') ''
@@ -342,12 +338,12 @@ use fms_mod, only: open_namelist_file
                      Twt_WW, Pwt_WW, SI_crit_WW, max_planting_SI_SW, Tbase_Wheat, aPTTtH_range_WW, & ! intent(in)
                      length_of_vernalization_period, max_T_for_vernalization, min_planting_T_Wheat, & ! intent(in)
                      pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
-      if(vegn%Crop%idle == ITRUE) then
+      if(vegn%Crop%status == IDLE) then
         vegn%Crop%crop_cal_WW(1: 6) = (/pday_beg(1), pday(1), pday_end(1), hday_beg(1), hday(1), hday_end(1)/)
         vegn%Crop%crop_cal_WW(7:12) = (/pday_beg(2), pday(2), pday_end(2), hday_beg(2), hday(2), hday_end(2)/)
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' WW cropland is idle')   ! debug
+        write(watch_unit,'(a)') ' HelloH '//trim(crop_calendar_option)//' WW cropland is idle'
       else
-        call debug_crop(vegn,'HelloZ '//trim(crop_calendar_option)//' WW cropland is active') ! debug
+        write(watch_unit,'(a)') ' HelloI '//trim(crop_calendar_option)//' WW cropland is active'
       endif
       if(watch_unit > 0) then
         write(watch_unit,'(a)') ''
@@ -369,10 +365,18 @@ use fms_mod, only: open_namelist_file
     endif ! if(all_potential_growing_areas .or. vegn%Crop%current_crop == WINTER_WHEAT)
     if(all_potential_growing_areas .or. vegn%Crop%current_crop == RICE) then
       water_loop: do iwater=1,2
+        if(watch_unit > 0) then
+          write(watch_unit,'(a)') ''
+          write(watch_unit,'(a)') ' Begin loop for '//trim(cwater(iwater))//' Rice'
+        endif
         call CCA_Rice(watch_unit, vegn, L, trim(cwater(iwater)), Twt_Rice, Pwt_Rice, central_T_Rice, variance_T_Rice, & ! intent(in)
                       central_P_Rice, variance_P_Rice, central_D_Rice, variance_D_Rice, SI_crit_Rice, & ! intent(in)
                       pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
-        if(vegn%Crop%idle == ITRUE) then
+        if(watch_unit > 0) then
+          write(watch_unit,'(a,2i4)') ' HelloJ i,j=',lnd%i_index(L),lnd%j_index(L)
+          write(watch_unit,'(a,6i4)') ' HelloK '//trim(cwater(iwater))//' main season Rice: pday_beg,pday,pday_end,hday_beg,hday,hday_end=',pday_beg(1),pday(1),pday_end(1),hday_beg(1),hday(1),hday_end(1)
+        endif
+        if(vegn%Crop%status == IDLE) then
           if(iwater==1) then
             vegn%Crop%crop_cal_Rice_1(1:6) = (/pday_beg(1), pday(1), pday_end(1), hday_beg(1), hday(1), hday_end(1)/)
             vegn%Crop%crop_cal_Rice_2(1:6) = (/pday_beg(2), pday(2), pday_end(2), hday_beg(2), hday(2), hday_end(2)/)
@@ -381,44 +385,33 @@ use fms_mod, only: open_namelist_file
             vegn%Crop%crop_cal_Rice_1(7:12) = (/pday_beg(1), pday(1), pday_end(1), hday_beg(1), hday(1), hday_end(1)/)
             vegn%Crop%crop_cal_Rice_2(7:12) = (/pday_beg(2), pday(2), pday_end(2), hday_beg(2), hday(2), hday_end(2)/)
           endif
-          call debug_crop(vegn,'HelloZ '//trim(cwater(iwater))//' Rice cropland is idle')   ! debug
+          write(watch_unit,'(a)') ' HelloL '//trim(cwater(iwater))//' Rice cropland is idle'
         else
-          call debug_crop(vegn,'HelloZ '//trim(cwater(iwater))//' Rice cropland is active') ! debug
+          write(watch_unit,'(a)') ' HelloM '//trim(cwater(iwater))//' Rice cropland is active'
+        endif
+        if(watch_unit > 0) then
+          write(watch_unit,'(a)') ' End loop for '//trim(cwater(iwater))//' Rice'
         endif
       enddo water_loop
 
       if(watch_unit > 0) then
         write(watch_unit,'(a)') ''
         write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
-        write(watch_unit,'(a)') ' main season rice'
-        write(watch_unit,'(a)') " 1'st and 3'rd columns are for irrigated Rice, 2'nd and 4'th for rainfed"
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(1)),'Hello49'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(7)),'Hello50')
-        write(watch_unit,'(a,2i4,a)') ' begin planting period =',nint(vegn%Crop%crop_cal_Rice_1(1)),nint(vegn%Crop%crop_cal_Rice_1(7)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(2)),'Hello51'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(8)),'Hello52')
-        write(watch_unit,'(a,2i4,a)') ' optimal planting date =',nint(vegn%Crop%crop_cal_Rice_1(2)),nint(vegn%Crop%crop_cal_Rice_1(8)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(3)),'Hello53'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(9)),'Hello54')
-        write(watch_unit,'(a,2i4,a)') ' end   planting period =',nint(vegn%Crop%crop_cal_Rice_1(3)),nint(vegn%Crop%crop_cal_Rice_1(9)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(4)),'Hello55'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(10)),'Hello56')
-        write(watch_unit,'(a,2i4,a)') ' begin harvest  period =',nint(vegn%Crop%crop_cal_Rice_1(4)),nint(vegn%Crop%crop_cal_Rice_1(10)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(5)),'Hello57'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(11)),'Hello58')
-        write(watch_unit,'(a,2i4,a)') ' optimal harvest  date =',nint(vegn%Crop%crop_cal_Rice_1(5)),nint(vegn%Crop%crop_cal_Rice_1(11)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(6)),'Hello59'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_1(12)),'Hello60')
-        write(watch_unit,'(a,2i4,a)') ' end   harvest  period =',nint(vegn%Crop%crop_cal_Rice_1(6)),nint(vegn%Crop%crop_cal_Rice_1(12)),' '//date1//' '//date2
+        write(watch_unit,'(a)') " 1'st and 2'nd columns are for main season irrigated and rainfed Rice"
+        write(watch_unit,'(a,2i4,a)') ' begin planting period =',nint(vegn%Crop%crop_cal_Rice_1(1)),nint(vegn%Crop%crop_cal_Rice_1(7))
+        write(watch_unit,'(a,2i4,a)') ' optimal planting date =',nint(vegn%Crop%crop_cal_Rice_1(2)),nint(vegn%Crop%crop_cal_Rice_1(8))
+        write(watch_unit,'(a,2i4,a)') ' end   planting period =',nint(vegn%Crop%crop_cal_Rice_1(3)),nint(vegn%Crop%crop_cal_Rice_1(9))
+        write(watch_unit,'(a,2i4,a)') ' begin harvest  period =',nint(vegn%Crop%crop_cal_Rice_1(4)),nint(vegn%Crop%crop_cal_Rice_1(10))
+        write(watch_unit,'(a,2i4,a)') ' optimal harvest  date =',nint(vegn%Crop%crop_cal_Rice_1(5)),nint(vegn%Crop%crop_cal_Rice_1(11))
+        write(watch_unit,'(a,2i4,a)') ' end   harvest  period =',nint(vegn%Crop%crop_cal_Rice_1(6)),nint(vegn%Crop%crop_cal_Rice_1(12))
         write(watch_unit,'(a)') ''
-        write(watch_unit,'(a)') ' second season rice'
-        write(watch_unit,'(a)') " 1'st and 3'rd columns are for irrigated Rice, 2'nd and 4'th for rainfed"
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(1)),'Hello61'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(7)),'Hello62')
-        write(watch_unit,'(a,2i4,a)') ' begin planting period =',nint(vegn%Crop%crop_cal_Rice_2(1)),nint(vegn%Crop%crop_cal_Rice_2(7)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(2)),'Hello63'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(8)),'Hello64')
-        write(watch_unit,'(a,2i4,a)') ' optimal planting date =',nint(vegn%Crop%crop_cal_Rice_2(2)),nint(vegn%Crop%crop_cal_Rice_2(8)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(3)),'Hello65'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(9)),'Hello66')
-        write(watch_unit,'(a,2i4,a)') ' end   planting period =',nint(vegn%Crop%crop_cal_Rice_2(3)),nint(vegn%Crop%crop_cal_Rice_2(9)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(4)),'Hello67'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(10)),'Hello68')
-        write(watch_unit,'(a,2i4,a)') ' begin harvest  period =',nint(vegn%Crop%crop_cal_Rice_2(4)),nint(vegn%Crop%crop_cal_Rice_2(10)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(5)),'Hello69'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(11)),'Hello70')
-        write(watch_unit,'(a,2i4,a)') ' optimal harvest  date =',nint(vegn%Crop%crop_cal_Rice_2(5)),nint(vegn%Crop%crop_cal_Rice_2(11)),' '//date1//' '//date2
-        date1 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(6)),'Hello71'); date2 = get_date_from_doy(nint(vegn%Crop%crop_cal_Rice_2(12)),'Hello72')
-        write(watch_unit,'(a,2i4,a)') ' end   harvest  period =',nint(vegn%Crop%crop_cal_Rice_2(6)),nint(vegn%Crop%crop_cal_Rice_2(12)),' '//date1//' '//date2
+        write(watch_unit,'(a)') " 1'st and 2'nd columns are for 2'nd season irrigated and rainfed Rice"
+        write(watch_unit,'(a,2i4,a)') ' begin planting period =',nint(vegn%Crop%crop_cal_Rice_2(1)),nint(vegn%Crop%crop_cal_Rice_2(7))
+        write(watch_unit,'(a,2i4,a)') ' optimal planting date =',nint(vegn%Crop%crop_cal_Rice_2(2)),nint(vegn%Crop%crop_cal_Rice_2(8))
+        write(watch_unit,'(a,2i4,a)') ' end   planting period =',nint(vegn%Crop%crop_cal_Rice_2(3)),nint(vegn%Crop%crop_cal_Rice_2(9))
+        write(watch_unit,'(a,2i4,a)') ' begin harvest  period =',nint(vegn%Crop%crop_cal_Rice_2(4)),nint(vegn%Crop%crop_cal_Rice_2(10))
+        write(watch_unit,'(a,2i4,a)') ' optimal harvest  date =',nint(vegn%Crop%crop_cal_Rice_2(5)),nint(vegn%Crop%crop_cal_Rice_2(11))
+        write(watch_unit,'(a,2i4,a)') ' end   harvest  period =',nint(vegn%Crop%crop_cal_Rice_2(6)),nint(vegn%Crop%crop_cal_Rice_2(12))
       endif
     endif ! if(all_potential_growing_areas .or. vegn%Crop%current_crop == RICE)
  endif ! if(compute_calendars)
@@ -426,10 +419,14 @@ use fms_mod, only: open_namelist_file
  call send_tile_data(id_T_ave, vegn%Crop%tc_av_climate, diag)
  call send_tile_data(id_P_ave, vegn%Crop%precip_av_climate,diag)
  call send_tile_data(id_current_crop,real(vegn%Crop%current_crop),  diag)
+ call send_tile_data(id_status,      real(vegn%Crop%status),        diag)
  call send_tile_data(id_crop_cal_Maize,  vegn%Crop%crop_cal_Maize,  diag)
  call send_tile_data(id_crop_cal_Soy,    vegn%Crop%crop_cal_Soy,    diag)
  call send_tile_data(id_crop_cal_SW,     vegn%Crop%crop_cal_SW,     diag)
  call send_tile_data(id_crop_cal_WW,     vegn%Crop%crop_cal_WW,     diag)
+  if(watch_unit > 0) then
+    write(watch_unit,'(a,6f6.1)') ' HelloN  vegn%Crop%crop_cal_Rice_1(7:12)=',vegn%Crop%crop_cal_Rice_1(7:12)
+  endif
  call send_tile_data(id_crop_cal_Rice_1, vegn%Crop%crop_cal_Rice_1, diag)
  call send_tile_data(id_crop_cal_Rice_2, vegn%Crop%crop_cal_Rice_2, diag)
  if(watch_unit > 0) close(watch_unit)
@@ -510,12 +507,12 @@ use fms_mod, only: open_namelist_file
  real :: SI(num_test_days,2) ! Suitability Index. Computed at 5 day intervals from Jan 5 to Dec 31. SI(:,1) for irrigated, SI(:,2) for rainfed
 
  Dwt = 1.0 - Twt - Pwt
- if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-   write(watch_unit,'(a)') ''
-   write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
-   write(watch_unit,'(a)') ' '//trim(crop_name)
-   write(watch_unit,'(a)') ' doy  date   TSI  PSI_i PSI_r  DSI  SI_i  SI_r'
- endif
+!if(watch_unit > 0) then
+!  write(watch_unit,'(a)') ''
+!  write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
+!  write(watch_unit,'(a)') ' '//trim(crop_name)
+!  write(watch_unit,'(a)') ' doy  date   TSI  PSI_i PSI_r  DSI  SI_i  SI_r'
+!endif
  ! compute SI at 5 day intervals from Jan 5 to Dec 31. SI_test is used for this.
  ! SI_test is not loaded into SI unless it passes the suitability test.
  k_loop_1: do k=1,num_test_days
@@ -548,19 +545,23 @@ use fms_mod, only: open_namelist_file
        SI_test(2) = SI_test(2) + Twt*TSI_test + Dwt*DSI_test + Pwt*PSI_test(2)
      endif
      if(SI_test(1) > SI_crit) then
-       if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello73'),Ttmp,Ptmp,Dtmp,SI_test(:),' (unsuitable)'
+!      if(watch_unit > 0) then
+!        write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello73'),Ttmp,Ptmp,Dtmp,SI_test(:),' (unsuitable)'
+!      endif
        exit m_loop ! If SI_test(1) exceeds critical, then so does SI_test(2)
      endif
    enddo m_loop
    SI(k,1) = SI_test(1)
    SI(k,2) = SI_test(2)
-   if(SI(k,1) < SI_crit) then
-     if(SI(k,2) > SI_crit) then
-       if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello74'),Ttmp,Ptmp,Dtmp,SI_test(:),' (only rainfed suitability index exceeds critical)'
-     else
-       if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(i4,a,6f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello75'),Ttmp,Ptmp,Dtmp,SI_test(:)
-     endif
-   endif
+!  if( watch_unit > 0) then
+!    if(SI(k,1) < SI_crit) then
+!      if(SI(k,2) > SI_crit) then
+!        write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello74'),Ttmp,Ptmp,Dtmp,SI_test(:),' (only rainfed suitability index exceeds critical)'
+!      else
+!        write(watch_unit,'(i4,a,6f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello75'),Ttmp,Ptmp,Dtmp,SI_test(:)
+!      endif
+!    endif
+!  endif
  enddo k_loop_1
 
  if(trim(crop_name) == 'Maize') then
@@ -659,7 +660,7 @@ use fms_mod, only: open_namelist_file
 ! or, if the minimum is below 3.25, the date prior to the the date of the minimum when it reaches 3.25
 
 !10. The range of suitable dates includes all contiguous dates having a suitability index below critial before and after the OPD.
-!===============================================================================================================================================================================
+!======================================================================================================================================================
  type(vegn_tile_type), intent(inout) :: vegn
  integer :: L ! index of grid cell which contains this tile
  character(len=2) :: Wtype ! 'SW' or 'WW'
@@ -669,7 +670,7 @@ use fms_mod, only: open_namelist_file
  real, intent(in) :: max_T_for_vernalization, min_planting_T ! default values are 7°C and 6°C
  integer, dimension(2), intent(out) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
 
- character(len=12) :: cwater(2)
+ character(len=12) :: chwater(2)
  integer :: k, k2, k2m, k2p, km, kp, daybeg, crossing_point, kautumn, k_of_ann_SI_min, kk, kkp, k_of_ann_SI_max, doy, pdayy, hdayy, water_source
  real :: Temp, Prec, TSI_test, DSI_test, aPTTtH, dlen, Dwt, Ttmp, Dtmp, Ptmp(2)
  real :: PSI_test(2), SI_test(2) ! first element for irrigated, second for rainfed
@@ -681,9 +682,9 @@ use fms_mod, only: open_namelist_file
  real :: aPTTtH_list(num_test_days) ! Remember the values for each test date then choose the one that correspond to the annual minimum suitability index.
  logical :: passes_other_criteria
 
- if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(a)') ''
- cwater(1) = 'irrigated '//Wtype
- cwater(2) = 'rainfed '//Wtype
+!if(watch_unit > 0) write(watch_unit,'(a)') ''
+ chwater(1) = 'irrigated '//Wtype
+ chwater(2) = 'rainfed '//Wtype
  Dwt = 1.0 - Twt - Pwt
  pday = 0
  hday = 0
@@ -692,12 +693,12 @@ use fms_mod, only: open_namelist_file
  aPTTtH_list = 0.0
  ! compute SI at 5 day intervals from Jan 5 to Dec 31. SI_test is used for this.
  ! SI_test is not loaded into SI unless it passes the suitability test.
- if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-   write(watch_unit,'(a)') ''
-   write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
-   write(watch_unit,'(a)') ' '//Wtype
-   write(watch_unit,'(a)') ' doy  date   TSI  PSI_i PSI_r  DSI  SI_i  SI_r'
- endif
+!if(watch_unit > 0) then
+!  write(watch_unit,'(a)') ''
+!  write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
+!  write(watch_unit,'(a)') ' '//Wtype
+!  write(watch_unit,'(a)') ' doy  date   TSI  PSI_i PSI_r  DSI  SI_i  SI_r'
+!endif
  k_loop_1: do k=1,num_test_days
    daybeg = 5*k
 ! Steps 1, 2, 6 and the harvest day of Step 5 are all handled within subroutine days_of_aPTT_crossings
@@ -705,9 +706,9 @@ use fms_mod, only: open_namelist_file
                                hday_list(k), aPTTtH_list(k), crossing_days) ! intent(out)
    if(any(crossing_days(:) == (/0,0,0,0,0/))) then
      SI(k,:) = unsuitable ! Steps 2, 6 and planting day of Step 5
-     if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-       write(watch_unit,'(i4,a)') 5*k,' '//get_date_from_doy(5*k,'Hello76')//' (unsuitable: aPTT never reaches 800 or if the temperature drops below -7°C before 800 units of aPTT is reached)'
-     endif
+!    if(watch_unit > 0) then
+!      write(watch_unit,'(i4,a)') 5*k,' '//get_date_from_doy(5*k,'Hello76')//' (unsuitable: aPTT never reaches 800 or if the temperature drops below -7°C before 800 units of aPTT is reached)'
+!    endif
      cycle k_loop_1 ! cycle k loop if aPTT never reaches 800 or if the temperature drops below -7°C before 800 units of aPTT is reached.
    endif
    crossing_day_400(k) = crossing_days(2)
@@ -721,10 +722,10 @@ use fms_mod, only: open_namelist_file
      TSI_test = (Temp - central_T(crossing_point))**2/variance_T(crossing_point)
      Ttmp = Ttmp + Twt*TSI_test
      Prec = interp_between_mid_mths(doy, vegn%Crop%P_mid_mth)
-     if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-       write(watch_unit,'(i4,a,2(f6.2,a))') 200*crossing_point,' units of aPPT starting on '//get_date_from_doy(5*k,'Hello76.1')//' is reached on '// &
-       get_date_from_doy(doy,'Hello76.2')//'  temperature on that date is',Temp-273.15,'C  precip rate on that date is',1.034e5*Prec,' inches/month'
-     endif
+!    if(watch_unit > 0) then
+!      write(watch_unit,'(i4,a,2(f6.2,a))') 200*crossing_point,' units of aPPT starting on '//get_date_from_doy(5*k,'Hello76.1')//' is reached on '// &
+!      get_date_from_doy(doy,'Hello76.2')//'  temperature on that date is',Temp-273.15,'C  precip rate on that date is',1.034e5*Prec,' inches/month'
+!    endif
      PSI_test(1) = (max(Prec,central_P(crossing_point)) - central_P(crossing_point))**2/variance_P(crossing_point) ! Irrigation is equivalent to a minimum recipitation rate of central_P
      PSI_test(2) = (Prec - central_P(crossing_point))**2/variance_P(crossing_point)
      Ptmp = Ptmp + Pwt*PSI_test
@@ -736,16 +737,20 @@ use fms_mod, only: open_namelist_file
      SI_test(1) = SI_test(1) + Twt*TSI_test + Dwt*DSI_test + Pwt*PSI_test(1)
      SI_test(2) = SI_test(2) + Twt*TSI_test + Dwt*DSI_test + Pwt*PSI_test(2)
      if(SI_test(1) > SI_crit) then
-       if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello77'),Ttmp,Ptmp,Dtmp,SI_test(:),' (unsuitable)'
+!      if(watch_unit > 0) then
+!        write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello77'),Ttmp,Ptmp,Dtmp,SI_test(:),' (unsuitable)'
+!      endif
        SI(k,:) = unsuitable ! If SI_test(1) exceeds critical, then so does SI_test(2)
        cycle k_loop_1
      endif
    enddo ! do crossing_point=0,num_m
-   if(SI_test(2) < SI_crit) then
-     if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(i4,a,6f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello78'),Ttmp,Ptmp,Dtmp,SI_test(:)
-   else
-     if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello79'),Ttmp,Ptmp,Dtmp,SI_test(:),' (only rainfed suitability index exceeds critical)'
-   endif
+!  if(watch_unit > 0) then
+!    if(SI_test(2) < SI_crit) then
+!      write(watch_unit,'(i4,a,6f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello78'),Ttmp,Ptmp,Dtmp,SI_test(:)
+!    else
+!      write(watch_unit,'(i4,a,6f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello79'),Ttmp,Ptmp,Dtmp,SI_test(:),' (only rainfed suitability index exceeds critical)'
+!    endif
+!  endif
    SI(k,1) = SI_test(1) ! Conditions are suitable for planting irrigated Wheat on day of the year 5*k, provided it passes the tests in k_loop_2 and k_loop_3
    if(SI_test(2) > SI_crit) then
      SI(k,2) = unsuitable
@@ -755,8 +760,10 @@ use fms_mod, only: open_namelist_file
  enddo k_loop_1
 
  water_loop: do water_source=1,2
-   if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(a)')
-   if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(a)') ' Algorithm details for '//trim(cwater(water_source))
+!  if(watch_unit > 0) then
+!    write(watch_unit,'(a)')
+!    write(watch_unit,'(a)') ' Algorithm details for '//trim(chwater(water_source))
+!  endif
    passes_other_criteria = .true.
    k_loop_2: do k=1,num_test_days ! Step 8: check that vernalization is possible for winter wheat and that temperature remains above 5C for spring wheat.
      if(SI(k,water_source) == unsuitable) cycle k_loop_2 ! Step 4 If the suitability index for the specific type of wheat being tested exceeds the critical value at
@@ -765,47 +772,53 @@ use fms_mod, only: open_namelist_file
        ! If the temperature drops below 5°C during the growing period then flag it as unsuitable for planting.
        if(T_goes_below_5C_during_GP(5*k, hday_list(k), vegn%Crop%T_mid_mth)) then
          SI(k,water_source) = unsuitable ! Step 8
-         if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(a)') get_date_from_doy(5*k,'Hello80')//' is an unsuitable planting date for '//trim(cwater(water_source))//' because the temperature drops below 5C before the harvest date of '//get_date_from_doy(hday_list(k),'Hello81')
+!        if(watch_unit > 0) then
+!          write(watch_unit,'(a)') get_date_from_doy(5*k,'Hello80')//' is an unsuitable planting date for '//trim(chwater(water_source))//' because the temperature drops below 5C before the harvest date of '//get_date_from_doy(hday_list(k),'Hello81')
+!        endif
          passes_other_criteria = .false.
        endif
      endif
      if(Wtype == 'WW') then
        if(.not.vernalization_is_possible(5*k, crossing_day_400(k), vegn%Crop%T_mid_mth, length_of_vernalization_period, max_T_for_vernalization)) then
          SI(k,water_source) = unsuitable ! Step 8
-         if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(a)') get_date_from_doy(5*k,'Hello82')//' is an unsuitable planting date for '//trim(cwater(water_source))//' because vernalization is not posible'
+!        if(watch_unit > 0) then
+!         write(watch_unit,'(a)') get_date_from_doy(5*k,'Hello82')//' is an unsuitable planting date for '//trim(chwater(water_source))//' because vernalization is not posible'
+!        endif
          passes_other_criteria = .false.
        endif
      endif
    enddo k_loop_2
 
-   if(vegn%landuse == LU_CROP .and. watch_unit > 0) write(watch_unit,'(a)')
+!  if(watch_unit > 0) then
+!    write(watch_unit,'(a)')
+!  endif
    k_loop_3: do k=1,num_test_days ! Do not plant when the temperature is below min_planting_T (default value is 5°C)
      if(SI(k,water_source) == unsuitable) cycle k_loop_3
      Temp = interp_between_mid_mths(5*k, vegn%Crop%T_mid_mth)
      if(Temp < min_planting_T) then
        SI(k,water_source) = unsuitable ! Step 7
-       if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-         write(watch_unit,'(a)') get_date_from_doy(5*k,'Hello83')//' is an unsuitable planting date for '//trim(cwater(water_source))//' because the temperature is below 5C on this date'
-       endif
+!      if(watch_unit > 0) then
+!        write(watch_unit,'(a)') get_date_from_doy(5*k,'Hello83')//' is an unsuitable planting date for '//trim(chwater(water_source))//' because the temperature is below 5C on this date'
+!      endif
        passes_other_criteria = .false.
      endif
    enddo k_loop_3
 
-   if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-     write(watch_unit,'(a)')
-     if(passes_other_criteria) then
-        write(watch_unit,'(a)') ' No other planting criteria other than suitability index are violated for '//trim(cwater(water_source))
-     else
-       write(watch_unit,'(a)') ' After elimination of suitable planting dates above, the remaining suitability indices for '//trim(cwater(water_source))//' are:'
-       do k=1,num_test_days
-         if(SI(k,water_source) > SI_crit) then
-           write(watch_unit,'(i4,a)') 5*k,' '//get_date_from_doy(5*k,'Hello84')//' unsuitable for '//trim(cwater(water_source))
-         else
-           write(watch_unit,'(i4,a,f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello85'),SI(k,water_source)
-         endif
-       enddo
-     endif
-   endif
+!  if(watch_unit > 0) then
+!    write(watch_unit,'(a)')
+!    if(passes_other_criteria) then
+!       write(watch_unit,'(a)') ' No other planting criteria other than suitability index are violated for '//trim(chwater(water_source))
+!    else
+!      write(watch_unit,'(a)') ' After elimination of suitable planting dates above, the remaining suitability indices for '//trim(chwater(water_source))//' are:'
+!      do k=1,num_test_days
+!        if(SI(k,water_source) > SI_crit) then
+!          write(watch_unit,'(i4,a)') 5*k,' '//get_date_from_doy(5*k,'Hello84')//' unsuitable for '//trim(chwater(water_source))
+!        else
+!          write(watch_unit,'(i4,a,f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello85'),SI(k,water_source)
+!        endif
+!      enddo
+!    endif
+!  endif
 
    annual_SI_min = unsuitable
    pday(water_source) = 0
@@ -1026,13 +1039,13 @@ use fms_mod, only: open_namelist_file
  real :: Temp, Prec, annual_SI_min, annual_SI_max, Dwt, dlen
  real, dimension(num_test_days) :: TSI, DSI, PSI, SI
 !---------------------------------------------------------------------
- if(trim(water) == ' irrigated' .or. trim(water) == ' rainfed') then
-   if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-     write(watch_unit,'(a)') ''
-     write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
-     write(watch_unit,'(a)') ' '//trim(water)//' Rice'
-     write(watch_unit,'(a)') ' doy  date   TSI   PSI   DSI   SI'
-   endif
+ if(trim(water) == 'irrigated' .or. trim(water) == 'rainfed') then
+!  if(watch_unit > 0) then
+!    write(watch_unit,'(a)') ''
+!    write(watch_unit,'(2(a,f7.3))') ' lon=',180*lnd%ug_lon(L)/PI,' lat=',180*lnd%ug_lat(L)/PI
+!    write(watch_unit,'(a)') ' '//trim(water)//' Rice'
+!    write(watch_unit,'(a)') ' doy  date   TSI   PSI   DSI   SI'
+!  endif
  else
    call error_mesg('CCA_Rice in vegn_crop_mod',trim(water)//' is not a valid value of water', FATAL)
  endif
@@ -1052,7 +1065,7 @@ use fms_mod, only: open_namelist_file
      if(mths_after < 4) then
        ! Month 4 is not tested for precip or daylength
        Prec = interp_between_mid_mths(doy, vegn%Crop%P_mid_mth)
-       if(trim(water) == ' irrigated') Prec = max(Prec,central_P(mths_after))
+       if(trim(water) == 'irrigated') Prec = max(Prec,central_P(mths_after))
        PSI(k) = PSI(k) + Pwt*(Prec - central_P(mths_after))**2/variance_P(mths_after)
        km = doy/5
        kp = km+1
@@ -1061,13 +1074,13 @@ use fms_mod, only: open_namelist_file
      endif
    enddo mths_loop
    SI(k) = TSI(k) + DSI(k) + PSI(k)
-   if(vegn%landuse == LU_CROP .and. watch_unit > 0) then
-     if(SI(k) > SI_crit) then
-       write(watch_unit,'(i4,a,4f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello86'),TSI(k),PSI(k),DSI(k),SI(k),' (unsuitable)'
-     else
-       write(watch_unit,'(i4,a,4f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello87'),TSI(k),PSI(k),DSI(k),SI(k)
-     endif
-   endif
+!  if(watch_unit > 0) then
+!    if(SI(k) > SI_crit) then
+!      write(watch_unit,'(i4,a,4f6.2,a)') 5*k,' '//get_date_from_doy(5*k,'Hello86'),TSI(k),PSI(k),DSI(k),SI(k),' (unsuitable)'
+!    else
+!      write(watch_unit,'(i4,a,4f6.2)') 5*k,' '//get_date_from_doy(5*k,'Hello87'),TSI(k),PSI(k),DSI(k),SI(k)
+!    endif
+!  endif
  enddo k_loop
 
  annual_SI_min = HUGE(1.0)
@@ -1080,10 +1093,15 @@ use fms_mod, only: open_namelist_file
 
  if(annual_SI_min < SI_crit) then
    pday(1) = 5*k_at_SI_min
+   if(watch_unit > 0) write(watch_unit,'(a,i4)') ' Hello88 Conditions are suitable for '//trim(water)//' Rice_1. pday(1) set to',pday(1)
  else
    pday(:) = 0
    pday_beg(:) = 0
    pday_end(:) = 0
+   hday(:) = 0
+   hday_beg(:) = 0
+   hday_end(:) = 0
+   if(watch_unit > 0) write(watch_unit,'(a)') ' Hello89 Conditions are unsuitable for '//trim(water)//' Rice. All calendar dates set to zero.'
    return
  endif
 
@@ -1091,10 +1109,12 @@ use fms_mod, only: open_namelist_file
  if(ktest > num_test_days) ktest = ktest - num_test_days
  if(SI(ktest) < SI_crit) then
    pday(2) = 5*ktest
+   if(watch_unit > 0) write(watch_unit,'(a,i4)') ' Hello90 Conditions are suitable for '//trim(water)//' Rice_2. pday(2) set to',pday(2)
    do iseason=1,2
      call find_planting_date_range_Rice(pday(iseason), SI_crit, SI, 40, pday_beg(iseason), pday_end(iseason))
    enddo
  else
+   if(watch_unit > 0) write(watch_unit,'(a)') ' Hello91 Conditions are unsuitable for '//trim(water)//' Rice_2. All second season calendar dates set to zero.'
    call find_planting_date_range_Rice(pday(1), SI_crit, SI, 360, pday_beg(1), pday_end(1))
    pday(2) = 0
    pday_beg(2) = 0
@@ -1106,10 +1126,12 @@ use fms_mod, only: open_namelist_file
      hday_beg(iseason) = modulo_no_zero(pday_beg(iseason) + GP_Rice, 365)
      hday(iseason)     = modulo_no_zero(pday(iseason)     + GP_Rice, 365)
      hday_end(iseason) = modulo_no_zero(pday_end(iseason) + GP_Rice, 365)
+     if(watch_unit > 0) write(watch_unit,'(a,i4)') ' Hello92 '//cseason(iseason)//' season '//trim(water)//' Rice harvest day set to',hday(iseason)
    else
      hday_beg(iseason) = 0
      hday(iseason)     = 0
      hday_end(iseason) = 0
+     if(watch_unit > 0) write(watch_unit,'(a,i4)') ' Hello93 '//cseason(iseason)//' season '//trim(water)//' Rice harvest day set to',hday(iseason)
    endif
  enddo
 
@@ -1171,8 +1193,8 @@ use fms_mod, only: open_namelist_file
  do mon=12,0,-1
    if(day_of_year_local >= t_mid_month(mon)) exit
  enddo
-! Note that t_mid_month is dimensioned (0:13) where t_mid_month(0) is negative because it's the middle of Dec
-! of the previous year and t_mid_month(13) is > 365. because it's the middle of Jan of the following year.
+! Note that t_mid_month is dimensioned (0:13) where t_mid_month(0) is negative because it is the middle of Dec
+! of the previous year and t_mid_month(13) is > 365. because it is the middle of Jan of the following year.
  w0 = ( day_of_year_local - t_mid_month(mon)) / (t_mid_month(mon+1) - t_mid_month(mon))
  w1 = (t_mid_month(mon+1) - day_of_year_local) / (t_mid_month(mon+1) - t_mid_month(mon))
  interp_between_mid_mths = w1*tmp(mon) + w0*tmp(mon+1)
@@ -1238,15 +1260,16 @@ use fms_mod, only: open_namelist_file
    call get_tile_data(restart, 'crop_cal_WW', 'crop_cal', vegn_crop_cal_WW_ptr)
    call get_tile_data(restart, 'crop_cal_Rice_1', 'crop_cal', vegn_crop_cal_Rice_1_ptr)
    call get_tile_data(restart, 'crop_cal_Rice_2', 'crop_cal', vegn_crop_cal_Rice_2_ptr)
-   if(cold_start_idle) then
-     call error_mesg('crop_init', 'cold starting Crop%idle', NOTE)
-    ce = first_elmt(land_tile_map, ls=lnd%ls)
-    do while(loop_over_tiles(ce,tile,L,k))
-      if(.not.associated(tile%vegn)) cycle
-      tile%vegn%Crop%idle = ITRUE
-    enddo
+   if(cold_start_status) then
+     call error_mesg('crop_init', 'cold starting Crop%status', NOTE)
+     ce = first_elmt(land_tile_map, ls=lnd%ls)
+     do while(loop_over_tiles(ce,tile,L,k))
+       if(.not.associated(tile%vegn)) cycle
+       tile%vegn%Crop%status = IDLE
+     enddo
    else
-     call get_int_tile_data(restart, 'idle', vegn_idle_ptr)
+     call error_mesg('crop_init', 'warm starting Crop%status', NOTE)
+     call get_int_tile_data(restart, 'status', vegn_status_ptr)
    endif
  else
    call error_mesg('crop_init', 'cold starting vegn_crop_mod', NOTE)
@@ -1264,7 +1287,7 @@ use fms_mod, only: open_namelist_file
      tile%vegn%Crop%crop_cal_WW = 0.0
      tile%vegn%Crop%crop_cal_Rice_1 = 0.0
      tile%vegn%Crop%crop_cal_Rice_2 = 0.0
-     tile%vegn%Crop%idle = ITRUE
+     tile%vegn%Crop%status = IDLE
    enddo
  endif
 
@@ -1355,12 +1378,6 @@ use fms_mod, only: open_namelist_file
 ! These crop fractions are the sum of irrigated and rainfed fractions from the MIRCA2000 data.
  allocate(MIRCA_crop_frac(lnd%ls:lnd%le,num_crop_types), crop_frac_tmp(lnd%ls:lnd%le,num_crop_types))
  allocate(current_crop(lnd%ls:lnd%le))
-!outfile = 'ls_le_pe.    .out' ! debug
-!write(outfile(10:13),'(i4.4)') mpp_pe() ! debug
-!outunit = get_unit() ! debug
-!open(unit=outunit, file=trim(outfile), action='write', form='formatted') ! debug
-!write(outunit,'(2(a,i6))') 'lnd%ls=',lnd%ls,' lnd%le=',lnd%le ! debug
-!close(outunit) ! debug
  dummyi = 0
  call init_cover_field('single-tile', 'INPUT/crop_frac.nc', 'cover', 'crop_frac', lnd%sg_lonb, lnd%sg_latb, dummyi, (/ 1,-1,-1,-1,-1/), crop_frac_tmp)
  MIRCA_crop_frac(:,1) = crop_frac_tmp(:,1) ! MAIZE
@@ -1395,22 +1412,22 @@ use fms_mod, only: open_namelist_file
  if(id_MIRCA_crop_frac>0) used = send_data(id_MIRCA_crop_frac, MIRCA_crop_frac, lnd%time)
  deallocate(current_crop, crop_frac_tmp, MIRCA_crop_frac)
 
-!outfile = 'lat_lon_pe.    .out' ! debug
-!write(outfile(12:15),'(i4.4)') mpp_pe() ! debug
-!outunit = get_unit() ! debug
-!open(unit=outunit, file=trim(outfile), action='write', form='formatted') ! debug
-!do j=lnd%js,lnd%je ! debug
-!do i=lnd%is,lnd%ie ! debug
-!  text = 'face= , i=  , j=  , lon=        , lat=       ' ! debug
-!  write(text( 6: 6),'(i1)') lnd%sg_face ! debug
-!  write(text(11:12),'(i2)') i ! debug
-!  write(text(17:18),'(i2)') j ! debug
-!  write(text(25:32),'(f8.3)') lnd%sg_lon(i,j) ! debug
-!  write(text(39:45),'(f7.3)') lnd%sg_lat(i,j) ! debug
-!  write(outunit,'(a)') trim(text) ! debug
-!enddo ! debug
-!enddo ! debug
-!close(outunit) ! debug
+!outfile = 'lat_lon_pe.    .out'
+!write(outfile(12:15),'(i4.4)') mpp_pe()
+!outunit = get_unit()
+!open(unit=outunit, file=trim(outfile), action='write', form='formatted')
+!do j=lnd%js,lnd%je
+!do i=lnd%is,lnd%ie
+!  text = 'face= , i=  , j=  , lon=        , lat=        '
+!  write(text( 6: 6),'(i1)') lnd%sg_face
+!  write(text(11:12),'(i2)') i
+!  write(text(17:18),'(i2)') j
+!  write(text(25:32),'(f8.3)') 180*lnd%sg_lon(i,j)/PI
+!  write(text(39:46),'(f8.3)') 180*lnd%sg_lat(i,j)/PI
+!  write(outunit,'(a)') trim(text)
+!enddo
+!enddo
+!close(outunit)
 
  crop_mod_initialized = .TRUE.
  end subroutine crop_init
@@ -1529,14 +1546,15 @@ use fms_mod, only: open_namelist_file
  id_crop_cal = diag_axis_init('crop_cal',(/(float(ical),ical=1,12)/),'none','Z','plant beg, plant optimal, plant end, harvest beg, harvest optimal, harvest end')
  id_crop_num = diag_axis_init('crop_num',(/(float(icrop),icrop=1,num_crop_types)/),'none','Z','Maize, Soybean, Rice, Spring Wheat, Winter Wheat')
  call set_default_diag_filter('crop')
- id_T_ave = register_tiled_diag_field(module_name,'tc_av_climate', (/id_ug,id_month/),lnd%time,'climatological monthly mean temperature','deg K', missing_value=-1.0)
+ id_T_ave = register_tiled_diag_field(module_name,'tc_av_climate',    (/id_ug,id_month/),lnd%time,'climatological monthly mean temperature','deg K', missing_value=-1.0)
  id_P_ave = register_tiled_diag_field(module_name,'precip_av_climate',(/id_ug,id_month/),lnd%time,'climatological monthly mean precipitation','Kg/s*m^2', missing_value=-1.0)
- id_current_crop    = register_tiled_diag_field(module_name,'current_crop', (/id_ug/), lnd%time, 'crop of maximum area', missing_value= 0.0)
- id_crop_cal_Maize  = register_tiled_diag_field(module_name,'crop_cal_Maize', (/id_ug,id_crop_cal/),lnd%time,'maize crop calendar', missing_value= 0.0)
- id_crop_cal_Soy    = register_tiled_diag_field(module_name,'crop_cal_Soy', (/id_ug,id_crop_cal/),lnd%time,'soybean crop calendar', missing_value= 0.0)
- id_crop_cal_SW     = register_tiled_diag_field(module_name,'crop_cal_SW', (/id_ug,id_crop_cal/),lnd%time,'spring wheat crop calendar', missing_value= 0.0)
- id_crop_cal_WW     = register_tiled_diag_field(module_name,'crop_cal_WW', (/id_ug,id_crop_cal/),lnd%time,'winter wheat crop calendar', missing_value= 0.0)
- id_crop_cal_Rice_1 = register_tiled_diag_field(module_name,'crop_cal_Rice_1',(/id_ug,id_crop_cal/),lnd%time,'rice crop calendar. Main crop.', missing_value= 0.0)
+ id_current_crop    = register_tiled_diag_field(module_name,'current_crop',   (/id_ug/), lnd%time, 'crop of maximum area',     missing_value=  0.0)
+ id_status          = register_tiled_diag_field(module_name,'status',         (/id_ug/), lnd%time, 'idle or actively growing', missing_value= -1.0)
+ id_crop_cal_Maize  = register_tiled_diag_field(module_name,'crop_cal_Maize', (/id_ug,id_crop_cal/),lnd%time,'maize crop calendar',             missing_value= 0.0)
+ id_crop_cal_Soy    = register_tiled_diag_field(module_name,'crop_cal_Soy',   (/id_ug,id_crop_cal/),lnd%time,'soybean crop calendar',           missing_value= 0.0)
+ id_crop_cal_SW     = register_tiled_diag_field(module_name,'crop_cal_SW',    (/id_ug,id_crop_cal/),lnd%time,'spring wheat crop calendar',      missing_value= 0.0)
+ id_crop_cal_WW     = register_tiled_diag_field(module_name,'crop_cal_WW',    (/id_ug,id_crop_cal/),lnd%time,'winter wheat crop calendar',      missing_value= 0.0)
+ id_crop_cal_Rice_1 = register_tiled_diag_field(module_name,'crop_cal_Rice_1',(/id_ug,id_crop_cal/),lnd%time,'rice crop calendar. Main crop.',  missing_value= 0.0)
  id_crop_cal_Rice_2 = register_tiled_diag_field(module_name,'crop_cal_Rice_2',(/id_ug,id_crop_cal/),lnd%time,'rice crop calendar. Second crop.',missing_value= 0.0)
  id_MIRCA_crop_frac = register_static_field(module_name,'MIRCA_crop_frac',(/id_ug,id_crop_num/),'crop fraction','unitless')
  call diag_field_add_attribute(id_MIRCA_crop_frac,'ocean_fillvalue',0.0)
@@ -1567,7 +1585,7 @@ use fms_mod, only: open_namelist_file
  call add_tile_data(restart,'crop_cal_WW', 'crop_cal', vegn_crop_cal_WW_ptr, 'rainfed winter wheat crop calendar', 'day_of_year')
  call add_tile_data(restart,'crop_cal_Rice_1', 'crop_cal', vegn_crop_cal_Rice_1_ptr, 'rainfed Rice crop calendar. Main crop.', 'day_of_year')
  call add_tile_data(restart,'crop_cal_Rice_2', 'crop_cal', vegn_crop_cal_Rice_2_ptr, 'rainfed Rice crop calendar. Second crop.', 'day_of_year')
- call add_int_tile_data(restart,'idle', vegn_idle_ptr, '-1 = .true.  0 = .false.','dimensionless')
+ call add_int_tile_data(restart,'status', vegn_status_ptr, '-1 = .true.  0 = .false.','dimensionless')
  call save_land_restart(restart)
  call free_land_restart(restart)
  end subroutine save_crop_restart
@@ -1638,12 +1656,12 @@ subroutine vegn_current_crop_ptr(t,p)
  endif
  end subroutine
 !======================================================================================================================================================
-subroutine vegn_idle_ptr(t,p)
+subroutine vegn_status_ptr(t,p)
  type(land_tile_type),pointer::t
  integer,pointer::p
  p=>NULL()
  if(associated(t))then
- if(associated(t%vegn))p=>t%vegn%Crop%idle
+ if(associated(t%vegn))p=>t%vegn%Crop%status
  endif
  end subroutine
 !======================================================================================================================================================

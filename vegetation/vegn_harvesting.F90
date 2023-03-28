@@ -18,12 +18,12 @@ use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
-     nspecies, spdata, agf_bs, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, WINTER_WHEAT
+     nspecies, spdata, agf_bs, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, WINTER_WHEAT, IDLE, ACTIVE
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
 use soil_tile_mod, only : num_l, LEAF, CWOOD
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_LAI, vegn_tile_type, ITRUE, IFALSE
+     vegn_tile_LAI, vegn_tile_type
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
@@ -357,10 +357,10 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
              call vegn_plant_crop (tile)
           endif
         else
-          if (end_of_day.AND.day_of_year==nint(vegn%Crop%harvest_opt)) then
+          if (end_of_day.AND.day_of_year==nint(vegn%Crop%harvest_opt) .and. tile%vegn%Crop%status == ACTIVE) then
              call vegn_harvest_cropland (tile)
           endif
-          if (end_of_day.AND.day_of_year==nint(vegn%Crop%plant_opt)) then
+          if (end_of_day.AND.day_of_year==nint(vegn%Crop%plant_opt) .and. tile%vegn%Crop%status == IDLE) then
              call vegn_plant_crop (tile)
           endif
         endif
@@ -402,7 +402,7 @@ subroutine vegn_harvest_cropland(tile)
   else
      call vegn_harvest_crop_lm3(tile)
   endif
-  tile%vegn%Crop%idle = ITRUE
+  tile%vegn%Crop%status = IDLE
   call debug_crop(tile%vegn,'HelloZ vegn_harvest_cropland called') ! debug
 end subroutine vegn_harvest_cropland
 
@@ -416,7 +416,7 @@ subroutine vegn_plant_crop(tile)
   else
      ! do nothing at the moment -- later add turning phenology on
   endif
-  tile%vegn%Crop%idle = IFALSE
+  tile%vegn%Crop%status = ACTIVE
   call debug_crop(tile%vegn,'HelloZ vegn_plant_crop called') ! debug
 end subroutine vegn_plant_crop
 
