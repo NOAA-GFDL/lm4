@@ -124,8 +124,8 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
      else if (trim(topo_rough_source)=='input') then
         call error_mesg('topo_rough_init','reading topography standard deviation from "'&
              //trim(topo_rough_file)//'"',NOTE)
-        if(.not.domain_read_data(topo_rough_file,topo_rough_var,topo_stdev_SG,SG_domain)) &
-             call error_mesg('topo_rough_init', &
+        if (.not. domain_read_data(topo_rough_file, topo_rough_var, topo_stdev_SG, SG_domain)) &
+          call error_mesg('topo_rough_init', &
              'Error reading the topography standard deviation "'// &
              trim(topo_rough_file)//'"', FATAL)
      else

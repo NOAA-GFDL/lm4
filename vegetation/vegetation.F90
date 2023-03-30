@@ -266,8 +266,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
+
   read (input_nml_file, nml=vegn_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_nml')
 
@@ -778,7 +778,7 @@ subroutine add_extra_cohorts()
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: i,l,n,n0
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
-  character(*), allocatable :: extra_cohorts_buf
+  character(:), dimension(:), allocatable :: extra_cohorts_buf
 
   if (.not.do_ppa) return
   if (.not.file_exists('INPUT/extra_cohorts_nml')) return

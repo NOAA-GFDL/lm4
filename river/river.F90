@@ -346,7 +346,6 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file
-    call get_instance_filename('INPUT/river.nc', filename)
     exists = open_file(river_restart, filename, "read", domain, &
                        is_restart=.true.)
     if (exists) then

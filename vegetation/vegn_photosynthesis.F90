@@ -105,8 +105,7 @@ subroutine vegn_photosynthesis_init()
 
   integer :: unit, io, ierr
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=photosynthesis_nml, iostat=io)
   ierr = check_nml_error(io, 'photosynthesis_nml')

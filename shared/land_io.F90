@@ -5,11 +5,12 @@ use mpp_domains_mod, only : mpp_pass_sg_to_ug
 
 use constants_mod, only : PI
 use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, string, check_nml_error
+     mpp_root_pe, string, check_nml_error, lowercase
 use mpp_mod, only: input_nml_file
 use fms2_io_mod, only: open_file, close_file, read_data, FmsNetcdfFile_t, get_valid, &
      get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
-     Valid_t, is_valid, variable_exists, register_variable_attribute
+     Valid_t, is_valid, variable_exists, register_variable_attribute, FmsNetcdfDomainFile_t, &
+     get_variable_attribute, register_axis
 use axis_utils2_mod, only: axis_edges
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
@@ -32,6 +33,7 @@ public :: init_external_ts, del_external_ts
 public :: read_external_ts
 public :: input_buf_size
 public :: register_variable_string_attribute
+public :: domain_read_data
 ! ==== end of public interface ===============================================
 
 interface read_field
@@ -663,9 +665,9 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
 ! TODO: really implement missing data masking and filling
 
   real, allocatable :: lon_in(:), lat_in(:)
-  type(FmsNetcdfFile_t) :: fileobj
-  character(20) :: axis_names(4)
-  integer :: axis_sizes(4)
+  type(FmsNetcdfFile_t)          :: fileobj       !< FMS2io fileobj
+  character(len=20)              :: axis_names(4) !< Array of axis names
+  integer                        :: axis_sizes(4) !< Size of each axis
 
   ! initialize external field
   call time_interp_external_init()
@@ -674,6 +676,7 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
   ts%id = init_external_field(filename, fieldname, domain=lnd%sg_domain, &
                             & axis_names=axis_names, axis_sizes=axis_sizes, &
                             & use_comp_domain=.TRUE., override=.TRUE.)
+
   !  get lon and lat of the input (source) grid, assuming that axis%data contains
   !  lat and lon of the input grid (in degrees)
 
@@ -732,5 +735,38 @@ subroutine register_variable_string_attribute(fileobj, variable_name, attribute_
   call register_variable_attribute(fileobj, variable_name, attribute_name, attribute_value, &
            str_len = len(attribute_value))
 end subroutine register_variable_string_attribute
+
+logical function domain_read_data(filename, variable_name, variable_data, domain)
+  character(len=*), intent(in)    :: filename
+  character(len=*), intent(in)    :: variable_name
+  real,             intent(inout) :: variable_data(:,:)
+  type(domain2d)  , intent(in)    :: domain
+
+  type(FmsNetcdfDomainFile_t)    :: fileobj            !< fms2io fileobj for domain decomposed
+  character(len=20), allocatable :: dimnames(:)        !< Array of strings to store dimension names
+  integer                        :: i                  !< For do loops
+  character(len=1)               :: cart_axis          !< The cartisian axis
+  integer                        :: ndim               !< Nuber of dimensions in the variable
+
+  domain_read_data = .false.
+  if (.not. open_file(fileobj, filename, "read", domain)) return
+  ndim = get_variable_num_dimensions(fileobj, variable_name)
+  allocate(dimnames(ndim))
+  call get_variable_dimension_names(fileobj, variable_name, dimnames)
+
+  !< FMS2io requires the domain decomposed dimensions before reading them
+  do i = 1, ndim
+    call get_variable_attribute(fileobj, dimnames(i), "cartesian_axis", cart_axis)
+    if (lowercase(cart_axis) .eq. "x" .or. lowercase(cart_axis) .eq. "y" ) then
+      call register_axis(fileobj, dimnames(i), cart_axis)
+    endif
+  enddo
+
+  call read_data(fileobj, variable_name, variable_data)
+
+  domain_read_data = .true.
+  call close_file(fileobj)
+
+end function domain_read_data
 
 end module

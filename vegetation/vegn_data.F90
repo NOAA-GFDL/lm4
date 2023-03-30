@@ -643,8 +643,7 @@ subroutine read_vegn_data_namelist()
   character(256) :: sname, lname ! strings for selector names
   real :: age0, age1 ! shorthands for boundaries of age buckets
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')

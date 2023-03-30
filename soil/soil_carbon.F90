@@ -275,8 +275,7 @@ subroutine read_soil_carbon_namelist
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')

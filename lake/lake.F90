@@ -6,8 +6,9 @@ module lake_mod
 use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, &
                  & FATAL, NOTE
-use mpp_domains_mod, only: mpp_get_compute_domain, mpp_pass_sg_to_ug
-use fms2_io, only: open_file, close_file, read_data, FmsNetcdfDomainFile_t
+use mpp_domains_mod, only: domain2d, domainug, mpp_get_compute_domain, mpp_pass_sg_to_ug
+use fms2_io_mod, only: open_file, close_file, read_data, register_field, FmsNetcdfDomainFile_t, &
+                     &register_axis, get_variable_num_dimensions, get_variable_dimension_names
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
 use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, grav, vonkarm, rdgas
@@ -164,7 +165,9 @@ subroutine lake_init ( id_ug )
   integer :: i, g, l
   logical :: river_data_exist
   character(*), parameter :: restart_file_name = 'INPUT/lake.nc'
-  type(FmsNetcdfDomainFile_t) :: fileobj
+  character(len=30), allocatable :: dimnames(:)  !< Array of dimension names
+  type(FmsNetcdfDomainFile_t) :: fileobj  !< Domain decomposed fileobj
+  integer :: ndims  !< Number of dimensions
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -182,6 +185,15 @@ subroutine lake_init ( id_ug )
      call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
   else
      call error_mesg('lake_init', 'river data file not present: lake fraction is set to zero', NOTE)
+  endif
+
+  if (river_data_exist) then
+     !< Register the domain decomposed dimensions
+     ndims = get_variable_num_dimensions(fileobj, "connected_to_next")
+     allocate(dimnames(ndims))
+     call get_variable_dimension_names(fileobj,"connected_to_next" , dimnames)
+     call register_axis(fileobj, dimnames(1), "x")
+     call register_axis(fileobj, dimnames(2), "y")
   endif
 
   IF (LARGE_DYN_SMALL_STAT) THEN

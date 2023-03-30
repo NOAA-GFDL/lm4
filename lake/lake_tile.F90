@@ -6,11 +6,10 @@ use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug
 use mpp_mod, only: input_nml_file
 use fms_mod, only : check_nml_error, stdlog
-use fms2_io, only: open_file, close_file, read_data, FmsNetcdfDomainFile_t
 use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version
-use land_io_mod, only : init_cover_field
+use land_io_mod, only : init_cover_field, domain_read_data
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 
 implicit none
@@ -236,8 +235,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
   integer :: i
   real    :: z
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=lake_data_nml, iostat=io)
   ierr = check_nml_error(io, 'lake_data_nml')
@@ -374,9 +372,7 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
 
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
-     river_data_exists = open_file(fileobj, 'INPUT/river_data.nc', "read", domain)
-     if (river_data_exists) then
-         call read_data(fileobj, 'lake_frac', lake_frac_sg)
+     if (domain_read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, domain)) then
          call mpp_pass_sg_to_ug(lnd%ug_domain, lake_frac_sg, lake_frac(:,1))
          call close_file(fileobj)
      endif
