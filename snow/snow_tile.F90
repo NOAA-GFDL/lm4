@@ -2,7 +2,7 @@ module snow_tile_mod
 #include <fms_platform.h>
 
 use mpp_mod, only: input_nml_file
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
+use fms_mod, only : check_nml_error, close_file, stdlog
 use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type

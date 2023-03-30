@@ -6,8 +6,8 @@ module soil_carbon_mod
 #include "../shared/debug.inc"
 
 use land_constants_mod, only : Rugas
-use fms_mod, only: check_nml_error, file_exist, close_file, &
-            stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
+use fms_mod, only: check_nml_error, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
+                 & FATAL, NOTE
 use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range

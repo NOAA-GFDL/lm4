@@ -7,8 +7,8 @@ use constants_mod, only : PI
 use time_manager_mod, only : time_type, get_date, operator(/=), operator(-), &
      operator(<), valid_calendar_types, get_calendar_type, time_type_to_real
 use mpp_mod, only: input_nml_file
-use fms_mod, only: file_exist, open_namelist_file, check_nml_error, stdlog, &
-                 & mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, string
+use fms_mod, only: open_namelist_file, check_nml_error, stdlog, mpp_pe, &
+                 & mpp_root_pe, error_mesg, FATAL, NOTE, string
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
                        get_valid, is_valid, variable_exists, get_variable_size, &
                        get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
