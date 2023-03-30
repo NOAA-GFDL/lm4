@@ -8,8 +8,8 @@ use mpp_mod, only: input_nml_file
 
 use constants_mod,   only: PI
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
-use fms_mod, only : file_exist, check_nml_error, error_mesg, stdlog, stdout, &
-      lowercase, WARNING, FATAL, NOTE
+use fms_mod, only: check_nml_error, error_mesg, stdlog, stdout, lowercase, &
+                 & WARNING, FATAL, NOTE
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use sphum_mod, only : qscomp
 use diag_manager_mod, only : register_diag_field, send_data

@@ -7,21 +7,18 @@ use constants_mod, only : PI
 use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
      mpp_root_pe, string, check_nml_error
 use mpp_mod, only: input_nml_file
-use mpp_io_mod, only: axistype, mpp_get_axis_data
-use axis_utils_mod, only : get_axis_bounds
 use fms2_io_mod, only: open_file, close_file, read_data, FmsNetcdfFile_t, get_valid, &
      get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
      Valid_t, is_valid, variable_exists, register_variable_attribute
 use axis_utils2_mod, only: axis_edges
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
-use time_interp_external_mod, only: time_interp_external_init, &
-     time_interp_external, init_external_field
+use time_interp_external2_mod, only: time_interp_external_init, &
+     time_interp_external, init_external_field, get_external_fileobj
 use time_manager_mod, only: time_type
 use mpp_domains_mod, only : domain2d
 use land_numerics_mod, only : nearest, bisect
 use land_data_mod, only : log_version, lnd, horiz_interp_ug
-
 
 implicit none
 private
@@ -665,25 +662,26 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
 ! at all.
 ! TODO: really implement missing data masking and filling
 
-  integer :: axis_sizes(4)
-  type(axistype) :: axis_centers(4), axis_bounds(4)
   real, allocatable :: lon_in(:), lat_in(:)
+  type(FmsNetcdfFile_t) :: fileobj
+  character(20) :: axis_names(4)
+  integer :: axis_sizes(4)
 
   ! initialize external field
   call time_interp_external_init()
   ts%filename = filename
   ts%fieldname = fieldname
-  ts%id = init_external_field(filename,fieldname, domain=lnd%sg_domain, &
-       axis_centers=axis_centers, axis_sizes=axis_sizes, &
-       use_comp_domain=.TRUE., override=.TRUE.)
+  ts%id = init_external_field(filename, fieldname, domain=lnd%sg_domain, &
+                            & axis_names=axis_names, axis_sizes=axis_sizes, &
+                            & use_comp_domain=.TRUE., override=.TRUE.)
   !  get lon and lat of the input (source) grid, assuming that axis%data contains
   !  lat and lon of the input grid (in degrees)
-  call get_axis_bounds(axis_centers(1),axis_bounds(1),axis_centers)
-  call get_axis_bounds(axis_centers(2),axis_bounds(2),axis_centers)
-  allocate(lon_in(axis_sizes(1)+1))
-  allocate(lat_in(axis_sizes(2)+1))
-  call mpp_get_axis_data(axis_bounds(1),lon_in)
-  call mpp_get_axis_data(axis_bounds(2),lat_in)
+
+  if (get_external_fileobj(filename, fileobj)) then
+    allocate(lon_in(axis_sizes(1) + 1), lat_in(axis_sizes(2) + 1))
+    call axis_edges(fileobj, axis_names(1), lon_in)
+    call axis_edges(fileobj, axis_names(2), lat_in)
+  endif
 
   select case (trim(interp))
   case ('bilinear')
@@ -695,7 +693,7 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
   case default
      call error_mesg('init_external_ts','Unknown interpolation method "'//trim(interp)//'". use "bilinear" or "conservative"', FATAL)
   end select
-  deallocate(lon_in,lat_in)
+  deallocate(lon_in, lat_in)
   ts%fill = DEFAULT_FILL_REAL
   if (present(fill)) ts%fill = fill
 end subroutine init_external_ts

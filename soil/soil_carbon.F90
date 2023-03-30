@@ -12,18 +12,12 @@ use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
 #endif
-#endif
-
 
 implicit none
 
 private
-
 
 ! ==== public interfaces =====================================================
 public :: soil_pool
@@ -283,21 +277,10 @@ subroutine read_soil_carbon_namelist
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=soil_carbon_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'soil_carbon_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_carbon_nml)

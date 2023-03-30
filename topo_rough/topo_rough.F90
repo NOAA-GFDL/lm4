@@ -6,15 +6,13 @@ module topo_rough_mod
   use time_manager_mod,   only : time_type
   use mpp_domains_mod,    only : domain2d, domainUG, mpp_pass_SG_to_UG, mpp_get_ug_compute_domain, &
                                  mpp_get_compute_domain
-
   use mpp_mod,            only : input_nml_file
-  use fms_mod,            only : error_mesg, FATAL, NOTE, &
-       open_restart_file, read_data, &
-       write_data, file_exist, check_nml_error, mpp_pe, &
-       mpp_root_pe, stdlog
+  use fms_mod,            only : error_mesg, FATAL, NOTE, check_nml_error, &
+                               & mpp_pe, mpp_root_pe, stdlog
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev
   use land_data_mod,      only : log_version
+  use land_io_mod,        only : domain_read_data
 
 implicit none
 private
@@ -126,12 +124,10 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
      else if (trim(topo_rough_source)=='input') then
         call error_mesg('topo_rough_init','reading topography standard deviation from "'&
              //trim(topo_rough_file)//'"',NOTE)
-        if(.not.file_exist(topo_rough_file,SG_domain))&
-             call error_mesg('topo_rough_init',            &
-             'input file for topography standard deviation "'// &
-             trim(topo_rough_file)//'" does not exist', FATAL)
-
-        call read_data(topo_rough_file,topo_rough_var,topo_stdev_SG,domain=SG_domain)
+        if(.not.domain_read_data(topo_rough_file,topo_rough_var,topo_stdev_SG,SG_domain)) &
+             call error_mesg('topo_rough_init', &
+             'Error reading the topography standard deviation "'// &
+             trim(topo_rough_file)//'"', FATAL)
      else
         call error_mesg('topo_rough_init','"'//trim(topo_rough_source)//&
              '" is not a valid value for topo_rough_source', FATAL)

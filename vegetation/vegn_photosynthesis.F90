@@ -2,13 +2,9 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 use fms_mod, only: error_mesg, FATAL, WARNING, file_exist, close_file, check_nml_error, stdlog, &
       mpp_pe, mpp_root_pe, lowercase
+use mpp_mod, only: input_nml_file
 use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp
 
@@ -111,21 +107,9 @@ subroutine vegn_photosynthesis_init()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-    read (input_nml_file, nml=photosynthesis_nml, iostat=io)
-    ierr = check_nml_error(io, 'photosynthesis_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=photosynthesis_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'photosynthesis_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
+  read (input_nml_file, nml=photosynthesis_nml, iostat=io)
+  ierr = check_nml_error(io, 'photosynthesis_nml')
 
   unit=stdlog()
   if (mpp_pe() == mpp_root_pe()) then

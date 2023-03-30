@@ -7,9 +7,8 @@ module soil_mod
 
 
 use mpp_mod, only: input_nml_file
-
-use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
-     stdlog, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+use fms_mod, only: error_mesg, string, check_nml_error, stdlog, mpp_pe, &
+                 & mpp_root_pe, FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
