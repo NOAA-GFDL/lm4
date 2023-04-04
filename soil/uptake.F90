@@ -8,8 +8,9 @@ module uptake_mod
 use fms_mod, only: error_mesg, file_exist, input_nml_file, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL
 use constants_mod, only: PI
+use land_constants_mod, only: MAX_SOIL_LEV
 
-use soil_tile_mod, only : soil_tile_type, max_lev, psi_wilt
+use soil_tile_mod, only : soil_tile_type, psi_wilt
 use land_debug_mod, only : is_watch_point
 use land_data_mod, only : log_version
 
@@ -63,8 +64,8 @@ namelist /uptake_nml/ uptake_to_use, uptake_oneway, uptake_from_sat
 
 logical :: module_is_initialized =.FALSE.
 integer :: num_l ! # of water layers
-real    :: dz    (max_lev)    ! thicknesses of layers
-real    :: zfull (max_lev)
+real    :: dz    (MAX_SOIL_LEV)    ! thicknesses of layers
+real    :: zfull (MAX_SOIL_LEV)
 
 integer :: uptake_option = -1
 

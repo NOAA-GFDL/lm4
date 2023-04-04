@@ -13,16 +13,16 @@ use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 
+use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, seconds_per_year, &
+     N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
+     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, l_shortname, l_longname
 use vegn_tile_mod, only: vegn_tile_type, &
      vegn_seed_demand, vegn_seed_supply, vegn_seed_N_supply, vegn_add_bliving, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      cpw, clw, csw
 use vegn_accessors_mod ! use everything
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
-     soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
-     N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
-use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
-     seconds_per_year
+     soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, cmor_name, &
@@ -78,7 +78,7 @@ use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
      soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
@@ -3000,8 +3000,8 @@ subroutine update_vegn_slow( )
   do while (loop_over_tiles(ce,tile,l,k))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
      if (id_litterfall_C>0)    call send_tile_data(id_litterfall_C,    sum(tile%vegn%litterfall_C(:,:))    /dt_slow_yr, tile%diag)
-     if (id_litterfall_lf_C>0) call send_tile_data(id_litterfall_lf_C, sum(tile%vegn%litterfall_C(:,LEAF)) /dt_slow_yr, tile%diag)
-     if (id_litterfall_cw_C>0) call send_tile_data(id_litterfall_cw_C, sum(tile%vegn%litterfall_C(:,CWOOD))/dt_slow_yr, tile%diag)
+     if (id_litterfall_lf_C>0) call send_tile_data(id_litterfall_lf_C, sum(tile%vegn%litterfall_C(:,LITT_LEAF)) /dt_slow_yr, tile%diag)
+     if (id_litterfall_cw_C>0) call send_tile_data(id_litterfall_cw_C, sum(tile%vegn%litterfall_C(:,LITT_CWOOD))/dt_slow_yr, tile%diag)
      tile%vegn%litterfall_C(:,:) = 0.0 ! reset for the accumulation on next time step
   enddo
 

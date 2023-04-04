@@ -29,7 +29,8 @@ use astronomy_mod, only : astronomy_init, diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, d608
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, N_C_TYPES, &
+     mol_air, mol_C, mol_co2, d608
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
@@ -41,7 +42,7 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags
-use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
+use soil_carbon_mod, only : read_soil_carbon_namelist, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
@@ -1232,7 +1233,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   snc = 0
 
   ! Calculate groundwater and associated heat fluxes between tiles within each gridcell.
-  call hlsp_hydrology_1(n_c_types)
+  call hlsp_hydrology_1(N_C_TYPES)
   ! ZMS: Eventually pass these args into river or main tile loop.
 
   ! main tile loop

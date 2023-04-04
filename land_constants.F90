@@ -11,6 +11,29 @@ integer, public, parameter :: &
      BAND_VIS = 1, & ! visible radiation (wavelenght range?)
      BAND_NIR = 2    ! near infra-red radiation (wavelenght range?)
 
+integer, public, parameter :: MAX_SOIL_LEV = 100 ! max number of soil layers (max dimension of arrays)
+! litter pool constants
+integer, parameter, public :: &
+     N_LITTER_POOLS    = 2, &
+     LITT_LEAF         = 1, & ! leaf litter
+     LITT_CWOOD        = 2    ! coarse wood litter
+! names of the litter pools, for i/o
+character(16), parameter, public :: &
+     l_shortname(N_LITTER_POOLS) = [ 'leaf            ', 'cwood           '  ], & ! for restart field names
+     l_longname (N_LITTER_POOLS) = [ 'leaf            ', 'coarse wood     '  ], & ! for long names
+     l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
+
+integer, public, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
+integer, public, parameter :: & ! indices of carbon chemical species
+     C_FAST = 1, & ! cellulose (fast)
+     C_SLOW = 2, & ! lignin (slow)
+     C_MIC  = 3    ! microbial producs
+! names of the carbon types, for i/o
+character(len=12), public, parameter :: &
+     c_shortname(N_C_TYPES) = [ 'fast        ', 'slow        ', 'deadmic     ' ], & ! for restart field names
+     c_longname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dead microbe' ], & ! for long names
+     c_diagname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dmic        ' ]    ! for diag field names
+
 real, public, parameter :: d622 = rdgas/rvgas
 real, public, parameter :: d378 = 1.0-d622
 real, public, parameter :: d608 = d378/d622

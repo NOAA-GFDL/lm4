@@ -12,7 +12,9 @@ use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
 use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
 use constants_mod, only : PI
-use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
+use land_constants_mod, only : N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
+     N_C_TYPES, C_FAST, C_SLOW, C_MIC, &
+     days_per_year, seconds_per_year, mol_C
 use land_data_mod, only : lnd,log_version
 use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, &
      do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, set_current_point
@@ -32,13 +34,13 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
      mycorrhizal_turnover_time, N_fixer_turnover_time, tau_lflitt_transfer, tau_cwlitt_transfer
 use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, N_LITTER_POOLS, LEAF, CWOOD
+use soil_tile_mod, only: num_l, dz, soil_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile, &
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
-use soil_carbon_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC, soil_carbon_option, &
+use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
@@ -2331,13 +2333,13 @@ subroutine update_soil_pools(vegn, soil)
      call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
 
      ! transfer litter to soil pools, with constant time scales
-     call deplete_pool1(soil%litter_century_C(C_FAST, LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_MIC,  LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_SLOW, LEAF),  tau_lflitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_FAST, LITT_LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_MIC,  LITT_LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_SLOW, LITT_LEAF),  tau_lflitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
 
-     call deplete_pool1(soil%litter_century_C(C_FAST, CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_MIC,  CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_SLOW, CWOOD), tau_cwlitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_FAST, LITT_CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_MIC,  LITT_CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
+     call deplete_pool1(soil%litter_century_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
 
   case (SOILC_CORPSE,SOILC_CORPSE_N)
 

@@ -8,7 +8,7 @@ module vegn_disturbance_mod
 use fms_mod,         only : error_mesg, FATAL
 use time_manager_mod,only : get_date, operator(-)
 use constants_mod,   only : Tfreeze
-use land_constants_mod, only : seconds_per_year
+use land_constants_mod, only : N_C_TYPES, C_FAST, seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
@@ -29,7 +29,7 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_util_mod, only : kill_plants_ppa

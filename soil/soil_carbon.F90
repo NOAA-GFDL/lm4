@@ -5,10 +5,10 @@ module soil_carbon_mod
 
 #include "../shared/debug.inc"
 
-use land_constants_mod, only : Rugas
+use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
+     c_shortname, c_longname, c_diagname
 use fms_mod, only: check_nml_error, file_exist, close_file, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
-use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range
 #endif
@@ -59,8 +59,6 @@ public :: soil_NH4_deposition!x2z
 public :: soil_org_N_deposition
 public :: ammonium_solubility, nitrate_solubility
 
-public :: N_C_TYPES, C_FAST, C_SLOW, C_MIC
-public :: c_shortname, c_longname, c_diagname
 public :: adjust_pool_ncohorts
 ! =====end of public interfaces ==============================================
 
@@ -68,12 +66,6 @@ public :: adjust_pool_ncohorts
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../shared/version_variable.inc"
-
-! names of the carbon types, for i/o
-character(len=12), parameter :: &
-    c_shortname(N_C_TYPES) = [ 'fast        ', 'slow        ', 'deadmic     ' ], & ! for restart field names
-    c_longname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dead microbe' ], & ! for long names
-    c_diagname (N_C_TYPES) = [ 'fast        ', 'slow        ', 'dmic        ' ]    ! for diag field names
 
 ! soil carbon options
 integer, parameter :: &

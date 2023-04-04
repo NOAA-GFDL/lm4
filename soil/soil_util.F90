@@ -3,11 +3,13 @@ module soil_util_mod
 use constants_mod, only: PI
 use fms_mod, only: error_mesg, FATAL
 
+use land_constants_mod, only: N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
+     N_C_TYPES, C_FAST, C_SLOW
 use land_data_mod, only: log_version
-use soil_carbon_mod, only: N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
-     SOILC_CORPSE, SOILC_CORPSE_N, soil_carbon_option, C_FAST, C_SLOW, add_litter, &
+use soil_carbon_mod, only: SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
+     SOILC_CORPSE, SOILC_CORPSE_N, soil_carbon_option, add_litter, &
      add_C_N_to_rhizosphere
-use soil_tile_mod, only: soil_tile_type, dz, num_l, LEAF, CWOOD, N_LITTER_POOLS
+use soil_tile_mod, only: soil_tile_type, dz, num_l
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_exudate_profile
 use vegn_data_mod, only: spdata, tau_lflitt_transfer, tau_cwlitt_transfer
 use vegn_tile_mod, only: vegn_tile_type
@@ -161,8 +163,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   case (SOILC_CENTURY)
      if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
         ! put litterfall in litter pools
-        soil%litter_century_C(:,LEAF)  = soil%litter_century_C(:,LEAF)  + leaf_litt_C(:)
-        soil%litter_century_C(:,CWOOD) = soil%litter_century_C(:,CWOOD) + wood_litt_C(:)
+        soil%litter_century_C(:,LITT_LEAF)  = soil%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
+        soil%litter_century_C(:,LITT_CWOOD) = soil%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
         fsc = sum(root_litt_C(:,C_FAST))
         ssc = sum(root_litt_C(:,C_SLOW))
      else
@@ -179,8 +181,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   case (SOILC_CENTURY_BY_LAYER)
      if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
         ! put litterfall in litter pools
-        soil%litter_century_C(:,LEAF)  = soil%litter_century_C(:,LEAF)  + leaf_litt_C(:)
-        soil%litter_century_C(:,CWOOD) = soil%litter_century_C(:,CWOOD) + wood_litt_C(:)
+        soil%litter_century_C(:,LITT_LEAF)  = soil%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
+        soil%litter_century_C(:,LITT_CWOOD) = soil%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
         fsc = 0.0; ssc = 0.0
      else
         ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
@@ -205,8 +207,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
      call borrow_to_negatives(wood_litt_N,soil%neg_litt_N) ! borrow from wood litter first
      call borrow_to_negatives(leaf_litt_C,soil%neg_litt_C) ! and from leaf litter second
      call borrow_to_negatives(leaf_litt_N,soil%neg_litt_N) ! and from leaf litter second
-     call add_litter(soil%litter_corpse(LEAF),  leaf_litt_C, leaf_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
-     call add_litter(soil%litter_corpse(CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
+     call add_litter(soil%litter_corpse(LITT_LEAF),  leaf_litt_C, leaf_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
+     call add_litter(soil%litter_corpse(LITT_CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      call rhizosphere_frac(vegn, rhiz_frac)
      do l = 1,num_l
         call add_litter(soil%org_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l), &
@@ -217,8 +219,8 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   end select
 
   ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
-  vegn%litterfall_C(:,LEAF)  = vegn%litterfall_C(:,LEAF)  + leaf_litt_C(:)
-  vegn%litterfall_C(:,CWOOD) = vegn%litterfall_C(:,CWOOD) + wood_litt_C(:)
+  vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
+  vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
 
 contains
 

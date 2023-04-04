@@ -5,13 +5,12 @@ module vegn_tile_mod
 use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf
 
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : MAX_SOIL_LEV, NBANDS, N_C_TYPES, N_LITTER_POOLS
 use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
 
-use soil_carbon_mod, only : N_C_TYPES
 use vegn_data_mod, only : &
      MSPECIES, nspecies, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
@@ -24,8 +23,6 @@ use vegn_data_mod, only : &
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C
-
-use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
 use soil_carbon_mod, only : soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
@@ -116,7 +113,7 @@ type :: vegn_tile_type
    real :: harv_pool_N(N_HARV_POOLS) = 0.0 ! harvested nitrogen pool
 
    ! uptake-related variables
-   real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
+   real :: root_distance(MAX_SOIL_LEV) ! characteristic half-distance between fine roots, m
 
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: ssc_out=0.0

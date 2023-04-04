@@ -15,7 +15,10 @@ use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, &
+     N_C_TYPES, C_FAST, C_SLOW, C_MIC, c_shortname, c_longname, c_diagname, &
+     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, l_shortname, l_longname, l_diagname, &
+     seconds_per_year
 use land_numerics_mod, only : tridiag
 use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
@@ -31,15 +34,14 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      gw_scale_length, gw_scale_relief, gw_scale_soil_depth, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
-     soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
-     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname
+     soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
 use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
-     update_pool,transfer_pool_fraction, N_C_TYPES, &
+     update_pool,transfer_pool_fraction, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, c_diagname, &
+     A_function, debug_pool, adjust_pool_ncohorts, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
      deposit_dissolved_C, dissolve_carbon, theta_func
 
@@ -2883,7 +2885,7 @@ end subroutine soil_step_1
         write(*,*)
      enddo
      if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
-        call debug_pool(soil%litter_corpse(LEAF), 'leaf_litter')
+        call debug_pool(soil%litter_corpse(LITT_LEAF), 'leaf_litter')
      endif
   endif
 
@@ -2939,7 +2941,7 @@ end subroutine soil_step_1
    case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
       total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
    case(SOILC_CORPSE, SOILC_CORPSE_N)
-      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter_corpse(LEAF), soil%litter_corpse(CWOOD), &
+      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter_corpse(LITT_LEAF), soil%litter_corpse(LITT_CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
@@ -3101,8 +3103,8 @@ subroutine soil_step_3(soil, diag)
      if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
      if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
      if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
-     if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,CWOOD)), diag)
-     if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LEAF)), diag)
+     if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,LITT_CWOOD)), diag)
+     if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LITT_LEAF)), diag)
      ! --- end of CMOR vars
 
   case (SOILC_CORPSE, SOILC_CORPSE_N)
@@ -3197,10 +3199,10 @@ subroutine soil_step_3(soil, diag)
         enddo
         ! CMOR diagnostics
         select case (k)
-        case (CWOOD)
+        case (LITT_CWOOD)
            call send_tile_data(id_cLitterCwd, litter_total_C, diag)
            call send_tile_data(id_nLitterCwd, litter_total_N, diag)
-        case (LEAF)
+        case (LITT_LEAF)
            call send_tile_data(id_cLitterLeaf, litter_total_C, diag)
            call send_tile_data(id_nLitterLeaf, litter_total_N, diag)
         end select
@@ -4383,11 +4385,11 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
 
   ! ---- diagnostic section
   do i = 1, N_C_TYPES
-     call send_tile_data(id_litter_C_leaching(LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
-     call send_tile_data(id_litter_C_leaching(CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_litter_C_leaching(LITT_LEAF,i),del_leaflitter_DOC(i)/delta_time,diag)
+     call send_tile_data(id_litter_C_leaching(LITT_CWOOD,i),del_woodlitter_DOC(i)/delta_time,diag)
      call send_tile_data(id_C_leaching(i), del_soil_DOC(i,:)/delta_time,diag)
-     call send_tile_data(id_litter_DON_leaching(LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
-     call send_tile_data(id_litter_DON_leaching(CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(LITT_LEAF,i),del_leaflitter_DON(i)/delta_time,diag)
+     call send_tile_data(id_litter_DON_leaching(LITT_CWOOD,i),del_woodlitter_DON(i)/delta_time,diag)
      call send_tile_data(id_DON_leaching(i), del_soil_DON(i,:)/delta_time,diag)
   enddo
   if (id_total_C_leaching>0) then
@@ -4404,14 +4406,14 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
   endif
   call send_tile_data(id_NO3_leaching, del_soil_NO3/delta_time, diag)
   call send_tile_data(id_NH4_leaching, del_soil_NH4/delta_time, diag)
-  call send_tile_data(id_litter_total_C_leaching(LEAF),sum(del_leaflitter_DOC)/delta_time,diag)
-  call send_tile_data(id_litter_total_ON_leaching(LEAF),sum(del_leaflitter_DON)/delta_time,diag)
-  call send_tile_data(id_litter_NO3_leaching(LEAF),del_leaflitter_NO3/delta_time,diag)
-  call send_tile_data(id_litter_NH4_leaching(LEAF),del_leaflitter_NH4/delta_time,diag)
-  call send_tile_data(id_litter_total_C_leaching(CWOOD),sum(del_woodlitter_DOC)/delta_time,diag)
-  call send_tile_data(id_litter_total_ON_leaching(CWOOD),sum(del_woodlitter_DON)/delta_time,diag)
-  call send_tile_data(id_litter_NO3_leaching(CWOOD),del_woodlitter_NO3/delta_time,diag)
-  call send_tile_data(id_litter_NH4_leaching(CWOOD),del_woodlitter_NH4/delta_time,diag)
+  call send_tile_data(id_litter_total_C_leaching(LITT_LEAF),sum(del_leaflitter_DOC)/delta_time,diag)
+  call send_tile_data(id_litter_total_ON_leaching(LITT_LEAF),sum(del_leaflitter_DON)/delta_time,diag)
+  call send_tile_data(id_litter_NO3_leaching(LITT_LEAF),del_leaflitter_NO3/delta_time,diag)
+  call send_tile_data(id_litter_NH4_leaching(LITT_LEAF),del_leaflitter_NH4/delta_time,diag)
+  call send_tile_data(id_litter_total_C_leaching(LITT_CWOOD),sum(del_woodlitter_DOC)/delta_time,diag)
+  call send_tile_data(id_litter_total_ON_leaching(LITT_CWOOD),sum(del_woodlitter_DON)/delta_time,diag)
+  call send_tile_data(id_litter_NO3_leaching(LITT_CWOOD),del_woodlitter_NO3/delta_time,diag)
+  call send_tile_data(id_litter_NH4_leaching(LITT_CWOOD),del_woodlitter_NH4/delta_time,diag)
   if (gw_option == GW_TILED) then
      call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
   end if
@@ -4697,16 +4699,16 @@ subroutine redistribute_peat_carbon(soil)
     total_C_before=total_C_before+layer_total_C
     enddo
 
-    call poolTotals(soil%litter_corpse(LEAF),totalCarbon=leaflitter_total_C)
-    call poolTotals(soil%litter_corpse(CWOOD),totalCarbon=woodlitter_total_C)
+    call poolTotals(soil%litter_corpse(LITT_LEAF),totalCarbon=leaflitter_total_C)
+    call poolTotals(soil%litter_corpse(LITT_CWOOD),totalCarbon=woodlitter_total_C)
     layer_total_C=leaflitter_total_C+woodlitter_total_C
 
     layer_max_C=max_litter_thickness*max_soil_C_density
     layer_extra_C = layer_total_C-layer_max_C
     if(layer_extra_C>0) then
         fraction_to_remove=1.0-layer_max_C/layer_total_C
-        call transfer_pool_fraction(soil%litter_corpse(LEAF),soil%org_matter(1),fraction_to_remove)
-        call transfer_pool_fraction(soil%litter_corpse(CWOOD),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter_corpse(LITT_LEAF),soil%org_matter(1),fraction_to_remove)
+        call transfer_pool_fraction(soil%litter_corpse(LITT_CWOOD),soil%org_matter(1),fraction_to_remove)
     endif
 
     !Move carbon down if it exceeds layer_max_C

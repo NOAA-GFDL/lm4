@@ -14,7 +14,8 @@ use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use sphum_mod, only : qscomp
 use diag_manager_mod, only : register_diag_field, send_data
 
-use land_constants_mod, only : seconds_per_year
+use land_constants_mod, only : N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, N_C_TYPES, &
+      seconds_per_year
 use land_io_mod, only : external_ts_type, init_external_ts, del_external_ts, &
       read_external_ts, read_field
 use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
@@ -36,11 +37,11 @@ use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
       LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
-use soil_tile_mod, only : N_LITTER_POOLS, LEAF, CWOOD, num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
+use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
 use soil_util_mod, only : add_soil_carbon
 use soil_carbon_mod, only : soil_carbon_option, poolTotals, &
-      remove_C_N_fraction_from_pool, N_C_TYPES, &
+      remove_C_N_fraction_from_pool, &
       SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 use vegn_util_mod, only : kill_plants_ppa
 
@@ -2633,7 +2634,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   else
      CC_litt(:) = sp%CC_litter
   endif
-  CC_litt(LEAF)  = sp%CC_litter
+  CC_litt(LITT_LEAF)  = sp%CC_litter
   fireMort_leaf = sp%fireMort_leaf
   fireMort_stem = sp%fireMort_stem
   fireMort_root = sp%fireMort_root
@@ -3440,13 +3441,13 @@ subroutine update_fire_agb(vegn,soil)
    case (SOILC_CORPSE,SOILC_CORPSE_N)
       ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
       do i = 1, N_LITTER_POOLS
-         if (i == CWOOD) cycle
+         if (i == LITT_CWOOD) cycle
          call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C)
          vegn%fire_agb = vegn%fire_agb + litter_total_C
       enddo
    case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
       do i = 1, N_LITTER_POOLS
-         if (i == CWOOD) cycle
+         if (i == LITT_CWOOD) cycle
          vegn%fire_agb = vegn%fire_agb + sum(soil%litter_century_C(:,i))
       enddo
    case default

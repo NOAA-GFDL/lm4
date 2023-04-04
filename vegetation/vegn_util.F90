@@ -5,8 +5,9 @@ module vegn_util_mod
 use constants_mod,   only : tfreeze
 use fms_mod, only : string, WARNING, FATAL
 
+use land_constants_mod, only: N_C_TYPES, C_FAST
 use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, carbon_cons_tol
-use soil_carbon_mod, only : N_C_TYPES, C_FAST, deadmic_slow_frac
+use soil_carbon_mod, only : deadmic_slow_frac
 use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &

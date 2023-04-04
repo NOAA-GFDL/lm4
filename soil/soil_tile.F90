@@ -4,17 +4,16 @@ module soil_tile_mod
 use mpp_mod, only : input_nml_file
 use fms_mod, only : check_nml_error, &
      stdlog, error_mesg, FATAL
-use constants_mod, only : &
-     pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
-use land_constants_mod, only : NBANDS
+use fms2_io_mod, only: open_file, close_file, FmsNetcdfFile_t, get_variable_size, &
+     read_data, get_variable_num_dimensions
+use constants_mod, only : pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
+
+use land_constants_mod, only : MAX_SOIL_LEV, NBANDS, N_C_TYPES, N_LITTER_POOLS, LITT_LEAF
 use land_data_mod, only : log_version
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_SOIL, register_tile_selector
+use land_tile_selectors_mod, only : tile_selector_type, SEL_SOIL, register_tile_selector
 use soil_carbon_mod, only : soil_carbon_option, &
     SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
-    soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
-                       open_file, read_data, get_variable_num_dimensions
+    soil_pool, combine_pools, init_soil_pool, poolTotals
 
 implicit none
 private
@@ -61,7 +60,6 @@ public :: soil_psi_stress ! return soil-water-stress index
 public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 
 ! public data
-public :: max_lev ! max number of soil layers (max dimension of arrays)
 public :: num_l ! actual number of soil layers
 public :: dz    ! layer thicknesses (m)
 public :: zhalf ! depths of layer boundaries (m)
@@ -84,7 +82,6 @@ end interface
 character(len=*), parameter :: module_name = 'soil_tile_mod'
 #include "../shared/version_variable.inc"
 
-integer, parameter :: max_lev          = 100
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
 real,    parameter :: t_ref            = 293
 real,    parameter :: g_RT             = grav / (rvgas*t_ref)
@@ -112,17 +109,6 @@ integer, parameter, public ::   &
      GW_HILL_AR5       = 2, &
      GW_HILL           = 3, &
      GW_TILED          = 4
-
-! litter pool constants
-integer, parameter, public :: &
-     N_LITTER_POOLS    = 2, &
-     LEAF              = 1, & ! leaf litter
-     CWOOD             = 2    ! coarse wood litter
-
-character(16), parameter, public :: &
-     l_shortname(N_LITTER_POOLS) = [ 'leaf            ', 'cwood           '  ], & ! for restart field names
-     l_longname (N_LITTER_POOLS) = [ 'leaf            ', 'coarse wood     '  ], & ! for long names
-     l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
 
 ! ==== types =================================================================
 type :: soil_pars_type
@@ -297,7 +283,7 @@ real    :: freeze_factor         = 1.0
 real, protected :: aspect        = 1.0
 real    :: zeta_mult             = 1.0  ! multiplier for root depth scale in stress index
 integer, protected :: num_l      = 18        ! number of soil levels
-real,    protected :: dz(max_lev) = (/ &
+real,    protected :: dz(MAX_SOIL_LEV) = (/ &
     0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
     0.2,   0.4,  0.4,  0.4,  0.4, 0.4,  1.,  1.,  1., &
     0.,0.,&
@@ -510,8 +496,8 @@ real, dimension(26) :: gw_area_norm_zeta_s_04 = &
 integer :: num_sfc_layers, sub_layer_min, sub_layer_max
 integer :: num_storage_pts, num_zeta_pts, num_tau_pts
 
-real    :: zfull (max_lev)    ! depth of the soil layer centers, m
-real    :: zhalf (max_lev+1)  ! depth of the soil layer interfaces, m
+real    :: zfull (MAX_SOIL_LEV)    ! depth of the soil layer centers, m
+real    :: zhalf (MAX_SOIL_LEV+1)  ! depth of the soil layer interfaces, m
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -2001,7 +1987,7 @@ subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
      litter_slow_C    = soil%slow_soil_C(1)
      litter_deadmic_C = 0.0
   case(SOILC_CORPSE, SOILC_CORPSE_N)
-     call poolTotals(soil%litter_corpse(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+     call poolTotals(soil%litter_corpse(LITT_LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
   case default
      call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select

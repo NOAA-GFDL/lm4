@@ -9,7 +9,7 @@ use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, N_C_TYPES
 use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : SEL_VEGN, register_tile_selector
 use table_printer_mod
@@ -19,13 +19,6 @@ private
 
 ! ==== public interfaces =====================================================
 ! ---- public constants
-integer, public, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
-integer, public, parameter :: & ! indices of carbon chemical species
-    C_FAST = 1, & ! cellulose (fast)
-    C_SLOW = 2, & ! lignin (slow)
-    C_MIC  = 3    ! microbial producs
-
-
 integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
 integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector

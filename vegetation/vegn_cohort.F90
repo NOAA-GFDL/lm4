@@ -3,8 +3,10 @@ module vegn_cohort_mod
 #include "../shared/debug.inc"
 
 use constants_mod, only: PI
+use fms_mod, only : error_mesg, FATAL
 
-use land_constants_mod, only: NBANDS, mol_h2o, mol_air
+use land_constants_mod, only: MAX_SOIL_LEV, NBANDS, mol_h2o, mol_air
+use land_debug_mod, only : is_watch_point
 use vegn_data_mod, only : spdata, &
    use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
@@ -15,10 +17,8 @@ use vegn_data_mod, only : spdata, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, root_length_double_norm, &
    snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
-use soil_tile_mod, only : soil_tile_type, max_lev, num_l, dz
+use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
-use fms_mod, only : error_mesg, FATAL
-use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -131,11 +131,11 @@ type :: vegn_cohort_type
                           ! for diagnostics only
 
 ! ---- uptake-related variables
-  real    :: br_profile(max_lev)  = 0.0 ! normalized vertical distribution of root biomass
-  real    :: root_length(max_lev) = 0.0 ! individual root length per unit depth, m of root/m
+  real    :: br_profile(MAX_SOIL_LEV)  = 0.0 ! normalized vertical distribution of root biomass
+  real    :: root_length(MAX_SOIL_LEV) = 0.0 ! individual root length per unit depth, m of root/m
   real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
   real    :: r_r = 0.0 ! radius of fine roots, m
-  real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
+  real    :: uptake_frac(MAX_SOIL_LEV) = 0.0 ! normalized vertical distribution of uptake
 
 ! ---- auxiliary variables
   real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/individual
