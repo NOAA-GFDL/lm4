@@ -14,10 +14,9 @@ use vegn_data_mod, only : spdata, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
-   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, root_length_double_norm, &
-   snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
+   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+   snow_masking_option, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
-use soil_tile_mod, only : soil_tile_type, num_l, dz
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 
 implicit none
@@ -39,7 +38,6 @@ public :: leaf_area_from_biomass ! given leaf biomass, calculates leaf area
 public :: height_from_biomass    ! given total biomass, calculated tree height
 public :: update_bio_living_fraction
 public :: update_biomass_pools
-public :: update_cohort_root_properties
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
@@ -350,51 +348,6 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   if (present(vegn_cover)) vegn_cover = cohort%cover
   if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor = f
 end subroutine vegn_data_cover
-
-
-! ============================================================================
-! returns properties of the fine roots
-subroutine update_cohort_root_properties(soil, cohort)
-  type(soil_tile_type),   intent(in)     :: soil
-  type(vegn_cohort_type), intent(inout)  :: cohort
-  ! note that in LM3, when the density of individuals per m2 is imposed to be 1,
-  ! "per unit depth" measures are the same as volumetric density measures.
-
-  integer :: l
-  real :: factor, z
-  real :: vbr ! density of fine roots biomass per unit depth, kg C/m
-
-  associate(sp => spdata(cohort%species))
-  cohort%br_profile(:) = 0.0
-  z = 0
-  do l = 1, num_l
-     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh) exit ! from loop
-     ! so that the rest of profile remains zero.
-
-     cohort%br_profile(l) = exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta)
-     z = z + dz(l)
-  enddo
-
-  factor = 1.0/sum(cohort%br_profile)
-  cohort%br_profile(:) = cohort%br_profile(:)*factor
-  do l = 1, num_l
-     ! calculate the vertical fine root biomass density [kgC/m] for current layer
-     ! NOTE: sum(vbr*dz) must be equal to cohort%br, which is achieved by normalizing
-     ! br_profile by "factor" in front of the loop
-     if (root_length_double_norm) then
-        ! "factor" is double-counted here
-        vbr = cohort%br * cohort%br_profile(l)*factor/dz(l)
-     else
-        vbr = cohort%br * cohort%br_profile(l)/dz(l)
-     endif
-     ! calculate fine root length per unit depth
-     cohort%root_length(l) = vbr*sp%srl
-  enddo
-
-  cohort%K_r = sp%root_perm
-  cohort%r_r = sp%root_r
-  end associate
-end subroutine update_cohort_root_properties
 
 
 ! ============================================================================

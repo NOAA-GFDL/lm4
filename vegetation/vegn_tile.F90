@@ -24,8 +24,7 @@ use vegn_data_mod, only : &
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C
 
-use soil_carbon_mod, only : soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
 implicit none
 private
