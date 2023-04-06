@@ -365,7 +365,6 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
   real,    pointer    :: lake_frac (:,:) ! output: map of lake fractional coverage
   type(domain2d), intent(in) :: domain
   real :: lake_frac_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
-  type(FmsNetcdfDomainFile_t) :: fileobj
   logical :: river_data_exists
 
   allocate(lake_frac(size(land_mask(:)), n_dim_lake_types))
@@ -374,7 +373,6 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
      lake_frac = 0.0
      if (domain_read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, domain)) then
          call mpp_pass_sg_to_ug(lnd%ug_domain, lake_frac_sg, lake_frac(:,1))
-         call close_file(fileobj)
      endif
      ! make sure 'missing values' don't get into the result
      where (lake_frac < 0) lake_frac = 0
