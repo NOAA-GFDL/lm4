@@ -359,7 +359,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   integer :: i, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
 
-  type(land_restart_type) :: restart, restart1
+  type(land_restart_type) :: restart
   logical :: restart_exists
   character(*), parameter :: restart_file_name = 'INPUT/soil.nc'
   type(FmsNetcdfFile_t) :: fileobj
@@ -661,25 +661,18 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
           call get_tile_data(restart, 'frozen_freq', 'zfull', soil_frozen_freq_ptr)
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
+     call free_land_restart(restart)
+  else
+     call error_mesg('soil_init', 'cold-starting soil', NOTE)
+  endif
 
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        if(field_exists(restart, 'fsc')) then
-           call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
-           call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
-        else
-           ! try to read fsc and ssc from vegetation restart
-           call open_land_restart(restart1,'INPUT/vegn2.res.nc',restart_exists)
-           if (restart_exists) then
-              ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
-              ! and slow_soil_C arrays
-              if(field_exists(restart1, 'fsc')) then
-                 call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
-                 call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
-              endif
-           endif
-           call free_land_restart(restart1)
-        endif
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     call open_land_restart(restart,'INPUT/soilc_CENT.nc',restart_exists)
+     if (restart_exists) then
+        call error_mesg('soil_init', 'reading NetCDF restart "soilc_CENT.nc"', NOTE)
+        call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
+        call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
         ! name is deliberately different from similar CORPSE fields so that we can start
         ! with CORPSE restarts with zero litter
         if (field_exists(restart,trim(l_shortname(1))//'_litt_'//trim(c_shortname(1))//'_C')) then
@@ -689,47 +682,61 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
               enddo
            enddo
         endif
+        call free_land_restart(restart)
+     else
+        call error_mesg('soil_init', 'cold-starting soilc_CENT', NOTE)
+     endif
 
-     case (SOILC_CORPSE, SOILC_CORPSE_N)
-        if (field_exists(restart,'fast_soil_C')) then
-           ! we are dealing with CORPSE restart
-           ce = first_elmt(land_tile_map)
-           do while(loop_over_tiles(ce,tile))
-               if (.not.associated(tile%soil)) cycle
-               do i = 1,N_LITTER_POOLS
-                  call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
-               enddo
-               do i = 1,num_l
-                  call adjust_pool_ncohorts(tile%soil%org_matter(i))
-               enddo
-           end do
-           do i = 1, N_C_TYPES
-              call get_tile_data(restart,trim(c_shortname(i))//'_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr,i)
-              call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr,i)
-              call get_tile_data(restart,'soil_DOC_'//trim(c_shortname(i)), 'zfull', sc_DOC_ptr,i)
+     call open_land_restart(restart,'INPUT/soilc_CENT_eq.res.nc',restart_exists)
+     if (restart_exists) then
+        call error_mesg('soil_init', 'reading NetCDF restart "soilc_CENT_eq.nc"', NOTE)
+        call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
+        call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
+        call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
+        call free_land_restart(restart)
+     endif
 
-              do k = 1, N_LITTER_POOLS
-                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','litterCCohort',sc_litter_litterC_ptr,i,k)
-                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','litterCCohort',sc_litter_protectedC_ptr,i,k)
-                 call get_tile_data(restart,trim(l_shortname(k))//'_litter_DOC_'//trim(c_shortname(i)),sc_litter_dissolved_carbon_ptr,i,k)
-              enddo
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
+     call open_land_restart(restart,'INPUT/soilc_CORPSE.nc',restart_exists)
+     if (restart_exists) then
+        call error_mesg('soil_init', 'reading NetCDF restart "soilc_CORPSE.nc"', NOTE)
+
+        ce = first_elmt(land_tile_map)
+        do while(loop_over_tiles(ce,tile))
+            if (.not.associated(tile%soil)) cycle
+            do i = 1,N_LITTER_POOLS
+               call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
+            enddo
+            do i = 1,num_l
+               call adjust_pool_ncohorts(tile%soil%org_matter(i))
+            enddo
+        end do
+        do i = 1, N_C_TYPES
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr,i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr,i)
+           call get_tile_data(restart,'soil_DOC_'//trim(c_shortname(i)), 'zfull', sc_DOC_ptr,i)
+
+           do k = 1, N_LITTER_POOLS
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','litterCCohort',sc_litter_litterC_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','litterCCohort',sc_litter_protectedC_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_DOC_'//trim(c_shortname(i)),sc_litter_dissolved_carbon_ptr,i,k)
            enddo
-           call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',sc_livingMicrobeC_ptr)
-           call get_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr)
+        enddo
+        call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',sc_livingMicrobeC_ptr)
+        call get_tile_data(restart,'CO2', 'zfull','soilCCohort',sc_CO2_ptr)
 
-           do i = 1,N_LITTER_POOLS
-              call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
-              call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
-           enddo
+        do i = 1,N_LITTER_POOLS
+           call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
+           call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
+        enddo
 
-           if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
-              call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
-              call get_tile_data(restart,'gross_nitrogen_flux_out_of_tile', soil_gross_nitrogen_flux_out_of_tile_ptr)
-            endif
+        if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
+           call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
+           call get_tile_data(restart,'gross_nitrogen_flux_out_of_tile', soil_gross_nitrogen_flux_out_of_tile_ptr)
+        endif
 
-           if(field_exists(restart, 'is_peat')) then
-              call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
-           endif
+        if(field_exists(restart, 'is_peat')) then
+           call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
         endif
         if (field_exists(restart,'fast_soil_N')) then
            do i = 1, N_C_TYPES
@@ -767,13 +774,37 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
               call get_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i)
            endif
         enddo
-     case default
-        call error_mesg('save_init','unrecognized soil carbon option -- this should never happen', FATAL)
-     end select
-  else
-     call error_mesg('soil_init', 'cold-starting soil', NOTE)
-  endif
-  call free_land_restart(restart)
+     else
+        call error_mesg('soil_init', 'cold-starting soilc_CORPSE', NOTE)
+     endif
+
+     call open_land_restart(restart,'INPUT/soilc_CORPSE_eq.res.nc',restart_exists)
+     if (restart_exists) then
+        call error_mesg('soil_init', 'reading NetCDF restart "soilc_CORPSE_eq.nc"', NOTE)
+        do i = 1,N_C_TYPES
+           ! C inputs
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',sc_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_C_turnover','zfull',sc_C_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC_in','zfull',sc_protected_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedC_turnover','zfull',sc_protected_C_turnover_ptr, i)
+           ! N inputs
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N_in','zfull',sc_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_soil_N_turnover','zfull',sc_N_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN_in','zfull',sc_protected_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'ProtectedN_turnover','zfull',sc_protected_N_turnover_ptr, i)
+           ! C and N litter inputs
+           do k = 1,N_LITTER_POOLS
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_in',sc_litter_C_in_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_in',sc_litter_N_in_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C_turnover', sc_litter_C_turnover_ptr, i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N_turnover', sc_litter_N_turnover_ptr, i,k)
+           enddo
+        enddo
+        call free_land_restart(restart)
+     endif
+  case default
+     call error_mesg('save_init','unrecognized soil carbon option -- this should never happen', FATAL)
+  end select
 
   ! read soil carbon restart, if present
   call open_land_restart(restart,'INPUT/soil_carbon.res.nc',restart_exists)
@@ -1536,10 +1567,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   filename = 'RESTART/'//trim(timestamp)//'soil.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
-  if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/), .false.)
-     call add_restart_axis(restart,'litterCCohort',(/1.0/),.false.)
-  endif
 
   ! write out fields
   call add_tile_data(restart,'temp'         , 'zfull', soil_T_ptr,  'soil temperature','degrees_K')
@@ -1549,8 +1576,17 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
   call add_tile_data(restart,'frozen_freq'  , 'zfull', soil_frozen_freq_ptr, 'frequency of frozen soil occurence')
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
+
+  call save_land_restart(restart)
+  call free_land_restart(restart)
+
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     call error_mesg('soil_end','writing NetCDF soilc_CENT restart',NOTE)
+     filename = 'RESTART/'//trim(timestamp)//'soilc_CENT.nc'
+     call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
+     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
+
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
      call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
      do i = 1, N_C_TYPES
@@ -1559,7 +1595,29 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         enddo
      enddo
 
+     call save_land_restart(restart)
+     call free_land_restart(restart)
+
+     if (write_soil_carbon_restart) then
+        filename = 'RESTART/'//trim(timestamp)//'soilc_CENT_eq.nc'
+        call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
+        call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
+
+        call add_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr,'aerobic activity modifier', 'unitless')
+        call add_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr,'fast soil carbon input', 'kg C/m2')
+        call add_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr,'slow soil carbon input', 'kg C/m2')
+
+        call save_land_restart(restart)
+        call free_land_restart(restart)
+     endif
   case (SOILC_CORPSE, SOILC_CORPSE_N)
+     call error_mesg('soil_end','writing NetCDF soilc_CORPSE restart',NOTE)
+     filename = 'RESTART/'//trim(timestamp)//'soilc_CORPSE.nc'
+     call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
+     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
+     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/), .false.)
+     call add_restart_axis(restart,'litterCCohort',(/1.0/),.false.)
+
      ! make sure all arrays of carbon cohorts are of the same length
      ce = first_elmt(land_tile_map)
      do while (loop_over_tiles(ce,tile))
@@ -1627,25 +1685,14 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,'gross_nitrogen_flux_out_of_tile',soil_gross_nitrogen_flux_out_of_tile_ptr,'Cumulative nitrogen flux out of tile','kg/m2')
 
      endif
-  case default
-     call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
-  end select
+     call save_land_restart(restart)
+     call free_land_restart(restart)
 
-  call save_land_restart(restart)
-  call free_land_restart(restart)
+     if (write_soil_carbon_restart) then
+        filename = 'RESTART/'//trim(timestamp)//'soilc_CORPSE_eq.nc'
+        call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
+        call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
-  if (write_soil_carbon_restart) then
-     filename = 'RESTART/'//trim(timestamp)//'soil_carbon.nc'
-     call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
-     call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
-
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        call add_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr,'aerobic activity modifier', 'unitless')
-        call add_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr,'fast soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr,'slow soil carbon input', 'kg C/m2')
-
-     case (SOILC_CORPSE, SOILC_CORPSE_N)
         do i = 1,N_C_TYPES
            ! C inputs
            call add_tile_data(restart,trim(c_shortname(i))//'_soil_C_in','zfull',&
@@ -1677,12 +1724,13 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
                     sc_litter_C_turnover_ptr, i, k, trim(c_longname(i))//' '//trim(l_longname(k))//' litter nitrogen turnover', 'year-1')
            enddo
         enddo
-     case default
-        call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
-     end select
-     call save_land_restart(restart)
-     call free_land_restart(restart)
-  endif
+        call save_land_restart(restart)
+        call free_land_restart(restart)
+     endif
+  case default
+     call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
+  end select
+
 end subroutine save_soil_restart
 
 
