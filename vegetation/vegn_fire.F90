@@ -13,6 +13,7 @@ use fms_mod, only: check_nml_error, error_mesg, stdlog, stdout, lowercase, &
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use sphum_mod, only : qscomp
 use diag_manager_mod, only : register_diag_field, send_data
+use time_interp_external2_mod, only : ERR_FIELD_NOT_FOUND
 
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : external_ts_type, init_external_ts, del_external_ts, &
@@ -541,8 +542,14 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   ! initialize external fields
   ! SSR: Does horizontal interpolation
   if (use_FpopD_nf .OR. use_FpopD_ba) then
-     call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
-          'bilinear', fill=0.0)
+     ! First, try the field 'POP_DENSITY'. If it is not found, then try 'pop_density'.
+     call init_external_ts(population_ts, 'INPUT/population.nc', 'POP_DENSITY',&
+          'bilinear', fill=0.0, ierr=ierr)
+
+     if (ierr .eq. ERR_FIELD_NOT_FOUND) then
+       call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
+            'bilinear', fill=0.0)
+     endif
   endif
   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
      call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &

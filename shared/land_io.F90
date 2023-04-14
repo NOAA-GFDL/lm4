@@ -15,7 +15,7 @@ use axis_utils2_mod, only: axis_edges
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
 use time_interp_external2_mod, only: time_interp_external_init, &
-     time_interp_external, init_external_field, get_external_fileobj
+     time_interp_external, init_external_field, get_external_fileobj, SUCCESS
 use time_manager_mod, only: time_type
 use mpp_domains_mod, only : domain2d
 use land_numerics_mod, only : nearest, bisect
@@ -652,11 +652,12 @@ end subroutine read_field_N_3D
 ! simplified interface for the time_inerp_external: takes care of creating
 ! the horizntal interpolator
 ! ==============================================================================
-subroutine init_external_ts(ts, filename, fieldname, interp, fill)
+subroutine init_external_ts(ts, filename, fieldname, interp, fill, ierr)
   type(external_ts_type), intent(inout) :: ts
   character(*), intent(in) :: filename, fieldname
   character(*), intent(in) :: interp ! interpolation method
   real,         intent(in), optional :: fill ! fill value for missing data
+  integer,      intent(out), optional :: ierr ! Error code returned by init_external_field
 
 ! NOTE: filling missing data is not really implemented yet. It is not clear how to get
 ! the input data to determine the input valid data mask. Besides, missing input data mask
@@ -675,7 +676,11 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
   ts%fieldname = fieldname
   ts%id = init_external_field(filename, fieldname, domain=lnd%sg_domain, &
                             & axis_names=axis_names, axis_sizes=axis_sizes, &
-                            & use_comp_domain=.TRUE., override=.TRUE.)
+                            & use_comp_domain=.TRUE., override=.TRUE., ierr=ierr)
+
+  if (present(ierr)) then
+    if (ierr .ne. SUCCESS) return
+  endif
 
   !  get lon and lat of the input (source) grid, assuming that axis%data contains
   !  lat and lon of the input grid (in degrees)
