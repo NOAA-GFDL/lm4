@@ -206,7 +206,7 @@ contains
     integer              :: unit, io_status, ierr, id_restart
     integer              :: sec, day, i, j, i_species
     integer              :: nxc, nyc
-    character(len=128)   :: filename
+    character(len=*), parameter :: filename = "INPUT/river.nc"
     integer              :: id_lon, id_lat, id_lonb, id_latb
     type(Leo_Mad_trios)   :: DHG_exp            ! downstream equation exponents
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
