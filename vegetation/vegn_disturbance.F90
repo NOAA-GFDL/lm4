@@ -19,7 +19,7 @@ use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, 
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
      vegn_mergecohorts_ppa
-use snow_tile_mod,   only : snow_active
+! use snow_tile_mod,   only : snow_active ! EZSNOW
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -394,7 +394,8 @@ subroutine vegn_nat_mortality_ppa ( )
      ts = first_elmt(land_tile_map)
      do while (loop_over_tiles(ts,t0))
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated tiles
-        if (treeline_season_snow_limited.and.snow_active(t0%snow)) cycle ! do not count days with snow on ground
+        ! if (treeline_season_snow_limited.and.snow_active(t0%snow)) cycle ! do not count days with snow on ground
+        if (treeline_season_snow_limited.and.t0%snow%snow_active()) cycle ! do not count days with snow on ground ! EZSNOW
         if (t0%vegn%tc_daily > treeline_base_T) then
            ! accumulate average T over growing season, for treeline/mortality calculations
            t0%vegn%treeline_T_accum = t0%vegn%treeline_T_accum + t0%vegn%tc_daily
@@ -501,8 +502,10 @@ subroutine vegn_nat_mortality_ppa ( )
            heat1  = heat1  + land_tile_heat  (ptr)*ptr%frac
            cmass1 = cmass1 + land_tile_carbon(ptr)*ptr%frac
         enddo
-        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
-        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+      ! //FIXME EZSNOW: I have temporarily removed checks as GLASS can modify ice and snow totals when merging tiles
+        call check_conservation (tag, 'liquid + frozen water', lmass0+fmass0, lmass1+fmass1, water_cons_tol) ! EZSNOW
+      !   call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+      !   call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
         call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
         call check_conservation (tag,'heat content', heat0 , heat1 , heat_cons_tol)
      endif
