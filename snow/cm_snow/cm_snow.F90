@@ -158,7 +158,7 @@ subroutine cm_snow_init()
   integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/snow.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -233,7 +233,7 @@ subroutine cm_save_snow_restart (tile_dim_length, timestamp)
   ! call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1) ! OLDV
   call add_restart_axis(restart,'zfull',zz(1:num_l),.false., 'Z',longname='depth of level centers',sense=-1) 
 
-   write(*,*) "EZSNOW cm save restart: zz, num_l = ", zz, num_l
+  !write(*,*) "EZSNOW cm save restart: zz, num_l = ", zz, num_l
   call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
   call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')
   call add_tile_data(restart,'ws'  ,'zfull', snow_ws_ptr,   'snow solid water content','kg/m2')

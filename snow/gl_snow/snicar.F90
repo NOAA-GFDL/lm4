@@ -1149,12 +1149,12 @@ end subroutine read_snow_snicar_namelist
 
      integer :: ier      
      logical :: readvar      
-      write(*,*) "Reading SNICAR optics data"
+      ! write(*,*) "Reading SNICAR optics data"
       ! LM4p2 READ:
       ! direct-beam snow Mie parameters:
-        call read_data( ncid, 'ss_alb_ice_drc', ss_alb_snw_drc, no_domain=.true.)
-        call read_data( ncid, 'asm_prm_ice_drc', asm_prm_snw_drc, no_domain=.true.)
-        call read_data( ncid, 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc, no_domain=.true.)
+      call read_data( ncid, 'ss_alb_ice_drc', ss_alb_snw_drc, no_domain=.true.)
+      call read_data( ncid, 'asm_prm_ice_drc', asm_prm_snw_drc, no_domain=.true.)
+      call read_data( ncid, 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc, no_domain=.true.)
       ! diffuse snow Mie parameters:
       call read_data( ncid, 'ss_alb_ice_dfs', ss_alb_snw_dfs,           no_domain=.true.)
       call read_data( ncid, 'asm_prm_ice_dfs', asm_prm_snw_dfs,         no_domain=.true.)
@@ -1204,40 +1204,40 @@ end subroutine read_snow_snicar_namelist
       call read_data( ncid, 'asm_prm_dust04', asm_prm_dst4,         no_domain=.true.)
       call read_data( ncid, 'ext_cff_mss_dust04', ext_cff_mss_dst4, no_domain=.true.)
       !
-         write(*,*) 'Successfully read snow optical properties'
-         ! print some diagnostics:
-         write (*,*) 'SNICAR: Mie single scatter albedos for direct-beam ice, rds=100um: ', &
-              ss_alb_snw_drc(71,1), ss_alb_snw_drc(71,2), ss_alb_snw_drc(71,3),     &
-              ss_alb_snw_drc(71,4), ss_alb_snw_drc(71,5)
-         write (*,*) 'SNICAR: Mie single scatter albedos for diffuse ice, rds=100um: ',     &
-              ss_alb_snw_dfs(71,1), ss_alb_snw_dfs(71,2), ss_alb_snw_dfs(71,3),     &
-              ss_alb_snw_dfs(71,4), ss_alb_snw_dfs(71,5)
-         if (DO_SNO_OC) then
-            write (*,*) 'SNICAR: Including OC aerosols from snow radiative transfer calculations'
-         else
-            write (*,*) 'SNICAR: Excluding OC aerosols from snow radiative transfer calculations'
-         endif
+      !    write(*,*) 'Successfully read snow optical properties'
+      !    ! print some diagnostics:
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for direct-beam ice, rds=100um: ', &
+      !         ss_alb_snw_drc(71,1), ss_alb_snw_drc(71,2), ss_alb_snw_drc(71,3),     &
+      !         ss_alb_snw_drc(71,4), ss_alb_snw_drc(71,5)
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for diffuse ice, rds=100um: ',     &
+      !         ss_alb_snw_dfs(71,1), ss_alb_snw_dfs(71,2), ss_alb_snw_dfs(71,3),     &
+      !         ss_alb_snw_dfs(71,4), ss_alb_snw_dfs(71,5)
+      !    if (DO_SNO_OC) then
+      !       write (*,*) 'SNICAR: Including OC aerosols from snow radiative transfer calculations'
+      !    else
+      !       write (*,*) 'SNICAR: Excluding OC aerosols from snow radiative transfer calculations'
+      !    endif
 
-         write (*,*) 'SNICAR: Mie single scatter albedos for hydrophillic BC: ', &
-              ss_alb_bc1(1), ss_alb_bc1(2), ss_alb_bc1(3), ss_alb_bc1(4), ss_alb_bc1(5)
-         write (*,*) 'SNICAR: Mie single scatter albedos for hydrophobic BC: ', &
-              ss_alb_bc2(1), ss_alb_bc2(2), ss_alb_bc2(3), ss_alb_bc2(4), ss_alb_bc2(5)
-        !
-         if (DO_SNO_OC) then
-            write (*,*) 'SNICAR: Mie single scatter albedos for hydrophillic OC: ', &
-                 ss_alb_oc1(1), ss_alb_oc1(2), ss_alb_oc1(3), ss_alb_oc1(4), ss_alb_oc1(5)
-            write (*,*) 'SNICAR: Mie single scatter albedos for hydrophobic OC: ', &
-                 ss_alb_oc2(1), ss_alb_oc2(2), ss_alb_oc2(3), ss_alb_oc2(4), ss_alb_oc2(5)
-         endif
-         write (*,*) 'SNICAR: Mie single scatter albedos for dust species 1: ', &
-              ss_alb_dst1(1), ss_alb_dst1(2), ss_alb_dst1(3), ss_alb_dst1(4), ss_alb_dst1(5)
-         write (*,*) 'SNICAR: Mie single scatter albedos for dust species 2: ', &
-              ss_alb_dst2(1), ss_alb_dst2(2), ss_alb_dst2(3), ss_alb_dst2(4), ss_alb_dst2(5)
-         write (*,*) 'SNICAR: Mie single scatter albedos for dust species 3: ', &
-              ss_alb_dst3(1), ss_alb_dst3(2), ss_alb_dst3(3), ss_alb_dst3(4), ss_alb_dst3(5)
-         write (*,*) 'SNICAR: Mie single scatter albedos for dust species 4: ', &
-              ss_alb_dst4(1), ss_alb_dst4(2), ss_alb_dst4(3), ss_alb_dst4(4), ss_alb_dst4(5)
-         write(*,*)
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for hydrophillic BC: ', &
+      !         ss_alb_bc1(1), ss_alb_bc1(2), ss_alb_bc1(3), ss_alb_bc1(4), ss_alb_bc1(5)
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for hydrophobic BC: ', &
+      !         ss_alb_bc2(1), ss_alb_bc2(2), ss_alb_bc2(3), ss_alb_bc2(4), ss_alb_bc2(5)
+      !   !
+      !    if (DO_SNO_OC) then
+      !       write (*,*) 'SNICAR: Mie single scatter albedos for hydrophillic OC: ', &
+      !            ss_alb_oc1(1), ss_alb_oc1(2), ss_alb_oc1(3), ss_alb_oc1(4), ss_alb_oc1(5)
+      !       write (*,*) 'SNICAR: Mie single scatter albedos for hydrophobic OC: ', &
+      !            ss_alb_oc2(1), ss_alb_oc2(2), ss_alb_oc2(3), ss_alb_oc2(4), ss_alb_oc2(5)
+      !    endif
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for dust species 1: ', &
+      !         ss_alb_dst1(1), ss_alb_dst1(2), ss_alb_dst1(3), ss_alb_dst1(4), ss_alb_dst1(5)
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for dust species 2: ', &
+      !         ss_alb_dst2(1), ss_alb_dst2(2), ss_alb_dst2(3), ss_alb_dst2(4), ss_alb_dst2(5)
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for dust species 3: ', &
+      !         ss_alb_dst3(1), ss_alb_dst3(2), ss_alb_dst3(3), ss_alb_dst3(4), ss_alb_dst3(5)
+      !    write (*,*) 'SNICAR: Mie single scatter albedos for dust species 4: ', &
+      !         ss_alb_dst4(1), ss_alb_dst4(2), ss_alb_dst4(3), ss_alb_dst4(4), ss_alb_dst4(5)
+      !    write(*,*)
       !
     end subroutine read_snicar_optics_data
 

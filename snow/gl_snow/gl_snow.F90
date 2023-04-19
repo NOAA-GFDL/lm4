@@ -233,7 +233,8 @@ subroutine gl_snow_init()
   integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+!   character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/snow.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
   integer ib, ik, ic, counter
@@ -268,24 +269,22 @@ subroutine gl_snow_init()
 
   ! -------- initialize snow state --------
   call open_land_restart(restart,restart_file_name,restart_exists)
-  if (restart_exists) then ! // TODO EZSNOW read restart with snowpack
+  if (restart_exists) then 
 
    call error_mesg('gl_snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
 
    read_old_snow_restart = field_exists(restart,'temp')
 
    if (read_old_snow_restart) then
-      ! READ OLD SNOW RESTART FILE
-      write(*,*) "start reading old CM restart"
+      write(*,*) "Snow GLASS :: reading old snow CM model restart"
       call get_tile_data(restart, 'temp', 'zfull', cm_snow_temp_ptr)
       call get_tile_data(restart, 'wl'  , 'zfull', cm_snow_wl_ptr)
       call get_tile_data(restart, 'ws'  , 'zfull', cm_snow_ws_ptr)
-      write(*,*) "done reading old CM restart"
 
 
 
 
-      ! NOW PASS SNOW VARS TO NEW SNOW STRUCTURE
+      ! now pass snow variables to new snow structure
       ce = first_elmt(land_tile_map)
       do while(loop_over_tiles(ce, tile))
          ! if (.not.associated(tile%snow)) cycle
@@ -491,7 +490,8 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
 
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = trim(timestamp)//'snow.res.nc'
+  ! filename = trim(timestamp)//'snow.res.nc'
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart1, filename, snow_tile_exists, tile_dim_length)
 
   ! create output file, including internal structure necessary for tile output
@@ -757,21 +757,6 @@ subroutine cm_snow_ws_ptr(tile, i, ptr)
    endif
 end subroutine cm_snow_ws_ptr
 
-#define F90_TYPE real
-#define NF_TYPE NF_DOUBLE
-#define NF_FILL_VALUE NF_FILL_DOUBLE
-#define READ_0D_FPTR read_snowlayer_data_r0d_fptr
-#define WRITE_0D_FPTR write_snowlayer_data_r0d_fptr
-#define WRITE_0D write_snowlayer_data_r0d
-! #include "vegn_snowlayer_io.inc"
-
-#define F90_TYPE integer
-#define NF_TYPE NF_INT
-#define NF_FILL_VALUE NF_FILL_INT
-#define READ_0D_FPTR read_snowlayer_data_i0d_fptr
-#define WRITE_0D_FPTR write_snowlayer_data_i0d_fptr
-#define WRITE_0D write_snowlayer_data_i0d
-! #include "vegn_snowlayer_io.inc"
 
 end module gl_snow_mod
 

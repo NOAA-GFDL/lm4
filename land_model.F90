@@ -1725,8 +1725,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       mass_lai_em1 = tile%snow%sp%lai_em() ! initialize LAIs mass cons check
       hlswept = hlswept - lswept * HLF      ! switch to lm4p2 energy conv.
 
-      ! DO A RELAYERING HERE? MAYBE BEST IF TILE MERGING OCCURRED AND THIN LAYERS HAVE BEEN PRODUCED
-      call tile%snow%sp%attempt_merge_layers() ! // FIXME
+      ! DO A RELAYERING HERE - BEST IF TILE MERGING OCCURRED AND THIN LAYERS HAVE BEEN PRODUCED
+      call tile%snow%sp%attempt_merge_layers() ! // TODO
   endif
 
   soil_uptake_T(:) = tfreeze ! just to avoid using un-initialized values

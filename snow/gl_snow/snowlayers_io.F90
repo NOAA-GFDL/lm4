@@ -298,11 +298,11 @@ subroutine read_create_snowlayers(restart)
                           FATAL)
       endif
  
-      if(.not.associated(tile%vegn)) then
+      if(.not.associated(tile%snow)) then
          info = ''
          write(info,'("(",3i3,")")')i,j,t
          call error_mesg('read_create_snowlayer',&
-              'vegn tile'//trim(info)//' does not exist, but is necessary to create a snowlayer', &
+              'snow tile'//trim(info)//' does not exist, but is necessary to create a snowlayer', &
               WARNING)
       else
          !  tile%vegn%n_cohorts = tile%vegn%n_cohorts + 1
@@ -513,18 +513,18 @@ subroutine create_snowlayer_out_file_idx(rhandle,name,cidx,snowlayers_dim_length
  end subroutine create_snowlayer_out_file_idx
 
 subroutine distrib_snowlayer_data_i0d(fptr,idx,ntiles,data)
-  integer, intent(in) :: idx(:) ! local vector of cohort indices
+  integer, intent(in) :: idx(:) ! local vector of snowlayer indices
   integer, intent(in) :: ntiles ! size of the tile dimension
-  integer, intent(in) :: data(:) ! local cohort data
+  integer, intent(in) :: data(:) ! local snowlayer data
   procedure(cptr_i0) :: fptr ! subroutine returning pointer to the data
 
   ! ---- local vars
   type(snow_layer_type), pointer :: snowlayer
-  integer, pointer :: ptr ! pointer to the individual cohort data
+  integer, pointer :: ptr ! pointer to the individual snowlayer data
   integer :: mask(size(data)) ! mask of valid data
   integer :: i
 
-  ! gather data into an array along the cohort dimension
+  ! gather data into an array along the snowlayer dimension
   do i = 1, size(idx)
      call get_snowlayer_by_idx ( idx(i), ntiles, snowlayer)
      if (associated(snowlayer)) then
@@ -535,18 +535,18 @@ subroutine distrib_snowlayer_data_i0d(fptr,idx,ntiles,data)
 end subroutine distrib_snowlayer_data_i0d
 
 subroutine distrib_snowlayer_data_r0d(fptr,idx,ntiles,data)
-  integer, intent(in) :: idx(:) ! local vector of cohort indices
+  integer, intent(in) :: idx(:) ! local vector of snowlayer indices
   integer, intent(in) :: ntiles ! size of the tile dimension
-  real, intent(in) :: data(:) ! local cohort data
+  real, intent(in) :: data(:) ! local snowlayer data
   procedure(cptr_r0) :: fptr ! subroutine returning pointer to the data
 
   ! ---- local vars
   type(snow_layer_type), pointer :: snowlayer
-  real, pointer :: ptr ! pointer to the individual cohort data
+  real, pointer :: ptr ! pointer to the individual snowlayer data
   integer :: mask(size(data))
   integer :: i
 
-  ! gather data into an array along the cohort dimension
+  ! gather data into an array along the snowlayer dimension
   do i = 1, size(idx)
      call get_snowlayer_by_idx ( idx(i), ntiles, snowlayer)
      if (associated(snowlayer)) then
@@ -606,9 +606,9 @@ end subroutine gather_snowlayer_index
 
 subroutine gather_snowlayer_data_i0d(fptr,idx,ntiles,data)
   procedure(cptr_i0) :: fptr ! subroutine returning pointer to the data
-  integer, intent(in) :: idx(:) ! local vector of cohort indices
+  integer, intent(in) :: idx(:) ! local vector of snowlayer indices
   integer, intent(in) :: ntiles ! size of the tile dimension
-  integer, intent(out) :: data(:) ! local cohort data
+  integer, intent(out) :: data(:) ! local snowlayer data
 
   ! ---- local vars
   type(snow_layer_type), pointer :: snowlayer

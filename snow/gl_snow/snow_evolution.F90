@@ -1,7 +1,6 @@
 module snow_evolution_mod
 
 
-!----- added for lm4p2 -----
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
 #ifdef INTERNAL_FILE_NML
@@ -13,45 +12,35 @@ use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE, lowercase
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
-!------- end lm4p2 ----------
-
 use snicar_mod, only: compute_snicar_albedo
+use snow_constants_mod
+use snowpack_mod
+use parent_snow_tile_mod, only : distinct_snow_on_glacier
 
+implicit none
+private
 
-
-    use snow_constants_mod
-    use snowpack_mod
-    use parent_snow_tile_mod, only : distinct_snow_on_glacier
-
-    implicit none
-    private
-
-    public new_snow_density
-    public snow_history_type
-    ! public :: snowpack_update_fast_0d
-    public :: snow_evolution_init
-    public :: read_F06_data
-    ! public :: compute_snow_grain_shape
-    public :: gl_snow_step_2
-    public :: gl_sweep_tiny_snow
-    public :: gl_sweep_huge_snow
-    public :: gl_compute_snow_albedo
-    public :: read_snow_evolution_namelist
-    public :: use_internal_sources
-    public :: min_snow_depth
-    public :: do_mgimplicit
-    public :: albedo_to_use
+public new_snow_density
+public snow_history_type
+public :: snow_evolution_init
+public :: read_F06_data
+public :: gl_snow_step_2
+public :: gl_sweep_tiny_snow
+public :: gl_sweep_huge_snow
+public :: gl_compute_snow_albedo
+public :: read_snow_evolution_namelist
+public :: use_internal_sources
+public :: min_snow_depth
+public :: do_mgimplicit
+public :: albedo_to_use
 
 
 
 ! ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'snow_evolution_mod' ! lm4p2
+character(len=*), parameter :: module_name = 'snow_evolution_mod' 
 #include "../../shared/version_variable.inc" 
 
-
-
-! module variables
-! variable to store Flanner and Zender 2006 data
+! structure to store Flanner and Zender 2006 data
 type :: data_F06_type
     REAL, ALLOCATABLE :: xT(:)
     REAL, ALLOCATABLE :: xDT(:)
