@@ -13,6 +13,7 @@ use fms_mod, only : file_exist, check_nml_error, &
 use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message 
 use land_data_mod, only : lnd, log_version
 use snow_constants_mod
+use constants_mod, only : PI
 use snowpack_mod
 ! use snow_evolution_mod, only: compute_snow_grain_shape
 

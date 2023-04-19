@@ -4,27 +4,23 @@ implicit none
 
 ! // TODO for some of these variable, use the one already defined in lm4p2
 
-real, public, parameter :: PI     = 3.14159265358979
-
-real, public, parameter :: GGRAV  = 9.80665           !< Terrestrial gravitational constant [m s^-2]
-real, public, parameter :: RDGAS  = 287.04           !< Gas constant for dry air [J/kg/deg]
-real, public, parameter :: KAPPA  = 2.0/7.0  !< RDGAS / CP_AIR [dimensionless]
-real, public, parameter :: CP_AIR = RDGAS/KAPPA              !< Specific heat capacity of dry air at constant pressure [J/kg/deg]
-real, public, parameter :: TFREEZE = 273.15    !< Freezing temperature of fresh water [K]
+! real, public, parameter :: PI     = 3.14159265358979
+! real, public, parameter :: GGRAV  = 9.80665           !< Terrestrial gravitational constant [m s^-2]
+! real, public, parameter :: RDGAS  = 287.04           !< Gas constant for dry air [J/kg/deg]
+! real, public, parameter :: KAPPA  = 2.0/7.0  !< RDGAS / CP_AIR [dimensionless]
+! real, public, parameter :: CP_AIR = RDGAS/KAPPA              !< Specific heat capacity of dry air at constant pressure [J/kg/deg]
+! real, public, parameter :: TFREEZE = 273.15    !< Freezing temperature of fresh water [K]
 real, public, parameter :: CLW     = 4218.0    !< specific heat of liquid water [J/kg/K]
 real, public, parameter :: CSW     = 2106.0   !< specific heat of ice [J/kg/K] 
 real, public, parameter :: CPW     = 1952.0    !< specific heat of water vapor at constant pressure [J/kg/K]
-! real, public, parameter :: HLF     = 3.3358e5  !< Latent heat of fusion [J/kg]
-real, public, parameter :: HLF     = 334000.0 !< Latent heat of fusion [J/kg]
-
-real, public, parameter :: HLV     = 2.257e6  !< Latent heat of vaporization [J/kg]
-real, public, parameter :: STEFAN  = 5.6734e-8 !< Stefan-Boltzmann constant [W/m^2/deg^4]
-real, public, parameter :: VONKARM = 0.40      !< Von Karman constant [dimensionless]
+! real, public, parameter :: HLF     = 334000.0 !< Latent heat of fusion [J/kg]
+! real, public, parameter :: HLV     = 2.257e6  !< Latent heat of vaporization [J/kg]
+! real, public, parameter :: STEFAN  = 5.6734e-8 !< Stefan-Boltzmann constant [W/m^2/deg^4]
+! real, public, parameter :: VONKARM = 0.40      !< Von Karman constant [dimensionless]
 
 integer, public, parameter :: NBANDS = 2      !< Number of shortwave bands
 integer, public, parameter :: BAND_VIS = 1      !< Index of visible band
 integer, public, parameter :: BAND_NIR = 2      !< Index of NIR band
-
 integer, public, parameter :: NTRACERS = 3      !< Number of tracers tracked
 integer, public, parameter :: TR_BC = 1      !< Index of black carbon - tracer 1
 integer, public, parameter :: TR_MD = 2      !< Index of mineral dust - tracer 2

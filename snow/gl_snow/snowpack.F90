@@ -12,10 +12,7 @@ use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE,lowercase
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
-!------- end lm4p2 ----------
-
-
-
+use constants_mod,      only: tfreeze, hlv, hlf, PI 
 use snow_constants_mod
 
 implicit none
@@ -30,12 +27,6 @@ public :: add_liquid_to_layer
 public :: snowpack_init
 public :: snowpack_end
 public :: MAX_OPT_LAYERS
-
-! public :: opt_layer_N 
-! public :: opt_layer_R
-! public :: opt_layer_max 
-
-! additional, needed for lm4p2
 public :: snow_tile_heat
 public :: snowpack_init_lm4p2
 public :: read_snowpack_namelist
@@ -59,7 +50,6 @@ contains
     procedure :: hCon => snow_heat_conductance !< heat conductance of snow, W/m/K
     procedure :: heat => snow_heat_content     ! heat content of the layer, J/m2
     procedure :: density => snow_density     ! snow density of the layer, Kg/m3
-    ! procedure :: dendr => snow_dendricity     ! snow dendricity of the layer, Kg/m3
 end type snow_layer_type
 
 !> \brief State of the snowpack

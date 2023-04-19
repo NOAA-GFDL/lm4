@@ -17,6 +17,8 @@ use snow_constants_mod
 use snowpack_mod
 use parent_snow_tile_mod, only : distinct_snow_on_glacier
 
+use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
+
 implicit none
 private
 
@@ -2995,7 +2997,7 @@ subroutine snow_compaction(s, dt, verbose)
             ! gs = 1E-4 * (4.0 - s%snow(il)%sph) ! using Carmagnola 2013: gs is computed from dopt:
             gs = s%snow(il)%optd
             current_layer_mass = s%snow(il)%ws + s%snow(il)%wl
-            sigma = GGRAV * (mass_on_top + 0.5 * current_layer_mass)
+            sigma = GRAV * (mass_on_top + 0.5 * current_layer_mass)
             mass_on_top = mass_on_top + current_layer_mass
 
             ! if (s%snow(il)%wl < 0) then

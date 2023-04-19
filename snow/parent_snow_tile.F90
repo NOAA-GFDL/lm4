@@ -19,15 +19,13 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-
-public :: read_snow_data_namelist ! done here
-public :: read_snow_data_namelist_brief ! done here
-public :: snow_data_thermodynamics ! done here
-public :: snow_data_hydraulics ! done here
-public :: snow_data_area ! done here
-public :: snow_radiation ! done here
+public :: read_snow_data_namelist 
+public :: read_snow_data_namelist_brief 
+public :: snow_data_thermodynamics 
+public :: snow_data_hydraulics 
+public :: snow_data_area 
+public :: snow_radiation 
 public :: mc_fict, z0_momentum, k_over_B, num_l, dz, distinct_snow_on_glacier
-
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -59,43 +57,36 @@ real, parameter :: t_range = 10.0 ! degK
 
 
 type, abstract, public :: snow_tile_type
-  !!!!! variables common to the two snow models
-   integer :: tag ! kind of the tile
-   integer :: nlayers !< number of snow layers
-   !!!!! variables needed for old snow model only
-   real, allocatable :: wl(:)
-   real, allocatable :: ws(:)
-   real, allocatable :: T(:)
-   real, allocatable :: e(:), f(:)
-   type(snowpack_t) :: sp ! structure with data for NEW snow model
-   contains
-   procedure(func_snow_is_selected),   deferred :: snow_is_selected
-   procedure(func_snow_roughness),   deferred :: snow_roughness
-   procedure(func_stock_pe),   deferred :: stock_pe
-   procedure(func_snow_active),   deferred :: snow_active
-   procedure(func_snow_tile_heat),   deferred :: snow_tile_heat
-   procedure(func_snow_get_sfc_temp),   deferred :: snow_get_sfc_temp
-
-   procedure(func_merge_snow_tiles), deferred :: merge_snow_tiles
-   procedure(func_get_snow_tile_tag), deferred :: get_snow_tile_tag
-
-    procedure(func_snow_get_wsi), deferred :: get_wsi
-    procedure(func_snow_get_wli), deferred :: get_wli
-    procedure(func_snow_get_Ti), deferred :: get_Ti
-
-    procedure(func_snow_set_wsi), deferred :: set_wsi
-    procedure(func_snow_set_wli), deferred :: set_wli
-    procedure(func_snow_set_Ti), deferred :: set_Ti
-
-
-    procedure(func_get_snow_total_ice), deferred :: ice
-    procedure(func_get_snow_total_liq), deferred :: liq
-
+  ! variables common to the two snow models:
+  integer :: tag ! kind of the tile
+  integer :: nlayers !< number of snow layers
+  ! variables needed for old snow model only:
+  real, allocatable :: wl(:)
+  real, allocatable :: ws(:)
+  real, allocatable :: T(:)
+  real, allocatable :: e(:), f(:)
+  type(snowpack_t) :: sp ! structure with data for glass snow model
+  contains
+  procedure(func_snow_is_selected),   deferred :: snow_is_selected
+  procedure(func_snow_roughness),   deferred :: snow_roughness
+  procedure(func_stock_pe),   deferred :: stock_pe
+  procedure(func_snow_active),   deferred :: snow_active
+  procedure(func_snow_tile_heat),   deferred :: snow_tile_heat
+  procedure(func_snow_get_sfc_temp),   deferred :: snow_get_sfc_temp
+  procedure(func_merge_snow_tiles), deferred :: merge_snow_tiles
+  procedure(func_get_snow_tile_tag), deferred :: get_snow_tile_tag
+  procedure(func_snow_get_wsi), deferred :: get_wsi
+  procedure(func_snow_get_wli), deferred :: get_wli
+  procedure(func_snow_get_Ti), deferred :: get_Ti
+  procedure(func_snow_set_wsi), deferred :: set_wsi
+  procedure(func_snow_set_wli), deferred :: set_wli
+  procedure(func_snow_set_Ti), deferred :: set_Ti
+  procedure(func_get_snow_total_ice), deferred :: ice
+  procedure(func_get_snow_total_liq), deferred :: liq
 end type snow_tile_type
 
 abstract interface
   ! module procedures
-
   subroutine func_merge_snow_tiles(snow2, w2, snow1, w1)
     import :: snow_tile_type
     real, intent(in) :: w1

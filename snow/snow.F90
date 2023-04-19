@@ -44,7 +44,7 @@ use gl_snow_tile_mod, only: gl_snow_tile_type
 
 use snow_evolution_mod, only: gl_snow_step_2, gl_sweep_tiny_snow, gl_compute_snow_albedo
 
-use snow_constants_mod, only: NTRACERS !, HLF
+use snow_constants_mod, only: NTRACERS 
 
 
 implicit none
@@ -55,7 +55,6 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-! public :: snow_get_sfc_temp ! interface
 public :: snow_get_depth_area ! interface
 public :: sweep_tiny_snow ! interface
 public :: snow_step_1 ! interface

@@ -17,8 +17,8 @@ contains
 ! end function snow_tile_exists
 
 ! ============================================================================
-! cohort accessor functions: given a pointer to a snowlayer, return a pointer to a
-! specific member of the cohort structure
+! snowlayer accessor functions: given a pointer to a snowlayer, return a pointer to a
+! specific member of the snowlayer structure
 
 #define DEFINE_SNOWPACK_ACCESSOR_0D(xtype,x) subroutine snowtile_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%snow))p=>t%snow%sp%x;endif;end subroutine

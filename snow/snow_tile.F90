@@ -14,22 +14,21 @@ use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
-use cm_snow_tile_mod, only : cm_snow_tile_type, cm_snow_tile_ctor, cm_snow_tile_copy_ctor, cm_delete_snow_tile, &
-                              cm_snow_tiles_can_be_merged, cm_merge_snow_tiles, cm_snow_is_selected, &
-                              cm_get_snow_tile_tag, cm_snow_tile_stock_pe, cm_snow_tile_heat, &
-                              cm_snow_active, &
-                              cm_snow_roughness, cm_snow_get_sfc_temp
+use cm_snow_tile_mod, only : cm_snow_tile_type, cm_snow_tile_ctor, & 
+  cm_snow_tile_copy_ctor, cm_delete_snow_tile, &
+  cm_snow_tiles_can_be_merged, cm_merge_snow_tiles, cm_snow_is_selected, &
+  cm_get_snow_tile_tag, cm_snow_tile_stock_pe, cm_snow_tile_heat, &
+  cm_snow_active, &
+  cm_snow_roughness, cm_snow_get_sfc_temp
 
-use gl_snow_tile_mod, only : gl_snow_tile_type, gl_snow_tile_ctor, gl_snow_tile_copy_ctor, gl_delete_snow_tile, &
-                              gl_snow_tiles_can_be_merged, gl_merge_snow_tiles, gl_snow_is_selected, &
-                              gl_get_snow_tile_tag, gl_snow_tile_stock_pe, gl_snow_tile_heat, &
-                              gl_snow_active, &
-                              gl_snow_roughness, gl_snow_get_sfc_temp
-
+use gl_snow_tile_mod, only : gl_snow_tile_type, gl_snow_tile_ctor, & 
+  gl_snow_tile_copy_ctor, gl_delete_snow_tile, &
+  gl_snow_tiles_can_be_merged, gl_merge_snow_tiles, gl_snow_is_selected, &
+  gl_get_snow_tile_tag, gl_snow_tile_stock_pe, gl_snow_tile_heat, &
+  gl_snow_active, &
+  gl_snow_roughness, gl_snow_get_sfc_temp
 
 use parent_snow_tile_mod, only: snow_tile_type, snow_option, num_l
-
-
 
 
 implicit none
@@ -39,7 +38,6 @@ private
 public :: new_snow_tile
 public :: delete_snow_tile
 public :: snow_tiles_can_be_merged
-
 ! ==== end of public interfaces ==============================================
 
 interface new_snow_tile
@@ -51,23 +49,23 @@ end interface
 character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
 
-integer, parameter, public :: max_lev = 10
-
-! from the modis brdf/albedo product user's guide:
-real, parameter :: g_iso  = 1.
-real, parameter :: g_vol  = 0.189184
-real, parameter :: g_geo  = -1.377622
-real, parameter :: g0_iso = 1.0
-real, parameter :: g1_iso = 0.0
-real, parameter :: g2_iso = 0.0
-real, parameter :: g0_vol = -0.007574
-real, parameter :: g1_vol = -0.070987
-real, parameter :: g2_vol =  0.307588
-real, parameter :: g0_geo = -1.284909
-real, parameter :: g1_geo = -0.166314
-real, parameter :: g2_geo =  0.041840
-! range of temperatures for ramp between "warm" and "cold" albedo
-real, parameter :: t_range = 10.0 ! degK
+! integer, parameter, public :: max_lev = 10
+! ! //TODO use the pars from parent_snow_tile instead
+! ! from the modis brdf/albedo product user's guide:
+! real, parameter :: g_iso  = 1.
+! real, parameter :: g_vol  = 0.189184
+! real, parameter :: g_geo  = -1.377622
+! real, parameter :: g0_iso = 1.0
+! real, parameter :: g1_iso = 0.0
+! real, parameter :: g2_iso = 0.0
+! real, parameter :: g0_vol = -0.007574
+! real, parameter :: g1_vol = -0.070987
+! real, parameter :: g2_vol =  0.307588
+! real, parameter :: g0_geo = -1.284909
+! real, parameter :: g1_geo = -0.166314
+! real, parameter :: g2_geo =  0.041840
+! ! range of temperatures for ramp between "warm" and "cold" albedo
+! real, parameter :: t_range = 10.0 ! degK
 
 ! ==== types =================================================================
 
@@ -76,7 +74,6 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 function snow_tile_ctor(tag) result(ptr)
-  ! class(cm2_snow_tile_type), pointer :: ptr ! return value
   class(snow_tile_type), pointer :: ptr ! return value
   integer, optional, intent(in) :: tag ! kind of tile
   select case(trim(lowercase(snow_option)))
