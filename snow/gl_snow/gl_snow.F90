@@ -541,7 +541,7 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
    ! call add_scalar_data(restart1,'topsnowdeficit',snowtile_topsnowdeficit_ptr,'snowpack top snow deficit', 'kg/m2')
    ! call add_scalar_data(restart1,'topsnowheatdeficit',snowtile_topsnowheatdeficit_ptr,'snowpack top snow heat deficit', 'J/m2')
 
-      call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),'NB',longname='shortwave bands',sense=-1)
+      call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),.false., 'NB',longname='shortwave bands',sense=-1)
       ! call add_tile_data(restart,'fpdir3d','bands', fpdir3d_ptr, 'direct flux correction','dimless')
 
       call add_tile_data(restart1,'beta_rad', 'bands', beta_rad_ptr, 'snow optical thickness', 'm^-1')
