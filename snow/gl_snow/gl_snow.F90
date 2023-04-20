@@ -120,7 +120,8 @@ subroutine gl_snow_init()
   integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(*), parameter :: restart_file_name='INPUT/snow.nc'
+  ! character(*), parameter :: restart_file_name='INPUT/snow.res.nc' ! OLD-VERSION
+  character(*), parameter :: restart_file_name='INPUT/snow.nc' ! EZSNOW-2022SC
   type(land_restart_type) :: restart
   logical :: restart_exists
   integer ib, ik, ic, counter
@@ -305,7 +306,8 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
 
 ! Note that filename is updated for tile & rank numbers during file creation
-  filename = 'RESTART/'//trim(timestamp)//'snow.nc'
+  ! filename = trim(timestamp)//'snow.res.nc' ! OLD VERSION
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc' ! EZSNOW-2022SC
   call init_land_restart(restart1, filename, snow_tile_exists, tile_dim_length)
 
   ! create compressed dimension for snow layers -- must be called even
@@ -331,7 +333,8 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   call add_snowlayer_data(restart1,'wc_em_md',snowlayer_wc_em_md_ptr,'LAI content', 'mg/m2')
   call add_snowlayer_data(restart1,'wc_em_om',snowlayer_wc_em_om_ptr,'LAI content', 'mg/m2')
 
-  call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),.false., 'NB',longname='shortwave bands',sense=-1)
+  ! call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),'NB',longname='shortwave bands',sense=-1) ! OLD VERSION
+  call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),.false., 'NB',longname='shortwave bands',sense=-1) ! EZSNOW-2022SC
 
   call add_tile_data(restart1,'beta_rad', 'bands', beta_rad_ptr, 'snow optical thickness', 'm^-1')
   call add_int_tile_data(restart1,'nlayers', snowtile_nlayers_ptr,'number of snow layers', 'number')

@@ -190,7 +190,8 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
   real temp_lost_wl, temp_lost_ws, temp_lost_heat, temp_density, temp_lost_dz
   real temp_lost_age_w, temp_lost_sph_w, temp_lost_optd_w, temp_lost_dendr_w 
   real true_heat_3, fict_heat_3, orig_heat_1, orig_heat_2
-  integer ill, use_first_tile
+  integer ill
+  logical use_first_tile
 
 
   snow1 = snow1ez%sp

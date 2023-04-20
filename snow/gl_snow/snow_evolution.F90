@@ -1397,7 +1397,6 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
 
             ! if actually dendritic, update dendriticy:
             if (snowpack%snow(il)%dendr > 1E-7 ) then
-                ! ddendr = - dendr/2.0/tau_i ! //FIXME
                 ddendr = - dendr/2.0/tau_i * dt_hours
             else
                 ddendr = 0.0
@@ -2412,10 +2411,7 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
         snow0%optd = dopt_fall
         snow0%sph = s_fall
         ! merge the new layer snow0 into the top snowpack layer
-        ! s%snow(1) = merge_layers(snow0, s%snow(1) )
-
-        call merge_layers(snow0, s%snow(1) ) ! //FIXME, original
-        ! call merge_layers(snow0, s%snow(s%nlayers) ) ! //FIXME, original
+        call merge_layers(snow0, s%snow(1)) 
 
     else ! snow does not exist on the ground, or a lot of snow
         if (verbose) write(*,*) "either no old snow, or a lot of new snow: create new layers"
@@ -2484,14 +2480,7 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
                 if (verbose) write(*,*) "existing snow present; adding new layers to existing snowpack"
                 ! copy the existing snow layers in the bottom part of the new snow column
 
-                snow1(n_new_layers+1:n_new_layers+s%nlayers) = s%snow(1:s%nlayers) ! //FIXME original, to uncomment
-
-
-                ! Experiment: Add fresh snow below
-                ! snow1(s%nlayers+1:n_new_layers+s%nlayers) = snow1(1:n_new_layers) ! //FIXME , remove
-                ! snow1(1:s%nlayers) = s%snow(1:s%nlayers) ! //FIXME, remove
-
-
+                snow1(n_new_layers+1:n_new_layers+s%nlayers) = s%snow(1:s%nlayers) 
                 s%snow = snow1
                 s%nlayers = s%nlayers + n_new_layers
             endif
@@ -2525,8 +2514,6 @@ real, intent(in) :: rho_snow_layer ! density of the snow layer [kg m^-3]
 real theta_crocus, theta_englesson, theta
 real Crmax, Crmin, gamma_e
 ! Fraction of pore spaces occupied by water
-! theta_crocus = 0.0snow5
-! theta_crocus = 0.1 ! //FIXME
 ! Or, from Englesson 1971 / from Dingman's book:
 ! not used for now
 ! theta_englesson = -0.0735*(rho_snow_layer/rho_water)+2.67*10.0**(-4)*(rho_snow_layer**2/rho_water)

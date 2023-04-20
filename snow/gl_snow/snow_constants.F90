@@ -2,7 +2,7 @@ module snow_constants_mod
 
 implicit none
 
-! // TODO for some of these variable, use the one already defined in lm4p2
+! for some of these variable, use the one already defined in lm4p2
 
 ! real, public, parameter :: PI     = 3.14159265358979
 ! real, public, parameter :: GGRAV  = 9.80665           !< Terrestrial gravitational constant [m s^-2]
@@ -28,7 +28,6 @@ integer, public, parameter :: TR_OM = 3      !< Index of organic carbon - tracer
 
  !< scavenging coefficients for the tracters                  (BC,  MD,  OM)
 real, dimension(NTRACERS), public, parameter :: SCAVENG = (/ 0.2, 0.0, 0.0 /)     
-! real, dimension(NTRACERS), public, parameter :: SCAVENG = (/ 0.2, 0.2, 0.2 /)     
 
 
 

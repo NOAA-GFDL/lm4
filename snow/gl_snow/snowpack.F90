@@ -1131,14 +1131,14 @@ subroutine snowpack_step_1a(s, &
 
     ! compute additional variables needed in LM4P2 snow_step1
       snow_T1 = s%snow(1)%T
-      ! snow_T1 = s%snow(s%nlayers)%T ! // FIXME
+      ! snow_T1 = s%snow(s%nlayers)%T ! // TODO, not currently used, clean
       ! instead of 1st layer, use average temperature of top 3 cm?
     ! call s%nearsurf_properties()
       ! snow_T1 = s%nearsurf_T
 
 
   !  write(*,*) "-------------------------------------------"
-  !  write(*,*) "AVRG T BEFORE STEP 1 = ", s%avrg_T() ! // FIXME
+  !  write(*,*) "AVRG T BEFORE STEP 1 = ", s%avrg_T() ! // TODO not currently used, clean
 
 
       snow_liq = s%snow(1)%wl 

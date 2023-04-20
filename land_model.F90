@@ -1765,11 +1765,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   subs_subl = grnd_subl
 
-  if (trim(lowercase(snow_option)) == 'gl') then ! EZSNOW updated snow step 1
-   call tile%snow%sp%step1a(  &              ! input
-    snow_active, snow_T, snow_rh, snow_liq, snow_ice, &   ! output
-    snow_subl, snow_area, snow_E_max, delta_time, do_mgimplicit, grnd_T)   
-
+   if (trim(lowercase(snow_option)) == 'gl') then ! EZSNOW updated snow step 1
+      call tile%snow%sp%step1a(  &              ! input
+         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &   ! output
+         snow_subl, snow_area, snow_E_max, delta_time, do_mgimplicit, grnd_T)   
 
       if(is_watch_point()) then
          write(*,*) "##### Check after glass snow step 1a #####"
@@ -1781,17 +1780,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          __DEBUG4__( snow_active, snow_T, snow_liq, snow_ice)
       endif
 
-            ! ! -------
-            ! if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat) 
-            ! ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-            ! tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
-            ! call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,    delta_time ) ! // FIXME move back later
-            ! ! -------
-else
-   call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
-      snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-      snow_subl, snow_area, G0, DGDTg )
-endif
+   else
+      call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
+         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+         snow_subl, snow_area, G0, DGDTg )
+   endif
 
 
   if (snow_active) then
@@ -2275,9 +2268,6 @@ endif
               ! case of CM snow model
               fswg_surface=fswg
            endif
-  
-                 ! // FIXME subst with original
-                 ! fswg_surface = fswg
 
            ! solve the non-linear equation for energy balance at the surface.
 
@@ -2502,7 +2492,7 @@ call snow_step_2 ( tile%snow, snow_subl,                     &
 ! grnd_T = grnd_T_preprec ! //TODO remove, for export only
 ! endif
 
-! write(*,*) "AVRG T AFTER STEP 2 = ", tile%snow%sp%avrg_T() ! // FIXME
+! write(*,*) "AVRG T AFTER STEP 2 = ", tile%snow%sp%avrg_T() ! // TODO clean up
 
 snow_lrunf  = snow_lrunf  + lswept/delta_time
 snow_frunf  = snow_frunf  + fswept/delta_time
@@ -3926,7 +3916,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   if (associated(tile%lake)) call lake_get_sfc_temp(tile%lake, grnd_T)
   if (associated(tile%soil)) call soil_get_sfc_temp(tile%soil, grnd_T)
   ! if (snow_area > 0)         call snow_get_sfc_temp(tile%snow, grnd_T)
-  ! call tile%snow%sp%nearsurf_properties()  ! // FIXME remove if not used ! EZSNOW
+  ! call tile%snow%sp%nearsurf_properties()  ! // TODO remove if not used ! EZSNOW
   if (snow_area > 0)         call tile%snow%snow_get_sfc_temp(grnd_T) ! EZSNOW
 
   ! set the boundary conditions for the flux exchange

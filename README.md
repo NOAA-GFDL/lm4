@@ -6,6 +6,9 @@ Recent version of LM4.1 with CENTURY soil carbon
 
 With GLASS v1.0 snow model
 
+Search for tag EZSNOW-2022SC for changes within the snow module necessary for back compatibility
+The entire snowlayers_io.F90 and snowlayers_io.inc have been changed
+
 
 # Note on restart
 
