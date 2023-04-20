@@ -48,25 +48,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
-
-! integer, parameter, public :: max_lev = 10
-! ! //TODO use the pars from parent_snow_tile instead
-! ! from the modis brdf/albedo product user's guide:
-! real, parameter :: g_iso  = 1.
-! real, parameter :: g_vol  = 0.189184
-! real, parameter :: g_geo  = -1.377622
-! real, parameter :: g0_iso = 1.0
-! real, parameter :: g1_iso = 0.0
-! real, parameter :: g2_iso = 0.0
-! real, parameter :: g0_vol = -0.007574
-! real, parameter :: g1_vol = -0.070987
-! real, parameter :: g2_vol =  0.307588
-! real, parameter :: g0_geo = -1.284909
-! real, parameter :: g1_geo = -0.166314
-! real, parameter :: g2_geo =  0.041840
-! ! range of temperatures for ramp between "warm" and "cold" albedo
-! real, parameter :: t_range = 10.0 ! degK
-
 ! ==== types =================================================================
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

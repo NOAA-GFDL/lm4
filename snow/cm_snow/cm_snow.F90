@@ -15,32 +15,12 @@ use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
-
 use land_constants_mod, only : NBANDS
-
-! use snow_tile_mod, only : &
-!      snow_tile_type, read_snow_data_namelist, &
-!      snow_data_thermodynamics, snow_data_area, &
-!      snow_active, &
-!      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
-
-! use snow_tile_mod, only : snow_active
-
 use parent_snow_tile_mod, only : &
-     ! snow_tile_type, &
      read_snow_data_namelist, &
      snow_data_thermodynamics, snow_data_area, &
-   !   snow_active, &
-     snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
-
+     snow_data_hydraulics, max_lev, use_brdf
 use cm_snow_tile_mod, only : cm_snow_tile_type
-   !   snow_tile_type, read_snow_data_namelist, &
-   !   snow_data_thermodynamics, snow_data_area, &
-   !   snow_active, &
-   !   snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
-
-
-
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
@@ -48,6 +28,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
+use snowpack_mod, only : cpw, clw, csw
 
 
 implicit none
@@ -178,15 +159,10 @@ subroutine cm_snow_init()
      do while(loop_over_tiles(ce, tile))
         if (.not.associated(tile%snow)) cycle
         do k = 1,num_l
-         !   tile%snow%wl(k) = init_pack_wl * dz(k)
-         !   tile%snow%ws(k) = init_pack_ws * dz(k)
-         !   tile%snow%T(k)  = init_temp
            call tile%snow%set_wli(k,init_pack_wl * dz(k) ) ! EZSNOW
            call tile%snow%set_wsi(k,init_pack_ws * dz(k) )
            call tile%snow%set_ti(k,init_temp)
         enddo
-      !   tile%snow%nlayers = size(tile%snow%T) ! EZSNOW
-      !   tile%snow%nlayers = num_l
      enddo
   endif
   call free_land_restart(restart)
@@ -201,9 +177,6 @@ subroutine cm_snow_init()
           trim(albedo_to_use)//'" is invalid, use "" or "brdf-params"',&
           FATAL)
   endif
-
-
-      !   tile%snow%nlayers = num_l
 
 end subroutine cm_snow_init
 
@@ -230,10 +203,8 @@ subroutine cm_save_snow_restart (tile_dim_length, timestamp)
   ! filename = trim(timestamp)//'snow.res.nc' ! OLDV
   filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
-  ! call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1) ! OLDV
   call add_restart_axis(restart,'zfull',zz(1:num_l),.false., 'Z',longname='depth of level centers',sense=-1) 
 
-  !write(*,*) "EZSNOW cm save restart: zz, num_l = ", zz, num_l
   call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
   call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')
   call add_tile_data(restart,'ws'  ,'zfull', snow_ws_ptr,   'snow solid water content','kg/m2')
@@ -467,8 +438,6 @@ end subroutine cm_snow_step_1
   real :: new_T(num_l)
   ! --------------------------------------------------------------------------
 
-
-   ! write(*,*) "EZSNOW: calling cm type step!"
 
   depth= 0.
   do l = 1, num_l

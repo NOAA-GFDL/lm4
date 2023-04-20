@@ -13,7 +13,7 @@ use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
 
-use snowpack_mod, only : snowpack_t
+use snowpack_mod, only : snowpack_t, use_mcm_masking, depth_crit
 
 implicit none
 private
@@ -193,13 +193,13 @@ logical, public :: use_brdf ! not protected because it is set in snow.F90
 
 !---- namelist ---------------------------------------------------------------
 character(len=16), PUBLIC:: snow_option = 'cm'  ! or 'gl' later on
-logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
+! logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
 real    :: w_sat                 = 670.
 real    :: psi_sat               = -0.06
 real    :: k_sat                 = 0.02
 real    :: chb                   = 3.5
 real    :: thermal_cond_ref      = 0.3
-real    :: depth_crit            = 0.0167
+! real    :: depth_crit            = 0.0167
 real    :: z0_momentum           = 0.001
 real    :: refl_snow_max_dir(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
 real    :: refl_snow_max_dif(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
@@ -212,10 +212,10 @@ integer :: num_l                 = 3         ! number of snow levels
 real    :: dz(max_lev)           = (/0.1,0.8,0.1,0.,0.,0.,0.,0.,0.,0./)
                                               ! rel. thickness of model layers,
                                               ! from top down
-real, protected, public :: &
-   cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
-   clw = 4218.0, &  ! specific heat of water (liquid)
-   csw = 2106.0     ! specific heat of water (ice)
+! real, protected, public :: &
+!    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
+!    clw = 4218.0, &  ! specific heat of water (liquid)
+!    csw = 2106.0     ! specific heat of water (ice)
 real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
 ! from analysis of modis data (ignoring temperature dependence):
   real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
@@ -239,10 +239,10 @@ real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 f
 real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 
-namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
+namelist /snow_data_nml/  w_sat,                    &
      psi_sat,                k_sat,                 &
      chb,                                           &
-     thermal_cond_ref,       depth_crit,            &
+     thermal_cond_ref,                              &
      z0_momentum,                                   &
      f_iso_cold, f_vol_cold, f_geo_cold, &
      f_iso_warm, f_vol_warm, f_geo_warm, &
@@ -250,7 +250,7 @@ namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
      refl_snow_max_dif,    refl_snow_min_dif,   &
      emis_snow_max,          emis_snow_min,         &
      k_over_B,             &
-     num_l,                   dz, cpw, clw, csw, mc_fict, &
+     num_l,                   dz, mc_fict, &
 ! snow radiative parameters on glacier
      distinct_snow_on_glacier, &
      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &

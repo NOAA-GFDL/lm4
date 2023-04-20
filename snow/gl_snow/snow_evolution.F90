@@ -23,7 +23,7 @@ implicit none
 private
 
 public new_snow_density
-public snow_history_type
+! public snow_history_type
 public :: snow_evolution_init
 public :: read_F06_data
 public :: gl_snow_step_2
@@ -65,63 +65,63 @@ type(data_F06_type) :: dF06 ! create global module structure to store F06 data
 ! type(data_snicar_type) :: dFSNI ! create global module structure to store F06 dat
 
 
-type :: site_data
-REAL lon ! site longitude
-REAL lat ! site latitude
-REAL elev ! site elevation [m msl]
-REAL z_wind ! height of wind speed measurements [m]
-REAL z0 ! momentum roughness heights [m]
-end type
+! type :: site_data
+! REAL lon ! site longitude
+! REAL lat ! site latitude
+! REAL elev ! site elevation [m msl]
+! REAL z_wind ! height of wind speed measurements [m]
+! REAL z0 ! momentum roughness heights [m]
+! end type
 
 
-type(site_data) :: site ! information on current experimental site
+! type(site_data) :: site ! information on current experimental site
 
 
 
 
-! type variable to store simulation results for each model time step
-type :: snow_history_step_type
-    real doyt  !day of year + fractional time [days], use it with stored initial date
-    real snow_depth ! [m]
-    real runoff  ! [kg m^-2 s^-1]
-    real T_surface  ! [K]
-    real T_bottom  ! [K]
-    real levap   ! [kg m^-2 s^-1]
-    real fevap   ! [kg m^-2 s^-1]
-    real swe     ! [kg m^-2]
-    real liq     ! [kg m^-2]
-    real ice     ! [kg m^-2]
-    real heat    ! [J m^-2]
-    integer nlayers ! number of layers in the snowpack
-    real H ! sensible heat flux ! [W m^-2]
-    real LE ! latent heat flux [W m^-2]
-    real refl_dir_vis ! vis albedo, direct light[-]
-    real refl_dir_nir ! nir albedo, direct light[-]
-    real refl_dif_vis ! vis albedo, diffuse light[-]
-    real refl_dif_nir ! nir albedo, diffuse light[-]
-    real beta_vis ! vis light penetration length scale [m]
-    real beta_nir ! nir light penetration length scale [m]
-    real density ! [Kg m^-3]
-    real avrg_age ! [days]
-    real avrg_sph ! average sphericity [number in [0,1]]
-    real avrg_optd ! average optical diameter [m]
-    real avrg_T ! average temperature  [K]
-    real nrsf_age ! near surface layer snow age [days]
-    real nrsf_density ! near surface layer snow density [kg m^-3]
-    real nrsf_sph ! near surface layer snow sphericity [number in [0,1]]
-    real nrsf_optd ! near surface layer snow optical diameter [m]
-    real nrsf_bceq_im ! near surface layer equiv BC concentration, internally mixed [ppm]
-    real nrsf_bceq_em ! near surface layer equiv BC concentration, externally mixed [ppm]
-end type
+! ! type variable to store simulation results for each model time step
+! type :: snow_history_step_type
+!     real doyt  !day of year + fractional time [days], use it with stored initial date
+!     real snow_depth ! [m]
+!     real runoff  ! [kg m^-2 s^-1]
+!     real T_surface  ! [K]
+!     real T_bottom  ! [K]
+!     real levap   ! [kg m^-2 s^-1]
+!     real fevap   ! [kg m^-2 s^-1]
+!     real swe     ! [kg m^-2]
+!     real liq     ! [kg m^-2]
+!     real ice     ! [kg m^-2]
+!     real heat    ! [J m^-2]
+!     integer nlayers ! number of layers in the snowpack
+!     real H ! sensible heat flux ! [W m^-2]
+!     real LE ! latent heat flux [W m^-2]
+!     real refl_dir_vis ! vis albedo, direct light[-]
+!     real refl_dir_nir ! nir albedo, direct light[-]
+!     real refl_dif_vis ! vis albedo, diffuse light[-]
+!     real refl_dif_nir ! nir albedo, diffuse light[-]
+!     real beta_vis ! vis light penetration length scale [m]
+!     real beta_nir ! nir light penetration length scale [m]
+!     real density ! [Kg m^-3]
+!     real avrg_age ! [days]
+!     real avrg_sph ! average sphericity [number in [0,1]]
+!     real avrg_optd ! average optical diameter [m]
+!     real avrg_T ! average temperature  [K]
+!     real nrsf_age ! near surface layer snow age [days]
+!     real nrsf_density ! near surface layer snow density [kg m^-3]
+!     real nrsf_sph ! near surface layer snow sphericity [number in [0,1]]
+!     real nrsf_optd ! near surface layer snow optical diameter [m]
+!     real nrsf_bceq_im ! near surface layer equiv BC concentration, internally mixed [ppm]
+!     real nrsf_bceq_em ! near surface layer equiv BC concentration, externally mixed [ppm]
+! end type
 
 
-type :: snow_history_type
-    integer nsteps
-    type(snow_history_step_type), ALLOCATABLE :: hist(:) ! history
-contains
-    procedure :: print => snow_history_print
-    procedure :: write_timestep => snow_history_write_timestep
-end type
+! type :: snow_history_type
+!     integer nsteps
+!     type(snow_history_step_type), ALLOCATABLE :: hist(:) ! history
+! contains
+!     procedure :: print => snow_history_print
+!     procedure :: write_timestep => snow_history_write_timestep
+! end type
 
 
 
@@ -191,100 +191,100 @@ subroutine read_snow_evolution_namelist()
 
 end subroutine read_snow_evolution_namelist
 
-!> \Write current timestep variables to output
-subroutine snow_history_write_timestep(history, snowpack, step_index, & 
-                                       runoff, fevap, levap, doyt, H, LE)
+! !> \Write current timestep variables to output
+! subroutine snow_history_write_timestep(history, snowpack, step_index, & 
+!                                        runoff, fevap, levap, doyt, H, LE)
 
 
-  class(snow_history_type), intent(inout) :: history
-  class(snowpack_t), intent(in) :: snowpack
-  integer step_index
-  real runoff, fevap, levap, H, LE, doyt
-  real T_surface, T_bottom
+!   class(snow_history_type), intent(inout) :: history
+!   class(snowpack_t), intent(in) :: snowpack
+!   integer step_index
+!   real runoff, fevap, levap, H, LE, doyt
+!   real T_surface, T_bottom
 
-  if (snowpack%nlayers>0) then
-    T_surface = snowpack%snow(1)%T
-    T_bottom = snowpack%snow(snowpack%nlayers)%T
-  else
-    T_surface = -9999.9
-    T_bottom =  -9999.9
-  endif
+!   if (snowpack%nlayers>0) then
+!     T_surface = snowpack%snow(1)%T
+!     T_bottom = snowpack%snow(snowpack%nlayers)%T
+!   else
+!     T_surface = -9999.9
+!     T_bottom =  -9999.9
+!   endif
 
-  ! save result to history file
-  history%hist(step_index)%nlayers = snowpack%nlayers
-  history%hist(step_index)%doyt = doyt 
-  history%hist(step_index)%H = H
-  history%hist(step_index)%LE = LE
-  history%hist(step_index)%refl_dir_vis = snowpack%snow_refl_dir(1)
-  history%hist(step_index)%refl_dir_nir = snowpack%snow_refl_dir(2)
-  history%hist(step_index)%refl_dif_vis = snowpack%snow_refl_dif(1)
-  history%hist(step_index)%refl_dif_nir = snowpack%snow_refl_dif(2)
-  history%hist(step_index)%beta_vis = snowpack%beta_rad(1)
-  history%hist(step_index)%beta_nir = snowpack%beta_rad(2)
-  history%hist(step_index)%levap = levap
-  history%hist(step_index)%fevap = fevap
-  history%hist(step_index)%runoff = runoff
-  history%hist(step_index)%T_surface = T_surface
-  history%hist(step_index)%T_bottom = T_bottom
-  history%hist(step_index)%snow_depth = snowpack%depth()
-  history%hist(step_index)%swe = snowpack%swe()
-  history%hist(step_index)%liq = snowpack%liq()
-  history%hist(step_index)%ice = snowpack%ice()
-  history%hist(step_index)%heat = snowpack%heat()
-  history%hist(step_index)%density = snowpack%density()
-  history%hist(step_index)%avrg_age = snowpack%avrg_age()
-  history%hist(step_index)%avrg_sph = snowpack%avrg_sph()
-  history%hist(step_index)%avrg_optd = snowpack%avrg_optd() 
-  history%hist(step_index)%avrg_T = snowpack%avrg_T() 
-  history%hist(step_index)%nrsf_age = snowpack%nearsurf_age
-  history%hist(step_index)%nrsf_density = snowpack%nearsurf_rho
-  history%hist(step_index)%nrsf_sph = snowpack%nearsurf_sph
-  history%hist(step_index)%nrsf_optd = snowpack%nearsurf_optd
-  history%hist(step_index)%nrsf_bceq_im = snowpack%nearsurf_bceq_im
-  history%hist(step_index)%nrsf_bceq_em = snowpack%nearsurf_bceq_em
+!   ! save result to history file
+!   history%hist(step_index)%nlayers = snowpack%nlayers
+!   history%hist(step_index)%doyt = doyt 
+!   history%hist(step_index)%H = H
+!   history%hist(step_index)%LE = LE
+!   history%hist(step_index)%refl_dir_vis = snowpack%snow_refl_dir(1)
+!   history%hist(step_index)%refl_dir_nir = snowpack%snow_refl_dir(2)
+!   history%hist(step_index)%refl_dif_vis = snowpack%snow_refl_dif(1)
+!   history%hist(step_index)%refl_dif_nir = snowpack%snow_refl_dif(2)
+!   history%hist(step_index)%beta_vis = snowpack%beta_rad(1)
+!   history%hist(step_index)%beta_nir = snowpack%beta_rad(2)
+!   history%hist(step_index)%levap = levap
+!   history%hist(step_index)%fevap = fevap
+!   history%hist(step_index)%runoff = runoff
+!   history%hist(step_index)%T_surface = T_surface
+!   history%hist(step_index)%T_bottom = T_bottom
+!   history%hist(step_index)%snow_depth = snowpack%depth()
+!   history%hist(step_index)%swe = snowpack%swe()
+!   history%hist(step_index)%liq = snowpack%liq()
+!   history%hist(step_index)%ice = snowpack%ice()
+!   history%hist(step_index)%heat = snowpack%heat()
+!   history%hist(step_index)%density = snowpack%density()
+!   history%hist(step_index)%avrg_age = snowpack%avrg_age()
+!   history%hist(step_index)%avrg_sph = snowpack%avrg_sph()
+!   history%hist(step_index)%avrg_optd = snowpack%avrg_optd() 
+!   history%hist(step_index)%avrg_T = snowpack%avrg_T() 
+!   history%hist(step_index)%nrsf_age = snowpack%nearsurf_age
+!   history%hist(step_index)%nrsf_density = snowpack%nearsurf_rho
+!   history%hist(step_index)%nrsf_sph = snowpack%nearsurf_sph
+!   history%hist(step_index)%nrsf_optd = snowpack%nearsurf_optd
+!   history%hist(step_index)%nrsf_bceq_im = snowpack%nearsurf_bceq_im
+!   history%hist(step_index)%nrsf_bceq_em = snowpack%nearsurf_bceq_em
 
-end subroutine snow_history_write_timestep
+! end subroutine snow_history_write_timestep
 
 
-!> \Print state of snow history
-subroutine snow_history_print(h, filename)
-  class(snow_history_type), intent(in) :: h
-  ! real :: z
-  integer :: k
-  character(len=50) :: filename
-  ! write(*,*) "the number of history time steps is", h%nsteps
-  ! open(19, file=filename, status='REPLACE', access='SEQUENTIAL')
-  open(19, file=filename, status='REPLACE')
-  ! write(*,'(a2,99(",",a9,:))') "k","top","dz","T","ws","wl"
-  write(19,'(a6, a7, 99(",",a15,:))') "step", "nlayers", "doyt", "depth", "runoff", & 
-                "T_surface", "T_bottom", "levap", "fevap", "swe", "liq", "ice", "heat", & 
-                "sens_hf", "latent_hf", &
-                "refl_dir_vis", "refl_dir_nir", & 
-                "refl_dif_vis", "refl_dif_nir",  &
-                "beta_vis", "beta_nir",  &
-                "density", "avrg_age", "avrg_sph", "avrg_optd", "avrg_T", &
-                "nrsf_age", "nrsf_density", "nrsf_sph", "nrsf_optd", & 
-                "nrsf_bceq_im", "nrsf_bceq_em"
-  do k = 1, h%nsteps
-    !  write(*,'(i2.2,99(",",f9.4,:))') k, h%hist(k)%snow_depth, h%hist(k)%runoff, & 
-            ! h%hist(k)%levap, h%hist(k)%fevap, & 
-            ! h%hist(k)%swe, h%hist(k)%liq, h%hist(k)%ice, h%hist(k)%heat
-    write(19,'(i6, i7, 99(",",f23.8,:))') k, h%hist(k)%nlayers, h%hist(k)%doyt, h%hist(k)%snow_depth, & 
-            h%hist(k)%runoff, h%hist(k)%T_surface, h%hist(k)%T_bottom, & 
-            h%hist(k)%levap*1000000, h%hist(k)%fevap*1000000, & 
-            h%hist(k)%swe, h%hist(k)%liq, h%hist(k)%ice, h%hist(k)%heat, & 
-            h%hist(k)%H, h%hist(k)%LE, & 
-            h%hist(k)%refl_dir_vis, h%hist(k)%refl_dir_nir, &
-            h%hist(k)%refl_dif_vis, h%hist(k)%refl_dif_nir, &
-            h%hist(k)%beta_vis, h%hist(k)%beta_nir, &
-            h%hist(k)%density, h%hist(k)%avrg_age, h%hist(k)%avrg_sph, &
-            h%hist(k)%avrg_optd, h%hist(k)%avrg_T, &
-            h%hist(k)%nrsf_age, h%hist(k)%nrsf_density, &
-            h%hist(k)%nrsf_sph, h%hist(k)%nrsf_optd, &
-            h%hist(k)%nrsf_bceq_im, h%hist(k)%nrsf_bceq_em 
-  enddo
-  close(19)
-end subroutine snow_history_print
+! !> \Print state of snow history
+! subroutine snow_history_print(h, filename)
+!   class(snow_history_type), intent(in) :: h
+!   ! real :: z
+!   integer :: k
+!   character(len=50) :: filename
+!   ! write(*,*) "the number of history time steps is", h%nsteps
+!   ! open(19, file=filename, status='REPLACE', access='SEQUENTIAL')
+!   open(19, file=filename, status='REPLACE')
+!   ! write(*,'(a2,99(",",a9,:))') "k","top","dz","T","ws","wl"
+!   write(19,'(a6, a7, 99(",",a15,:))') "step", "nlayers", "doyt", "depth", "runoff", & 
+!                 "T_surface", "T_bottom", "levap", "fevap", "swe", "liq", "ice", "heat", & 
+!                 "sens_hf", "latent_hf", &
+!                 "refl_dir_vis", "refl_dir_nir", & 
+!                 "refl_dif_vis", "refl_dif_nir",  &
+!                 "beta_vis", "beta_nir",  &
+!                 "density", "avrg_age", "avrg_sph", "avrg_optd", "avrg_T", &
+!                 "nrsf_age", "nrsf_density", "nrsf_sph", "nrsf_optd", & 
+!                 "nrsf_bceq_im", "nrsf_bceq_em"
+!   do k = 1, h%nsteps
+!     !  write(*,'(i2.2,99(",",f9.4,:))') k, h%hist(k)%snow_depth, h%hist(k)%runoff, & 
+!             ! h%hist(k)%levap, h%hist(k)%fevap, & 
+!             ! h%hist(k)%swe, h%hist(k)%liq, h%hist(k)%ice, h%hist(k)%heat
+!     write(19,'(i6, i7, 99(",",f23.8,:))') k, h%hist(k)%nlayers, h%hist(k)%doyt, h%hist(k)%snow_depth, & 
+!             h%hist(k)%runoff, h%hist(k)%T_surface, h%hist(k)%T_bottom, & 
+!             h%hist(k)%levap*1000000, h%hist(k)%fevap*1000000, & 
+!             h%hist(k)%swe, h%hist(k)%liq, h%hist(k)%ice, h%hist(k)%heat, & 
+!             h%hist(k)%H, h%hist(k)%LE, & 
+!             h%hist(k)%refl_dir_vis, h%hist(k)%refl_dir_nir, &
+!             h%hist(k)%refl_dif_vis, h%hist(k)%refl_dif_nir, &
+!             h%hist(k)%beta_vis, h%hist(k)%beta_nir, &
+!             h%hist(k)%density, h%hist(k)%avrg_age, h%hist(k)%avrg_sph, &
+!             h%hist(k)%avrg_optd, h%hist(k)%avrg_T, &
+!             h%hist(k)%nrsf_age, h%hist(k)%nrsf_density, &
+!             h%hist(k)%nrsf_sph, h%hist(k)%nrsf_optd, &
+!             h%hist(k)%nrsf_bceq_im, h%hist(k)%nrsf_bceq_em 
+!   enddo
+!   close(19)
+! end subroutine snow_history_print
 
 
 !> \initialize snowpack module, in particular read namelist parameters

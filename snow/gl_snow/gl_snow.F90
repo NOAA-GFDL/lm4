@@ -17,7 +17,7 @@ use land_constants_mod, only : NBANDS
 use parent_snow_tile_mod, only : &
      read_snow_data_namelist, &
      snow_data_thermodynamics, snow_data_area, &
-     snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
+     snow_data_hydraulics, max_lev, use_brdf
 use gl_snow_tile_mod, only: gl_snow_tile_type
 use snicar_mod, only: read_snicar_optics_data, read_snow_snicar_namelist
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
@@ -35,7 +35,7 @@ use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimensio
      add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
 use snow_evolution_mod, only : gl_snow_step_2, gl_sweep_tiny_snow, &
          read_F06_data, gl_compute_snow_albedo, read_snow_evolution_namelist, use_internal_sources
-use snowpack_mod, only : snow_layer_type, MAX_OPT_LAYERS
+use snowpack_mod, only : snow_layer_type, MAX_OPT_LAYERS, cpw, clw, csw
 use fms_io_mod,       only : restart_file_type, get_instance_filename
 
 

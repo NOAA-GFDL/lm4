@@ -15,9 +15,8 @@ use land_data_mod, only : log_version
 
 use snow_constants_mod, only: NTRACERS
 
-use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers
-use parent_snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, &
-                                  cpw, clw, csw, dz
+use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
+use parent_snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
 
 use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
 

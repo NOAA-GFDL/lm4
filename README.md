@@ -21,3 +21,5 @@ Here it was updated
 # cm_snow_nml
 
 
+There is a change in namelist: use_mcm_masking, depth_crit, csw, clw, cpw are now in snowpack_nml
+
