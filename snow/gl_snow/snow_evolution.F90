@@ -705,7 +705,6 @@ END SUBROUTINE read_F06_data
 
 !> \compute snow metamorphism following Flanner and Zender, 2013, and Olson et al., 2010
 ! includes dry and wet metamorph component
-! does not compute dendriticy and sphericity of the grains
 subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
                                        dt_hours, verbose)
     real, intent(OUT) ::ddopt ! predicted change in opt diameter [m]
@@ -730,7 +729,6 @@ subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
     real re_abs_diff
 
     ! make sure vars are within bounds
-    ! rho_i2 = min(max(50.0, rho_i), 400.0)
     rho_i2 = rho_i
     Ti2 = Ti
     Gi2 = Gi
@@ -799,13 +797,10 @@ subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
     ! here expressed for radius change dre_wet in [\mu m]
     fliq = wl/(wl+ws)
     dre_wet = (dt_hours*3600.0) * (10.0**18 * 4.22 * 10.0**(-13) * (fliq)**3 )/(4.0*PI*old_re**2)
-    ! dre_wet = 0.0
 
-    ! re_abs_diff = max(1E-6, old_re-re_0)
     re_abs_diff =old_re-re_0
     if (re_abs_diff < -1E-6) then
         write(*,*) "Flanner 2006: Re, Re0, Re - Re0 = ", old_re, re_0, re_abs_diff
-        !  error stop "Flanner 2006: Re - Re0 must be a positive quantity!"
         call land_error_message("Error in metamorph_FlannerZender2006 in snow_evolution_mod: re-re0 < 0 found!", FATAL)
     else
         re_abs_diff = max(1E-8, re_abs_diff)
@@ -815,9 +810,7 @@ subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
     ! new_re = ( old_re + dre_dry + dre_wet )*f_old + re_0 * f_new + re_refr * f_refr
 
     ! return increment in optical diameter (=2 * radius... ), going back to [m] 
-    ! ddopt = new_re * 2.0 / 1E6 - dopt
     ddopt = ( dre_dry + dre_wet ) * 2.0 / 1E6 
-    ! ddopt = (dre_dry) * 2.0 / 1E6 
 
 
 end subroutine metamorph_FlannerZender2006

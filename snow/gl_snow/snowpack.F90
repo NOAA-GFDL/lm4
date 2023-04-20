@@ -1545,32 +1545,10 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
   ! real, intent(out) :: swdn_ground ! sw radiation exiting the snowpack and passed to the ground [W m^-2]
   real swdn_ground ! sw radiation exiting the snowpack and passed to the ground [W m^-2]
   real, INTENT(IN), DIMENSION(NBANDS) :: swnet_dir, swnet_dif ! net sw rad to snowpack
-  ! real, dimension(NBANDS) :: swnet_in ! net radiation entering snowpack (for each band)
-  ! real, intent(in) :: cosz ! cosine of solar zenith angle to correct light path depth
-  ! real cosz
   integer il
   real Q_vis_dir, Q_nir_dir, Q_vis_dif, Q_nir_dif
   real zztop_dir, zzbottom_dir, zztop_dif, zzbottom_dif
   real total0, total1, swnet_in_total
-  real cosz_dir, cosz_dif
-
-  ! direction of incident light
-  ! cosz_dir = cosz
-  ! cosz_dir = 0.59
-  ! cosz_dif = 0.59
-  cosz_dir = 1.0
-  cosz_dif = 1.0
-
-! updated so that no sw radiation is transmitted to the ground: All is absorbed by snow.
-! to do so, rescale the sources in each layer to match the total
-
-
-  ! first, compute net radiation entering the snowpack for each band, vis + dir
-  ! note, all SW rad is diffuse within the snowpack
-  ! swnet_in(1) = (1.0-s%snow_refl_dir(1))*swdn_dir(1)+(1.0-s%snow_refl_dif(1))*swdn_dif(1)
-  ! swnet_in(2) = (1.0-s%snow_refl_dir(2))*swdn_dir(2)+(1.0-s%snow_refl_dif(2))*swdn_dif(2) 
-  ! swnet_in_total =swnet_in(1)  + swnet_in(2)
-  ! write(*,*) "swnet in total = ", swnet_in_total
 
   swnet_in_total = swnet_dif(1) + swnet_dif(2) + swnet_dir(1) + swnet_dir(2)
 
@@ -1586,30 +1564,24 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
     zztop_dif = 0.0
     zzbottom_dif = 0.0
     do il = 1, s%nlayers
-      zzbottom_dir = zzbottom_dir + s%snow(il)%dz / max(cosz_dir, 0.1)
-      zzbottom_dif = zzbottom_dif + s%snow(il)%dz / max(cosz_dif, 0.1)
+      zzbottom_dir = zzbottom_dir + s%snow(il)%dz 
+      zzbottom_dif = zzbottom_dif + s%snow(il)%dz 
       Q_vis_dir = swnet_dir(1) * ( exp(-s%beta_rad(1)*zztop_dir)  - exp(-s%beta_rad(1)*zzbottom_dir))
       Q_nir_dir = swnet_dir(2) * ( exp(-s%beta_rad(2)*zztop_dir)  - exp(-s%beta_rad(2)*zzbottom_dir))
       Q_vis_dif = swnet_dif(1) * ( exp(-s%beta_rad(1)*zztop_dif)  - exp(-s%beta_rad(1)*zzbottom_dif))
       Q_nir_dif = swnet_dif(2) * ( exp(-s%beta_rad(2)*zztop_dif)  - exp(-s%beta_rad(2)*zzbottom_dif))
       s%swheat(il) = Q_vis_dir + Q_nir_dir + Q_vis_dif + Q_nir_dif
-      zztop_dir = zztop_dir + s%snow(il)%dz  / max(cosz_dir, 0.1)
-      zztop_dif = zztop_dif + s%snow(il)%dz  / max(cosz_dif, 0.1)
+      zztop_dir = zztop_dir + s%snow(il)%dz  
+      zztop_dif = zztop_dif + s%snow(il)%dz  
     enddo
     ! whatwever survives is passed to the ground
-    ! radiation passed down to the ground [not done for now]
-    ! swdn_ground = swnet_in(1)*exp(-s%beta_rad(1)*s%depth()) + &
-                  ! swnet_in(2)*exp(-s%beta_rad(2)*s%depth()) 
-    swdn_ground = swnet_dir(1)*exp(-s%beta_rad(1)*s%depth()/max(cosz_dir, 0.1)) + &
-                  swnet_dir(2)*exp(-s%beta_rad(2)*s%depth()/max(cosz_dir, 0.1)) + &   
-                  swnet_dif(1)*exp(-s%beta_rad(1)*s%depth()/max(cosz_dif, 0.1)) + &
-                  swnet_dif(2)*exp(-s%beta_rad(2)*s%depth()/max(cosz_dif, 0.1)) 
-                  ! actually, do not pass it for now: all abs by snow
-    ! swdn_ground = 0.0
-    ! s%swheat(s%nlayers) = s%swheat(s%nlayers) + swdn_ground
-    ! swdn_ground = 0.0
+    ! radiation passed down to the ground [not done for now, all absorbed by snowpack here]
+    swdn_ground = swnet_dir(1)*exp(-s%beta_rad(1)*s%depth()) + &
+                  swnet_dir(2)*exp(-s%beta_rad(2)*s%depth()) + &   
+                  swnet_dif(1)*exp(-s%beta_rad(1)*s%depth()) + &
+                  swnet_dif(2)*exp(-s%beta_rad(2)*s%depth()) 
     
-    !  rescale SW absorbed by snow to match total
+    !  rescale SW absorbed by snow to match total - assume no penetration to underlying soil
     if (swnet_in_total-swdn_ground > 0.0) then
     do il = 1, s%nlayers
       s%swheat(il) = s%swheat(il) * swnet_in_total/(swnet_in_total-swdn_ground)
@@ -1618,7 +1590,6 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
     endif
 
     ! check conservation 
-    ! total0 = sum(swnet_in)
     total0 = swnet_in_total
     total1 = swdn_ground + sum(s%swheat(:))
 
@@ -1627,12 +1598,9 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
       write(*,*) "total0 = ", total0
       write(*,*) "total1 = ", total1
       write(*,*) "swdn_grnd = ", swdn_ground
-      ! error stop "ERROR in snowpack_nearsurf_properties in snowpack module: Computing SW sources: energy not conserved!"
       call land_error_message( "ERROR in snowpack_nearsurf_properties in snowpack module: Computing SW sources: energy not conserved!", FATAL)
     endif
 
-  ! else
-  !   swdn_ground = swnet_in(1) + swnet_in(2)
   endif
 
 
