@@ -4287,12 +4287,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real, intent(in) :: begw_check, begh_check
     real, intent(in) :: G0, DGDTg, snow_G_Z, snow_G_TZ
     !  local variables 
-    ! real, intent(out) :: heat1
-    ! real, intent(out) :: hfevap ! heat released by subl [kg m^-2 s^-1]
     real hfevap
-    ! logical, intent(in) :: verbose
     logical :: verbose
-    ! real, intent(out) :: delta_heat_DTg
     real check_heat0, check_heat1, ftprec, ltprec
     real snow_lprec1, snow_hlprec1, snow_lprec2, snow_hlprec2
     real heat1a, heat1b, heat1c, heat1d, heat1e, heat1f, heat1g
@@ -4317,12 +4313,10 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real frunf_from_deficit, hfrunf_from_deficit, frac_of_deficit
     real total_depth
 
-           if(is_watch_point()) then
-              write(*,*)'###### Beginning GLASS Snow step 2 ######'
-              write(*,*) "vegn_lprec, vegn_hlprec = ", vegn_lprec, vegn_hlprec
-            !   call s%print()
-          endif
-
+    if(is_watch_point()) then
+        write(*,*)'###### Beginning GLASS Snow step 2 ######'
+        write(*,*) "vegn_lprec, vegn_hlprec = ", vegn_lprec, vegn_hlprec
+    endif
 
     delta_time = dt
     verbose = .False.
@@ -4330,7 +4324,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call s%update_age(dt) ! update age of existing snow layers
 
     heat1a = s%heat()
-    if(verbose) write(*,*) "STEP2: heat check A = ",heat1a 
+    if(verbose) write(*,*) "STEP2: heat check A = ", heat1a 
 
     if (s%nlayers>0) then
         snow_fsw   = fswg

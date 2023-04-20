@@ -548,100 +548,6 @@ subroutine snowpack_update_age(s, dt)
   endif
 end subroutine snowpack_update_age
 
-! ! // TODO DEPRECATED should be removed
-! ! !> allocate snowpack (for initial condition, or in case of new snow over bare ground)
-! subroutine snowpack_start(s, nlayers, dz, ws, wl, T, optd, sph, age, wc_im, wc_em)
-!   class(snowpack_t), intent(inout) :: s
-!   integer, intent(in) :: nlayers
-!   real, dimension(nlayers), OPTIONAL :: dz
-!   real, dimension(nlayers), OPTIONAL :: ws, wl, T, optd, sph, age
-!   real, dimension(3, nlayers), OPTIONAL :: wc_im, wc_em
-!   integer ik, ic
-
-!   ! default argument values
-!   real, dimension(nlayers) :: def_dz, def_ws, def_wl, def_T, def_optd, def_sph, def_age
-!   real, dimension(3, nlayers) :: def_wc_im, def_wc_em
-
-!   def_dz = 0.1 ! 0.1 m for each layer
-!   def_ws = 300.0 * dz ! by default init density = 300 kg m^-3
-!   def_wl = 0.0
-!   def_T = 273.15
-!   def_optd = 1E-4
-!   def_sph = 0.5
-!   def_age = 0.0
-!   def_wc_em = 0.00
-!   def_wc_im = 0.00
-
-!   if (present(dz)) then
-!     def_dz = dz
-!   endif
-!   if (present(ws)) then
-!     def_ws = ws
-!   endif
-!   if (present(wl)) then
-!     def_wl = wl
-!   endif
-!   if (present(T)) then
-!     def_T = T
-!   endif
-!   if (present(optd)) then 
-!     def_optd = optd
-!   endif
-!   if (present(sph)) then
-!     def_sph = sph
-!   endif
-!   if (present(age)) then 
-!     def_age = age
-!   endif
-!   if (present(wc_im)) then 
-!     def_wc_im = wc_im
-!   endif
-!   if (present(wc_em)) then 
-!     def_wc_em = wc_em
-!   endif
-
-!   !  write(*,*) "is snow(:) allocated? (1)",allocated(s%snow) 
-!   ! if (.not. allocated(s%snow)) allocate(s%snow(nlayers)) ! EZSNOW
-!   ! if (.not. allocated(s%snow)) allocate(s%snow(nlayers)) ! EZSNOW
-
-
-!   if (allocated(s%snow)) deallocate(s%snow) ! EZSNOW
-
-
-!   if (nlayers > 0) then
-!   allocate(s%snow(nlayers))
-!   do ik = 1, nlayers 
-!     s%snow(ik)%dz = def_dz(ik)
-!     ! s%snow(ik)%ws = def_ws(ik) * def_dz(ik) ! FIXME fixed mass nto density
-!     ! s%snow(ik)%wl = def_wl(ik) * def_dz(ik) ! FIXME fixed mass nto density
-!     s%snow(ik)%ws = def_ws(ik) 
-!     s%snow(ik)%wl = def_wl(ik)
-!     s%snow(ik)%T = def_T(ik)
-!     s%snow(ik)%optd = def_optd(ik)
-!     s%snow(ik)%sph = def_sph(ik)
-!     s%snow(ik)%age = def_age(ik)
-!     do ic = 1, 3
-!       s%snow(ik)%wc_em(ic) = def_wc_em(ic, ik)
-!       s%snow(ik)%wc_im(ic) = def_wc_im(ic, ik)
-!     enddo
-!   enddo
-!   endif
-
-!   s%nlayers = nlayers
-!   s%topwater = 0.0
-!   s%topwheat = 0.0
-!   s%topsnowdeficit = 0.0
-!   s%topsnowheatdeficit = 0.0
-
-!   s%snow_refl_dir = (/0.9,   0.9/)
-!   s%snow_refl_dir = (/0.6,   0.6/)
-!   s%beta_rad =      (/100.0, 40.0/)
-
-
-!    s%preprec_surfT = -1.0 ! EZSNOW init old surf value [//TODO: add to restart]
-
-! end subroutine snowpack_start
-
 
 !> empty snowpack (to use in case of complete melt or sublimation)
 subroutine snowpack_empty(s)
@@ -728,9 +634,7 @@ real function snow_heat_conductance(snow, surfT, surfP) result(res)
       rho_snow = (snow%ws + snow%wl)/snow%dz ! [kg m^-3]
       res = max(lmin, al*(rho_snow/rho_water)**expon) ! YEN 1981, CROCUS
       ! res = 0.023 + (7.75*1E-5 * rho_snow + 1.105 * 1E-6 * rho_snow**2) * (2.29 - 0.023) ! JORDAN 1991, SHRESTA 2006
-      ! res = 0.5 ! //FIXME ;
-      !  res = max(0.1, res) !//FIXME
-      ! res = 2.0 * res ! //FIXME
+
     else
       call land_error_message("Error in snow_heat_conductance in snowpack_mod: Must specify a valid snow_heat_cond_to_use!", FATAL)
   endif
@@ -813,14 +717,6 @@ real function snow_density(s) result(dens)
   class(snow_layer_type), intent(in) :: s
   dens = (s%ws + s%wl)/s%dz
 end function snow_density
-
-
-! !> \brief dendricity of a snow layer, number in [0,1]
-! ! compute it from sphericity and optical diameter of the layer, as in Carmagnola 2013
-! real function snow_dendricity(s) result(dendr)
-!   class(snow_layer_type), intent(in) :: s
-!   dendr = (s%optd/1E-4 - 4.0 + s%sph)/(s%sph-3.0)
-! end function snow_dendricity
 
 
 !> \brief average age of the snowpack, days
@@ -966,28 +862,6 @@ real function snowpack_avrg_bceq_em(s) result(res)
     res = 0.0
   endif
 end function snowpack_avrg_bceq_em
-
-
-! !> \brief average temperature of the snowpack, [m]
-! ! // FIXME remove
-! real function snowpack_avrg_T(s) result(temp)
-!   class(snowpack_t), intent(in) :: s
-!   integer :: k
-!   real sum,sum_ws
-!   sum = 0.0
-!   sum_ws = 0.0
-!   if (s%nlayers>0) then
-!     do k = 1,s%nlayers
-!       sum = sum + s%snow(k)%T * (s%snow(k)%ws + s%snow(k)%wl)
-!       sum_ws = sum_ws + (s%snow(k)%ws + s%snow(k)%wl)
-!     enddo
-!   endif
-!   if (sum_ws>0) then
-!     temp = sum/sum_ws
-!   else
-!     temp = -9999.0
-!   endif
-! end function snowpack_avrg_T
 
 
 !> \Internally mixed LAIs content of the snowpack [mg/m2]
@@ -1266,33 +1140,6 @@ subroutine snowpack_step_1a(s, &
   !  write(*,*) "-------------------------------------------"
   !  write(*,*) "AVRG T BEFORE STEP 1 = ", s%avrg_T() ! // FIXME
 
-
-        ! snow_C = 0.0
-        ! snow_avrg_H = 0.0
-        ! do il = 1, s%nlayers
-        !     ! snow_C = snow_C + s%snow(il)%hCap()
-        !     snow_C = snow_C + s%snow(il)%ws + s%snow(il)%wl
-        !     ! snow_avrg_H = snow_avrg_H + (s%snow(il)%T - TFREEZE) * s%snow(il)%hCap() 
-        !     ! snow_avrg_H = snow_avrg_H + (s%snow(il)%T) * s%snow(il)%hCap() 
-        !     snow_avrg_H = snow_avrg_H + (s%snow(il)%T) * ( s%snow(il)%ws + s%snow(il)%wl )
-        ! enddo
-        ! if (snow_C > 1E-8) then
-        ! snow_T1 = snow_avrg_H / snow_C
-        ! else
-        ! snow_T1 = 273.15
-        ! endif
-        ! snow_T1 = s%avrg_T()
-      
-      ! write(*,*) "Step 1a: s%preprec_surfT = ", s%preprec_surfT
-      ! if ((s%preprec_surfT>200.0) .and. (s%preprec_surfT<300.0)) then
-      !   snow_T1 = s%preprec_surfT
-      ! else
-      !   snow_T1 = s%snow(1)%T
-      !   ! snow_T1 = grnd_T
-      ! endif
-      ! write(*,*) "Step 1a: snow_T1 avrg = ", snow_T1
-      ! write(*,*) "Step 1a: snow_T1 top = ", s%snow(1)%T
-      ! write(*,*) "-------------------------------------------"
 
       snow_liq = s%snow(1)%wl 
       snow_rh = 1.0
@@ -1691,41 +1538,6 @@ subroutine snowpack_nearsurf_properties(s)
 end subroutine snowpack_nearsurf_properties
 
 
-! ! //TODO: remove when actual routine is ready
-! subroutine snowpack_albedo(s)
-!    !  average patm (or elev, use hydrost.) is needed for CROCUS albedo parameterization
-!   class(snowpack_t), intent(inout) :: s
-!   ! real, intent(in) :: cosz
-!   real ave_patm
-!   ave_patm = 870.0 ! hPa -> no elevation effect on snow aging (for now)
-
-!   ! albedo depends on the snow properties in the first few cm
-!   ! compute vertically average properties over that layer
-!   ! specifically, LAI concentrations, snow density, sphericity, optical diameter
-
-!   ! temporary
-!   s%snow_refl_dir(BAND_VIS) = 0.8
-!   s%snow_refl_dir(BAND_NIR) = 0.6
-!   s%snow_refl_dif(BAND_VIS) = 0.8
-!   s%snow_refl_dif(BAND_NIR) = 0.6
-!   s%beta_rad(BAND_VIS) = 40.0
-!   s%beta_rad(BAND_NIR) = 100.0
-
-! !   if (albedo_2_use == 'CROCUS') then
-! !    ! do crocus albedo
-! !   else if (albedo_2_use == 'VERONICA') then
-! !    ! do veronica albedo
-! !   else if (albedo_2_use == 'HE') then
-! !    ! do HE albedo 
-! !   else
-! !    write(*,*) "select a valid albedo value!"
-! !   endif
-
-
-! end subroutine snowpack_albedo
-
-
-
 ! STANDALONE MODEL VERSION
 !> \given net SW radiation, distribute absorption through snow layers
 subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
@@ -1827,130 +1639,6 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
 end subroutine snowpack_sw_sources
 
 
-
-! ! LM4P2 MODEL VERSION
-! !> \given net SW radiation, distribute absorption through snow layers
-! subroutine snowpack_sw_sources_lm4p2(s, fswg)
-!   class(snowpack_t), intent(inout) :: s
-!   integer il
-!   real Qvis, Qnir, zztop, zzbottom
-!   real total0, total1, swnet_in_total, swdn_ground
-!   real, dimension(NBANDS):: swnet_in
-!   real, INTENT(IN) :: fswg ! not rad into snowpack
-!   real :: cosz_inc ! cosine of zenith angle for incident light
-!   ! real, intent(in) :: cosz ! cosine of solar zenith angle to correct light path depth
-
-!   cosz_inc = 0.59 ! assume that of diffuse radiation
-
-! ! updated so that no sw radiation is transmitted to the ground: All is absorbed by snow.
-! ! to do so, rescale the sources in each layer to match the total
-
-!   swnet_in_total = fswg
-!   swnet_in(1) = fswg/2.0
-!   swnet_in(2) = fswg/2.0
-
-!   ! to compute the radiation absorbed by each snow layer, use the expression for the 
-!   ! radiation flux at depth z below surface : Qz = Qsurface * exp(-beta * z)
-!   ! See e.g., CROCUS papers  -  Brun 1992 and Vionnet et al., 2012
-!   ! assume exponential distribution of radiation absorbed within snowpack
-!   ! e-folding depth is not the same in general for VIS and NIR band
-!   if (s%nlayers > 0) then
-!     ALLOCATE(s%swheat(s%nlayers))
-!     zztop = 0.0
-!     zzbottom = 0.0
-!     do il = 1, s%nlayers
-!       zzbottom = zzbottom + s%snow(il)%dz / cosz_inc
-!       Qvis = swnet_in(1) * ( exp(-s%beta_rad(1)*zztop)  - exp(-s%beta_rad(1)*zzbottom))
-!       Qnir = swnet_in(2) * ( exp(-s%beta_rad(2)*zztop)  - exp(-s%beta_rad(2)*zzbottom))
-!       s%swheat(il) = Qvis + Qnir
-!       zztop = zztop + s%snow(il)%dz / cosz_inc
-!     enddo
-!     ! whatwever survives is passed to the ground
-!     ! radiation passed down to the ground (TODO: if needed, pass it by band?)
-!     swdn_ground = swnet_in(1)*exp(-s%beta_rad(1)*s%depth()) + &
-!                   swnet_in(2)*exp(-s%beta_rad(2)*s%depth()) 
-!                   ! actually, do not pass it for now: all abs by snow
-!     ! swdn_ground = 0.0
-!     ! s%swheat(s%nlayers) = s%swheat(s%nlayers) + swdn_ground
-!     ! swdn_ground = 0.0
-    
-!     !  rescale SW absorbed by snow to match total
-!     if (swnet_in_total-swdn_ground > 0.0) then
-!     do il = 1, s%nlayers
-!       s%swheat(il) = s%swheat(il) * swnet_in_total/(swnet_in_total-swdn_ground)
-!     enddo
-!     swdn_ground = 0.0
-!     endif
-
-!     ! check conservation 
-!     total0 = sum(swnet_in)
-!     total1 = swdn_ground + sum(s%swheat(:))
-
-!     if ( abs(total0-total1) > eps) then
-!       write(*,*) "swnet_in_total = ", swnet_in_total
-!       write(*,*) "total0 = ", total0
-!       write(*,*) "total1 = ", total1
-!       write(*,*) "swdn_grnd = ", swdn_ground
-!       ! error stop "ERROR in snowpack_sw_sources_lm4p2 in snowpack module: Computing SW sources: energy not conserved!"
-!       call land_error_message( "ERROR in snowpack_sw_sources_lm4p2 in snowpack module: Computing SW sources: energy not conserved!", FATAL)
-!     endif
-
-!   ! else
-!   !   swdn_ground = swnet_in(1) + swnet_in(2)
-!   endif
-
-
-! end subroutine snowpack_sw_sources_lm4p2
-
-
-! !> \brief Return -1 if there are no snow layers, else the index of the thickest layer
-! function snowpack_get_index_thickest_layer(s)
-!   class(snowpack_t), intent(inout) :: s
-!   integer :: snowpack_get_index_thickest_layer
-!   integer k
-!   real thickest_dz
-!   snowpack_get_index_thickest_layer = -1
-!   thickest_dz = 0.0
-!   if (s%nlayers>0) then
-!     do k=1,s%nlayers
-!       if (s%snow(k)%dz > thickest_dz) then
-!         snowpack_get_index_thickest_layer = k
-!       endif
-!     enddo
-!   endif
-! end function snowpack_get_index_thickest_layer
-
-
-!> \brief While number of layers is smaller than a given number,
-! split the thickest layer untile min number is reached
-! subroutine snowpack_force_split_layers(s, minnl)
-!   class(snowpack_t), intent(inout) :: s
-
-!   integer, intent(in):: minnl ! minimum number of layer outgoing
-!   real :: f1     ! fraction of layer that is split off
-!   integer :: k   ! layer iterator
-!   real dz0 ! 
-
-!   ! must start with at least one snow layer
-!   do while ( (s%nlayers>0).and.(s%nlayers < minnl) ) ! while loop because s%nlayers may change inside
-!     k = s%get_index_thickest_layer()
-!     call snowpack_duplicate_layer(s,k)
-!     dz0 = s%snow(k)%dz 
-!     f1 = 0.5 ! split it in half
-!     s%snow(k)%dz = dz0*f1 ! dz0
-!     s%snow(k+1)%dz = dz0*(1-f1)  ! dz1 - dz0
-!     s%snow(k)%ws = s%snow(k)%ws * f1
-!     s%snow(k)%wl = s%snow(k)%wl * f1
-!     s%snow(k)%wc_im = s%snow(k)%wc_im * f1 ! vector of size NTRACERS
-!     s%snow(k)%wc_em = s%snow(k)%wc_em * f1 ! vector of size NTRACERS
-!     s%snow(k+1)%ws = s%snow(k+1)%ws * (1.0 - f1)
-!     s%snow(k+1)%wl = s%snow(k+1)%wl * (1.0 - f1)
-!     s%snow(k+1)%wc_im = s%snow(k+1)%wc_im * (1.0 - f1) ! vector of size NTRACERS
-!     s%snow(k+1)%wc_em = s%snow(k+1)%wc_em * (1.0 - f1) ! vector of size NTRACERS
-!   enddo
-! end subroutine snowpack_force_split_layers
-
-
 !> \brief Attempt to split one layer to better match optimal layer thickness distribution
 subroutine attempt_split_layers(s)
   class(snowpack_t), intent(inout) :: s
@@ -2040,33 +1728,6 @@ logical function layers_can_be_merged(s1,s2) result(ans)
   endif
 end function layers_can_be_merged
 
-! !> \brief merge s1 into s2
-! subroutine merge_layers(s1,s2)
-!   type(snow_t), intent(in)    :: s1 !< snow layer to merge
-!   type(snow_t), intent(inout) :: s2 !< snow layer to merge into
-
-!   real :: heat, dz
-! !   real :: swe_2, swe_1
-!   integer it
-!   heat  = s1%hCap()*(s1%T-TFREEZE) + s2%hCap()*(s2%T-TFREEZE)
-
-!   ! ezdev added properties
-!   s2%sph = (s2%ws * s2%sph  + s1%ws * s1%sph)/(s1%ws + s2%ws)
-!   s2%optd = (s2%ws * s2%optd + s1%ws * s1%optd)/(s1%ws + s2%ws)
-!   s2%age = (s2%ws * s2%age + s1%ws * s1%age)/(s1%ws + s2%ws)
-! !   swe_1 = s1%ws + s1%wl
-! !   swe_2 = s2%ws + s2%wl
-
-
-!   dz    = s2%dz + s1%dz
-!   s2%ws = (s2%ws*s2%dz + s1%ws*s1%dz)/dz
-!   s2%wl = (s2%wl*s2%dz + s1%wl*s1%dz)/dz
-!   s2%dz = dz
-!   s2%T  = heat/s2%hCap() + TFREEZE
-!   ! what about heat of liquid water?
-
-!   ! TODO: fix, add heat of liquid phase
-
 
 subroutine add_liquid_to_layer(s, wl2, T2)
 
@@ -2130,20 +1791,6 @@ subroutine add_liquid_to_layer(s, wl2, T2)
     ! excess heat will be used to melt as much water as possible
     wl3 = heat/HLF
     ws3 = mass - wl3
-    ! if ((wl3 < 0.0) .or. (wl3 > original_total_liquid)) then
-    !   write(*,*) "initial T1 = ", initT1
-    !   write(*,*) "initial T2 = ", initT2
-    !   ! write(*,*) "merge layers :: ERROR: WHILE TRYING TO MERGE TWO LAYERS, THERE IS TOO MUCH MELT. THIS SHOULD NOT HAPPEN!"
-    !   write(*,*) "initial liquid phase mass = ", original_total_liquid
-    !   write(*,*) "initial solid phase mass = ", original_total_solid
-    !   write(*,*) "final liquid phase mass = ", wl3
-    !   write(*,*) "final solid phase mass = ", ws3
-    !   write(*,*) "initial total mass = ", original_total_liquid + original_total_solid
-    !   write(*,*) "final total mass = ", ws3 + wl3
-    !   write(*,*) "initial total heat = ", heat
-    !   write(*,*) "final total heat = ", (wl3)*HLF + (wl3*CLW+ws3*CSW)*(T3-TFREEZE)
-    ! endif
-
                    if(is_watch_point()) then
                       write(*,*)'#### add_liquid_to_layer ::: case intermediate'
                   endif
@@ -2240,20 +1887,6 @@ subroutine merge_phases(ws1, wl1, T1, ws2, wl2, T2, ws3, wl3, T3)
     ! all heat will be used to melt as much water as possible
     wl3 = heat/HLF
     ws3 = mass - wl3
-    ! if ((wl3 < 0.0) .or. (wl3 > original_total_liquid)) then
-    !   write(*,*) "initial T1 = ", initT1
-    !   write(*,*) "initial T2 = ", initT2
-    !   ! write(*,*) "merge layers :: ERROR: WHILE TRYING TO MERGE TWO LAYERS, THERE IS TOO MUCH MELT. THIS SHOULD NOT HAPPEN!"
-    !   write(*,*) "initial liquid phase mass = ", original_total_liquid
-    !   write(*,*) "initial solid phase mass = ", original_total_solid
-    !   write(*,*) "final liquid phase mass = ", wl3
-    !   write(*,*) "final solid phase mass = ", ws3
-    !   write(*,*) "initial total mass = ", original_total_liquid + original_total_solid
-    !   write(*,*) "final total mass = ", ws3 + wl3
-    !   write(*,*) "initial total heat = ", heat
-    !   write(*,*) "final total heat = ", (wl3)*HLF + (wl3*CLW+ws3*CSW)*(T3-TFREEZE)
-    ! endif
-
 
   endif
 end subroutine merge_phases
@@ -2284,7 +1917,6 @@ subroutine merge_layers(s1,s2)
   enddo
 
   call merge_phases(s1%ws, s1%wl, s1%T, s2%ws, s2%wl, s2%T, ws3, wl3, T3)
-   
 
    ! assign density to new layer
    ! if overall melting, use old densities
@@ -2297,71 +1929,11 @@ subroutine merge_layers(s1,s2)
    else ! overall melting, maintain old density
     dz3 = ws3/old_rho
    endif
-
-  !  write(*,*) "Merge phases, old rho", old_rho, dz3
-
    ! if overall freezing, assign to the additional mass the density of ice
-
    s2%ws = ws3
    s2%wl = wl3
    s2%T = T3
    s2%dz = dz3
-
-  ! energy conservation
-  ! initT1 = s1%T
-  ! initT2 = s2%T
-  ! original_total_liquid = s1%wl + s2%wl
-  ! original_total_solid = s1%ws + s2%ws
-  ! mass = original_total_liquid + original_total_solid
-  ! heat  = s1%hCap()*(s1%T-TFREEZE) + s2%hCap()*(s2%T-TFREEZE) + (s1%wl + s2%wl) * HLF
-  ! heat2melt = (s1%ws + s2%ws) * HLF
-  ! heat2freeze = 0.0 ! heat is computed wrt solid at freezing termperature
-  ! heatleft = heat - heat2melt
-  ! if (heatleft > 0.0) then
-  !   ! all soild is melt, the layer will disappear
-  !   ! this should never happen since originally none of the two layers 
-  !   ! had enough energy to melt all local soild phase
-  !   ! for now throw an error - if needed later on, you can
-  !   ! store the excess water in topwater 
-  !   write(*,*) "merge layers :: ERROR: WHILE TRYING TO MERGE TWO LAYERS, THEY BOTH MELT. THIS SHOULD NOT HAPPEN!"
-  ! else if (heat < heat2freeze) then
-  !   ! resulting temperature will be <= 0.0
-  !   ! all matter will be in soild phase
-  !   s2%wl = 0.0
-  !   s2%ws = s2%ws + s1%ws + s2%wl + s1%wl 
-  !   ! negative heat will determine the negative temperature of single solid phase
-  !   s2%T = s2%hCap() + TFREEZE
-  ! else
-  !   ! intermediate case: heat2freeze < heat < heat2melt
-  !   ! layer will be at freezing temperature
-  !   s2%T = TFREEZE
-  !   ! excess heat will be used to melt as much water as possible
-  !   s2%wl = heat/HLF
-  !   s2%ws = mass - s2%wl
-  !   if ((s2%wl < 0.0) .or. (s2%wl > original_total_liquid)) then
-  !     write(*,*) "initial T1 = ", initT1
-  !     write(*,*) "initial T2 = ", initT2
-  !     write(*,*) "merge layers :: ERROR: WHILE TRYING TO MERGE TWO LAYERS, THERE IS TOO MUCH MELT. THIS SHOULD NOT HAPPEN!"
-  !     write(*,*) "initial liquid phase mass = ", original_total_liquid
-  !     write(*,*) "initial solid phase mass = ", original_total_solid
-  !     write(*,*) "final liquid phase mass = ", s2%wl
-  !     write(*,*) "final solid phase mass = ", s2%ws
-  !     write(*,*) "initial total mass = ", original_total_liquid + original_total_solid
-  !     write(*,*) "final total mass = ", s2%ws + s2%wl
-  !     write(*,*) "initial total heat = ", heat
-  !     write(*,*) "final total heat = ", (s2%wl)*HLF + s2%hCap()*(s2%T-TFREEZE)
-  !   endif
-
-
-  ! endif
-
-  ! compute density of resulting layer
-  ! assume any frozen water has the density of ice
-  
-
-
-
-
 end subroutine
 
 !> \brief Attempt to merge two of snowpack layers to better match optimal layer thickness
@@ -2374,8 +1946,6 @@ subroutine attempt_merge_layers(s)
   type(dzopt_t) :: dzopt
   real :: penalty0, penalty1
   integer :: k, k1, i
-
-  ! write(*,*) "snowpack depth = ", s%depth()
   call dzopt%init(s%depth())
 
   z = 0; k = 1
@@ -2397,127 +1967,6 @@ subroutine attempt_merge_layers(s)
      k = k1; z = z1
   enddo
 end subroutine attempt_merge_layers
-
-! ! for implementation in lm4p2: merge snowpack from 2 different tiles.
-! ! // TODO work in progress ... for now no tiles splitting/merging with new snow
-! subroutine merge_snow_tiles(snow1, w1, snow2, w2)
-!   type(snowpack_t), intent(in)    :: snow1
-!   type(snowpack_t), intent(inout) :: snow2
-!   type(snowpack_t) snow3 ! temporary store the result before regridding, then pass result to tile2
-!   real                , intent(in)    :: w1, w2 ! relative weights
-
-!   ! ---- local vars
-!   real    :: x1, x2 ! normalized weights
-!   real    :: HEAT1, HEAT2
-!   integer :: i
-
-!   ! calculate normalized weights
-!   x1 = w1/(w1+w2)
-!   x2 = 1.0-x1
-
-!   ! do i = 1, num_l
-!   !   HEAT1 = (mc_fict*dz(i)+clw*snow1%wl(i)+csw*snow1%ws(i))*(snow1%T(i)-tfreeze)
-!   !   HEAT2 = (mc_fict*dz(i)+clw*snow2%wl(i)+csw*snow2%ws(i))*(snow2%T(i)-tfreeze)
-!   !   snow2%wl(i) = snow1%wl(i)*x1 + snow2%wl(i)*x2
-!   !   snow2%ws(i) = snow1%ws(i)*x1 + snow2%ws(i)*x2
-!   !   if (snow2%wl(i)/=0.or.snow2%ws(i)/=0) then
-!   !      snow2%T(i)  = (HEAT1*x1+HEAT2*x2)/&
-!   !           (mc_fict*dz(i)+clw*snow2%wl(i)+csw*snow2%ws(i))+tfreeze
-!   !   else
-!   !      snow2%T(i)  = snow1%T(i)*x1 + snow2%T(i)*x2
-!   !   endif
-!   ! enddo
-
-!   ! allocate resulting snowpack (tile3=snow3)
-!   ! call snow3%start(nlayers3, dz=dz_init(1:nl3))
-!   snow3 = snow2
-!   snow3%nlayers = snow1%nlayers + snow2%nlayers
-
-!   ! compute all the other variables for merged tile3
-
-!   ! then regrid tile3
-!     if (snow3%nlayers > 0) then
-!         call snow3%attempt_split_layers()
-!         call snow3%attempt_merge_layers()
-!     endif
-
-!   ! then return tile2 as merged tile
-!   snow2 = snow3 ! 
-! end subroutine merge_snow_tiles
-
-
-! !> \brief Merge bottom layers while number of layers exceedes maximum number allowed
-! !! distribution.
-! subroutine merge_layers_above_nmax(s)
-!   class(snowpack_t), intent(inout) :: s
-
-!   real :: z, z1 ! current depth
-!   ! real :: dz_opt
-!   ! type(dzopt_t) :: dzopt
-!   ! real :: penalty0, penalty1
-!   integer :: k, k1, i
-
-!   ! write(*,*) "snowpack depth = ", s%depth()
-!   ! call dzopt%init(s%depth())
-
-!   z = 0; k = 1
-!   do while (k < s%nlayers) ! while loop because s%nlayers changes inside
-!      dz_opt = dzopt%dz(z)
-!      k1 = k+1 ; z1 = z+s%snow(k)%dz ! index and depth for the next step
-!      if (s%snow(k)%dz < dz_opt .and. layers_can_be_merged(s%snow(k), s%snow(k+1))) then
-!         penalty0 = dzopt%penalty([z, z+s%snow(k)%dz, z+s%snow(k)%dz+s%snow(k+1)%dz])
-!         penalty1 = dzopt%penalty([z,                 z+s%snow(k)%dz+s%snow(k+1)%dz])
-!         if (penalty1 < penalty0) then
-!            call merge_layers(s%snow(k+1), s%snow(k))
-!            do i = k+1, s%nlayers-1
-!               s%snow(i) = s%snow(i+1)
-!            enddo
-!            s%nlayers = s%nlayers-1
-!            ! Q: merge may result in overheated snow or overcooled water; do we handle it
-!            !    here or in thermodynamics?
-!            k1 = k ; z1 = z ! do next step with the same layer, except with increased thickness
-!         endif
-!      endif
-!      k = k1; z = z1
-!   enddo
-! end subroutine merge_layers_above_nmax
-
-
-! ============================================================================
-! Routines needed for compatibility with lm4p2
-
-
-! ! ============================================================================
-! ! returns snow heat content, J/m2
-! ! note: heat wrt liquid at T=TFREEZE
-! ! function snow_tile_heat (snow) result(heat) ; real heat
-! ! //TODO check energy reference
-! real function snow_tile_heat (snow) result(heat) 
-!   type(snowpack_t), intent(in)  :: snow
-!   integer :: il
-!   ! write(*,*) "snow_tile_heat: nlayers = ", snow%nlayers
-!   heat = 0
-!   heat = heat + snow%topsnowheatdeficit ! add deficit
-!   heat = heat - snow%topsnowdeficit * HLF ! convention LM4p2 heat wrt liquid at T=TF
-!   heat = heat + snow%topwheat ! all liquid water heat
-!   ! heat = heat ! all liquid water heat
-!   if (snow%nlayers > 0) then
-!     do il = 1,snow%nlayers
-!       ! write(*,*) "il = , nlayers", il, snow%nlayers
-!       !  heat = heat - snow%ws(i)*hlf &
-!       !     + (mc_fict*dz(i) + clw*snow%wl(i) + csw*snow%ws(i))  &
-!       !                                   * (snow%T(i)-tfreeze)
-!       ! heat = heat - snow%snow(il)%ws * HLF &
-!           ! + ( CLW * snow%snow(il)%wl + CSW * snow%snow(il)%ws )  &
-!                                         ! * (snow%snow(il)%T-TFREEZE)
-!       heat = heat - snow%snow(il)%ws * HLF &
-!           + snow%snow(il)%hCap() * (snow%snow(il)%T-TFREEZE)
-
-!     enddo
-!   endif
-!   ! write(*,*) "nlayers = ", snow%nlayers, "snow tile heat = ", heat
-! end function snow_tile_heat
-
 
 
 subroutine compute_snow_grain_shape(dendr, sph, idxshp)
