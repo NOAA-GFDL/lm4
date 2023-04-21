@@ -27,7 +27,6 @@ public :: add_liquid_to_layer
 public :: snowpack_init
 public :: snowpack_end
 public :: MAX_OPT_LAYERS
-! public :: snow_tile_heat
 public :: snowpack_init_lm4p2
 public :: read_snowpack_namelist
 public :: compute_snow_grain_shape
@@ -79,13 +78,10 @@ type :: snowpack_t
     real :: tag ! tag from lm4p2
     real :: preprec_surfT ! snow surface temperature after heat diffusion, but before evap/subl and new snowfall
 contains
-    ! procedure :: start  => snowpack_start !< initiate snowpack (in case of new snowfall on bare ground, or initial condition)
     procedure :: empty  => snowpack_empty !< empty snowpack (in case of complete melt / sublimation)
     procedure :: update_age  => snowpack_update_age !< update the age [in days] of existing snow layers
-    ! procedure :: albedo  => snowpack_albedo !< compute albedo of the snowpack ! // TODO remove?
     procedure :: nearsurf_properties  => snowpack_nearsurf_properties !< compute some near-surface properties
     procedure :: sw_sources  => snowpack_sw_sources !< compute albedo of the snowpack
-    ! procedure :: sw_sources_lm4p2  => snowpack_sw_sources_lm4p2 !< compute albedo of the snowpack, updated for lm4p2
     procedure :: heat  => snowpack_heat !< heat content of the snowpack
     procedure :: ice   => snowpack_ice  !< solid phase water content of the snowpack
     procedure :: liq   => snowpack_liq  !< liquid phase water content of the snowpack
@@ -97,12 +93,11 @@ contains
     procedure :: avrg_bceq_im   => snowpack_avrg_bceq_im  !< average conc. of LAIS internally mixed (IM)
     procedure :: avrg_bceq_em   => snowpack_avrg_bceq_em  !< average conc. of LAIS externally mixed (EM)
     procedure :: avrg_bceq_tot   => snowpack_avrg_bceq_tot  !< average conc. of LAIS (IM + EM)
-    ! procedure :: avrg_T   => snowpack_avrg_T  !< average density of the snow
     procedure :: lai_im   => snowpack_lai_im  !< content of internally mixed LAIs of the snowpack [mg/m2]
     procedure :: lai_em   => snowpack_lai_em  !< content of externally mixed LAIs of the snowpack [mg/m2]
     procedure :: SWE   => snowpack_SWE  !< total water content of the snowpack
     procedure :: depth => snowpack_depth  !< total depth of the snowpack
-    procedure :: area => snowpack_area  !< fractional area covered by snow (used only for albedo purposes, if used at all - for now) // TODO remove
+    procedure :: area => snowpack_area  !< fractional area covered by snow (used only for albedo purposes)
     procedure :: step1 => snowpack_step_1 !< forward elimination of tridiagonal solver
     procedure :: step1a => snowpack_step_1a !< forward elimination of tridiagonal solver
     procedure :: step1b => snowpack_step_1b !< forward elimination of tridiagonal solver
@@ -110,8 +105,6 @@ contains
     procedure :: check_bounds => snowpack_check_bounds !< back-substitution part of tridiagonal solver
     procedure :: attempt_split_layers => attempt_split_layers
     procedure :: attempt_merge_layers => attempt_merge_layers
-    ! procedure :: get_index_thickest_layer => snowpack_get_index_thickest_layer
-    ! procedure :: force_split_layers => snowpack_force_split_layers
     procedure :: print => snowpack_print
 end type snowpack_t
 
@@ -910,25 +903,21 @@ subroutine snowpack_print(s)
   class(snowpack_t), intent(in) :: s
   real :: z
   integer :: k
-  ! I should add the internally mixed as well
-  ! // TODO add topwter, topsnowdeificit
 write(*,*) "___________<< state of snowpack >>______________"
   if (s%nlayers > 0) then
-!   write(*,'(a2,99(",",a9,:))') "k","top","dz","T","ws","wl"
-  write(*,'(a2,99(",",a14,:))') "k","top","dz","T - TF","ws","wl", "rho", "wc_BC_em", "wc_MD_em", "wc_OM_em", "wc_BC_im", "wc_MD_im", "wc_OM_im", "sph", "dopt", "age"
+  write(*,'(a2,99(",",a14,:))') "k","top","dz","T - TF","ws","wl", "rho", "wc_BC_em", "wc_MD_em", "wc_OM_em", "wc_BC_im", "wc_MD_im", "wc_OM_im", "dendr", "sph", "dopt", "age"
   z = 0
   do k = 1, s%nlayers
      write(*,'(i2.2,99(",",f14.4,:))') k, z, s%snow(k)%dz, s%snow(k)%T-TFREEZE, &
         s%snow(k)%ws, s%snow(k)%wl, s%snow(k)%ws/s%snow(k)%dz, &
         s%snow(k)%wc_em(TR_BC), s%snow(k)%wc_em(TR_MD), s%snow(k)%wc_em(TR_OM), &
         s%snow(k)%wc_im(TR_BC), s%snow(k)%wc_im(TR_MD), s%snow(k)%wc_im(TR_OM), &
-        s%snow(k)%sph, s%snow(k)%optd, s%snow(k)%age
+        s%snow(k)%dendr, s%snow(k)%sph, s%snow(k)%optd, s%snow(k)%age
      z = z+s%snow(k)%dz
   enddo
   write(*,'("nlayers = ",i2.2)') s%nlayers
   write(*,'("depth = ",f9.4)') z
   write(*,'("SWE = ",f9.4)') s%SWE()
-  ! write(*,'("Runoff = ",f9.4)') s%runoff
   write(*,'("size of s%snow = ",i2.2)') size(s%snow)
 write(*,'("bands    : " 99(a15,:))') "VIS", "NIR"
 write(*,'("refl dir = ", 99(f15.4,:))') s%snow_refl_dir(1), s%snow_refl_dir(2)
@@ -937,7 +926,7 @@ write(*,'("beta rad = ", 99(f15.4,:))') s%beta_rad(1), s%beta_rad(2)
 else
   write(*,*) "There is no snow here at this time -> nlayers = 0"
 endif
-! These variables are relevant even if there is no snow
+! These variables are relevant even if there are no snow layers
   write(*,'("topwater, topwheat = ", 99(f15.4,:))') s%topwater, s%topwheat
   write(*,'("topsnow def, topsnow heat def = ", 99(f15.4,:))') s%topsnowdeficit, s%topsnowheatdeficit
 write(*,*) "___________<< end state of snowpack >>______________"
