@@ -2217,7 +2217,8 @@ subroutine vegn_phenology_ppa(tile)
      end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N)
+  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N, &
+                                   root_litter_C=root_litt_C, root_litter_N=root_litt_N  )
   ! phenology can change cohort heights if the grass dies, and therefore change
   ! layers -- therefore we need to relayer, lest cohorts remain in a wrong order
   call vegn_relayer_cohorts_ppa(vegn)

@@ -3,7 +3,7 @@ module land_tile_diag_mod
 use mpp_mod,            only : mpp_sum
 use mpp_efp_mod,        only : mpp_reproducing_sum
 use time_manager_mod,   only : time_type
-use diag_axis_mod,      only : get_axis_length, diag_axis_init
+use diag_axis_mod,      only : get_axis_length, diag_axis_init, diag_axis_add_attribute
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
      diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
@@ -15,7 +15,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use vegn_data_mod,      only : nspecies
+use vegn_data_mod,      only : nspecies, splist
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd, log_version, land_data_type
 use land_debug_mod,     only : check_var_range, set_current_point
@@ -1172,8 +1172,10 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
                              missing_value, range )
 
   ! create species axis if necessary
-  if (id_species_axis<0) &
+  if (id_species_axis<0) then
       id_species_axis = diag_axis_init ( 'species', [(real(i), i=1,nspecies)], units='', cart_name='z')
+      call diag_axis_add_attribute(id_species_axis, 'species_names', splist)
+  endif
   ! copy common portion of the local axes array
   axes_(1:size(axes)) = axes(:)
 

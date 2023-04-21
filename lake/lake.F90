@@ -8,7 +8,7 @@ use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, &
                  & FATAL, NOTE
 use mpp_domains_mod, only: domain2d, domainug, mpp_get_compute_domain, mpp_pass_sg_to_ug
 use fms2_io_mod, only: open_file, close_file, read_data, register_field, FmsNetcdfDomainFile_t, &
-                     &register_axis, get_variable_num_dimensions, get_variable_dimension_names
+                       register_axis, get_variable_num_dimensions, get_variable_dimension_names
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
 use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, grav, vonkarm, rdgas
@@ -956,8 +956,7 @@ subroutine lake_diag_init(id_ug)
 end subroutine lake_diag_init
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function lake_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    lake_tile_exists = associated(tile%lake)

@@ -4962,8 +4962,7 @@ DEFINE_LAND_ACCESSOR_0D(real,e_res_1)
 DEFINE_LAND_ACCESSOR_0D(real,e_res_2)
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function land_tile_exists(tile)
   type(land_tile_type), pointer :: tile
   land_tile_exists = associated(tile)

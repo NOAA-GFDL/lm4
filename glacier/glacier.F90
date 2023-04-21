@@ -834,8 +834,7 @@ subroutine glac_diag_init (id_ug, zfull, zhalf )
 end subroutine glac_diag_init
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function glac_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    glac_tile_exists = associated(tile%glac)

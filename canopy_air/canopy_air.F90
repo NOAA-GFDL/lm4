@@ -748,8 +748,7 @@ end function sfc_visc_bl_depth
 
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function cana_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    cana_tile_exists = associated(tile%cana)

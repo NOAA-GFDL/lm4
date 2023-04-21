@@ -52,6 +52,7 @@ end interface dpri
 interface check_var_range
    module procedure check_var_range_0d
    module procedure check_var_range_1d
+   module procedure check_var_range_2d
 end interface check_var_range
 
 interface check_temp_range
@@ -440,6 +441,33 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
   enddo
 end subroutine check_var_range_1d
 
+
+! ============================================================================
+subroutine check_var_range_2d(value, lo, hi, tag, varname, severity)
+  real        , intent(in) :: value(:,:) ! value to check
+  real        , intent(in) :: lo,hi    ! lower and upper bounds of acceptable range
+  character(*), intent(in) :: tag      ! tag to print
+  character(*), intent(in) :: varname  ! name of the variable for printout
+  integer     , intent(in) :: severity ! severity of the non-conservation error:
+         ! Can be WARNING, FATAL, or negative. Negative means check is not done.
+
+  ! ---- local vars
+  integer :: i,j
+  character(512) :: message
+
+  if (severity<0) return
+
+  do j = 1,size(value,2)
+     do i = 1,size(value,1)
+        if(ieee_is_finite(value(i,j))) then
+           if(lo<=value(i,j).and.value(i,j)<=hi) cycle
+        endif
+        write(message,'(a,g23.16)')&
+             trim(varname)//'('//trim(string(i))//','//trim(string(j))//')'//' out of range: value=', value(i,j)
+        call land_error_message(trim(tag)//': '//trim(message),severity)
+     enddo
+  enddo
+end subroutine check_var_range_2d
 
 ! ============================================================================
 subroutine print_label(description)

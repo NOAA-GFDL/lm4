@@ -2881,7 +2881,9 @@ end subroutine soil_step_1
         call dpri('gw=',soil%groundwater(l))
         write(*,*)
      enddo
-     call debug_pool(soil%litter_corpse(LEAF), 'leaf_litter')
+     if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
+        call debug_pool(soil%litter_corpse(LEAF), 'leaf_litter')
+     endif
   endif
 
   active_layer_thickness = 0.
@@ -2910,20 +2912,21 @@ end subroutine soil_step_1
 ! slm: call check_conservation('soil_mod: soil_step_2', 'Water', wsum1, wsum2, wthresh, FATAL)
 ! endif
 
-
    if (is_watch_point()) then
       write(*,*)'##### soil_step_2 checkpoint 6 #####'
       __DEBUG1__(flow)
       __DEBUG1__(div)
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
-      do l = 1,N_LITTER_POOLS
-         call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
-      enddo
-      do l = 1, num_l
-         write(*,'(i2.2,x)',advance='NO') l
-         call debug_pool(soil%org_matter(l), '')
-      enddo
+      if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
+         do l = 1,N_LITTER_POOLS
+            call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
+         enddo
+         do l = 1, num_l
+            write(*,'(i2.2,x)',advance='NO') l
+            call debug_pool(soil%org_matter(l), '')
+         enddo
+      endif
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
       enddo

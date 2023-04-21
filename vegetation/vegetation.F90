@@ -1375,6 +1375,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
+        exit
      endif
   enddo
   ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max

@@ -3,7 +3,6 @@ module land_tile_mod
 use fms_mod, only : mpp_pe, mpp_root_pe, check_nml_error, error_mesg, stdlog, &
                   & FATAL
 use mpp_mod, only: input_nml_file
-
 use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
      glac_tile_type, new_glac_tile, delete_glac_tile, glac_is_selected, &

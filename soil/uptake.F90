@@ -7,9 +7,8 @@ module uptake_mod
 
 use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, &
-                 & FATAL
+                   FATAL
 use constants_mod, only: PI
-
 use soil_tile_mod, only : soil_tile_type, max_lev, psi_wilt
 use land_debug_mod, only : is_watch_point
 use land_data_mod, only : log_version

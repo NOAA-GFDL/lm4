@@ -2,12 +2,11 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
+use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, FATAL, WARNING, check_nml_error, stdlog, &
                  & mpp_pe, mpp_root_pe, lowercase
-use mpp_mod, only: input_nml_file
 use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp
-
 use land_constants_mod, only : Rugas, seconds_per_year, mol_h2o, mol_air, d608
 use land_numerics_mod,  only : gammaU, gamma
 use land_debug_mod,     only : is_watch_point, check_var_range

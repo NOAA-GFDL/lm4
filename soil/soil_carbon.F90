@@ -6,13 +6,13 @@ module soil_carbon_mod
 #include "../shared/debug.inc"
 
 use land_constants_mod, only : Rugas
+use mpp_mod, only: input_nml_file
 use fms_mod, only: check_nml_error, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
                  & FATAL, NOTE
 use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range
 
-use mpp_mod, only: input_nml_file
 #endif
 
 implicit none
@@ -284,7 +284,6 @@ subroutine read_soil_carbon_namelist
      unit=stdlog()
      write(unit, nml=soil_carbon_nml)
   endif
-
 
   ! parse soil carbon option
   select case (soil_carbon_model_to_use)
