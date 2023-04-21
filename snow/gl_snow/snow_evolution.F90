@@ -3117,11 +3117,6 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
 
         else if ( ( DTold < 0.0) .and. (s%snow(il)%wl > 0.0)) then
             ! write(*,*) "SMAF: case  ( DTold < 0.0) .and. (s%snow(il)%wl > 0.0)"
-            ! Correction: do not freeze more than the water avail in pore space storage
-            ! The rest will be flushed down
-            ! rho_snow_il = (s%snow(il)%ws +s%snow(il)%wl) /s%snow(il)%dz ! density of solid snow in current layer ! //FIXME use total density?
-            ! wl_max = compute_wlmax(s%snow(il)%dz, rho_snow_il)
-            ! max_freeze = min(s%snow(il)%wl, wl_max)
             max_freeze =s%snow(il)%wl 
             freeze = min( max_freeze, -s%snow(il)%hCap()*DTold/HLF )
             ! write(*,*) "mass freeze = ", freeze
@@ -3129,13 +3124,9 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             heat0 = s%snow(il)%heat()
             hCap0 = s%snow(il)%hCap()
 
-            ! original_ws =s%snow(il)%ws !//FIXME remove
             s%snow(il)%ws = s%snow(il)%ws + freeze
             s%snow(il)%wl = s%snow(il)%wl - freeze
-            ! if (s%snow(il)%wl < 0.0) write(*,*) "error neagtive wl",s%snow(il)%wl  
             if (s%snow(il)%wl < 0.0) call land_error_message("Error in snow_melt_and_freeze in snow_evolution_mod: wl < 0 value found!", FATAL)
-            ! if (s%snow(il)%wl < 0.0) error stop "error neagtive wl",s%snow(il)%wl  
-            ! s%snow(il)%dz = s%snow(il)%dz * (s%snow(il)%ws)/original_ws !//FIXME remove
             ! set max layer density after freezing
             if ((s%snow(il)%ws + s%snow(il)%wl)/s%snow(il)%dz > rho_ice) then
                 ! write(*,*) "adjusting layer depth after freezing ..."
@@ -4382,16 +4373,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     !     ! write(*,*) "end ---- DE due to update temperature profile: ........."
     ! endif
 
-    ! //FIXME added 3rd relayering step here
-    ! if(verbose) write(*,*) "SNOW STEP 2 : Do snowpack relayering"
-    ! if (s%nlayers > 0) then
-    !     ! write(*,*) "numbers of snow layers before relayering = ", s%nlayers
-    !     if (do_merge) call s%attempt_merge_layers()
-    !     ! write(*,*) "numbers of snow layers during relayering (before split, after merge) = ", s%nlayers
-    !     if (do_split) call s%attempt_split_layers()
-    !     ! write(*,*) "numbers of snow layers after relayering = ", s%nlayers
-    ! endif
-
     ! check that some snow related quantities are within physical boundaries
     call s%check_bounds("check bounds before sublimation ....")
 
@@ -4721,32 +4702,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     ! sum contributions to lost LAIs for LAI mass balance
     lost_wc_em = lost_wc_em1 + lost_wc_em2 + lost_wc_em3 + lost_wc_em4 + lost_wc_em5
     lost_wc_im = lost_wc_im1 + lost_wc_im2 + lost_wc_im3 + lost_wc_im4 + lost_wc_im5
-!     write(*,*) ">>>>>>>>,,,,,,,,,<<<<<<<<"
-!     write(*,*) "Snow step 2 :: LAI concentrations:"
-!     write(*,*) "lost_wc_im, lost_wc_em = ", lost_wc_im, lost_wc_em
-!     write(*,*) "lost_wc_im1, lost_wc_em1 = ", lost_wc_im1, lost_wc_em1
-!     write(*,*) "lost_wc_im2, lost_wc_em2 = ", lost_wc_im2, lost_wc_em2
-!     write(*,*) "lost_wc_im3, lost_wc_em3 = ", lost_wc_im3, lost_wc_em3
-!     write(*,*) "lost_wc_im4, lost_wc_em4 = ", lost_wc_im4, lost_wc_em4
-!     write(*,*) "lost_wc_im5, lost_wc_em5 = ", lost_wc_im5, lost_wc_em5
-!     write(*,*) ">>>>>>>>,,,,,,,,,,<<<<<<<<<"
-
-
-
-! write(*,*) "LAI content after after sweep tiny snow = ", sum(s%lai_em()+s%lai_im())
-
-    ! //FIXME: Additional relayering step
-    ! if(verbose) write(*,*) "SNOW STEP 2 : Do snowpack relayering"
-    ! if (s%nlayers > 0) then
-    !     ! write(*,*) "numbers of snow layers before relayering = ", s%nlayers
-    !     if (do_merge) call s%attempt_merge_layers()
-    !     ! write(*,*) "numbers of snow layers during relayering (before split, after merge) = ", s%nlayers
-    !     ! if (do_split) call s%attempt_split_layers()
-    !     ! write(*,*) "numbers of snow layers after relayering = ", s%nlayers
-    !     ! call s%print()
-    ! endif
-
-
 
     netmass1 = s%SWE() ! mass cons check
     netheat1 = s%heat() ! heat cons check
@@ -4889,24 +4844,12 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
    sum_swheat = sum(s%swheat)
    ! USE ENERGY CONVENTION INTERNAL TO SNOWPACK MODULE FOR LATENT HEAT
 
-    !!! ##### TWO POSSIBLE CHECK CONFIGURATIONS:: ######
-    !!! ################################################
-    ! neth_check = endh_check -  begh_check - sum_swheat*delta_time &
-    !   - (vegn_hlprec_r + vegn_hfprec_ch )*delta_time - vegn_lprec*delta_time*HLF & 
-    !   + (snow_hlrunf + snow_hfrunf + snow_lrunf*HLF + snow_hlprec + snow_lprec*HLF )*delta_time & 
-    ! !   - Mg_imp*HLF + hfevap*delta_time - delta_heat_DTg & 
-    !   - (Mg_imp-subs_M_imp)*HLF + hfevap*delta_time - dheat_fevap & 
-    !   + (snow_G_Z+snow_G_TZ*subs_DT)*delta_time - (  G0  + DGDTg*DTg)*delta_time
-    !!! #################################################
-
-    ! EZSNOW - // FIXME just for testing
     neth_check = endh_check -  heat1b  &
       - (vegn_hlprec_r + vegn_hfprec_ch )*delta_time - vegn_lprec*delta_time*HLF & 
       + (snow_hlrunf + snow_hfrunf + snow_lrunf*HLF + snow_hlprec + snow_lprec*HLF )*delta_time & 
     !   - Mg_imp*HLF + hfevap*delta_time - delta_heat_DTg & 
       - (Mg_imp-subs_M_imp)*HLF + hfevap*delta_time - dheat_fevap  
     !   + (snow_G_Z+snow_G_TZ*subs_DT)*delta_time - (  G0  + DGDTg*DTg)*delta_time
-    !!! ##################################################
 
 
 

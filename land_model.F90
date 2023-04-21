@@ -4597,11 +4597,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
           id_snow_nearsurf_sph = register_tiled_diag_field ( module_name, 'snow_nearsurf_sph', (/id_ug/), time, &     
              'Snowpack near-surface grain sphericity', 'dimless', missing_value=-9999.0) 
           id_snow_nearsurf_dendr = register_tiled_diag_field ( module_name, 'snow_nearsurf_dendr', (/id_ug/), time, &     
-             'Snowpack near-surface dendricity', 'dimless', missing_value=-9999.0) ! 
+             'Snowpack near-surface grain dendricity', 'dimless', missing_value=-9999.0) ! 
           id_snow_nearsurf_age = register_tiled_diag_field ( module_name, 'snow_nearsurf_age', (/id_ug/), time, &     
              'Snowpack near-surface age', 'days', missing_value=-9999.0) !  
           id_snow_nearsurf_density = register_tiled_diag_field ( module_name, 'snow_nearsurf_density', (/id_ug/), time, &     
-             'Snowpack near-surface grain density', 'kg/m3', missing_value=-9999.0) 
+             'Snowpack near-surface density', 'kg/m3', missing_value=-9999.0) 
  
           ! id_snow_area_frac = register_tiled_diag_field ( module_name, 'snow_area_frac', (/id_ug/), time, &     
              ! 'Frcational snow-covered area', 'dimless', missing_value=-9999.0) 
