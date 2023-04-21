@@ -77,7 +77,7 @@ use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, 
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+use soil_carbon_mod, only : soilc_t, soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
      soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
@@ -2116,9 +2116,10 @@ end subroutine vegn_step_2
 ! ============================================================================
 ! do the vegetation calculations that require updated (end-of-timestep) values
 ! of prognostic land variables
-subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org, vegn_fco2, diag)
+subroutine vegn_step_3(vegn, soil, soilc, cana_T, precip, ndep_nit, ndep_amm, ndep_org, vegn_fco2, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   real, intent(in) :: cana_T ! canopy temperature, deg K
   real, intent(in) :: precip ! total (rain+snow) precipitation, kg/(m2 s)
   real, intent(in) :: ndep_nit, ndep_amm, ndep_org ! total nitrate, ammonium,
@@ -2157,9 +2158,9 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
      ! Do N deposition first. For now, it all goes to leaf litter
      ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes
      ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
-     call soil_NH4_deposition   (ndep_amm*dt_fast_yr, soil%org_matter(1))
-     call soil_NO3_deposition   (ndep_nit*dt_fast_yr, soil%org_matter(1))
-     call soil_org_N_deposition (ndep_org*dt_fast_yr, soil%org_matter(1))
+     call soil_NH4_deposition   (ndep_amm*dt_fast_yr, soilc%org_matter(1))
+     call soil_NO3_deposition   (ndep_nit*dt_fast_yr, soilc%org_matter(1))
+     call soil_org_N_deposition (ndep_org*dt_fast_yr, soilc%org_matter(1))
   case default
      call error_mesg('soil_step_2', 'unrecognized soil carbon option -- this should never happen', FATAL)
   end select
@@ -2167,9 +2168,9 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + (ndep_amm+ndep_nit+ndep_org)*dt_fast_yr
 
   if (do_ppa) then
-     call vegn_carbon_int_ppa(vegn, soil, tsoil, theta, diag)
+     call vegn_carbon_int_ppa(vegn, soil, soilc, tsoil, theta, diag)
   else
-     call vegn_carbon_int_lm3(vegn, soil, tsoil, theta, diag)
+     call vegn_carbon_int_lm3(vegn, soil, soilc, tsoil, theta, diag)
   endif
 
   ! decrease, if necessary, csmoke spending rate so that csmoke pool
@@ -2682,7 +2683,7 @@ subroutine update_vegn_slow( )
      call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0 .and. do_peat_redistribution) then
-        call redistribute_peat_carbon(tile%soil)
+        call redistribute_peat_carbon(tile%soilc)
      endif
 
      if (month1 /= month0.and.do_patch_disturbance) then
@@ -2704,25 +2705,25 @@ subroutine update_vegn_slow( )
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
 
         if (do_ppa) then
-           call vegn_starvation_ppa(tile%vegn, tile%soil)
+           call vegn_starvation_ppa(tile%vegn, tile%soilc)
            call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
            if (do_phenology) call vegn_phenology_ppa (tile)
            call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
         else
-           call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
+           call vegn_nat_mortality_lm3(tile%vegn,tile%soilc,86400.0)
         endif
      endif
      call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0,nmass0)
 
      if  (month1 /= month0 .and. do_phenology) then
         if (.not.do_ppa) &
-            call vegn_phenology_lm3 (tile%vegn,tile%soil)
+            call vegn_phenology_lm3 (tile%vegn, tile%soil, tile%soilc)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
      call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
-        call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
+        call vegn_disturbance(tile%vegn, tile%soilc, seconds_per_year)
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
 
@@ -2781,7 +2782,7 @@ subroutine update_vegn_slow( )
      endif
 
      if (do_ppa.and.day1 /= day0) then
-        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
+        call kill_small_cohorts_ppa(tile%vegn,tile%soilc)
         call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      endif
 
@@ -2893,9 +2894,9 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_leaf_age, tile%diag, cc(1:N), cc(1:N)%leaf_age, weight=cc(1:N)%nindivs*cc(1:N)%leafarea, op=OP_AVERAGE)
 
      ! carbon budget tracking
-     call send_tile_data(id_fsc_in,  sum(tile%soil%fsc_in(:)),  tile%diag)
+     call send_tile_data(id_fsc_in,  sum(tile%soilc%fsc_in(:)),  tile%diag)
      call send_tile_data(id_fsc_out, tile%vegn%fsc_out, tile%diag)
-     call send_tile_data(id_ssc_in,  sum(tile%soil%ssc_in(:)),  tile%diag)
+     call send_tile_data(id_ssc_in,  sum(tile%soilc%ssc_in(:)),  tile%diag)
      call send_tile_data(id_ssc_out, tile%vegn%ssc_out, tile%diag)
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
@@ -3031,10 +3032,10 @@ subroutine update_vegn_slow( )
         if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
         do ii = 1,N_LITTER_POOLS
-           call cull_cohorts(tile%soil%litter_corpse(ii))
+           call cull_cohorts(tile%soilc%litter_corpse(ii))
         enddo
         do ii=1,num_l
-           call cull_cohorts(tile%soil%org_matter(ii))
+           call cull_cohorts(tile%soilc%org_matter(ii))
         enddo
      enddo
   endif

@@ -2321,7 +2321,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      DOC_to_atmos = 0.
   else if (associated(tile%soil)) then
      call soil_step_2 &
-          ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+          ( tile%soil, tile%soilc, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
           vegn_uptk, subs_DT, subs_M_imp, subs_evap, &
           use_tfreeze_in_grnd_latent, &
           ! output:
@@ -2370,10 +2370,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! do the calculations that require updated land surface prognostic variables
      call nitrogen_sources(lnd%time, l, tile%vegn%p_ann, precip_l+precip_s, &
              tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
-     call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
+     call vegn_step_3 (tile%vegn, tile%soil, tile%soilc, tile%cana%T, precip_l+precip_s, &
           ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
-     call soil_step_3(tile%soil, tile%diag)
+     call soil_step_3(tile%soilc, tile%diag)
 
      call update_fire_fast(tile, p_surf, atmos_wind, l)
   endif

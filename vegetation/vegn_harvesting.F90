@@ -464,9 +464,9 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
 
        if (grazing_freq==GRAZING_DAILY) then
           ! Put carbon directly in soil pools
-          call add_litter(soil%litter_corpse(LITT_LEAF),leaflitter_C,leaflitter_N)
-          call add_litter(soil%litter_corpse(LITT_CWOOD),woodlitter_C,woodlitter_N)
-          call add_root_litter(soil,vegn,bglitter_C,bglitter_N)
+          call add_litter(tile%soilc%litter_corpse(LITT_LEAF),leaflitter_C,leaflitter_N)
+          call add_litter(tile%soilc%litter_corpse(LITT_CWOOD),woodlitter_C,woodlitter_N)
+          call add_root_litter(tile%soilc,vegn,bglitter_C,bglitter_N)
        else
           vegn%litter_buff_C(:,LITT_LEAF) = vegn%litter_buff_C(:,LITT_LEAF) + &
                [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue
@@ -812,9 +812,9 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      ! and buffN are zero, so nothing happens
      select case (soil_carbon_option)
      case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        soil%litter_century_C(:,LITT_LEAF) = soil%litter_century_C(:,LITT_LEAF) + buffC(:)
+        tile%soilc%litter_century_C(:,LITT_LEAF) = tile%soilc%litter_century_C(:,LITT_LEAF) + buffC(:)
      case (SOILC_CORPSE,SOILC_CORPSE_N)
-        call add_litter(soil%litter_corpse(LITT_LEAF),buffC,buffN)
+        call add_litter(tile%soilc%litter_corpse(LITT_LEAF),buffC,buffN)
      case default
         call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
@@ -1067,7 +1067,7 @@ subroutine vegn_plant_crop_ppa(tile)
   enddo
   call check_var_range(seedC(crop_species_idx),0.99*crop_seed_density,HUGE(1.0),'vegn_plant_crop_ppa','seedC',WARNING)
 
-  call add_seedlings_ppa(vegn,soil,seedC,seedN, prob_est = 1.0, prob_ger = 1.0)
+  call add_seedlings_ppa(vegn,soil,tile%soilc,seedC,seedN, prob_est = 1.0, prob_ger = 1.0)
   end associate ! vegn,soil
 
   call check_conservation_2(tile,'vegn_plant_crop_ppa', lmass0,fmass0,cmass0,nmass0,heat0)

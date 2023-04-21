@@ -40,7 +40,7 @@ use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohor
 use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
 use soil_util_mod, only : add_soil_carbon
-use soil_carbon_mod, only : soil_carbon_option, poolTotals, &
+use soil_carbon_mod, only : soilc_t, soil_carbon_option, poolTotals, &
       remove_C_N_fraction_from_pool, &
       SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 use vegn_util_mod, only : kill_plants_ppa
@@ -1076,7 +1076,7 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
 
   if (burns_as_ntrl(tile)) then
      ! Update conditions for fire
-     call update_fire_ntrl(tile%vegn, tile%soil, tile%diag, &
+     call update_fire_ntrl(tile%vegn, tile%soil, tile%soilc, tile%diag, &
            tile%cana%T, tile%cana%tr(isphum), p_surf, wind, l, lnd%ug_area(l)*tile%frac, lnd%ug_lat(l))
      ! Compute multi-day fires (daily) dsward_mdf
      if (do_multiday_fires .and. day1/=day0) then
@@ -1105,12 +1105,13 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
 end subroutine update_fire_fast
 
 ! ==============================================================================
-subroutine update_fire_ntrl(vegn,soil,diag, &
+subroutine update_fire_ntrl(vegn,soil,soilc,diag, &
                             Tca,q,p_surf,cplr2land_wind, &
                             l,tile_area, &
                             latitude)
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(in) :: soil
+    class(soilc_t),       intent(in) :: soilc
     type(diag_buff_type), intent(inout) :: diag
     real, intent(in) :: q
     real, intent(in) :: Tca   ! Kelvin
@@ -1190,13 +1191,13 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
        fire_fn_Tca = 1.0
     endif
 
-    call update_fire_agb(vegn,soil)
+    call update_fire_agb(vegn,soilc)
     call vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop) !!! dsward_kop added kop
 
     call vegn_fire_ROS(vegn,fire_fn_rh,theta,fire_fn_theta,wind_forFire,ROS_surface,LB,HB,gW,ROSmax,C_beta,kop)   ! SSR20151216 !!! dsward_kop added kop
 
 !!! dsward_crownfires
-    call vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
+    call vegn_fire_intensity(vegn,soilc,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
 !!! dsward_crownfires end
 
     ! calculate fire duration as a weighted average of the species in the
@@ -2130,7 +2131,7 @@ end subroutine vegn_fire_ROS
 !!! dsward_crownfires
 subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
     type(vegn_tile_type), intent(inout) :: vegn
-    type(soil_tile_type), intent(in) :: soil
+    class(soilc_t),       intent(in)    :: soil
     real, intent(in)    :: theta,theta_extinction
     real, intent(in)    :: ROS_surface
 
@@ -2452,7 +2453,7 @@ subroutine vegn_burn(tile, tile_area)
      if(do_ppa) then
         call vegn_burn_ppa(tile)
      else
-        call vegn_burn_lm3(tile%vegn, tile%soil, tile_area)
+        call vegn_burn_lm3(tile%vegn, tile%soilc, tile_area)
      endif
   endif
 end subroutine vegn_burn
@@ -2509,16 +2510,16 @@ subroutine vegn_burn_ppa(tile)
   select case (soil_carbon_option)
   case(SOILC_CORPSE,SOILC_CORPSE_N)
      do i = 1,N_LITTER_POOLS
-        call remove_C_N_fraction_from_pool (tile%soil%litter_corpse(i), CC_litter*BF, CC_litter*BF, &
+        call remove_C_N_fraction_from_pool (tile%soilc%litter_corpse(i), CC_litter*BF, CC_litter*BF, &
             litterC_removed=burned_C_1, protectedC_removed=burned_C_2, liveMicrobeC_removed=burned_C_3, &
             litterN_removed=burned_N_1, protectedN_removed=burned_N_2, liveMicrobeN_removed=burned_N_3  )
         burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
         burned_N = burned_N + sum(burned_N_1) + sum(burned_N_2) + burned_N_3
      enddo
   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     burned_C = burned_C + CC_litter*BF*sum(tile%soil%litter_century_C(:,:))
+     burned_C = burned_C + CC_litter*BF*sum(tile%soilc%litter_century_C(:,:))
      ! burned_N remains unmodified
-     tile%soil%litter_century_C(:,:) = (1-CC_litter*BF)*tile%soil%litter_century_C(:,:)
+     tile%soilc%litter_century_C(:,:) = (1-CC_litter*BF)*tile%soilc%litter_century_C(:,:)
   case default
      call error_mesg('vegn_burn_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
@@ -2579,8 +2580,8 @@ subroutine vegn_burn_ppa(tile)
      end associate ! sp
   enddo
   ! add carbon to soil
-  call add_soil_carbon(tile%soil, tile%vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
-                                             leaf_litt_N, wood_litt_N, root_litt_N  )
+  call add_soil_carbon(tile%soilc, tile%vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                              leaf_litt_N, wood_litt_N, root_litt_N  )
 
   ! adjust population density in the untouched portion of the grid
   do k = ns, ne
@@ -2604,7 +2605,7 @@ end subroutine vegn_burn_ppa
 ! =======================================================================================
 subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soil
   real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
 
   integer :: i, l
@@ -3424,7 +3425,7 @@ end subroutine calc_fire_derivs
 
 subroutine update_fire_agb(vegn,soil)
    type(vegn_tile_type), intent(inout) :: vegn
-   type(soil_tile_type), intent(in)    :: soil
+   class(soilc_t),       intent(in)    :: soil
 
    real    :: litter_total_C
    integer :: i

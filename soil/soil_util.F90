@@ -6,7 +6,7 @@ use fms_mod, only: error_mesg, FATAL
 use land_constants_mod, only: N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
      N_C_TYPES, C_FAST, C_SLOW
 use land_data_mod, only: log_version
-use soil_carbon_mod, only: SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
+use soil_carbon_mod, only: soilc_t, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
      SOILC_CORPSE, SOILC_CORPSE_N, soil_carbon_option, add_litter, &
      add_C_N_to_rhizosphere
 use soil_tile_mod, only: soil_tile_type, dz, num_l
@@ -43,7 +43,7 @@ end subroutine soil_util_init
 ! ============================================================================
 ! Spread new root C through profile
 subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativeInputN)
-  type(soil_tile_type)   , intent(inout) :: soil
+  class(soilc_t)       , intent(inout) :: soil
   type(vegn_tile_type) , intent(in)    :: vegn
   real, intent(in) :: litterC(num_l,N_C_TYPES) ! kg C/(m2 of soil)
   real, intent(in) :: litterN(num_l,N_C_TYPES) ! kg C/(m2 of soil)
@@ -71,7 +71,7 @@ end subroutine add_root_litter
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
 subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
-    type(soil_tile_type), intent(inout)  :: soil
+    class(soilc_t),       intent(inout)  :: soil
     real,dimension(num_l),intent(in) :: exudateC,exudateN
     real,dimension(num_l),intent(in),optional :: ammonium,nitrate
 
@@ -109,7 +109,7 @@ end subroutine add_root_exudates
 ! ============================================================================
 subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
                                      leaf_litter_N,wood_litter_N,root_litter_N)
-  type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soil
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in), optional :: leaf_litter_C(N_C_TYPES)
   real, intent(in), optional :: wood_litter_C(N_C_TYPES)

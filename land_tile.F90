@@ -15,7 +15,7 @@ use lake_tile_mod, only : &
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
-     soil_tile_stock_pe, soil_tile_carbon, soil_tile_nitrogen, soil_tile_heat
+     soil_tile_stock_pe, soil_tile_heat
 use hillslope_tile_mod, only : hlsp_is_selected
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
@@ -32,6 +32,9 @@ use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
      snow_tile_stock_pe, snow_tile_heat, snow_active
+use soil_carbon_mod, only : soilc_t, new_soilc, delete_soilc, merge_soilc, &
+     soil_tile_carbon, soil_tile_nitrogen
+
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
@@ -134,12 +137,13 @@ type :: land_tile_type
    integer :: tag = 0   ! defines type of the tile
 
    real    :: frac      ! fractional tile area, dimensionless
-   type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
-   type(lake_tile_type), pointer :: lake => NULL() ! lake model data
-   type(soil_tile_type), pointer :: soil => NULL() ! soil model data
-   type(snow_tile_type), pointer :: snow => NULL() ! snow data
-   type(cana_tile_type), pointer :: cana => NULL() ! canopy air data
-   type(vegn_tile_type), pointer :: vegn => NULL() ! vegetation model data
+   type(glac_tile_type), pointer :: glac  => NULL() ! glacier model data
+   type(lake_tile_type), pointer :: lake  => NULL() ! lake model data
+   type(soil_tile_type), pointer :: soil  => NULL() ! soil model data
+   type(snow_tile_type), pointer :: snow  => NULL() ! snow data
+   type(cana_tile_type), pointer :: cana  => NULL() ! canopy air data
+   type(vegn_tile_type), pointer :: vegn  => NULL() ! vegetation model data
+   class(soilc_t),       pointer :: soilc => NULL() ! soil carbon data
 
    type(diag_buff_type) :: diag ! diagnostic data storage
 
@@ -254,7 +258,7 @@ abstract interface
   end subroutine fptr_i0i
   ! NOTE: import statements are needed because in FORTRAN interface blocks
   ! do not have access to their environment by host association, so without
-  ! "import" they don't know the definition of land_tile_type, and compilation
+  ! "import" they do not know the definition of land_tile_type, and compilation
   ! fails
 
   ! given two vegetation tiles, returns TRUE is they are allowed to merge, FALSE
@@ -364,6 +368,7 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
         tile%soil => new_soil_tile(soil_, 0, 0) ! Hillslope model is inactive or
         ! these indices will be set in hlsp_init.
     end if
+    tile%soilc => new_soilc(tile%soil)
   end if
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
@@ -380,12 +385,13 @@ function land_tile_copy_ctor(t) result(tile)
 
   allocate(tile)
   tile = t ! copy all non-pointer members
-  if (associated(t%glac)) tile%glac=>new_glac_tile(t%glac)
-  if (associated(t%lake)) tile%lake=>new_lake_tile(t%lake)
-  if (associated(t%soil)) tile%soil=>new_soil_tile(t%soil)
-  if (associated(t%snow)) tile%snow=>new_snow_tile(t%snow)
-  if (associated(t%cana)) tile%cana=>new_cana_tile(t%cana)
-  if (associated(t%vegn)) tile%vegn=>new_vegn_tile(t%vegn)
+  if (associated(t%glac))  tile%glac=>new_glac_tile(t%glac)
+  if (associated(t%lake))  tile%lake=>new_lake_tile(t%lake)
+  if (associated(t%soil))  tile%soil=>new_soil_tile(t%soil)
+  if (associated(t%snow))  tile%snow=>new_snow_tile(t%snow)
+  if (associated(t%cana))  tile%cana=>new_cana_tile(t%cana)
+  if (associated(t%vegn))  tile%vegn=>new_vegn_tile(t%vegn)
+  if (associated(t%soilc)) tile%soilc=>new_soilc(t%soilc)
 end function land_tile_copy_ctor
 
 
@@ -397,16 +403,16 @@ subroutine delete_land_tile(tile)
 
   if (.not.associated(tile)) return
 
-  if (associated(tile%glac)) call delete_glac_tile(tile%glac)
-  if (associated(tile%lake)) call delete_lake_tile(tile%lake)
-  if (associated(tile%soil)) call delete_soil_tile(tile%soil)
-  if (associated(tile%snow)) call delete_snow_tile(tile%snow)
-  if (associated(tile%cana)) call delete_cana_tile(tile%cana)
-  if (associated(tile%vegn)) call delete_vegn_tile(tile%vegn)
+  if (associated(tile%glac))  call delete_glac_tile(tile%glac)
+  if (associated(tile%lake))  call delete_lake_tile(tile%lake)
+  if (associated(tile%soil))  call delete_soil_tile(tile%soil)
+  if (associated(tile%snow))  call delete_snow_tile(tile%snow)
+  if (associated(tile%cana))  call delete_cana_tile(tile%cana)
+  if (associated(tile%vegn))  call delete_vegn_tile(tile%vegn)
+  if (associated(tile%soilc)) call delete_soilc(tile%soilc)
 
   ! release the tile memory
   deallocate(tile)
-
 end subroutine delete_land_tile
 
 
@@ -458,8 +464,8 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
      carbon = carbon + cana_tile_carbon(tile%cana)
   if (associated(tile%vegn)) &
      carbon = carbon + vegn_tile_carbon(tile%vegn)
-  if (associated(tile%soil)) &
-     carbon = carbon + soil_tile_carbon(tile%soil)
+  if (associated(tile%soilc)) &
+     carbon = carbon + soil_tile_carbon(tile%soilc)
 end function land_tile_carbon
 
 
@@ -474,8 +480,8 @@ function land_tile_nitrogen(tile) result(nitrogen) ; real nitrogen
   !    nitrogen = nitrogen + cana_tile_nitrogen(tile%cana)
   if (associated(tile%vegn)) &
      nitrogen = nitrogen + vegn_tile_nitrogen(tile%vegn)
-  if (associated(tile%soil)) &
-     nitrogen = nitrogen + soil_tile_nitrogen(tile%soil)
+  if (associated(tile%soilc)) &
+     nitrogen = nitrogen + soil_tile_nitrogen(tile%soilc)
 end function land_tile_nitrogen
 
 
@@ -569,6 +575,8 @@ subroutine merge_land_tiles(tile1,tile2)
        call merge_lake_tiles(tile1%lake, tile1%frac, tile2%lake, tile2%frac)
   if(associated(tile1%soil)) &
        call merge_soil_tiles(tile1%soil, tile1%frac, tile2%soil, tile2%frac)
+  if(associated(tile1%soilc)) &
+       call merge_soilc(tile1%soilc, tile1%frac, tile2%soilc, tile2%frac)
 
   if(associated(tile1%cana)) &
        call merge_cana_tiles(tile1%cana, tile1%frac, tile2%cana, tile2%frac)
@@ -578,7 +586,7 @@ subroutine merge_land_tiles(tile1,tile2)
   dheat = 0.0
   if (associated(tile1%vegn)) then
      call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac, dheat)
-     call kill_small_cohorts_ppa(tile2%vegn,tile2%soil)
+     call kill_small_cohorts_ppa(tile2%vegn,tile2%soilc)
   endif
 
   ! calculate normalized weights

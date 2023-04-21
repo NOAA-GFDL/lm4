@@ -6,11 +6,15 @@ module soil_carbon_mod
 #include "../shared/debug.inc"
 
 use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
+     N_LITTER_POOLS, LITT_LEAF, &
      c_shortname, c_longname, c_diagname
-use fms_mod, only: check_nml_error, file_exist, close_file, input_nml_file, &
+use fms_mod, only: check_nml_error, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range
+
+use soil_tile_mod, only : soil_tile_type, num_l, clay, dat_w_sat
+
 #endif
 
 
@@ -20,6 +24,12 @@ private
 
 
 ! ==== public interfaces =====================================================
+public :: soilc_t
+public :: new_soilc, merge_soilc, delete_soilc
+public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
+public :: soil_tile_carbon, soil_tile_nitrogen
+
+
 public :: soil_pool
 public :: soilMaxCohorts
 
@@ -131,6 +141,32 @@ type soil_pool
        protected_C_turnover = 0.0, protected_N_turnover = 0.0 ! accumulated turnovers of protected C and N
 end type soil_pool
 
+! soil carbon container type
+type soilc_t
+  ! values for CENTURY-style soil carbon model
+  real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C ! surface litter (kgC/m2)
+  real, allocatable :: &
+      fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
+      slow_soil_C(:), & ! slow soil carbon pool, (kg C/m2), per layer
+  ! values for the diagnostic of carbon budget and soil carbon acceleration
+      asoil_in(:),    & ! input decomposition rate
+      fsc_in(:),      & ! input of fast soil C
+      ssc_in(:)         ! input of slow soil C
+
+  ! values for CORPSE
+  type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
+  type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
+  integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
+
+  real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
+  real :: neg_litt_N(N_C_TYPES) = 0.0 ! cumulative value of negative N litter input to soil
+end type soilc_t
+
+interface new_soilc
+   module procedure soilc_ctor
+   module procedure soilc_copy
+end interface
+
 !==== module variables =======================================================
 
 !---- namelist ---------------------------------------------------------------
@@ -230,6 +266,171 @@ integer, protected :: soil_carbon_option = 0    ! flag specifying which soil car
 real :: aerobic_max, theta_resp_max
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+! ============================================================================
+function soilc_ctor(soil) result(ptr)
+  class(soilc_t), pointer :: ptr
+  type(soil_tile_type), intent(in) :: soil
+
+  integer :: k
+  real    :: Qmax
+
+  allocate(ptr)
+
+  ! CORPSE
+  allocate(ptr%org_matter(num_l))
+  allocate(ptr%is_peat(num_l))
+  ! Qmax in mgC/kg soil from Mayes et al 2012, converted to g/m3 using solid density of 2650 kg/m3
+  k = soil%tag
+  if(clay(k) .le. 0) then
+      Qmax= 0
+  else
+      Qmax = max(0.0,10**(.4833*log10(clay(k))+2.3282)*(1.0-dat_w_sat(k))*2650*1e-6)
+  endif
+  do k=1,num_l
+     call init_soil_pool(ptr%org_matter(k), Qmax=Qmax)
+  enddo
+  do k = 1,N_LITTER_POOLS
+     call init_soil_pool(ptr%litter_corpse(k), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
+  enddo
+  ptr%is_peat(:) = 0
+
+  ! CENTURY-like
+  ptr%litter_century_C(:,:)  = 0.0
+  allocate( &
+      ptr%fast_soil_C(num_l), &
+      ptr%slow_soil_C(num_l), &
+      ptr%asoil_in   (num_l), &
+      ptr%fsc_in     (num_l), &
+      ptr%ssc_in     (num_l)  )
+  ptr%fast_soil_C(:)         = 0.0
+  ptr%slow_soil_C(:)         = 0.0
+  ptr%asoil_in(:)            = 0.0
+  ptr%fsc_in(:)              = 0.0
+  ptr%ssc_in(:)              = 0.0
+end function soilc_ctor
+
+! ============================================================================
+function soilc_copy(soilc) result(ptr)
+  type(soilc_t), pointer :: ptr
+  type(soilc_t), intent(in) :: soilc
+
+  allocate(ptr)
+  ptr = soilc
+end function soilc_copy
+
+! ============================================================================
+subroutine delete_soilc(ptr)
+  type(soilc_t), pointer :: ptr
+
+  ! no need to deallocate components of soil_tile, because F2003 takes care of
+  ! allocatable components deallocation when soil_tile is deallocated
+  deallocate(ptr)
+end subroutine delete_soilc
+
+! ============================================================================
+! returns soil tile carbon content, kg C/m2
+real function soil_tile_carbon (soil)
+  class(soilc_t),  intent(in)  :: soil
+
+  real    :: temp
+  integer :: i
+
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     soil_tile_carbon = sum(soil%neg_litt_C)
+     do i=1,num_l
+        call poolTotals(soil%org_matter(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
+     do i = 1,N_LITTER_POOLS
+        call poolTotals(soil%litter_corpse(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
+  case default
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)) &
+                      + sum(soil%litter_century_C(:,:))
+  end select
+end function soil_tile_carbon
+
+! ============================================================================
+! returns soil tile nitrogen content, kg N/m2
+! this should return zero if soil_carbon_option is not SOILC_CORPSE_N
+real function soil_tile_nitrogen (soil)
+  class(soilc_t),  intent(in)  :: soil
+
+  real    :: temp
+  integer :: i
+
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     soil_tile_nitrogen = sum(soil%neg_litt_N)
+     do i=1,num_l
+        call poolTotals(soil%org_matter(i),totalNitrogen=temp)
+        soil_tile_nitrogen=soil_tile_nitrogen+temp
+     enddo
+     do i = 1,N_LITTER_POOLS
+        call poolTotals(soil%litter_corpse(i),totalNitrogen=temp)
+        soil_tile_nitrogen=soil_tile_nitrogen+temp
+     enddo
+  case default
+     soil_tile_nitrogen = 0.0
+  end select
+end function soil_tile_nitrogen
+
+! ============================================================================
+! given soil tile, returns carbon content of various components of litter
+subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  class(soilc_t), intent(in)  :: soil
+  real, intent(out) :: &
+     litter_fast_C,    & ! fast litter carbon, [kgC/m2]
+     litter_slow_C,    & ! slow litter carbon, [kgC/m2]
+     litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
+
+  select case(soil_carbon_option)
+  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     litter_fast_C    = soil%fast_soil_C(1)
+     litter_slow_C    = soil%slow_soil_C(1)
+     litter_deadmic_C = 0.0
+  case(SOILC_CORPSE, SOILC_CORPSE_N)
+     call poolTotals(soil%litter_corpse(LITT_LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+  case default
+     call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+  end select
+end subroutine get_rav_C
+
+! ============================================================================
+subroutine merge_soilc(s1,w1,s2,w2) ! merge sc1 into sc2
+  class(soilc_t), intent(in)    :: s1
+  class(soilc_t), intent(inout) :: s2
+  real          , intent(in)    :: w2,w1 ! merging weights
+
+  integer :: k, i
+  real    :: x1, x2 ! normalized relative weights
+
+  ! calculate normalized weights
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
+
+
+  ! merge soil carbon
+  s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
+  s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
+  s2%litter_century_C(:,:) = s1%litter_century_C(:,:)*x1 + s2%litter_century_C(:,:)*x2
+  do i=1,num_l
+    call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
+  enddo
+  !is_peat is 1 or 0, so multiplying is like an AND operation
+  s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
+  do i = 1, N_LITTER_POOLS
+     call combine_pools(s1%litter_corpse(i),s2%litter_corpse(i),w1,w2)
+  enddo
+  s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
+  s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
+  s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
+  s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
+  s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
+end subroutine merge_soilc
 
 
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)

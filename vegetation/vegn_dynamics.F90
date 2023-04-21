@@ -40,7 +40,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_speci
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
-use soil_carbon_mod, only: soil_carbon_option, &
+use soil_carbon_mod, only: soilc_t, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
@@ -667,9 +667,10 @@ subroutine  update_mycorrhizae(cc, soilT, &
 end subroutine update_mycorrhizae
 
 ! ============================================================================
-subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
+subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   real, intent(in) :: soilt ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
@@ -733,10 +734,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   ! root and mycorrhizal biomass
 
   if (soil_carbon_option == SOILC_CORPSE_N) then
-    call myc_scavenger_N_uptake(soil,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
-    call myc_miner_N_uptake(soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call myc_scavenger_N_uptake(soilc,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call myc_miner_N_uptake(soilc,soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
-    call active_root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+    call active_root_N_uptake(soilc,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
   endif
 
   do i = 1, vegn%n_cohorts
@@ -865,11 +866,11 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + sum(N_fixation(1:N)*c(1:N)%nindivs)
 
   ! fsc_in and ssc_in updated in add_root_exudates
-  call add_root_exudates(soil,total_root_exudate_C,total_root_exudate_N,total_myc_Nmin,total_N_leakage*dt_fast_yr)
+  call add_root_exudates(soilc,total_root_exudate_C,total_root_exudate_N,total_myc_Nmin,total_N_leakage*dt_fast_yr)
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
-                                   leaf_litt_N, wood_litt_N, root_litt_N  )
+  call add_soil_carbon(soilc, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_lm3 output ####'
@@ -902,14 +903,14 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   endif
 
   ! update soil carbon
-  call Dsdt(vegn, soil, diag, soilt, theta)
+  call Dsdt(vegn, soil, soilc, diag, soilt, theta)
 
   vegn%rh = vegn%rh + total_myc_CO2_prod/dt_fast_yr
 
   ! NEP is equal to NPP minus soil respiration
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
-  call update_soil_pools(vegn, soil)
+  call update_soil_pools(vegn, soilc)
 
 
   ! ---- diagnostic section
@@ -968,10 +969,11 @@ end subroutine vegn_carbon_int_lm3
 
 
 ! ============================================================================
-subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
+subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
   ! TODO: possibly get rid of tsoil, theta, since they can be calculated here
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   real, intent(in) :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
@@ -1038,10 +1040,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 ! 20170617:
   total_myc_CO2_prod = 0.0; total_myc_Nmin = 0.0
   if (soil_carbon_option == SOILC_CORPSE_N) then
-    call myc_scavenger_N_uptake(soil,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
-    call myc_miner_N_uptake(soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call myc_scavenger_N_uptake(soilc,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call myc_miner_N_uptake(soilc,soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
-    call active_root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+    call active_root_N_uptake(soilc,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
   endif
 
   do i = 1, vegn%n_cohorts
@@ -1219,11 +1221,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
   ! add litter and exudates accumulated over the cohorts
   ! 20170617: revisit exudates for allocation to different kind of N startegies
-  call add_root_exudates(soil, total_root_exudate_C, total_root_exudate_N, total_myc_Nmin, total_N_leakage)
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
-                                   leaf_litt_N, wood_litt_N, root_litt_N  )
+  call add_root_exudates(soilc, total_root_exudate_C, total_root_exudate_N, total_myc_Nmin, total_N_leakage)
+  call add_soil_carbon(soilc, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                    leaf_litt_N, wood_litt_N, root_litt_N  )
   ! update soil carbon
-  call Dsdt(vegn, soil, diag, tsoil, theta)
+  call Dsdt(vegn, soil, soilc, diag, tsoil, theta)
   vegn%rh = vegn%rh + total_myc_CO2_prod/dt_fast_yr
 
 
@@ -1231,7 +1233,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 !  vegn%nep = sum(npp(1:M)*c(1:M)%nindivs) - vegn%rh
   vegn%nep = sum((gpp(1:M)-resp(1:M))*c(1:M)%nindivs) - vegn%rh
 
-  call update_soil_pools(vegn, soil)
+  call update_soil_pools(vegn, soilc)
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'
@@ -1399,7 +1401,7 @@ end subroutine vegn_growth
 ! Starvation due to low NSC
 subroutine vegn_starvation_ppa (vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soil
 
   ! ---- local vars
   real :: deathrate ! mortality rate, 1/year
@@ -1970,9 +1972,10 @@ end subroutine plant_respiration
 
 
 ! =============================================================================
-subroutine vegn_phenology_lm3(vegn, soil)
+subroutine vegn_phenology_lm3(vegn, soil, soilc)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
 
   ! ---- local vars
   real :: leaf_litter_C,root_litter_C,leaf_litter_N,root_litter_N
@@ -2054,8 +2057,8 @@ subroutine vegn_phenology_lm3(vegn, soil)
   enddo
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
-                                   leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
+  call add_soil_carbon(soilc, vegn, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+                                    leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 
 end subroutine vegn_phenology_lm3
 
@@ -2220,8 +2223,8 @@ subroutine vegn_phenology_ppa(tile)
      end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N, &
-                                   root_litter_C=root_litt_C, root_litter_N=root_litt_N  )
+  call add_soil_carbon(tile%soilc, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N, &
+                                         root_litter_C=root_litt_C, root_litter_N=root_litt_N  )
   ! phenology can change cohort heights if the grass dies, and therefore change
   ! layers -- therefore we need to relayer, lest cohorts remain in a wrong order
   call vegn_relayer_cohorts_ppa(vegn)
@@ -2309,7 +2312,7 @@ end subroutine deplete_pool1
 ! =============================================================================
 subroutine update_soil_pools(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soil
 
   ! ---- local vars
   integer :: i,k
@@ -2511,14 +2514,16 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
         enddo
      endif
      if (tile%vegn%landuse==LU_CROP .and. .not.allow_weeds_on_crops) then
-        call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
-                                                   (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
-                               germination_factor = 0.0) ! no seeds germinate
+        call add_seedlings_ppa(tile%vegn,tile%soil,tile%soilc, &
+                (ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
+                (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
+                germination_factor = 0.0) ! no seeds germinate
         ! This also means that the crops are not allowed to reproduce by themselves.
      else
-        call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
-                                                   (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
-                               germination_factor = 1.0) ! do not modify natural seed germination
+        call add_seedlings_ppa(tile%vegn,tile%soil,tile%soilc, &
+                (ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
+                (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
+                germination_factor = 1.0) ! do not modify natural seed germination
      endif
      k = k+1
   enddo

@@ -23,7 +23,7 @@ use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
 use land_tile_diag_mod, only : diag_buff_type, register_tiled_diag_field, &
      send_tile_data, set_default_diag_filter
-use soil_carbon_mod, only : retrieve_DOC, retrieve_DON, retrieve_dissolved_mineral_N
+use soil_carbon_mod, only : soilc_t, retrieve_DOC, retrieve_DON, retrieve_dissolved_mineral_N
 
 
 implicit none
@@ -194,6 +194,7 @@ subroutine hlsp_hydrology_1(num_species)
    type(land_tile_type), pointer :: tile, tile2 ! pointers to tile list elements
    type(land_tile_enum_type)     :: ce, ce2     ! current tile list elements
    type(soil_tile_type), pointer :: soil, soil2 ! pointers to soil tiles
+   class(soilc_t),       pointer :: soilc, soilc2 ! pointers to soil carbon structure
 
    ! Tile fractional area sums, needed for normalizing flux into tile.
    real    ::     area_above  ! running sum of contributing tile area (fraction)
@@ -297,7 +298,7 @@ subroutine hlsp_hydrology_1(num_species)
          ce = first_elmt(land_tile_map(ll))
          do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
-            soil => tile%soil
+            soil => tile%soil; soilc => tile%soilc
             call set_current_point(ll,k)
 
             do l = 1,num_l
@@ -397,7 +398,7 @@ subroutine hlsp_hydrology_1(num_species)
             do while (loop_over_tiles(ce2,tile2))
                if (.not.associated(tile2%soil)) cycle
 
-               soil2 => tile2%soil
+               soil2 => tile2%soil; soilc2 => tile2%soilc
 
                ! Check to see if in same hillslope
                if (soil%hidx_k == soil2%hidx_k) then
@@ -429,14 +430,14 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
 
                      if (tiled_DOC_flux) then
-                        call retrieve_DOC(soil%org_matter, DOC, num_l)
-                        call retrieve_DOC(soil2%org_matter, DOC2, num_l)
+                        call retrieve_DOC(soilc %org_matter, DOC,  num_l)
+                        call retrieve_DOC(soilc2%org_matter, DOC2, num_l)
 
                         ! These should always be zero if soil_carbon_option is not SOILC_CORPSE_N
-                        call retrieve_DON(soil%org_matter, DON, num_l)
-                        call retrieve_DON(soil2%org_matter, DON2, num_l)
-                        call retrieve_dissolved_mineral_N(soil%org_matter,nitrate,ammonium,num_l)
-                        call retrieve_dissolved_mineral_N(soil2%org_matter,nitrate2,ammonium2,num_l)
+                        call retrieve_DON(soilc %org_matter, DON,  num_l)
+                        call retrieve_DON(soilc2%org_matter, DON2, num_l)
+                        call retrieve_dissolved_mineral_N(soilc %org_matter,nitrate,ammonium,num_l)
+                        call retrieve_dissolved_mineral_N(soilc2%org_matter,nitrate2,ammonium2,num_l)
                      end if
 
                      ! Loop over vertical layers
@@ -538,12 +539,12 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
 
                      if (tiled_DOC_flux) then
-                        call retrieve_DOC(soil%org_matter, DOC, num_l)
-                        call retrieve_DOC(soil2%org_matter, DOC2, num_l)
-                        call retrieve_DON(soil%org_matter, DON, num_l)
-                        call retrieve_DON(soil%org_matter, DON2, num_l)
-                        call retrieve_dissolved_mineral_N(soil%org_matter,nitrate,ammonium,num_l)
-                        call retrieve_dissolved_mineral_N(soil%org_matter,nitrate2,ammonium2,num_l)
+                        call retrieve_DOC(soilc %org_matter, DOC,  num_l)
+                        call retrieve_DOC(soilc2%org_matter, DOC2, num_l)
+                        call retrieve_DON(soilc %org_matter, DON,  num_l)
+                        call retrieve_DON(soilc2%org_matter, DON2, num_l)
+                        call retrieve_dissolved_mineral_N(soilc %org_matter, nitrate,  ammonium,  num_l)
+                        call retrieve_dissolved_mineral_N(soilc2%org_matter, nitrate2, ammonium2, num_l)
                      end if
 
                      ! Loop over vertical layers
@@ -691,9 +692,9 @@ subroutine hlsp_hydrology_1(num_species)
                end if
 
                if (tiled_DOC_flux) then
-                  call retrieve_DOC(soil%org_matter, DOC, num_l)
-                  call retrieve_DON(soil%org_matter, DON, num_l)
-                  call retrieve_dissolved_mineral_N(soil%org_matter,nitrate,ammonium,num_l)
+                  call retrieve_DOC(soilc %org_matter, DOC, num_l)
+                  call retrieve_DON(soilc2%org_matter, DON, num_l)
+                  call retrieve_dissolved_mineral_N(soilc%org_matter,nitrate,ammonium,num_l)
                end if
 
                ! Loop over vertical layers

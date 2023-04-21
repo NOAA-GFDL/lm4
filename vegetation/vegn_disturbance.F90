@@ -28,7 +28,7 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
-use soil_carbon_mod, only : add_litter, soil_carbon_option, &
+use soil_carbon_mod, only : soilc_t, add_litter, soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile, cohort_root_exudate_profile
@@ -73,8 +73,8 @@ subroutine vegn_disturbance_init(id_ug)
 end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
-  type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
-  type(soil_tile_type), intent(inout) :: soil ! soil data
+  type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
+  class(soilc_t),       intent(inout) :: soil ! soil carbon data
   real, intent(in) :: dt ! time since last disturbance calculations, s
 
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
@@ -279,7 +279,7 @@ end subroutine update_fuel
 ! ============================================================================
 subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
-  type(soil_tile_type), intent(inout) :: soil  ! soil data
+  class(soilc_t),       intent(inout) :: soil ! soil carbon data
   real, intent(in) :: deltat ! time since last mortality calculations, s
 
   ! ---- local vars
@@ -718,11 +718,11 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      enddo
   endif
 
-  call add_soil_carbon(t0%soil, t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
-                                         leaf_litt0_N, wood_litt0_N, root_litt0_N  )
+  call add_soil_carbon(t0%soilc, t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+                                          leaf_litt0_N, wood_litt0_N, root_litt0_N  )
   if (associated(t1)) &
-     call add_soil_carbon(t1%soil, t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
-                                            leaf_litt1_N, wood_litt1_N, root_litt1_N  )
+     call add_soil_carbon(t1%soilc, t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
+                                             leaf_litt1_N, wood_litt1_N, root_litt1_N  )
 
   if (is_watch_point()) then
      write(*,*) '#### tile_mortality_ppa output (before relayering cohorts) ####'

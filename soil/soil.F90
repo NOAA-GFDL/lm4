@@ -38,7 +38,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
-use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
+use soil_carbon_mod, only: soilc_t, soil_pool, poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool,transfer_pool_fraction, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      A_function, debug_pool, adjust_pool_ncohorts, &
@@ -705,10 +705,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             do i = 1,N_LITTER_POOLS
-               call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
+               call adjust_pool_ncohorts(tile%soilc%litter_corpse(i))
             enddo
             do i = 1,num_l
-               call adjust_pool_ncohorts(tile%soil%org_matter(i))
+               call adjust_pool_ncohorts(tile%soilc%org_matter(i))
             enddo
         end do
         do i = 1, N_C_TYPES
@@ -1623,10 +1623,10 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      do while (loop_over_tiles(ce,tile))
          if (.not.associated(tile%soil)) cycle
          do i = 1,N_LITTER_POOLS
-            call adjust_pool_ncohorts(tile%soil%litter_corpse(i))
+            call adjust_pool_ncohorts(tile%soilc%litter_corpse(i))
          enddo
          do i = 1,num_l
-            call adjust_pool_ncohorts(tile%soil%org_matter(i))
+            call adjust_pool_ncohorts(tile%soilc%org_matter(i))
          enddo
      end do
      do i = 1, N_C_TYPES
@@ -1969,7 +1969,7 @@ end subroutine soil_step_1
 
 ! ============================================================================
 ! apply boundary flows to soil water and move soil water vertically.
-  subroutine soil_step_2 ( soil, vegn, diag, soil_subl, snow_lprec, snow_hlprec,  &
+  subroutine soil_step_2 ( soil, soilc, vegn, diag, soil_subl, snow_lprec, snow_hlprec,  &
                            vegn_uptk, &
                            subs_DT, subs_M_imp, subs_evap, &
                            use_tfreeze_in_grnd_latent, &
@@ -1979,6 +1979,7 @@ end subroutine soil_step_1
                            soil_frunf, soil_hfrunf, soil_tr_runf, &
                            DOC_to_atmos)
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
   real, intent(in) :: & ! ZMS assign tentative annotations below with "??"
@@ -2224,14 +2225,14 @@ end subroutine soil_step_1
      ! units of delta_time: s
      ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
      where(soil%wl(1:num_l)>1.0e-4)
-        passive_ammonium_uptake(1:num_l) = min(soil%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soil%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
-        passive_nitrate_uptake(1:num_l) = min(soil%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soil%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_ammonium_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_nitrate_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
      elsewhere
         passive_ammonium_uptake(1:num_l)=0.0
         passive_nitrate_uptake(1:num_l)=0.0
      end where
-     soil%org_matter(1:num_l)%ammonium=soil%org_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
-     soil%org_matter(1:num_l)%nitrate=soil%org_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
+     soilc%org_matter(1:num_l)%ammonium=soilc%org_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
+     soilc%org_matter(1:num_l)%nitrate=soilc%org_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
      passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
      if (cc%nindivs>0) &
            cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
@@ -2933,7 +2934,7 @@ end subroutine soil_step_1
         write(*,*)
      enddo
      if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
-        call debug_pool(soil%litter_corpse(LITT_LEAF), 'leaf_litter')
+        call debug_pool(soilc%litter_corpse(LITT_LEAF), 'leaf_litter')
      endif
   endif
 
@@ -2971,11 +2972,11 @@ end subroutine soil_step_1
       __DEBUG1__(gw_option)
       if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
          do l = 1,N_LITTER_POOLS
-            call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
+            call debug_pool(soilc%litter_corpse(l), trim(l_shortname(l))//'_litter')
          enddo
          do l = 1, num_l
             write(*,'(i2.2,x)',advance='NO') l
-            call debug_pool(soil%org_matter(l), '')
+            call debug_pool(soilc%org_matter(l), '')
          enddo
       endif
       do l = 1, size(soil%div_hlsp_DOC,2)
@@ -2989,7 +2990,7 @@ end subroutine soil_step_1
    case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
       total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
    case(SOILC_CORPSE, SOILC_CORPSE_N)
-      call tracer_leaching_with_litter(diag, soil%org_matter(:),soil%litter_corpse(LITT_LEAF), soil%litter_corpse(LITT_CWOOD), &
+      call tracer_leaching_with_litter(diag, soilc%org_matter(:),soilc%litter_corpse(LITT_LEAF), soilc%litter_corpse(LITT_CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
@@ -3114,7 +3115,7 @@ end subroutine soil_step_2
 
 ! ============================================================================
 subroutine soil_step_3(soil, diag)
-  type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
   real :: soil_C(N_C_TYPES, num_l),      soil_N(N_C_TYPES, num_l), &
@@ -3283,7 +3284,8 @@ end subroutine soil_step_3
 
 
 ! ============================================================================
-subroutine Dsdt(vegn, soil, diag, soilt, theta)
+subroutine Dsdt(vegn, soil, soilc, diag, soilt, theta)
+  class(soilc_t), intent(inout)       :: soilc
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
@@ -3292,9 +3294,9 @@ subroutine Dsdt(vegn, soil, diag, soilt, theta)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
+     call Dsdt_CENTURY(vegn, soil, soilc, diag, soilt, theta)
   case (SOILC_CORPSE, SOILC_CORPSE_N)
-     call Dsdt_CORPSE(vegn, soil, diag)
+     call Dsdt_CORPSE(vegn, soil, soilc, diag)
   case default
      call error_mesg('Dsdt','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
@@ -3304,9 +3306,10 @@ end subroutine Dsdt
 
 
 ! ============================================================================
-subroutine Dsdt_CORPSE(vegn, soil, diag)
+subroutine Dsdt_CORPSE(vegn, soil, soilc, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
 
   real, dimension(N_C_TYPES) :: &
@@ -3327,7 +3330,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
-     call update_pool(soil%litter_corpse(k), decomp_T(1), decomp_theta(1), &
+     call update_pool(soilc%litter_corpse(k), decomp_T(1), decomp_theta(1), &
             1.0-(decomp_theta(1)+ice_porosity(1)), dt_fast_yr, dz(1), &
             litter_C_loss_rate, litter_N_loss_rate, CO2prod, &
             litter_nitrif(k), litter_denitrif(k),&
@@ -3348,7 +3351,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! Next we have to go through layers and decompose the soil carbon pools
   do k=1,num_l
-     call update_pool(soil%org_matter(k), decomp_T(k), decomp_theta(k), &
+     call update_pool(soilc%org_matter(k), decomp_T(k), decomp_theta(k), &
                1.0-(decomp_theta(k)+ice_porosity(k)), dt_fast_yr, dz(k), &
                C_loss_rate(k,:), N_loss_rate(k,:), CO2prod, &
                soil_nitrif(k), soil_denitrif(k), &
@@ -3385,25 +3388,26 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
           (sum(soil_nitrif)+sum(litter_nitrif))/dt_fast_yr,diag)
 
   do i = 1, N_C_TYPES
-     if (id_negative_litter_C(i)>0) call send_tile_data(id_negative_litter_C(i),soil%neg_litt_C(i),diag)
-     if (id_negative_litter_N(i)>0) call send_tile_data(id_negative_litter_N(i),soil%neg_litt_N(i),diag)
+     if (id_negative_litter_C(i)>0) call send_tile_data(id_negative_litter_C(i),soilc%neg_litt_C(i),diag)
+     if (id_negative_litter_N(i)>0) call send_tile_data(id_negative_litter_N(i),soilc%neg_litt_N(i),diag)
   enddo
-  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soil%neg_litt_C),diag)
-  if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soil%neg_litt_N),diag)
+  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
+  if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soilc%neg_litt_N),diag)
 end subroutine Dsdt_CORPSE
 
 
 ! ============================================================================
-subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
+subroutine Dsdt_CENTURY(vegn, soil, soilc, diag, soilt, theta)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
   real                , intent(in)    :: soilt ! average soil temperature, deg K
   real                , intent(in)    :: theta ! average soil moisture
 
-  real :: fast_C_loss(size(soil%fast_soil_C))
-  real :: slow_C_loss(size(soil%slow_soil_C))
-  real :: A          (size(soil%slow_soil_C)) ! decomp rate reduction due to moisture and temperature
+  real :: fast_C_loss(size(soilc%fast_soil_C))
+  real :: slow_C_loss(size(soilc%slow_soil_C))
+  real :: A          (size(soilc%slow_soil_C)) ! decomp rate reduction due to moisture and temperature
 
   select case (soil_carbon_option)
   case(SOILC_CENTURY)
@@ -3414,11 +3418,11 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
     call error_mesg('Dsdt_CENTURY','The value of soil_carbon_option is invalid. This should never happen. See developer.',FATAL)
   end select
 
-  fast_C_loss = soil%fast_soil_C(:)*A*K1*dt_fast_yr;
-  slow_C_loss = soil%slow_soil_C(:)*A*K2*dt_fast_yr;
+  fast_C_loss = soilc%fast_soil_C(:)*A*K1*dt_fast_yr;
+  slow_C_loss = soilc%slow_soil_C(:)*A*K2*dt_fast_yr;
 
-  soil%fast_soil_C = soil%fast_soil_C - fast_C_loss;
-  soil%slow_soil_C = soil%slow_soil_C - slow_C_loss;
+  soilc%fast_soil_C = soilc%fast_soil_C - fast_C_loss;
+  soilc%slow_soil_C = soilc%slow_soil_C - slow_C_loss;
 
   ! for budget check
   vegn%fsc_out = vegn%fsc_out + sum(fast_C_loss(:));
@@ -3428,7 +3432,7 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
   vegn%rh = sum(fast_C_loss(:)+slow_C_loss(:))/dt_fast_yr;
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
-  soil%asoil_in(:) = soil%asoil_in(:) + A(:)
+  soilc%asoil_in(:) = soilc%asoil_in(:) + A(:)
 
   ! ---- diagnostic section
   call send_tile_data(id_rsoil_C(C_FAST), fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
@@ -4476,7 +4480,7 @@ end subroutine tracer_leaching_with_litter
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
 subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
-  type(soil_tile_type), intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
   real,    intent(in)  :: dt ! in years
@@ -4524,7 +4528,7 @@ end subroutine active_root_N_uptake
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
 subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,update_pools)
-  type(soil_tile_type),   intent(inout) :: soil
+  class(soilc_t),      intent(inout) :: soil
   type(vegn_tile_type),intent(in)::vegn
   real,intent(out),dimension(:) :: N_uptake_cohorts ! Units: kgN/m2 per individual
   real, intent(in) :: dt  ! dt in years
@@ -4632,7 +4636,8 @@ end subroutine myc_scavenger_N_uptake
 
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
-subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
+subroutine myc_miner_N_uptake(soilc, soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
+  class(soilc_t), intent(inout) :: soilc
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type),intent(in)::vegn
   real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
@@ -4688,7 +4693,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   total_CO2prod=0.0
 
   do k=1,num_l
-     call mycorrhizal_decomposition(soil%org_matter(k),total_myc_mine_biomass(k),&
+     call mycorrhizal_decomposition(soilc%org_matter(k),total_myc_mine_biomass(k),&
           T(k),theta(k),air_filled_porosity(k),N_uptake,C_uptake,CO2prod,dt,&
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod=total_CO2prod+CO2prod
@@ -4703,9 +4708,9 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   enddo
 
   do k = 1, N_LITTER_POOLS
-     call poolTotals(soil%litter_corpse(k),totalCarbon=totalC)
+     call poolTotals(soilc%litter_corpse(k),totalCarbon=totalC)
      litterThickness=max(totalC/litterDensity,1e-2)
-     call mycorrhizal_decomposition(soil%litter_corpse(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
+     call mycorrhizal_decomposition(soilc%litter_corpse(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
           T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,&
           update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod  = total_CO2prod + CO2prod
@@ -4733,7 +4738,7 @@ end subroutine myc_miner_N_uptake
 
 ! ============================================================================
 subroutine redistribute_peat_carbon(soil)
-    type(soil_tile_type), intent(inout) :: soil
+    class(soilc_t), intent(inout) :: soil
 
     integer :: nn
     real :: layer_total_C,layer_total_C_2,layer_max_C,layer_extra_C,fraction_to_remove
