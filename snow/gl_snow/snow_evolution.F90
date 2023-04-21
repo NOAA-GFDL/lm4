@@ -729,15 +729,17 @@ subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
     real re_abs_diff
 
     ! make sure vars are within bounds
-    rho_i2 = rho_i
+
+    rho_i2 = min(max(50.0, rho_i), 400.0)
+    ! rho_i2 = rho_i
     Ti2 = Ti
     Gi2 = Gi
-    irho =MAX( MIN( ABS( INT( (rho_i2 - 25.0) / 50.0       ) + 1 ), 8  ), 1) 
-    iGG = MAX( MIN( ABS( INT( (Gi2 - 5.0   ) / 10.0 + 2.0  )     ), 31 ), 1)
-    iTT = MAX( MIN( ABS( INT( (Ti2-225.65   ) / 5.0 + 2.0  )     ), 11 ), 1)
-    ! irho =MAX( MIN( ABS( INT( (rho_i2 - 50.0) / 50.0      )  + 1 ), 8  ), 1) 
-    ! iGG = MAX( MIN( ABS( INT( (Gi2         ) / 10.0       )  + 1 ), 31 ), 1)
-    ! iTT = MAX( MIN( ABS( INT( (Ti2-223.0    ) / 5.0       )  + 1 ), 11 ), 1)
+    ! irho =MAX( MIN( ABS( INT( (rho_i2 - 25.0) / 50.0       ) + 1 ), 8  ), 1) 
+    ! iGG = MAX( MIN( ABS( INT( (Gi2 - 5.0   ) / 10.0 + 2.0  )     ), 31 ), 1)
+    ! iTT = MAX( MIN( ABS( INT( (Ti2-225.65   ) / 5.0 + 2.0  )     ), 11 ), 1)
+    irho =MAX( MIN( ABS( INT( (rho_i2 - 50.0) / 50.0      )  + 1 ), 8  ), 1) 
+    iGG = MAX( MIN( ABS( INT( (Gi2         ) / 10.0       )  + 1 ), 31 ), 1)
+    iTT = MAX( MIN( ABS( INT( (Ti2-223.0    ) / 5.0       )  + 1 ), 11 ), 1)
 
     ! get indices for lookup table
     ! irho2 = int( minloc( abs(dF06%xRHO - rho_i2), dim=1))
