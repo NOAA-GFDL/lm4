@@ -1906,7 +1906,6 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
 end subroutine snow_sublimation
 
 !> \add solid precipitation to the snowpack
-! snow_solid_balance(s, fprec, fevap, tprec, Ubar, Tatm, Tground, dt)
 subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, drydep, &
                               Ubar, Tatm, lost_wc_em, lost_wc_im, dt, verbose_in)
  
@@ -1949,15 +1948,6 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
         verbose = verbose_in
     endif
 
-    ! if there is no currently snow and fprec > 0,
-    ! allocate a new snowpack here
-
-
-    ! write(*,*) "SIMPLE SOLID BALANCE - INIT"
-    ! write(*,*) "TOTAL WATER = ", s%SWE() + fprec*dt
-    ! write(*,*) "INITIAL NUMBER OF LAYERS = ", s%nlayers
-    ! if (s%nlayers == 2) call s%print()
-
     lost_wc_em = 0.0
     lost_wc_im = 0.0
 
@@ -1966,7 +1956,6 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
     if (s%nlayers > 0) then
         s%snow(1)%wc_em = s%snow(1)%wc_em + drydep * dt
     else
-        ! lost_wc_em = lost_wc_em + drydep * dt
         do it =1, NTRACERS
             lost_wc_em(it) = lost_wc_em(it) + drydep(it) * dt ! UNITS [mg/m2]
         enddo
@@ -1989,7 +1978,7 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
     
     ! properties of fresh snow ::
     ! use Carmagnola 2013 approach instead of Vionnet et al., 2012
-     d_fall = min(max(1.29-0.17*Ubar, 0.20), 1.0) ! Vionnet et al., 2012
+    d_fall = min(max(1.29-0.17*Ubar, 0.20), 1.0) ! Vionnet et al., 2012
     s_fall = min(max(0.08*Ubar+0.38, 0.5), 0.9) ! Vionnet et al., 2012
     dopt_fall = 1E-4
     !    gs_fall = 3.5 * 10.0**(-4) ! 3.5 mm diam of freshly fallen snow
@@ -1997,51 +1986,19 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
     call new_snow_density(rho_fall, Tatm, Ubar)
     if(verbose) write(*,*) "snowfall: new snow density [kg m^-3] = ", rho_fall
 
-    ! if (s%nlayers > 0) then
-    ! ! write(*,*) "snow is present"
-    
-    !     ! update age of snow
-    !     ! do il = 1, s%nlayers
-    !     !     ! time is passing by, age the existing snow [snow age in days]
-    !     !     s%snow(il)%age = s%snow(il)%age + dt/86400.0
-    !     ! enddo
-    !     ! assign any dry doposition to the topmost snow layer, if it exists
-    !     ! AS EXTERNALLY MIXED
-    !     do it =1, NTRACERS
-    !         ! s%snow(1)%wc(it) = s%snow(1)%wc(it) + drydep(it) * dt
-    !         s%snow(1)%wc_em(it) = s%snow(1)%wc_em(it) + drydep(it) * dt
-    !     enddo
-    !     ! call s%print()
-    ! endif
-    ! if (s%nlayers==0) then
-    !     ! write(*,*) "before lost_wc_em:", lost_wc_em
-    !     lost_wc_em = lost_wc_em + drydep * dt
-    !     ! write(*,*) "after lost_wc_em:", lost_wc_em
-    ! endif
-
-    ! !!!!!!!!---------------------------------------------------------------------!!!!!!!!!
-    !!!!!!!!!!        sublimation used to be here - moved after snowfall           !!!!!!!!!
-    ! !!!!!!!!---------------------------------------------------------------------!!!!!!!!!
-
     ! first, try to fill any snow deficit on top with new snow
     ! if all snow was used to fill deficit and there is snow, add wet deposition below
     fprec2 = fprec
-    ! write(*,*) "Adding fprec to heat deficit?"
-    ! write(*,*) "new precip = ", fprec2*dt
-    ! write(*,*) "existing mass deficit = ", s%topsnowdeficit
-    ! write(*,*) "existing heat deficit = ", s%topsnowheatdeficit
     if (fprec>0.0 .and. s%topsnowdeficit < 0.0) then
         if (fprec*dt > - s%topsnowdeficit) then
             ! note: the heat deficit can remain non zero, and in general it will!
             ! water enters at tprec temperature...
-            ! write(*,*) "added CSW*s%topsnowdeficit*(tprec-TFREEZE) = ", CSW*s%topsnowdeficit*(tprec-TFREEZE) 
             s%topsnowheatdeficit = s%topsnowheatdeficit - CSW*s%topsnowdeficit*(tprec-TFREEZE) ! subtract a negative mass -> neg heat capacity 
             fprec2 = fprec +s%topsnowdeficit/dt ! this is the snow rate remaining
             s%topsnowdeficit = 0.0
             if(verbose) write(*,*) "add solid, cover deficit + some left: precip, precip2 = ", fprec, fprec2
         else
             if(verbose) write(*,*) "add solid, cover only deficit"
-            ! write(*,*) "added CSW*fprec*dt*(tprec-TFREEZE) = ", CSW*fprec*dt*(tprec-TFREEZE)
             s%topsnowheatdeficit = s%topsnowheatdeficit + CSW*fprec*dt*(tprec-TFREEZE)
             fprec2 = 0.0
             s%topsnowdeficit = s%topsnowdeficit + fprec*dt
@@ -2052,47 +2009,22 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
                     enddo
                 else ! if all snow is used up for filling deficit, and no other snow layers
                     do it = 1,NTRACERS
-                    ! lost_wc_im = lost_wc_im + wetdepf * dt 
                     lost_wc_im(it) = lost_wc_im(it) + wetdepf(it) * dt 
                     enddo
                 endif
         endif
     endif
-    ! write(*,*) "added fprec = ", fprec*dt
-    ! write(*,*) "added fprec2 = ", fprec2*dt
-    ! write(*,*) "added hfprec = ", fprec*CSW*(tprec-TFREEZE)*dt
-    ! write(*,*) "added hfprec2 = ", fprec2*CSW*(tprec-TFREEZE)*dt
-    ! write(*,*) "added tprec = ", tprec
-    ! write(*,*) "topsnowdef, topsnowheatdef = ", s%topsnowdeficit, s%topsnowheatdeficit
-    ! end filling snow deficit
-    ! ------
-
-
-    ! if (s%nlayers == 2) write(*,*) "interm check"
-    ! if (s%nlayers == 2) call s%print()
 
     ! now add the new fresh snow to the top of the remaining snowpack
     if(verbose) write(*,*) "fprec left, ", fprec2
     if(verbose) write(*,*) "rho_fall, ", rho_fall
     if(verbose) write(*,*) "dt, ", dt
     new_snow_depth = fprec2 * dt / rho_fall
-    ! write(*,*) "new snow depth, new snow mass, new snow density = ", new_snow_depth,fprec2 * dt, rho_fall
 
     if(verbose) write(*,*) "snowfall: old snow depth = ", s%depth()
     if(verbose) write(*,*) "snowfall: new snow depth = ", new_snow_depth
     if(verbose) write(*,*) "snowfall: original snow mass (before deficit) = ", fprec*dt
     if(verbose) write(*,*) "snowfall: new snow mass = ", fprec2*dt
-    ! write(*,*) "snowfall: old snow depth = ", s%depth()
-    ! write(*,*) "snowfall: new snow depth = ", new_snow_depth
-    ! write(*,*) "snowfall: original snow mass (before deficit) = ", fprec*dt
-    ! write(*,*) "snowfall: new snow mass = ", fprec2*dt
-
-    ! if new snow depth is less than 0.5 top layer dz, and not too different,
-    ! just add it to it
-    ! else, add a number of new layers
-
-    ! instead if new snow depth is < 0, start removing mass from existing layers
-    ! until all sublimating mass is lost
 
     ! do nothing if fprec = 0 and fevap = 0
     if (s%nlayers > 0) then
@@ -2101,22 +2033,12 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
         topdz = 1.0
     endif
 
-
     if (.not.new_snow_depth >0) then
         if (verbose) write(*,*) "no new snow left to deposit, leave now"
-    ! if (s%nlayers == 2) write(*,*) "interm check"
-    ! if (s%nlayers == 2) call s%print()
-
     else
-        ! return
-    ! endif
 
     !  changed_eps
     if ((s%nlayers > 0).and.(new_snow_depth < 0.5 * topdz).and.(new_snow_depth > 0.0)) then ! changed_eps
-    ! if ((s%nlayers > 0).and.(new_snow_depth < 0.5 * topdz).and.(new_snow_depth > 1E-8)) then ! changed_eps
-    ! if (((s%nlayers > 0).and.(new_snow_depth < 0.5 * topdz).and.(new_snow_depth > 1E-8)).or. &
-        ! ((s%nlayers > 0).and.(new_snow_depth < 1E-2).and.(new_snow_depth > 1E-8))) then
-        ! if (verbose) write(*,*) "adding [little] snow, merging it to existing snowpack with nlayers = ", s%nlayers 
         if(verbose) write(*,*) "adding [little] snow, merging it to existing snowpack with nlayers = ", s%nlayers 
         !create a new layer, and then merge layers
         snow0%T = tprec
@@ -2131,31 +2053,21 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
         snow0%dendr = d_fall
         snow0%optd = dopt_fall
         snow0%sph = s_fall
-        ! merge the new layer snow0 into the top snowpack layer
-        call merge_layers(snow0, s%snow(1)) 
-
+        call merge_layers(snow0, s%snow(1)) ! merge the new layer snow0 into the top snowpack layer
     else ! snow does not exist on the ground, or a lot of snow
         if (verbose) write(*,*) "either no old snow, or a lot of new snow: create new layers"
-
-        ! end
         ! in this case add the new snow in a series of new layers
         ! all layers will be created equal : same mass of snow and of tracers
-    
         ! determine number of layers to add to the snowpack
         ! if there are already layers, the minimum number can be reduced up to 1
         ! we want at least 3 layers to solve diffusion eqn (Vionnet et al., 2012)
-
         if (verbose) write(*,*) "new snow depth = ", new_snow_depth
         if (new_snow_depth > 0.0) then
-
             ! if there are less than 3 layers of snow, make sure we go to three
             ! else set the minimum number of additional layers to 1.0
             min_nlayers_single_event = int( max(3.0 - real(s%nlayers), 1.0) )
             ! then as in Vionnet et al., 2012, new number of layers bewteen 1/MINVAL and 5
-            ! change to 3
-            ! n_new_layers =  max(min_nlayers_single_event,  min( 5, ceiling(100.0*new_snow_depth)))
             n_new_layers =  max(min_nlayers_single_event,  min( 5, ceiling(100.0*new_snow_depth)))
-
             ! allocate new snowpack only if it snows and not already snow on the ground
             ! size of the new array of snow layers - after adding new snow
             nlpnl = n_new_layers + s%nlayers 
@@ -2166,13 +2078,10 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
             if(verbose) write(*,*) 'current size of snow1 =', size(snow1)
             if(verbose) write(*,*) 'current size of s%snow =', size(s%snow)
 
-
-
             if (n_new_layers == 0) call land_error_message("ERROR snow_solid_balance in snow_evolution module: n_new_layers should not be zero!", FATAL)
             if (verbose) write(*,*) "case no old snow -> create fresh snow layers"
             do il = 1, n_new_layers
                 do it =1, NTRACERS ! subdivide equally - all new layers are equal
-                    ! snow1(il)%wc(it) = wetdepf(it) / real(n_new_layers) * dt ! if new layers, all are created equal 
                     snow1(il)%wc_im(it) = wetdepf(it) / real(n_new_layers) * dt ! if new layers, all are created equal 
                     snow1(il)%wc_em(it) = 0.0 ! added
                 enddo
@@ -2193,37 +2102,17 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
                 ALLOCATE(s%snow(n_new_layers))
                 s%snow = snow1
                 s%nlayers = n_new_layers
-                ! if (s%nlayers==3) then
-                !     write(*,*) "newly created pack "
-                !     call s%print()
-                ! endif
             else
                 if (verbose) write(*,*) "existing snow present; adding new layers to existing snowpack"
                 ! copy the existing snow layers in the bottom part of the new snow column
-
                 snow1(n_new_layers+1:n_new_layers+s%nlayers) = s%snow(1:s%nlayers) 
                 s%snow = snow1
                 s%nlayers = s%nlayers + n_new_layers
             endif
-        
             DEALLOCATE(snow1)
-
         endif
-
     endif ! end case in which we add a number of new snow layer due to snowfall
-
     endif ! case of precip > 0 to deposit 
-
-    ! ! if (verbose) then
-    ! write(*,*) "TOTAL WATER = ", s%SWE() 
-    ! write(*,*) "SNOWP NLAYERS = ", s%nlayers 
-    !     ! if (s%nlayers==3) then
-    !         ! write(*,*) "newly created pack "
-    !     ! call s%print()
-    ! write(*,*) "SIMPLE SOLID BALANCE - END"
-    ! write(*,*) "--------------------------------------------------"
-    ! ! endif
-    ! ! endif
 
 end subroutine snow_solid_balance
 
@@ -2613,10 +2502,6 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
     logical previous_layer_melted 
     integer it
 
-    ! write(*,*) "M & F: Initial bounds check"
-    ! call s%check_bounds("check bounds - Initial melt and freeze ....")
-
-
     if (.not.PRESENT(verbose_in)) then
         verbose = .FALSE. ! default argument
     else
@@ -2630,11 +2515,6 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
     snow_lprec = 0.0
     snow_hlprec = 0.0
 
-    ! previous_layer_melted = .FALSE.
-    ! zflux_T = TFREEZE
-    ! zflux_wl 0.0
-
-
     if (allocated(snow1)) DEALLOCATE(snow1)
     if(verbose) write(*,*) "before melt-freeze: heat, SWE, LIQ, ICE, nlayers= ", s%heat(), s%SWE(), s%liq(), s%ice(), s%nlayers
     n_melt_layers = 0 ! counter for the layers melting
@@ -2642,25 +2522,19 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
 
 
     if (s%nlayers > 0) then
-    ! write(*,*) "melt_and_freeze: initial check: nlayers, SWE, heat= ", s%nlayers, s%SWE(), s%heat()
     do il = 1, s%nlayers
         DTold = s%snow(il)%T - TFREEZE
 
         ! condition for snow melt
-        ! strinctly speaking the second condition is always satisfied if layer is there..
         if ( ( DTold > 0.0) .and. (s%snow(il)%ws > 0.0)) then
-            ! write(*,*) "SMAF: case  ( DTold > 0.0) .and. (s%snow(il)%ws > 0.0)"
             heat0 = s%snow(il)%heat()
             hCap0 = s%snow(il)%hCap()
             melt = min( s%snow(il)%ws, s%snow(il)%hCap()*DTold/HLF )
             Qsink = melt * HLF ! energy lost by melt latent heat
-            ! write(*,*) "mass melt = ", melt
             original_ws =s%snow(il)%ws 
             s%snow(il)%ws = s%snow(il)%ws - melt
             s%snow(il)%wl = s%snow(il)%wl + melt
-            ! if (s%snow(il)%ws < 0.0) write(*,*) "error neagtive ws",s%snow(il)%ws  
             if (s%snow(il)%ws < 0.0) call land_error_message("Error in snow_melt_and_freeze in snow_evolution_mod:: Found negative ws value!", FATAL)
-            ! if (s%snow(il)%wl < 0.0) error stop "error neagtive wl",s%snow(il)%wl  
             s%snow(il)%dz = s%snow(il)%dz * (s%snow(il)%ws)/original_ws
             ! note :: now wl could exceede the available pore storage 
             ! In that case, excess liquid will be flushed now in the next time step
@@ -2672,10 +2546,8 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             s%snow(il)%T = DTnew + TFREEZE ! new temp in [K]
 
         else if ( ( DTold < 0.0) .and. (s%snow(il)%wl > 0.0)) then
-            ! write(*,*) "SMAF: case  ( DTold < 0.0) .and. (s%snow(il)%wl > 0.0)"
             max_freeze =s%snow(il)%wl 
             freeze = min( max_freeze, -s%snow(il)%hCap()*DTold/HLF )
-            ! write(*,*) "mass freeze = ", freeze
             Qsource = freeze * HLF
             heat0 = s%snow(il)%heat()
             hCap0 = s%snow(il)%hCap()
@@ -2685,7 +2557,6 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             if (s%snow(il)%wl < 0.0) call land_error_message("Error in snow_melt_and_freeze in snow_evolution_mod: wl < 0 value found!", FATAL)
             ! set max layer density after freezing
             if ((s%snow(il)%ws + s%snow(il)%wl)/s%snow(il)%dz > rho_ice) then
-                ! write(*,*) "adjusting layer depth after freezing ..."
                 s%snow(il)%dz = (s%snow(il)%ws + s%snow(il)%wl) / (0.95 * rho_ice)
             endif
             hCap1 = s%snow(il)%hCap()
@@ -2699,10 +2570,7 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             s%snow(il)%wc_em = s%snow(il)%wc_em + zflux_wc_em 
         endif
 
-        ! if (s%snow(il)%ws <= 0.0) then ! was eps
         if (s%snow(il)%ws <= eps) then ! was eps
-        ! write(*,*) "case s%snow(il)%ws <= 0.0"
-        ! if (s%snow(il)%ws <= eps) then ! was eps
             previous_layer_melted = .TRUE.
             n_melt_layers = n_melt_layers + 1
             zflux_wc_im = s%snow(il)%wc_im ! add impurities to downward flux 
@@ -2712,12 +2580,10 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             zflux_wl = s%snow(il)%wl  ! add water to downward flux
             zflux_T = s%snow(il)%T
             s%snow(il)%wl = 0.0
-            ! if (il < s%nlayers) then
             ! pass excess water and tracers to the layer below
             if(il==s%nlayers) then ! last layer
                 if (verbose) write(*,*) "melt runoff updated"
                 snow_lprec = snow_lprec + zflux_wl/dt !
-                ! snow_hlprec = snow_hlprec + zflux_wl/dt*CLW*(zflux_T-TFREEZE) ! lm4p2
                 snow_hlprec = snow_hlprec + zflux_wl/dt*CLW*(zflux_T-TFREEZE) + zflux_wl/dt*HLF
                 lost_wc_em = lost_wc_em + zflux_wc_em ! added here
                 lost_wc_im = lost_wc_im + zflux_wc_im
@@ -2730,7 +2596,6 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
 
     ! write(*,*) "M & F: Intermediate bounds check"
     ! call s%check_bounds("check bounds - intermediate melt and freeze ....")
-
     ! write(*,*) "melt_and_freeze: intermediate check: nlayers, SWE, heat = ", s%nlayers, s%SWE(), s%heat()
     ! call s%print()
     ! now allocate new snow array with only the non-zero layers
@@ -2743,41 +2608,23 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
     else if ((n_melt_layers > 0).and.(n_melt_layers < s%nlayers)) then
         new_layer_counter = 0
         origin_n_layers = s%nlayers
-        ! s%nlayers = origin_n_layers - n_melt_layers
-        ! write(*,*) "NML >0 and NML < NL: new number of layers = ", s%nlayers
         ALLOCATE(snow1(origin_n_layers - n_melt_layers))
-        ! ALLOCATE(snow1(s%nlayers)) ! allocate with new number of layers
         do il=1, origin_n_layers
             if (s%snow(il)%ws >= eps) then ! changed_eps
-            ! if (s%snow(il)%ws >= 0.0) then ! changed_eps
                 new_layer_counter = new_layer_counter + 1
                 snow1(new_layer_counter) = s%snow(il)
             endif
         enddo
         s%nlayers = origin_n_layers - n_melt_layers
-        ! deallocate(s%snow)
-        ! allocate(s%snow(origin_n_layers-n_melt_layers))
-        ! s%snow = snow1
         s%snow(1:s%nlayers) = snow1
-        ! s%snow(1:new_layer_counter) = snow1(1:new_layer_counter)
-        ! if (new_layer_counter .ne. s%nlayers) then
-        !     write(*,*) "PROBLEM:: new_layer_counter, nlayers = ", new_layer_counter, s%nlayers
-        ! endif
         deallocate(snow1)
-        ! write(*,*) "size snow1, size(s%snow) = ", size(snow1), size(s%snow)
-    else if (n_melt_layers==0) then
-        ! write(*,*) "no layers to melt..."
+    else if (n_melt_layers==0) then ! no layers to melt, pass
     else
         write(*,*) "nlayers, n_melt_layers =", s%nlayers, n_melt_layers
         call land_error_message("ERROR snow_melt_and_freeze in snow_evolution module: Something wrong with the number of layers to remove!", FATAL)
     endif
     rho_ends = s%density()
-    ! write(*,*) "melt_and_freeze: final check: nlayers, SWE, heat = ", s%nlayers, s%SWE(), s%heat()
-    ! call s%print()
-    ! if (rho_ends > 320.0) write(*,*) "rho starts, ends", rho_start, rho_ends
-
     endif ! end case of nlayers >0
-
 
     ! write(*,*) "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
     ! call s%check_bounds("check bounds - final melt and freeze ....")
