@@ -310,6 +310,90 @@ subroutine snow_evolution_init()
 end subroutine snow_evolution_init
 
 
+!> \Check netcdf data
+SUBROUTINE check(istatus)
+  use netcdf
+  INTEGER, INTENT (IN) :: istatus
+  IF (istatus /= nf90_noerr) THEN
+   write(*,*) TRIM(ADJUSTL(nf90_strerror(istatus)))
+  END IF
+END SUBROUTINE check
+
+
+!> \Read netcdf F06 data fields
+SUBROUTINE readgrid_F06(ncid,xpos,ypos, zpos,vdata1,vdata2, vdata3, NX,NY,NZ)
+  USE netcdf
+  REAL, DIMENSION(NX), INTENT(OUT) :: xpos
+  REAL, DIMENSION(NY), INTENT(OUT) :: ypos
+  REAL, DIMENSION(NZ), INTENT(OUT) :: zpos
+  ! EAL, DIMENSION(NX,NY,NZ), INTENT(OUT) :: vdata1
+  REAL, DIMENSION(NZ,NY,NX), INTENT(OUT) :: vdata1, vdata2, vdata3
+  INTEGER, INTENT(IN) :: NX, NY, NZ
+  INTEGER, DIMENSION(3) :: dimids
+  INTEGER :: xtype, ndims, varid
+  INTEGER, INTENT(IN) :: ncid
+  CHARACTER(LEN=50) :: xname, yname, vname
+  CALL check(nf90_inquire_variable(ncid,1,vname,xtype,ndims,dimids))
+  CALL check(nf90_inq_varid(ncid,vname,varid))
+  CALL check(nf90_get_var(ncid,varid,xpos))
+!   write(*,*) "xpos var 1 = ", varid, vname
+  CALL check(nf90_inquire_variable(ncid,2,vname,xtype,ndims,dimids))
+  CALL check(nf90_inq_varid(ncid,vname,varid))
+  CALL check(nf90_get_var(ncid,varid,ypos))
+!   write(*,*) "ypos var 2 = ", varid, vname
+  CALL check(nf90_inquire_variable(ncid,3,vname,xtype,ndims,dimids))
+  CALL check(nf90_inq_varid(ncid,vname,varid))
+  CALL check(nf90_get_var(ncid,varid,zpos))
+!   write(*,*) "ypos var 3 = ", varid, vname
+  CALL check(nf90_inquire_variable(ncid,4,vname,xtype,ndims,dimids))
+  CALL check(nf90_inq_varid(ncid,vname,varid))
+  CALL check(nf90_get_var(ncid,varid,vdata1))
+!   write(*,*) "dimids, vname var 4 (1st data)= ", dimids, vname
+  CALL check(nf90_inquire_variable(ncid,5,vname,xtype,ndims,dimids))
+  CALL check(nf90_inq_varid(ncid,vname,varid))
+  CALL check(nf90_get_var(ncid,varid,vdata2))
+!   write(*,*) "dimids, vname var 5 (2nd data) = ", dimids, vname
+  CALL check(nf90_inquire_variable(ncid,6,vname,xtype,ndims,dimids))
+  CALL check(nf90_inq_varid(ncid,vname,varid))
+  CALL check(nf90_get_var(ncid,varid,vdata3))
+!   write(*,*) "dimids, vname var 6 (3rd data) = ", dimids, vname
+END SUBROUTINE readgrid_F06
+
+
+!> \Read netcdf F06 data
+SUBROUTINE read_F06_data()
+  USE netcdf
+  INTEGER :: ncid
+  INTEGER, DIMENSION(3) :: dimids
+  CHARACTER(LEN=100) :: infile, ndims, varid
+  CHARACTER(LEN=100) :: xname, yname, zname, v1name, v2name, v3name
+!   write(*,*) "-------------------------------------------------------------------------"
+!   write(*,*) "Reading the F06 netcdf data file"
+!   write(*,*) "file: ", file_data_F06
+  CALL check(nf90_open(file_data_F06, nf90_nowrite, ncid))
+  CALL check(nf90_inquire_dimension(ncid,1,xname,dF06%nT))
+  CALL check(nf90_inquire_dimension(ncid,2,yname,dF06%nDT))
+  CALL check(nf90_inquire_dimension(ncid,3,zname,dF06%nRHO))
+  ! allocate arrays
+  ALLOCATE(dF06%drdt0s(dF06%nRHO, dF06%nDT, dF06%nT))
+  ALLOCATE(dF06%taus  (dF06%nRHO, dF06%nDT, dF06%nT))
+  ALLOCATE(dF06%kappas(dF06%nRHO, dF06%nDT, dF06%nT))
+  ALLOCATE(dF06%xT(df06%nT))
+  ALLOCATE(dF06%xDT(df06%nDT))
+  ALLOCATE(dF06%xRHO(df06%nRHO))
+  call readgrid_F06(ncid, dF06%xT, dF06%xDT, dF06%xRHO, dF06%taus, dF06%kappas,  &
+                  dF06%drdt0s, dF06%nT, dF06%nDT, dF06%nRHO)
+!   write(*,*) "nT = ", dF06%nT
+!   write(*,*) "nDT = ", dF06%nDT
+!   write(*,*) "nRHO = ", dF06%nRHO
+!   write(*,*) "xT = ", dF06%xT
+!   write(*,*) "xDT = ", dF06%xDT
+!   write(*,*) "xRHO = ", dF06%xRHO
+  CALL check(nf90_close(ncid))
+!   write(*,*) "-------------------------------------------------------------------------"
+END SUBROUTINE read_F06_data
+
+
 !> \If snow amount is below specified limit, sweeps it into runoff [adapt. from lm4p2]
 subroutine gl_sweep_tiny_snow(snowpack, lrunf, frunf, hlrunf, hfrunf,lost_wc_em, lost_wc_im )
   type(snowpack_t), intent(inout) :: snowpack
@@ -438,10 +522,60 @@ subroutine new_snow_density(rho_new, Tatm, Ubar)
    real, PARAMETER :: ar = 109.0 ! [Kg m^-3]
    real, PARAMETER :: br = 6.0 ! [Kg m^-3 K-1]
    real, PARAMETER :: cr = 26.0 ! Kg m^-7/2 s^-1/2
-   real, PARAMETER :: rho_min = 100.0 ! Kg m-3 ! // FIXME was 50 in CROCUS
+   real, PARAMETER :: rho_min = 50.0 ! Kg m-3 ! // FIXME was 50 in CROCUS
    rho_new = ar + br * (Tatm - TFREEZE) + cr * sqrt(Ubar)
    rho_new = max(rho_new, rho_min)
 end subroutine new_snow_density
+
+
+!> \compute the maximum liquid water content for a snow layer
+real function compute_wlmax(depth_snow_layer, rho_snow_layer) result(wlmax)
+real, intent(in) :: depth_snow_layer ! depth of the snow layer [m]
+real, intent(in) :: rho_snow_layer ! density of the snow layer [kg m^-3]
+real theta_crocus, theta_englesson, theta
+real Crmax, Crmin, gamma_e
+! Fraction of pore spaces occupied by water
+! Or, from Englesson 1971 / from Dingman's book:
+! not used for now
+! theta_englesson = -0.0735*(rho_snow_layer/rho_water)+2.67*10.0**(-4)*(rho_snow_layer**2/rho_water)
+! write(*,*) "theta englesson", theta_englesson
+    if (trim(lowercase(wlmax_to_use)) == "crocus") then
+        ! MODEL BY VIONNET ET AL., 2012
+        theta_crocus = 0.05
+        theta = theta_crocus
+        wlmax = theta * rho_water * depth_snow_layer * (1.0 - rho_snow_layer/rho_ice)
+        ! wlmax = theta * rho_water * depth_snow_layer
+        ! write(*,*) "wlmax2", wlmax
+    else if (trim(lowercase(wlmax_to_use)) == "anderson") then
+        ! MODEL BY ANDERSON 1976 [Used e.g., by Shresta et al., 2006 and Arduini et al., 2019]
+        Crmin = 0.03
+        Crmax = 0.1
+        gamma_e = 200.0 ! [Kg/m^3]
+        if (rho_snow_layer - gamma_e > 0.0) then
+            wlmax = Crmin
+        else
+            wlmax = Crmin + (Crmax-Crmin) * (1.0 - rho_snow_layer/gamma_e)
+        endif
+        wlmax = wlmax * rho_water * depth_snow_layer
+        ! print("psurf, Tsurf, wlmax = ")
+
+    else
+        call land_error_message("Error in compute_wlmax in snow_evolution_mod: Must specify a valid snow liquid holding capacity model!", FATAL)
+        wlmax = 0.0
+    endif
+
+end function compute_wlmax
+
+
+!> \compute dendricity based on sphericity and dopt (Eq. (2) in Carmagnola et al., 2013)
+real function den_from_dopt(sph, dopt) result(den)
+real, intent(in) :: sph ! snow sphericity
+real, intent(in) :: dopt ! snow optical diameter
+real alpha
+alpha = 1E-4
+den = (dopt/alpha - 4.0 + sph)/(sph - 3.0)
+end function den_from_dopt
+
 
 
 !> \Compute snowpack vertical temperature grandient 
@@ -617,90 +751,6 @@ subroutine snow_metamorph(snowpack, dt, verbose)
         enddo
     endif
 end subroutine snow_metamorph
-
-
-!> \Check netcdf data
-SUBROUTINE check(istatus)
-  use netcdf
-  INTEGER, INTENT (IN) :: istatus
-  IF (istatus /= nf90_noerr) THEN
-   write(*,*) TRIM(ADJUSTL(nf90_strerror(istatus)))
-  END IF
-END SUBROUTINE check
-
-
-!> \Read netcdf F06 data fields
-SUBROUTINE readgrid_F06(ncid,xpos,ypos, zpos,vdata1,vdata2, vdata3, NX,NY,NZ)
-  USE netcdf
-  REAL, DIMENSION(NX), INTENT(OUT) :: xpos
-  REAL, DIMENSION(NY), INTENT(OUT) :: ypos
-  REAL, DIMENSION(NZ), INTENT(OUT) :: zpos
-  ! EAL, DIMENSION(NX,NY,NZ), INTENT(OUT) :: vdata1
-  REAL, DIMENSION(NZ,NY,NX), INTENT(OUT) :: vdata1, vdata2, vdata3
-  INTEGER, INTENT(IN) :: NX, NY, NZ
-  INTEGER, DIMENSION(3) :: dimids
-  INTEGER :: xtype, ndims, varid
-  INTEGER, INTENT(IN) :: ncid
-  CHARACTER(LEN=50) :: xname, yname, vname
-  CALL check(nf90_inquire_variable(ncid,1,vname,xtype,ndims,dimids))
-  CALL check(nf90_inq_varid(ncid,vname,varid))
-  CALL check(nf90_get_var(ncid,varid,xpos))
-!   write(*,*) "xpos var 1 = ", varid, vname
-  CALL check(nf90_inquire_variable(ncid,2,vname,xtype,ndims,dimids))
-  CALL check(nf90_inq_varid(ncid,vname,varid))
-  CALL check(nf90_get_var(ncid,varid,ypos))
-!   write(*,*) "ypos var 2 = ", varid, vname
-  CALL check(nf90_inquire_variable(ncid,3,vname,xtype,ndims,dimids))
-  CALL check(nf90_inq_varid(ncid,vname,varid))
-  CALL check(nf90_get_var(ncid,varid,zpos))
-!   write(*,*) "ypos var 3 = ", varid, vname
-  CALL check(nf90_inquire_variable(ncid,4,vname,xtype,ndims,dimids))
-  CALL check(nf90_inq_varid(ncid,vname,varid))
-  CALL check(nf90_get_var(ncid,varid,vdata1))
-!   write(*,*) "dimids, vname var 4 (1st data)= ", dimids, vname
-  CALL check(nf90_inquire_variable(ncid,5,vname,xtype,ndims,dimids))
-  CALL check(nf90_inq_varid(ncid,vname,varid))
-  CALL check(nf90_get_var(ncid,varid,vdata2))
-!   write(*,*) "dimids, vname var 5 (2nd data) = ", dimids, vname
-  CALL check(nf90_inquire_variable(ncid,6,vname,xtype,ndims,dimids))
-  CALL check(nf90_inq_varid(ncid,vname,varid))
-  CALL check(nf90_get_var(ncid,varid,vdata3))
-!   write(*,*) "dimids, vname var 6 (3rd data) = ", dimids, vname
-END SUBROUTINE readgrid_F06
-
-
-!> \Read netcdf F06 data
-SUBROUTINE read_F06_data()
-  USE netcdf
-  INTEGER :: ncid
-  INTEGER, DIMENSION(3) :: dimids
-  CHARACTER(LEN=100) :: infile, ndims, varid
-  CHARACTER(LEN=100) :: xname, yname, zname, v1name, v2name, v3name
-!   write(*,*) "-------------------------------------------------------------------------"
-!   write(*,*) "Reading the F06 netcdf data file"
-!   write(*,*) "file: ", file_data_F06
-  CALL check(nf90_open(file_data_F06, nf90_nowrite, ncid))
-  CALL check(nf90_inquire_dimension(ncid,1,xname,dF06%nT))
-  CALL check(nf90_inquire_dimension(ncid,2,yname,dF06%nDT))
-  CALL check(nf90_inquire_dimension(ncid,3,zname,dF06%nRHO))
-  ! allocate arrays
-  ALLOCATE(dF06%drdt0s(dF06%nRHO, dF06%nDT, dF06%nT))
-  ALLOCATE(dF06%taus  (dF06%nRHO, dF06%nDT, dF06%nT))
-  ALLOCATE(dF06%kappas(dF06%nRHO, dF06%nDT, dF06%nT))
-  ALLOCATE(dF06%xT(df06%nT))
-  ALLOCATE(dF06%xDT(df06%nDT))
-  ALLOCATE(dF06%xRHO(df06%nRHO))
-  call readgrid_F06(ncid, dF06%xT, dF06%xDT, dF06%xRHO, dF06%taus, dF06%kappas,  &
-                  dF06%drdt0s, dF06%nT, dF06%nDT, dF06%nRHO)
-!   write(*,*) "nT = ", dF06%nT
-!   write(*,*) "nDT = ", dF06%nDT
-!   write(*,*) "nRHO = ", dF06%nRHO
-!   write(*,*) "xT = ", dF06%xT
-!   write(*,*) "xDT = ", dF06%xDT
-!   write(*,*) "xRHO = ", dF06%xRHO
-  CALL check(nf90_close(ncid))
-!   write(*,*) "-------------------------------------------------------------------------"
-END SUBROUTINE read_F06_data
 
 
 !> \compute snow metamorphism following Flanner and Zender, 2013, and Olson et al., 2010
@@ -2502,55 +2552,6 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
 end subroutine snow_solid_balance
 
 
-!> \compute the maximum liquid water content for a snow layer
-real function compute_wlmax(depth_snow_layer, rho_snow_layer) result(wlmax)
-real, intent(in) :: depth_snow_layer ! depth of the snow layer [m]
-real, intent(in) :: rho_snow_layer ! density of the snow layer [kg m^-3]
-real theta_crocus, theta_englesson, theta
-real Crmax, Crmin, gamma_e
-! Fraction of pore spaces occupied by water
-! Or, from Englesson 1971 / from Dingman's book:
-! not used for now
-! theta_englesson = -0.0735*(rho_snow_layer/rho_water)+2.67*10.0**(-4)*(rho_snow_layer**2/rho_water)
-! write(*,*) "theta englesson", theta_englesson
-    if (trim(lowercase(wlmax_to_use)) == "crocus") then
-        ! MODEL BY VIONNET ET AL., 2012
-        theta_crocus = 0.05
-        theta = theta_crocus
-        wlmax = theta * rho_water * depth_snow_layer * (1.0 - rho_snow_layer/rho_ice)
-        ! wlmax = theta * rho_water * depth_snow_layer
-        ! write(*,*) "wlmax2", wlmax
-    else if (trim(lowercase(wlmax_to_use)) == "anderson") then
-        ! MODEL BY ANDERSON 1976 [Used e.g., by Shresta et al., 2006 and Arduini et al., 2019]
-        Crmin = 0.03
-        Crmax = 0.1
-        gamma_e = 200.0 ! [Kg/m^3]
-        if (rho_snow_layer - gamma_e > 0.0) then
-            wlmax = Crmin
-        else
-            wlmax = Crmin + (Crmax-Crmin) * (1.0 - rho_snow_layer/gamma_e)
-        endif
-        wlmax = wlmax * rho_water * depth_snow_layer
-        ! print("psurf, Tsurf, wlmax = ")
-
-    else
-        call land_error_message("Error in compute_wlmax in snow_evolution_mod: Must specify a valid snow liquid holding capacity model!", FATAL)
-        wlmax = 0.0
-    endif
-
-end function compute_wlmax
-
-
-!> \compute dendricity based on sphericity and dopt (Eq. (2) in Carmagnola et al., 2013)
-real function den_from_dopt(sph, dopt) result(den)
-real, intent(in) :: sph ! snow sphericity
-real, intent(in) :: dopt ! snow optical diameter
-real alpha
-alpha = 1E-4
-den = (dopt/alpha - 4.0 + sph)/(sph - 3.0)
-end function den_from_dopt
-
-
 !> \add liquid precipitation to the snowpack, do melt and vertical liquid water flow
 subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec, & 
                                     snow_hlprec, lost_wc_em, lost_wc_im,  dt, verbose_in)
@@ -2591,16 +2592,6 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
         verbose = verbose_in
     endif
     eps_kill_layer = 1E-8 ! solid ice mass threhold to remove a layer from the pack
-    ! eps_water = 1E-20
-
-
-    ! if (verbose) write(*,*) "INIT LIQUID BALANCE, total swe, ice, liq = ", s%SWE(), s%ice(), s%liq()
-
-    ! if (s%nlayers > 0) then
-    ! if (s%snow(1)%dz<0.0) then
-    !     write(*,*) "liquid balance starts with negative dz = ",s%snow(1)%dz 
-    ! endif
-    ! endif
 
     ! init fluxes of liquid water, heat and impurities percolating down to substrate
     snow_lprec = 0.0
@@ -2613,7 +2604,6 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
 
     ! compute the fraction of wet deposition carried by liquid precipitation only
     do it = 1, NTRACERS
-        ! if ((lprec) > 0.0) then
         if ((lprec) > 1E-9) then
             ! wetdepl(it) = wetdep(it) * lprec / (lprec + fprec)
             ! UNITS: [wetdepf] = mg/m2/s
@@ -2625,7 +2615,6 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
         endif
     enddo
 
-
     ! write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  )
     ! write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  + wetdepl*dt) 
     ! write(*,*) "Before liquid balance, nlayers = ", s%nlayers
@@ -2636,51 +2625,40 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
         enddo
     endif
 
-           if(is_watch_point()) then
-              write(*,*)'#### Snow step 2 : snow_liquid_balance, initial checkpoint [1] ####'
-              write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  )
-              write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  + wetdepl*dt) 
-              write(*,*) "Before liquid balance, nlayers = ", s%nlayers
-              call s%print()
-          endif
+    if(is_watch_point()) then
+        write(*,*)'#### Snow step 2 : snow_liquid_balance, initial checkpoint [1] ####'
+        write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  )
+        write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  + wetdepl*dt) 
+        write(*,*) "Before liquid balance, nlayers = ", s%nlayers
+        call s%print()
+    endif
 
-    ! write(*,*)  "topwater, lprec*dt, tprec = ", s%topwater, lprec*dt, tprec
     if (s%nlayers > 0) then
-    ! if (verbose) write(*,*) "there is snow. Total ice = ", s%ice()
         do il = 1, s%nlayers ! loop on layers, do liquid water balance in each
-
             if (il == 1) then ! water balance for top snow layer
-                ! if (verbose) write(*,*) " water balance for top snow layer"
-
-                ! write(*,*) "1. snowpack heat was = ", s%heat()
                 if (lprec > 0.0) then
-                    ! write(*,*) "adding precip lprec at tprec: lprec*dt, tprec = ", lprec*dt, tprec
-                    ! write(*,*) "snowpack heat was = ", s%heat()
                     call add_liquid_to_layer(s%snow(il), lprec*dt, tprec) ! add precip to 1st layer 
                 endif
                 s%snow(il)%wc_im = s%snow(il)%wc_im + wetdepl*dt   ! add IM tracers to 1st layer
-
-                   if(is_watch_point()) then
-                      write(*,*)'#### Snow step 2 : snow_liquid_balance, inter checkpoint [1.5] ####'
-                      call s%print()
-                  endif
+                if(is_watch_point()) then
+                    write(*,*)'#### Snow step 2 : snow_liquid_balance, inter checkpoint [1.5] ####'
+                    call s%print()
+                endif
 
                 if (s%topwater > 0.0) then ! also add existing snow topwater to 1st layer if any
-                ! write(*,*) "adding topwheat, topwater*HLF = ", s%topwheat, s%topwater*HLF
                     call add_liquid_to_layer(s%snow(il), s%topwater, TFREEZE+(s%topwheat-s%topwater*HLF)/s%topwater/CLW)
                     s%topwater = 0.0 ! this can be nonzero only between evaporation and liquid balance
                     s%topwheat = 0.0 ! this can be nonzero only between evaporation and liquid balance
                 endif
 
-           if(is_watch_point()) then
-              write(*,*)'#### Snow step 2 : snow_liquid_balance, second checkpoint [2] ####'
-                write(*,*) "1. snowpack heat now is = ", s%heat() - s%topwater*HLF
-                write(*,*) "1. snowpack heat now is = ", s%heat() 
-                write(*,*) "snow liquid balance: state of snowpack after adding liq precip:"
-                write(*,*) "SWE after adding precip to 1st layer: lprec*dt = ", s%SWE()
-              call s%print()
-          endif
-
+                if(is_watch_point()) then
+                    write(*,*)'#### Snow step 2 : snow_liquid_balance, second checkpoint [2] ####'
+                    write(*,*) "1. snowpack heat now is = ", s%heat() - s%topwater*HLF
+                    write(*,*) "1. snowpack heat now is = ", s%heat() 
+                    write(*,*) "snow liquid balance: state of snowpack after adding liq precip:"
+                    write(*,*) "SWE after adding precip to 1st layer: lprec*dt = ", s%SWE()
+                    call s%print()
+                endif
 
             else ! layer other than the top layer
                 ! add fluxes of impurities from layers above
@@ -2688,7 +2666,6 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 s%snow(il)%wc_em = s%snow(il)%wc_em + zflux_wc_em   ! vector dim=3
 
                 if (zflux_wl > 0.0) then
-                    ! if (verbose) write(*,*) " water balance for tlower levels. zflux_wl, zflux_T = ", zflux_wl , zflux_T
                     call add_liquid_to_layer(s%snow(il), zflux_wl, zflux_T) ! add water flushed from above
                     ! add any impurities scavenged from above [for now, keep externally mixed]
                     ! s%snow(il)%wc_im = s%snow(il)%wc_im + zflux_wc_im   ! vector dim=3
@@ -2717,14 +2694,8 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 endif
             endif
 
-
-
-
             ! if a layer is completely melted after adding liquid, remove it from the stack
-            ! if (s%snow(il)%ws < eps) then ! changed_eps
             if (s%snow(il)%ws < eps_kill_layer) then ! changed_eps
-                ! write(*,*) "a layer just disappeared!"
-            ! if (.not.(s%snow(il)%ws > 0.0)) then ! changed_eps
                 n_melt_layers = n_melt_layers + 1
                 zflux_wl = s%snow(il)%wl
                 zflux_T = s%snow(il)%T
@@ -2735,37 +2706,22 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 s%snow(il)%wl = 0.0
                 zflux_ws = s%snow(il)%ws
                 s%snow(il)%ws = 0.0
-                ! zflux_T = s%snow(il)%T 
-                ! I need to actually remove the layer il from allocated snow array: do it at the end
+                ! I need to remove the il-th layer from allocated snow array. Done at the end
                 ! what happens if it is the bottom layer to melt completely?
                 ! nothing, just get rid of water as runoff, and tracers will disappear
             else !case layer is still there:
                 ! compute pore space only now after updating the ws mass due to any melt / freeze
                 rho_snow_il = s%snow(il)%ws/s%snow(il)%dz ! density of solid snow in current layer ! 
-                ! rho_snow_il = (s%snow(il)%ws +s%snow(il)%wl) /s%snow(il)%dz ! density of solid snow in current layer ! 
                 wl_max = compute_wlmax(s%snow(il)%dz, rho_snow_il)
-                ! write(*,*) "layer still here:: rho_snow_il, wl_max", rho_snow_il, wl_max
                 wl_excess = s%snow(il)%wl - wl_max   ! excess above available liquid water storage 
-
-                !    if(is_watch_point()) then
-                !       write(*,*)'#### Snow step 2 : snow_liquid_balance, interm checkpoint [2.5] ####'
-                !       write(*,*) "First layer: ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
-                !       write(*,*) "Doing layer il = ", il
-                !       write(*,*) "wl_max, wl_excess = ", wl_max, wl_excess
-                !   endif
-
-                ! write(*,*) "wl =", s%snow(il)%wl
-                ! write(*,*) "wl_excess = ", wl_excess
                 zflux_ws = 0.0
                 zflux_T = s%snow(il)%T 
                 
                 if (wl_excess > 0.0) then ! now any excess water is flushed down the snowpack.
                     zflux_wl = wl_excess
-                    ! zflux_T = s%snow(il)%T ! need to compute new equilibrium temperature
                     s%snow(il)%wl = wl_max ! retain pore space capacity full of water (*)
                 else 
                     zflux_wl = 0.0 ! snow layer pore space is not saturated - nothing to flush
-                    ! zflux_T = 0.0 ! value not needed
                 endif
 
                 ! compute amounts of tracers flushed down with the water
@@ -2782,155 +2738,79 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
 
             ! now we reached bottom of snowpack - we remove excess liquid water as runoff
             if (il==s%nlayers) then
-                ! write(*,*) "compute fluxes to soil..."
                 ! // TODO no need to init and incerement here, done only for bottom layer
                 snow_lprec = snow_lprec + zflux_wl/dt ! rate
-                ! snow_hlprec = snow_hlprec + zflux_wl/dt*CLW*(zflux_T-TFREEZE) ! // with resp to liquid, rate
                 snow_hlprec = snow_hlprec + zflux_wl/dt*CLW*(zflux_T-TFREEZE) + zflux_wl/dt*HLF ! // with resp to liquid, rate
-                ! write(*,*) "added to snow hlprec 1 = ", snow_hlprec + zflux_wl/dt*CLW*(zflux_T-TFREEZE)
-                ! if (verbose) write(*,*) "liquid runoff updated"
-                ! for the last layer, add any remaining solid - convert to liquid (melt it)
-                ! expending the HLF
-                ! EZSNOW added
                 snow_lprec = snow_lprec + zflux_ws/dt ! rate
-                ! snow_hlprec = snow_hlprec + zflux_ws/dt*CSW*(zflux_T-TFREEZE) - zflux_ws/dt*HLF
-                ! NOTE: T was modified so this is effectively a liquid water flux - account for HLF here
-
-                ! zflux_Tsol = TFREEZE + (CSW*(zflux_T-TFREEZE)-HLF)/CLW ! //FIXME added 
-                ! snow_hlprec = snow_hlprec + zflux_ws/dt*CLW*(zflux_Tsol-TFREEZE) + zflux_ws/dt*HLF
                 snow_hlprec = snow_hlprec + zflux_ws/dt*CSW*(zflux_T-TFREEZE) 
-                ! snow_hlprec = snow_hlprec + zflux_ws/dt*CLW*(zflux_T-TFREEZE) + zflux_ws/dt*HLF
-                ! DO FLUSH SOME TRACERS HERE ::
+                ! DO FLUSH THE TRACERS HERE ::
                 do it = 1, NTRACERS
                     SWE_il = s%snow(il)%ws + s%snow(il)%wl ! layer snow water equivalent
                     lost_wc_em(it) = lost_wc_em(it) + zflux_wc_em(it)
                     lost_wc_im(it) = lost_wc_im(it) + zflux_wc_im(it)
-                    ! zflux_wc(it) = zflux_wc_em + zflux_wc_im  ! sum: in any case they becvome all internally mixed after being carried by the water
-                    ! s%snow(il)%wc_im(it) = s%snow(il)%wc_im(it) - lost_wc_im(it) ! lose tracers headed down (snow or ground)
-                    ! s%snow(il)%wc_em(it) = s%snow(il)%wc_em(it) - lost_wc_em(it) ! lose tracers headed down (snow or ground)
                 enddo
             endif
         enddo ! end loop on layers
 
-           if(is_watch_point()) then
-              write(*,*)'#### Snow step 2 : snow_liquid_balance, third checkpoint [3] ####'
-                write(*,*) "intermediate check: SWE = ", s%SWE()
-                write(*,*) "intermediate check: heat = ", s%heat()
-                write(*,*) "state of snowpack before removing empty layers ::"
-                write(*,*) "number of layers, numbe of layers to melt = ", s%nlayers, n_melt_layers
-                if (s%nlayers > 0) write(*,*) "First layer: ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
-              call s%print()
-          endif
+        if(is_watch_point()) then
+            write(*,*)'#### Snow step 2 : snow_liquid_balance, third checkpoint [3] ####'
+            write(*,*) "intermediate check: SWE = ", s%SWE()
+            write(*,*) "intermediate check: heat = ", s%heat()
+            write(*,*) "state of snowpack before removing empty layers ::"
+            write(*,*) "number of layers, numbe of layers to melt = ", s%nlayers, n_melt_layers
+            if (s%nlayers > 0) write(*,*) "First layer: ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
+            call s%print()
+        endif
 
-        ! write(*,*) "intermediate check: SWE = ", s%SWE()
-        ! write(*,*) "intermediate check: heat = ", s%heat()
-        ! write(*,*) "state of snowpack before removing empty layers ::"
-        ! ! call s%print()
-        ! write(*,*) "number of layers, numbe of layers to melt = ", s%nlayers, n_melt_layers
-
-        ! now if we have any completely melted layers
-        ! remove them from the stack (any water and tracers have already been moved out!)
-        ! if (n_melt_layers == s%nlayers .and. s%nlayers > 0) then
-        if (n_melt_layers == s%nlayers) then
-            ! write(*,*) "melting all layers!!!"
-            ! write(*,*) "lost em before", lost_wc_em
-            ! call s%print()
-                ! do it = 1, NTRACERS
+        if (n_melt_layers == s%nlayers) then ! melting all snow layers
             lost_wc_em = lost_wc_em + s%lai_em()
             lost_wc_im = lost_wc_im + s%lai_im()
-            ! lost_wc_em(it) = lost_wc_em(it) + s%lai_em()(it)
-            ! lost_wc_im(it) = lost_wc_im(it) + s%lai_im()(it)
-                ! enddo
-            ! write(*,*) "lost em after", lost_wc_em
             s%nlayers = 0
             DEALLOCATE(s%snow)
         else if ((n_melt_layers > 0).and.(n_melt_layers < s%nlayers)) then
             new_layer_counter = 1
             orig_n_layers = s%nlayers
-            ! write(*,*) "orig_n_layers, n_melt_layers = ", orig_n_layers, n_melt_layers
             s%nlayers = orig_n_layers - n_melt_layers
             ALLOCATE(snow1(orig_n_layers - n_melt_layers))
             do il=1, orig_n_layers
-                ! if (s%snow(il)%ws >= eps) then
                 if (s%snow(il)%ws >= eps_kill_layer) then
                     snow1(new_layer_counter) = s%snow(il)
                     new_layer_counter = new_layer_counter + 1
                 endif
             enddo
         
-            ! s%snow = snow1
-            ! deallocate(s%snow)
-            ! allocate(s%snow(orig_n_layers-n_melt_layers))
             s%snow(1:s%nlayers) = snow1
             deallocate(snow1)
 
         else if (n_melt_layers > s%nlayers) then
             write(*,*) "orig_n_layers, n_melt_layers = ", orig_n_layers, n_melt_layers
-            ! error stop "ERROR snow_liquid_balance in snow_evolution module: Too many layers to melt!"
             call land_error_message( "ERROR snow_liquid_balance in snow_evolution module: Too many layers to melt!", FATAL)
-        else if (n_melt_layers==0) then
-            ! write(*,*) "no layers to melt, all is ok..."
+        else if (n_melt_layers==0) then ! ok, no layers to melt
         else
             write(*,*) "orig_n_layers, n_melt_layers = ", orig_n_layers, n_melt_layers
-            ! error stop "ERROR snow_liquid_balance in snow_evolution module: wrong number of layers to melt!"
             call land_error_message("ERROR snow_liquid_balance in snow_evolution module: wrong number of layers to melt!", FATAL)
         endif
 
-    ! write(*,*) "state of snowpack after removing empty layers ::"
-    ! write(*,*) "after removing empty layer, check: SWE = ", s%SWE()
-    ! call s%print()
-
-           if(is_watch_point()) then
-              write(*,*)'#### Snow step 2 : snow_liquid_balance, fourth checkpoint [4] ####'
-              write(*,*) "state of snowpack after removing empty layers ::"
-              write(*,*) "after removing empty layer, check: SWE = ", s%SWE()
-              call s%print()
-          endif
+        if(is_watch_point()) then
+            write(*,*)'#### Snow step 2 : snow_liquid_balance, fourth checkpoint [4] ####'
+            write(*,*) "state of snowpack after removing empty layers ::"
+            write(*,*) "after removing empty layer, check: SWE = ", s%SWE()
+            call s%print()
+        endif
 
     else ! case of no snowpack (nlayers=0): Just send any rainfall directly to runoff, and any reamining topwater from sublimated layers
-        ! write(*,*) "snow liquid water balance - empty snowpack"
         snow_lprec = snow_lprec + lprec + s%topwater/dt ! rate
-        ! note correction because in lm4p2 heat is wrt liquid at TFREEZE and here topwheat includes latent heat
-        ! write(*,*) "added to snow lprec = ",  s%topwheat/dt - s%topwater/dt*HLF + lprec*CLW*(tprec-TFREEZE) 
-        ! snow_hlprec = snow_hlprec + s%topwheat/dt - s%topwater/dt*HLF + lprec*CLW*(tprec-TFREEZE) ! // with resp to liquid, rate
         snow_hlprec = snow_hlprec + s%topwheat/dt + lprec*CLW*(tprec-TFREEZE) + lprec*HLF ! // snowpack definition
-        ! s%runoff = s%runoff + (lprec)*dt + s%topwater ! evap was already done in solid balance routine
-        ! s%runoff_heat = s%runoff_heat + (lprec)*dt*(CLW*(tprec-TFREEZE) + HLF) + s%topwheat ! evap was already done in solid balance routine
         s%topwater = 0.0
         s%topwheat = 0.0
-
-    endif ! [if nlayers > 0] 
-
-    ! write(*,*) "SIMPLE LIQUID BALANCE - END"
-    ! write(*,*) "TOTAL WATER = ", s%SWE() + s%runoff
-
-! if (s%nlayers > 0) then
-!             write(*,*) "liquid balance ends, lost LAIs = ", lost_wc_im 
-!             write(*,*) "liquid balance ends, lost LAIs = ", lost_wc_em 
-!             write(*,*) "liquid balance ends, remain LAIs = ",s%lai_im()
-!             write(*,*) "liquid balance ends, remain LAIs = ",s%lai_em()
-!             call s%print()
-! endif
+    endif 
 
     if (s%nlayers > 0) then
-    if (s%snow(1)%dz<0.0) then
-        write(*,*) "liquid balance ends with negative dz = ",s%snow(1)%dz 
-        ! error stop "ERROR snow_liquid_balance in snow_evolution module: liquid balance ends with negative layer thickness"
-        call land_error_message("ERROR snow_liquid_balance in snow_evolution module: liquid balance ends with negative layer thickness", FATAL)
+        if (s%snow(1)%dz<0.0) then
+            write(*,*) "liquid balance ends with negative dz = ",s%snow(1)%dz 
+            call land_error_message("ERROR snow_liquid_balance in snow_evolution module: liquid balance ends with negative layer thickness", FATAL)
+        endif
     endif
-    ! if (s%snow(1)%wl<0.0) then
-    !     write(*,*) "liquid balance ends with negative wl = ",s%snow(1)%wl
-    !     ! error stop "ERROR snow_liquid_balance in snow_evolution module: liquid balance ends with negative layer thickness"
-    !     call land_error_message("ERROR snow_liquid_balance in snow_evolution module: liquid balance ends with negative water content", FATAL)
-    ! endif
-    endif
-
-    ! if (verbose) write(*,*) "END LIQUID BALANCE, total ice = ", s%ice()
-    ! if (verbose) write(*,*) "FINAL LIQUID BALANCE, total swe, ice, liq = ", s%SWE(), s%ice(), s%liq()
-
-    ! write(*,*) "liquid balance, test final LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  )
-    ! write(*,*) "End liquid balance, nlayers = ", s%nlayers
-
 
 end subroutine snow_liquid_balance
 
@@ -3681,67 +3561,6 @@ subroutine compute_albedo_veronica(s, cosz)
 end subroutine compute_albedo_veronica
 
 
-
-
-!> \Compute the reduction in albedo due to dust concenrtation as in He et al., 2018
-subroutine compute_dalbedo_he_dust(s, cosz)
-
-   class(snowpack_t), intent(inout) :: s !< state of snowpack
-   real, intent(in) :: cosz ! cosine of solar zenith angle
-   real snow_refl_vis, rho_snow, snow_depth
-   real :: grain_radius ! radius
-   ! real :: theta ! solar zenith angle
-   real :: ceqns ! black carbon equaivalent concentration in enar surface layer
-   real :: Dcosz, phi, effR
-   real, PARAMETER :: a = 0.781 ! FOR VIS BAND
-   real, PARAMETER :: b0 = 9.80508E-1
-   real, PARAMETER :: b1 = -1.36104E-2
-   real, PARAMETER :: b2 = -1.95416E-2
-   real, PARAMETER :: d0 = 3.01470E-3
-   real, PARAMETER :: d1 = 4.68312E-1
-   real, PARAMETER :: d2 = 1.27961E-1
-
-   real dalbedo ! reduction in albedo
-
-   !  Following veronica's paper
-   ! implementation of He, Liou et al. 2018 parameterization
-   ! For spherical, external mixing, VIS
-
-    grain_radius = s%nearsurf_optd/2.0 ! METERS
-    ! grain_radius = s%nearsurf_optd * 10 ! METERS
-    ! ceqns = s%nearsurf_bceq
-    ceqns = s%nearsurf_bceq_im + s%nearsurf_bceq_em ! already in ppm
-    rho_snow = s%nearsurf_rho
-    snow_depth = s%depth()
-   
-   Dcosz = cosz - cos(49.5/180.0*PI)
-   phi = (1 + a *Dcosz)**2
-   ! effR = r * phi/100.0 ! /mu m 
-   ! UNITS: effR in [\mu m]
-   effR = grain_radius * phi/1E-4 ! [den=100 \mu m, grain radius is in m]
-!    write(*,*) "HE EFF RADIUS = ", effR, phi, r, Dcosz, cosz, PI
-!    snow_refl_vis = (b0 + b1*log(effR) + b2*log(effR**2)) - d0*(ceqns)**(d1*effR**d2)
-   ! NOTE :: passing ceqns to PPB (see He at al., 2018) from PPM
-   snow_refl_vis = (b0 + b1*log10(effR) + b2*log10(effR)**2) - d0*(ceqns*1E3)**(d1*effR**d2)
-
-!    dalbedo = b1*Cdust**k
-
-                          ! VIS            NIR
-    ! s%snow_refl_dir = (/ snow_refl_vis, -9999.0 /)
-    ! s%snow_refl_dif = (/ snow_refl_vis, -9999.0 /)
-
-   ! // FIXME do not pass the same for NIR if it not computed here ..
-    s%snow_refl_dir = (/ snow_refl_vis, snow_refl_vis /)
-    s%snow_refl_dif = (/ snow_refl_vis, snow_refl_vis /)
-
-    ! HE DOES HAVE NIR PARAMS
-
-end subroutine compute_dalbedo_he_dust
-
-
-
-
-
 subroutine compute_albedo_he(s, cosz)
     ! ------------------------------------------------------------------------------------
     ! Snow albedo parameterization following "Impact of Grain Shape and Multiple 
@@ -3959,136 +3778,10 @@ call compute_snow_grain_shape(s%nearsurf_dendr, s%nearsurf_sph, idxshp)
 end subroutine compute_albedo_he
 
 
-
-! TODO: deprecated, remove
-subroutine compute_albedo_he_visible(s, cosz)
-   ! TODO: add NIR from He, Liou 2018
-
-    class(snowpack_t), intent(inout) :: s !< state of snowpack
-   real snow_refl_vis, rho_snow, snow_depth
-   real :: grain_radius ! radius
-   real :: cosz ! cosine of solar zenith angle
-   ! real :: theta ! solar zenith angle
-   real :: ceqns ! black carbon equaivalent concentration in enar surface layer
-   real :: Dcosz, phi, effR
-   real, PARAMETER :: aVIS = 0.781 ! FOR VIS BAND
-   real, PARAMETER :: aNIR = 0.791 ! FOR NIR BAND
-   real, PARAMETER :: aBROAD = 0.786 ! FOR BROADBAND
-   real, PARAMETER :: b0 = 9.80508E-1 ! used by Veronica [Spherical snow, VIS band]
-   real, PARAMETER :: b1 = -1.36104E-2
-   real, PARAMETER :: b2 = -1.95416E-2
-   real, PARAMETER :: d0 = 3.01470E-3
-   real, PARAMETER :: d1 = 4.68312E-1
-   real, PARAMETER :: d2 = 1.27961E-1
-
-   !  Following veronica's paper
-   ! implementation of He, Liou et al. 2018 parameterization
-   ! For spherical, external mixing, VIS
-
-    grain_radius = s%nearsurf_optd/2.0 ! METERS
-    ! grain_radius = s%nearsurf_optd * 10 ! METERS
-    ! ceqns = s%nearsurf_bceq
-    ceqns = s%nearsurf_bceq_im + s%nearsurf_bceq_em 
-    rho_snow = s%nearsurf_rho
-    snow_depth = s%depth()
-
-! correction of effective grain size based on Marshall (1989)
-! and Wiscombe and Warren (1980) to account for cosz
-   
-   Dcosz = cosz - cos(49.5/180.0*PI) ! 0.65
-   phi = (1 + aVIS *Dcosz)**2
-   ! effR = r * phi/100.0 ! /mu m 
-   effR = grain_radius * phi/1E-4 ! [den=100 \mu m, grin radius is in m]
-!    write(*,*) "HE EFF RADIUS = ", effR, phi, r, Dcosz, cosz, PI
-!    snow_refl_vis = (b0 + b1*log(effR) + b2*log(effR**2)) - d0*(ceqns)**(d1*effR**d2)
-   ! NOTE :: passing ceqns to PPB (see He at al., 2018)
-
-! compute the albedo reduction due to impurities later on
-   snow_refl_vis = (b0 + b1*log10(effR) + b2*log10(effR)**2) - d0*(ceqns*1E9)**(d1*effR**d2)
-
-                          ! VIS            NIR
-    ! s%snow_refl_dir = (/ snow_refl_vis, -9999.0 /)
-    ! s%snow_refl_dif = (/ snow_refl_vis, -9999.0 /)
-
-   ! // FIXME do not pass the same for NIR if it not computed here ..
-    s%snow_refl_dir = (/ snow_refl_vis, snow_refl_vis /)
-    s%snow_refl_dif = (/ snow_refl_vis, snow_refl_vis /)
-
-    ! HE DOES HAVE NIR PARAMS
-
-end subroutine compute_albedo_he_visible
-
-
-
-! TODO: deprecated, remove
-subroutine compute_albedo_he_NIR(s, cosz)
-   ! TODO: add NIR from He, Liou 2018
-
-   class(snowpack_t), intent(inout) :: s !< state of snowpack
-   real, intent(in) :: cosz ! cosine of solar zenith angle
-   real snow_refl_vis, rho_snow, snow_depth
-   real :: grain_radius ! radius
-   ! real :: theta ! solar zenith angle
-   real :: ceqns ! black carbon equaivalent concentration in enar surface layer
-   real :: Dcosz, phi, effR
-!    real, PARAMETER :: a = 0.781 ! FOR VIS BAND
-!    real, PARAMETER :: b0 = 9.80508E-1
-!    real, PARAMETER :: b1 = -1.36104E-2
-!    real, PARAMETER :: b2 = -1.95416E-2
-!    real, PARAMETER :: d0 = 3.01470E-3
-!    real, PARAMETER :: d1 = 4.68312E-1
-!    real, PARAMETER :: d2 = 1.27961E-1
-
-   real, PARAMETER :: a = 0.781 ! FOR VIS BAND
-!    real, PARAMETER :: b0 = 9.80508E-1 ! VIS
-!    real, PARAMETER :: b1 = -1.36104E-2 ! VIS
-!    real, PARAMETER :: b2 = -1.95416E-2 ! VIS
-   real, PARAMETER :: b0 = 6.44881E-1 ! NIS
-   real, PARAMETER :: b1 = -1.84202E-1 ! NIS
-   real, PARAMETER :: b2 = -2.64706E-2 ! NIS
-!    real, PARAMETER :: d0 = 3.01470E-3
-!    real, PARAMETER :: d1 = 4.68312E-1
-!    real, PARAMETER :: d2 = 1.27961E-1
-
-   ! EXTERNAL MIXING, NIR
-   real, PARAMETER :: d0 = 1.10568E-4
-   real, PARAMETER :: d1 = 7.53732E-1
-   real, PARAMETER :: d2 = 6.62209E-2
-
-   !  Following veronica's paper
-   ! implementation of He, Liou et al. 2018 parameterization
-   ! For spherical, external mixing, VIS
-
-    grain_radius = s%nearsurf_optd/2.0 ! METERS
-    ! grain_radius = s%nearsurf_optd * 10 ! METERS
-    ! ceqns = s%nearsurf_bceq
-    ceqns = s%nearsurf_bceq_im + s%nearsurf_bceq_em 
-    rho_snow = s%nearsurf_rho
-    snow_depth = s%depth()
-   
-   Dcosz = cosz - cos(49.5/180.0*PI)
-   phi = (1 + a *Dcosz)**2
-   ! effR = r * phi/100.0 ! /mu m 
-   effR = grain_radius * phi/1E-4 ! [den=100 \mu m, grin radius is in m]
-!    write(*,*) "HE EFF RADIUS = ", effR, phi, r, Dcosz, cosz, PI
-!    snow_refl_vis = (b0 + b1*log(effR) + b2*log(effR**2)) - d0*(ceqns)**(d1*effR**d2)
-   ! NOTE :: passing ceqns to PPB (see He at al., 2018)
-   snow_refl_vis = (b0 + b1*log10(effR) + b2*log10(effR)**2) - d0*(ceqns*1E9)**(d1*effR**d2)
-
-                          ! VIS            NIR
-    ! s%snow_refl_dir = (/ snow_refl_vis, -9999.0 /)
-    ! s%snow_refl_dif = (/ snow_refl_vis, -9999.0 /)
-    s%snow_refl_dir(2) = snow_refl_vis
-    s%snow_refl_dif(2) = snow_refl_vis
-
-
-end subroutine compute_albedo_he_NIR
-
-
-
-
 ! subroutine compute_albedo_malinka(cosz, snow_refl_vis, D, snow_depth, ceqns, omega_bc, S_ext_bc, rho_snow, r)
+! //FIXME deprecated 
 subroutine compute_albedo_malinka(s, cosz)
+
 
    class(snowpack_t), intent(inout) :: s !< state of snowpack
    real, intent(in) :: cosz
@@ -4139,7 +3832,8 @@ end subroutine compute_albedo_malinka
 
 subroutine compute_albedo_rozenberg(s, cosz)
    ! # D = Fraction of diffuse to total SW radiation
-   ! TODO: separate albedo for DIR and DIF components
+   ! //TODO: separate albedo for DIR and DIF components
+    ! //FIXME deprecated 
 
    class(snowpack_t), intent(inout) :: s !< state of snowpack
    real, intent(in) :: cosz
@@ -4155,13 +3849,6 @@ subroutine compute_albedo_rozenberg(s, cosz)
    real omega_ice, S_ext_ice, S_ext_tot
    ! real, intent(in) :: omega_bc, S_ext_bc ! SSA and extinction coeff of black carbon (from AM4???)
    ! real, intent(in) :: r ! snow grain radius
-
-   !//TODO: Rozemberg seems to fail (NaN) for too large cocnentrations (maybe too small grain size?)
-   ! The denominator sinh (gamma*tau+y) explodes due to large tau
-   ! hopefully it is only for conc values so large to be unphysical 
-   ! but I should add a check 
-
-
 
    real, PARAMETER :: g = 0.895 ! asymmetry parameter
    real, PARAMETER :: S_abs_ice = 5.795E-14 ! ice absorption cross section [m^2 kg^-1] ! approx!
@@ -4409,11 +4096,11 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
                 subs_m_imp, lost_wc_em1, lost_wc_im1, thick_enough_for_evap, verbose=.FALSE.)
 
 
-           if(is_watch_point()) then
-              write(*,*)'#### Snow step 2 : after snow sublimation ####'
-              call s%print()
-              write(*,*) "snow_levap, snow_fevap, hfevap, hlevap, snow_melt, subs_m_imp",snow_levap, snow_fevap, hfevap, hlevap, snow_melt, subs_m_imp 
-          endif
+    if(is_watch_point()) then
+        write(*,*)'#### Snow step 2 : after snow sublimation ####'
+        call s%print()
+        write(*,*) "snow_levap, snow_fevap, hfevap, hlevap, snow_melt, subs_m_imp",snow_levap, snow_fevap, hfevap, hlevap, snow_melt, subs_m_imp 
+    endif
 
 
     netheat2 = s%heat() ! heat cons check
@@ -4446,11 +4133,9 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
         write(*,*) "checkpoint after sublimation: initial LAI content = ", laimass1
         write(*,*) "checkpoint after sublimation: final LAI content = ", laimass2
         write(*,*) "checkpoint after sublimation: lost LAI content = ",sum(lost_wc_em1) + sum(lost_wc_im1) 
-    ! if (abs(netlaimass)>1E-6) then
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: LAI balance violation after do_snow_sublimation!", FATAL)
     endif
 
-    ! netmass1 = s%SWE() ! mass cons check
     netmass2 = s%SWE() + (snow_levap + snow_fevap)*dt  +lswept1 + fswept1 ! mass cons check
     if (do_snow_check_cons .and.(abs(netmass2 - netmass1)>1E-6)) then
         write(*,*) "checkpoint after sublimation: SWE = ", s%SWE()
@@ -4458,16 +4143,15 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
 
     if (s%nlayers > 0) then
-    if (s%snow(1)%T < 100.0) then
-        call s%print()
-        write(*,*) "After sublimation T(1) = ", s%snow(1)%T 
-        call land_error_message("ERROR gl_snow_step_2 in snow_evolution module: MIN TEMPERATURE violation after do_snow_sublimation!", FATAL)
-    endif
+        if (s%snow(1)%T < 100.0) then
+            call s%print()
+            write(*,*) "After sublimation T(1) = ", s%snow(1)%T 
+            call land_error_message("ERROR gl_snow_step_2 in snow_evolution module: MIN TEMPERATURE violation after do_snow_sublimation!", FATAL)
+        endif
     endif
 
 
     call s%check_bounds("check bounds after sublimation ....")
-
 
 
     if(verbose) write(*,*) "SNOW STEP 2 : Do snow melt and freeze"
@@ -4479,8 +4163,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     netheat1 = s%heat()  ! init heat cons check
     laimass1 = sum(s%lai_em() + s%lai_im()) ! sum across NTRACERS dimension for purposes of LAI mass cons check
     call snow_melt_and_freeze( &
-                        s, dt, snow_lprec1, &
-                        snow_hlprec1, lost_wc_em2, lost_wc_im2,  verbose_in=.FALSE.)
+            s, dt, snow_lprec1, &
+            snow_hlprec1, lost_wc_em2, lost_wc_im2,  verbose_in=.FALSE.)
     netmass2 = s%SWE() + (snow_lprec1)*dt ! mass cons check
     if (do_snow_check_cons .and.(abs(netmass2 - netmass1)>1E-6)) then
         write(*,*) "netmass1 = ", netmass1
@@ -4520,7 +4204,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call s%check_bounds("check bounds after melt and freeze ....")
 
 
-
     netmass1 = s%SWE() ! mass cons check
     netheat1 = s%heat() ! heat cons check
 
@@ -4550,9 +4233,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
 
 
 
-
-    ! SOLID BALANCE HERE
-        ! START-SOLID [moved before melt and freeze]
+    ! SNOW SOLID BALANCE 
     netmass1 = s%SWE() ! mass cons check
     netheat1 = s%heat() ! heat cons check
     laimass1 = sum(s%lai_em() + s%lai_im()) 
@@ -4564,7 +4245,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     if(verbose) write(*,*) "SNOW STEP 2 : Do snow solid balance"
     call snow_solid_balance(s, vegn_fprec, snow_fevap, vegn_lprec, snow_levap, ftprec, & 
                             wetdep, drydep, wind_atm, t_atm, lost_wc_em3, lost_wc_im3, dt, verbose_in=.FALSE.)
-                            ! TODO: remove evap from here
+                            ! //TODO: remove evap from here
     call s%check_bounds("check bounds after solid balance ....")
 
     laimass_wetdep_rainf = 0.0
@@ -4609,12 +4290,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
         write(*,*) "[frozen precip added] vegn_fprec * dt = ", vegn_fprec*dt
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: heat balance violation after snow_solid_balance!", FATAL)
     endif
-    ! END-SOLID
-
-    ! heat1e = s%heat()
-    ! if(verbose) write(*,*) "STEP2: heat check E = ", heat1e
-    ! if(verbose) write(*,*) "STEP2: heat check E - D = ", heat1e - heat1d
-
+    ! END SNOW SOLID BALANCE
 
     if (abs(vegn_lprec)>0.0) then
         ltprec = TFREEZE + vegn_hlprec/CLW/abs(vegn_lprec) ! get T from heat content - LM4p2 does not include latent 
@@ -4623,7 +4299,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
     if(is_watch_point()) then
         write(*,*)'#### Snow step 2 : before snow liquid balance ####'
-        ! call s%print()
         write(*,*) "vegn_lprec, vegn_hlprec, ltprec = ", vegn_lprec, vegn_hlprec, ltprec
     endif
     call s%check_bounds("check bounds before liquid balance ....")
@@ -4632,8 +4307,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     laimass1 = sum(s%lai_em() + s%lai_im())  ! LAIs cons check
     if(verbose) write(*,*) "SNOW STEP 2 : Do snow liquid water balance"
     call snow_liquid_balance(s, vegn_lprec, snow_levap, &
-                             vegn_fprec, ltprec, wetdep, snow_lprec2, snow_hlprec2, & 
-                             lost_wc_em4, lost_wc_im4, dt, verbose_in=.FALSE.)
+            vegn_fprec, ltprec, wetdep, snow_lprec2, snow_hlprec2, & 
+            lost_wc_em4, lost_wc_im4, dt, verbose_in=.FALSE.)
 
     laimass2 = sum(s%lai_em() + s%lai_im()) 
     netlaimass = laimass2 - laimass1 + sum(lost_wc_em4) + sum(lost_wc_im4) - laimass_wetdep_rainf*dt
@@ -4742,24 +4417,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
 
 
-!  TRY TO GET RID OF TOP SNOW DEFICIT BY REDUCING SOLID RUNOFF, IF RUNOFF IS PRESENT
-! if (s%topsnowdeficit<0 .and. snow_frunf>0) then
-!     frunf_from_deficit = min( -s%topsnowdeficit, snow_frunf*dt)
-!     frac_of_deficit = - frunf_from_deficit / s%topsnowdeficit ! 
-!     hfrunf_from_deficit = s%topsnowheatdeficit * frac_of_deficit
-
-!     snow_frunf = snow_frunf + frunf_from_deficit/dt
-!     snow_hfrunf = snow_hfrunf + hfrunf_from_deficit/dt
-!     s%topsnowdeficit =s%topsnowdeficit - frunf_from_deficit
-!     s%topsnowheatdeficit = s%topsnowheatdeficit - hfrunf_from_deficit
-! endif
-
-! write(*,*) "topsnowdeficit = ", s%topsnowdeficit
-! write(*,*) "topsnowheatdeficit = ", s%topsnowheatdeficit
-
-
-    ! call s%print() ! print the entire snowpack state to screen 
-
    ! here convert between snowpack and lm4p2 energy reference - remove liq*HLF
    snow_hlrunf = snow_hlrunf - snow_lrunf * HLF
    snow_hlprec = snow_hlprec - snow_lprec * HLF
@@ -4799,7 +4456,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
               - drydep*delta_time - total_wetdep_check*delta_time + lost_wc_em + lost_wc_im
    ! if (net_delta_lai(1) > 1E-3) then
    if (do_snow_check_cons .and. ((net_delta_lai(1) > 1E-6).or.(net_delta_lai(2) > 1E-6).or.(net_delta_lai(3) > 1E-6))) then
-
       write(*,*) "TOTAL DRYDEP = ", sum(drydep)*delta_time
       write(*,*) "TOTAL WETDEP = ", sum(total_wetdep_check)*delta_time 
       write(*,*) "TOTAL LOST (IM) = ", sum(lost_wc_im)
@@ -4807,7 +4463,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
       write(*,*) "TOTAL LOST = ", sum(lost_wc_em + lost_wc_im)
       write(*,*) "INIT STORAGE = ", sum(mass_lai_em_1 + mass_lai_im_1)
       write(*,*) "FINAL STORAGE = ", sum(mass_lai_em_2 + mass_lai_im_2)
-
       write(*,*) "Outer rainf, snowf = ", vegn_fprec, vegn_lprec
       write(*,*) "total wetdep due to snowfall + rainfall = ", sum(total_wetdep_check) * delta_time
       write(*,*) "total drydep * dt = ", sum(drydep) * delta_time
@@ -4823,13 +4478,10 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
    endif
 
 
-
-!    endn_check = tile%snow%nlayers
-   ! endw_check =  tile%snow%SWE()
-   endw_check =  s%SWE()
-   netw_check = endw_check -  begw_check - (vegn_lprec + vegn_fprec)*delta_time &
+    endw_check =  s%SWE()
+    netw_check = endw_check -  begw_check - (vegn_lprec + vegn_fprec)*delta_time &
                   + (snow_lrunf + snow_frunf + snow_levap + snow_fevap+ snow_lprec)*delta_time
-   if (do_snow_check_cons .and. (abs(netw_check) > 1E-6)) then
+    if (do_snow_check_cons .and. (abs(netw_check) > 1E-6)) then
       write(*,*) "Intial mass = ", begw_check
       write(*,*) "Final mass = ", endw_check
       write(*,*) "Precip = ", (vegn_lprec + vegn_fprec)*delta_time
@@ -4837,12 +4489,11 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
       write(*,*) "Runoff ", (snow_lrunf + snow_frunf  )*delta_time
       write(*,*) "Infiltration ", (snow_lprec )*delta_time
       call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: Mass balance violated after snow step 2", FATAL)
-   endif
+    endif
 
-   ! endh_check =  tile%snow%heat()
-   endh_check =  s%heat()
-   sum_swheat = sum(s%swheat)
-   ! USE ENERGY CONVENTION INTERNAL TO SNOWPACK MODULE FOR LATENT HEAT
+    endh_check =  s%heat()
+    sum_swheat = sum(s%swheat)
+    ! USE ENERGY CONVENTION INTERNAL TO SNOWPACK MODULE FOR LATENT HEAT
 
     neth_check = endh_check -  heat1b  &
       - (vegn_hlprec_r + vegn_hfprec_ch )*delta_time - vegn_lprec*delta_time*HLF & 
@@ -4853,9 +4504,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
 
 
 
-   if (do_snow_check_cons .and. (abs(neth_check) > 1E-2)) then
-    !   write(*,*) "Number of layers: Initial, Final = ", begn_check, endn_check
-    !   write(*,*) "Number of layers: Final = ", endn_check
+    if (do_snow_check_cons .and. (abs(neth_check) > 1E-2)) then
       write(*,*) "-----------------------------------------------------------------------"
       write(*,*) "snow nlayers = ", s%nlayers
       write(*,*) "snow total ice = ", s%ice()
@@ -4870,7 +4519,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
       write(*,*) "(vegn_lprec)*delta_time*HLF = ", (vegn_lprec)*delta_time*HLF
       write(*,*) "(vegn_hlprec)*delta_time = ", (vegn_hlprec_r)*delta_time
       write(*,*) "(vegn_hfprec)*delta_time = ", (vegn_hfprec_ch)*delta_time
-    !   write(*,*) "toy_hfevap*delta_time = ",toy_hfevap*delta_time
       write(*,*) "dheat_fevap", dheat_fevap
       write(*,*) "DE due to implicit melt Mg_imp ", Mg_imp*HLF
       write(*,*) "Mg_imp * HLF = ", Mg_imp*HLF
@@ -4885,14 +4533,11 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
       write(*,*) "(snow_lprec * HLF )*delta_time ", (snow_lprec * HLF )*delta_time
       write(*,*) "-----------------------------------------------------------------------"
       call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: updated_land_model_fast_0d :: Energy balance violated after snow step 2", FATAL)
-   endif
-
+    endif
 
     if(allocated(s%e)) deallocate(s%e)
     if(allocated(s%f)) deallocate(s%f)
     if(allocated(s%swheat)) deallocate(s%swheat)
-
-
 
     ! FIX TO FIX SURFACE TEMPERATURE:
     ! SET T=Taverage up to a certain depth depth_taves
@@ -4919,7 +4564,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
     ! END FIX TO CORRECT NEAR-SURF TEMP
 
-
     ! save additional snow variables needed in land model:
     if (s%nlayers > 0) then
         snow_Tbot = s%snow(s%nlayers)%T
@@ -4931,33 +4575,23 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
             snow_avrg_T = snow_avrg_T + (s%snow(il)%T - TFREEZE) * s%snow(il)%hCap() 
         enddo
         snow_avrg_T = TFREEZE + snow_avrg_T / snow_C
-
     !    do il=1, s%nlayers
-    !         s%snow(il)%T = snow_avrg_T ! // FIXME remove
+    !         s%snow(il)%T = snow_avrg_T ! // TODO clean up
     !     enddo
     else
         snow_Tbot = TFREEZE
         snow_Cbot = 0.0
         snow_C = 0.0
         snow_avrg_T = TFREEZE
-
- 
     endif
     
-    !//FIXME
+    !//TODO clean up
     ! s%preprec_surfT = snow_avrg_T
 
-
-
-! if (s%nlayers>0) then
-!     write(*,*) "END STEP 2:::: Depth, SWE, nlayers = ", s%depth(), s%SWE(), s%nlayers
-!               call s%print()
-! endif
-
-           if(is_watch_point()) then
-              write(*,*)'#### Snow step 2 : final check ####'
-              call s%print()
-          endif
+    if(is_watch_point()) then
+        write(*,*)'#### Snow step 2 : final check ####'
+        call s%print()
+    endif
 
 
 end subroutine gl_snow_step_2
