@@ -38,7 +38,8 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
-use soil_carbon_mod, only: soilc_t, soil_pool, poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
+use soil_carbon_mod, only: soilc_t, soilc_CENT_t, soilc_CORPSE_t, soil_pool, &
+     poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool,transfer_pool_fraction, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      A_function, debug_pool, adjust_pool_ncohorts, &
@@ -2970,7 +2971,8 @@ end subroutine soil_step_1
       __DEBUG1__(div)
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
-      if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
+      select type(soilc)
+      class is (soilc_CORPSE_t)
          do l = 1,N_LITTER_POOLS
             call debug_pool(soilc%litter_corpse(l), trim(l_shortname(l))//'_litter')
          enddo
@@ -2978,7 +2980,9 @@ end subroutine soil_step_1
             write(*,'(i2.2,x)',advance='NO') l
             call debug_pool(soilc%org_matter(l), '')
          enddo
-      endif
+      class default
+         ! do nothing
+      end select
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
       enddo
@@ -2986,18 +2990,18 @@ end subroutine soil_step_1
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
 !ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
-   select case (soil_carbon_option)
-   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+   select type(soilc)
+   class is (soilc_CENT_t)
       total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
-   case(SOILC_CORPSE, SOILC_CORPSE_N)
+   class is (soilc_CORPSE_t)
       call tracer_leaching_with_litter(diag, soilc%org_matter(:),soilc%litter_corpse(LITT_LEAF), soilc%litter_corpse(LITT_CWOOD), &
             wl_before, flow, div, &
             soil%div_hlsp_DOC, soil%div_hlsp_DON, &
             soil%div_hlsp_NO3, soil%div_hlsp_NH4, &
             ! output
             total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
-   case default
-      call error_mesg('soil_step_2', 'unrecognized soil carbon option -- this should never happen', FATAL)
+   class default
+      call error_mesg('soil_step_2', 'unrecognized soil carbon type -- this should never happen', FATAL)
    end select
 
    !FIXME BNS: What if there is net flow of nitrogen into tile from other hillslope tiles?
@@ -3131,8 +3135,8 @@ subroutine soil_step_3(soil, diag)
   real :: total_NO3, total_NH4
   real :: total_litter_C, total_litter_N ! total C and N in all litter, for diagnostics
 
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  select type(soil)
+  class is (soilc_CENT_t)
      call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
      call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
      call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
@@ -3156,8 +3160,7 @@ subroutine soil_step_3(soil, diag)
      if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LITT_LEAF)), diag)
      ! --- end of CMOR vars
 
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
-!     total_carbon=0.0
+  class is (soilc_CORPSE_t)
 
      do l = 1,num_l
         call poolTotals1 ( soil%org_matter(l), ncohorts=ncohorts(l), &
@@ -3276,7 +3279,7 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_cLitter, total_litter_C, diag)
      call send_tile_data(id_nLitter, total_litter_N, diag)
      ! --- end of CMOR vars
-  case default
+  class default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
 
@@ -3292,12 +3295,12 @@ subroutine Dsdt(vegn, soil, soilc, diag, soilt, theta)
   real                , intent(in)    :: soilt ! average soil temperature, deg K
   real                , intent(in)    :: theta ! average soil moisture
 
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  select type(soilc)
+  class is (soilc_CENT_t)
      call Dsdt_CENTURY(vegn, soil, soilc, diag, soilt, theta)
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
+  class is (soilc_CORPSE_t)
      call Dsdt_CORPSE(vegn, soil, soilc, diag)
-  case default
+  class default
      call error_mesg('Dsdt','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
   ! CMOR diag

@@ -24,7 +24,7 @@ private
 
 
 ! ==== public interfaces =====================================================
-public :: soilc_t
+public :: soilc_t, soilc_CENT_t, soilc_CORPSE_t
 public :: new_soilc, merge_soilc, delete_soilc
 public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 public :: soil_tile_carbon, soil_tile_nitrogen
@@ -162,6 +162,12 @@ type soilc_t
   real :: neg_litt_N(N_C_TYPES) = 0.0 ! cumulative value of negative N litter input to soil
 end type soilc_t
 
+type, extends(soilc_t) :: soilc_CENT_t
+end type soilc_CENT_t
+
+type, extends(soilc_t) :: soilc_CORPSE_t
+end type soilc_CORPSE_t
+
 interface new_soilc
    module procedure soilc_ctor
    module procedure soilc_copy
@@ -275,7 +281,12 @@ function soilc_ctor(soil) result(ptr)
   integer :: k
   real    :: Qmax
 
-  allocate(ptr)
+  select case(soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     allocate(soilc_CORPSE_t :: ptr)
+  case default
+     allocate(soilc_CENT_t :: ptr)
+  end select
 
   ! CORPSE
   allocate(ptr%org_matter(num_l))
@@ -312,12 +323,34 @@ end function soilc_ctor
 
 ! ============================================================================
 function soilc_copy(soilc) result(ptr)
-  type(soilc_t), pointer :: ptr
-  type(soilc_t), intent(in) :: soilc
+  class(soilc_t), pointer :: ptr
+  class(soilc_t), intent(in) :: soilc
+
+  allocate(ptr, source=soilc)
+  ! copy all non-pointer members
+  select type(soilc)
+  type is (soilc_CORPSE_t)
+      ptr => soilc_CORPSE_copy(soilc)
+  type is (soilc_CENT_t)
+      ptr => soilc_CENT_copy(soilc)
+  end select
+end function soilc_copy
+
+function soilc_CENT_copy(soilc) result(ptr)
+  type(soilc_CENT_t), pointer :: ptr
+  type(soilc_CENT_t), intent(in) :: soilc
 
   allocate(ptr)
   ptr = soilc
-end function soilc_copy
+end function
+
+function soilc_CORPSE_copy(soilc) result(ptr)
+  type(soilc_CORPSE_t), pointer :: ptr
+  type(soilc_CORPSE_t), intent(in) :: soilc
+
+  allocate(ptr)
+  ptr = soilc
+end function
 
 ! ============================================================================
 subroutine delete_soilc(ptr)
