@@ -1431,7 +1431,7 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
 
             ds = dt_hours * (1.0 - sph)/tau_i ! POSITIVE
             if (.not.is_dendritic) then
-                ddopt = -2.0 * 1E-4 * sph * dt_hours * ds ! NEGATIVE
+                ddopt = -2.0 * 1E-4 * sph * (1.0 - sph)/tau_i ! NEGATIVE 
             else
                 ! dendricity from dopt and s
                 ! den = den_from_dopt(sph, dopt)
@@ -2419,29 +2419,18 @@ subroutine snow_compaction(s, dt, verbose)
    if (s%nlayers > 0) then
     do il = 1, s%nlayers
 
-            ! sigma = sum over layers i, g * cos(slope) * rho(i) depth(i)
-            ! //TODO use opt diameter here instead
-            ! gs = 1E-4 * (4.0 - s%snow(il)%sph) ! using Carmagnola 2013: gs is computed from dopt:
-            gs = s%snow(il)%optd
+            gs = 1E-4 * (4.0 - s%snow(il)%sph) ! using Carmagnola 2013
+            ! gs = s%snow(il)%optd
             current_layer_mass = s%snow(il)%ws + s%snow(il)%wl
             sigma = GRAV * (mass_on_top + 0.5 * current_layer_mass)
             mass_on_top = mass_on_top + current_layer_mass
 
-            ! if (s%snow(il)%wl < 0) then
-            !     call land_error_message("Error in snow_compaction in snow_evolution_mod: Found negative wl value in snowpack!", FATAL)
-            ! endif
-
             f1 = (1.0 + 60.0* s%snow(il)%wl / rho_water / s%snow(il)%dz)**(-1)
-            ! f2 = min(4.0, exp(min(g1, gs*1000.0-g2)/g3)) ! gs in [mm] here
-            f2 = min(4.0, exp(min(g1, max(0.0, gs*1000.0-g2))/g3)) ! gs in [mm] here
+            f2 = min(4.0, exp(min(g1, max(0.0, gs*1000.0-g2))/g3)) ! gs*1000 in [mm] here
         
             ! snow viscosity
-            ! rho = s%snow(il)%ws / s%snow(il)%dz ! density of solid snow only
-            rho = (s%snow(il)%ws + s%snow(il)%wl) / s%snow(il)%dz ! density of solid snow only
-            ! if (rho > rho_ice) error stop "layer dz is wrong"
-            ! rho = (s%snow(il)%ws + s%snow(il)%wl) / s%snow(il)%dz ! density of solid + liquid snow only
+            rho = (s%snow(il)%ws + s%snow(il)%wl) / s%snow(il)%dz ! density of solid + liquid components
             eta = f1*f2*eta0*rho/c_eta*exp(a_eta*(TFREEZE-s%snow(il)%T) + b_eta*rho)
-            ! write("")
             delta_depth = - sigma * dt / eta ! [dimensionless] snow layer deformation DL/L
             if(verbose) write(*,*) "snow compaction :: delta_depth = ", delta_depth
             dz_old = s%snow(il)%dz 
@@ -2466,7 +2455,6 @@ subroutine snow_compaction(s, dt, verbose)
                     write(*,*) "wl = ", s%snow(il)%wl
                     write(*,*) "delta_depth = ", delta_depth
                     call s%print()
-                    ! error stop "ERROR snow_compaction in snow_evolution module: snow density out of bounds after snow compaction calculation!"
                     call land_error_message("ERROR snow_compaction in snow_evolution module: snow density out of bounds after snow compaction calculation!", FATAL)
                 endif
             endif
@@ -3035,53 +3023,6 @@ snow_refl_lw  = 1 - snow_emis
 ! write(*,*) "snow_emis  = ", snow_emis
 ! write(*,*) "snow_refl_lw  = ", snow_refl_lw
 end subroutine snow_rad_calculations_lm4p2
-
-
-
-
-
-subroutine compute_albedo_veronica(s, cosz)
-    !! a combination of Malika, He and Rozemberg parameterization
-    !! Note : only the visible band is modelled here
-
-    class(snowpack_t), intent(inout) :: s !< state of snowpack
-    real, intent(in) :: cosz
-    real cthresh1, cthresh2, cthresh3
-    real grain_radius, ceqns, rho_snow, snow_depth, D
-    real snow_refl_vis
-    cthresh1 = 0.5E-6 ! conc kg / kg
-    cthresh2 = 7.5E-6 ! conc kg / kg
-    cthresh3 = 10E-6 ! conc kg / kg
-
-
-
-    if ((ceqns < cthresh1) .and. (s%depth() <= 0.04 )) then
-        ! USE MALINKA (2016) PARAMETERIZATION
-        ! rho snow or ice? see orig paper
-        ! call compute_albedo_malinka(cosz, snow_refl_vis, D, snow_depth, ceqns, rho_snow, grain_radius)
-        call compute_albedo_malinka(s, cosz)
-        ! write(*,*) "USING MALINKA ALBEDO PARAM"
-    else if (   ((ceqns >= cthresh2).and.(grain_radius >= 900E-6)) .or. &
-                ((ceqns >= cthresh3).and.( (grain_radius>= 500E-6).and.(grain_radius < 900E-6 )   ))  ) then
-        ! USE ROZEMBERG 1963 PARAMETERIZATION
-        call compute_albedo_rozenberg(s, cosz)
-        ! write(*,*) "USING ROZEMBERG ALBEDO PARAM"
-    else
-      ! USE HE 2018 PARAMETERIZATION
-      call compute_albedo_he_visible(s, cosz)
-    !   call compute_albedo_rozenberg(cosz, snow_refl_vis, D, grain_radius, ceqns, snow_depth, rho_snow)
-
-        ! call compute_albedo_malinka(cosz, snow_refl_vis, D, snow_depth, ceqns, rho_snow, grain_radius)
-    !   write(*,*) "USING HE ALBEDO PARAM"
-    endif
-
-    ! IN ANY CASE, USE CELIN HE PARAM FOR NIR BAND
-      call compute_albedo_he_NIR(s, cosz)
-
-    s%snow_refl_dir = (/ snow_refl_vis, snow_refl_vis /)
-    s%snow_refl_dif = (/ snow_refl_vis, snow_refl_vis /)
-
-end subroutine compute_albedo_veronica
 
 
 subroutine compute_albedo_he(s, cosz)
