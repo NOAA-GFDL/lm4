@@ -2,16 +2,15 @@ module soilc_CENT_mod
 
 use fms_mod, only: error_mesg, NOTE
 
+use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, &
+     c_shortname, c_longname, l_shortname, l_longname
 use land_tile_mod, only : land_tile_type
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, add_restart_axis
+use soil_carbon_mod, only : soilc_CENT_t
 use soil_tile_mod, only: num_l, zfull
 use soil_mod, only : write_soil_carbon_restart
-use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, &
-     c_shortname, c_longname, l_shortname, l_longname
-
-use soil_accessors_mod ! use everything
 
 implicit none; private
 
@@ -96,8 +95,87 @@ end subroutine
 ! tile existence detector: returns a logical value indicating whether component
 ! model tile exists or not
 logical function soilc_tile_exists(tile)
-   type(land_tile_type), pointer :: tile
-   soilc_tile_exists = associated(tile%soilc)
+  type(land_tile_type), pointer :: tile
+  soilc_tile_exists = associated(tile%soilc)
 end function
+
+! accessor functions for CENTURY-like soil carbon data
+subroutine soil_fast_soil_C_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soilc_CENT_t)
+    p=>s%fast_soil_C(i)
+  end select
+end subroutine
+
+subroutine soil_slow_soil_C_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soilc_CENT_t)
+    p=>s%slow_soil_C(i)
+  end select
+end subroutine
+
+subroutine litter_century_C_ptr(t,i,k,p)
+  type(land_tile_type),pointer::t
+  integer,intent(in)::i,k
+  real,pointer::p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soilc_CENT_t)
+      p=>s%litter_century_C(i,k)
+  end select
+end subroutine
+
+subroutine soil_asoil_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t
+  integer,intent(in)::i
+  real,pointer::p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soilc_CENT_t)
+      p=>s%asoil_in(i)
+  end select
+end subroutine
+
+subroutine soil_fsc_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t
+  integer,intent(in)::i
+  real,pointer::p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soilc_CENT_t)
+      p=>t%soilc%fsc_in(i)
+  end select
+end subroutine
+
+subroutine soil_ssc_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t
+  integer,intent(in)::i
+  real,pointer::p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soilc_CENT_t)
+      p=>s%ssc_in(i)
+  end select
+end subroutine
 
 end module

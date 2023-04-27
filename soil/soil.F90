@@ -2609,9 +2609,10 @@ end subroutine soil_step_1
         call dpri('gw=',soil%groundwater(l))
         write(*,*)
      enddo
-     if (soil_carbon_option == SOILC_CORPSE.or.soil_carbon_option == SOILC_CORPSE_N) then
+     select type (soilc)
+     class is (soilc_CORPSE_t)
         call debug_pool(soilc%litter_corpse(LITT_LEAF), 'leaf_litter')
-     endif
+     end select
   endif
 
   active_layer_thickness = 0.

@@ -10,10 +10,11 @@ use land_tile_io_mod, only: land_restart_type, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
 use soil_tile_mod, only: num_l, zfull
-use soil_carbon_mod, only: adjust_pool_ncohorts, soil_carbon_option, SOILC_CORPSE_N, soilMaxCohorts
-use soil_mod, only : write_soil_carbon_restart
+use soil_carbon_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, soil_carbon_option, SOILC_CORPSE_N, soilMaxCohorts
+use soil_mod, only: write_soil_carbon_restart
 
-use soil_accessors_mod ! use everything
+use soil_accessors_mod, only: soil_gross_nitrogen_flux_into_tile_ptr, soil_gross_nitrogen_flux_out_of_tile_ptr
+use soilc_CORPSE_accessors_mod ! use everything
 
 implicit none; private
 
