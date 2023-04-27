@@ -42,12 +42,11 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags
-use soil_carbon_mod, only : read_soil_carbon_namelist, soil_carbon_option, &
-    SOILC_CORPSE_N
+use soil_carbon_mod, only : read_soil_carbon_namelist
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, sweep_tiny_snow
-use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
+use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, track_vegn_nitrogen
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -2460,7 +2459,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        nflux1=0.0
      endif
 
-     if (do_check_conservation.and.(soil_carbon_option==SOILC_CORPSE_N)) &
+     if (do_check_conservation.and.track_vegn_nitrogen) &
         call check_conservation (tag,'nitrogen', nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
      call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
   endif

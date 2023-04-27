@@ -10,14 +10,13 @@ use land_debug_mod, only : is_watch_point
 use vegn_data_mod, only : spdata, &
    use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
-   phen_ev1, phen_ev2, cmc_eps, sai_cover, N_limits_live_biomass, &
+   phen_ev1, phen_ev2, cmc_eps, sai_cover, track_vegn_nitrogen, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
    snow_masking_option, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
-use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 
 implicit none
 private
@@ -731,7 +730,7 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%bseed   = 0.0
   cc%bliving = cc%br + cc%bl + cc%bsw + cc%blv
 
-  if (soil_carbon_option==SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
     cc%stored_N   = nsn_frac * cc%bl_max/sp%leaf_live_c2n
     cc%seed_N     = 0.0
     cc%wood_N     = cc%bwood/sp%wood_c2n
@@ -849,7 +848,7 @@ logical function cohort_makes_seeds(cc, G_WF) result(answer)
 
   answer = (cc%layer == 1.or.spdata(cc%species)%reproduces_in_understory) &
            .and. cc%age > spdata(cc%species)%maturalage
-  if (soil_carbon_option==SOILC_CORPSE_N.AND.N_limits_live_biomass) then
+  if (track_vegn_nitrogen.AND.N_limits_live_biomass) then
      answer = answer .AND. &
         .NOT.(cc%nitrogen_stress > spdata(cc%species)%max_n_stress_for_seed_production &
               .OR. spdata(cc%species)%v_seed*G_WF/spdata(cc%species)%seed_c2n>0.1*cc%stored_N )

@@ -45,7 +45,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     c2n_N_fixer, C2N_SEED, &
+     c2n_N_fixer, C2N_SEED, track_vegn_nitrogen, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
      permafrost_depth_thresh, permafrost_freq_thresh, &
      tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
@@ -504,7 +504,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         enddo
      enddo
 
-     if (soil_carbon_option==SOILC_CORPSE_N.and.field_exists(restart2,'fsn_pool_bg')) then
+     if (track_vegn_nitrogen.and.field_exists(restart2,'fsn_pool_bg')) then
         call get_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr)
         call get_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr)
         call get_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr)
@@ -1492,7 +1492,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
      enddo
   enddo
 
-  if (soil_carbon_option==SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
      call add_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr,'intermediate pool for belowground fast soil nitrogen input', 'kg N/m2')
      call add_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr,'conversion rate of belowground fsn_pool to fast soil nitrogen', 'kg N/(m2 yr)')
      call add_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr,'intermediate pool for belowground slow soil nitrogen input', 'kg N/m2')

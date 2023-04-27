@@ -23,7 +23,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_tiled_diag_field, add_tiled_diag_field_alias, send_tile_data, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
-use vegn_data_mod, only : spdata, nspecies, do_ppa, &
+use vegn_data_mod, only : spdata, nspecies, do_ppa, track_vegn_nitrogen, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
@@ -380,7 +380,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
   myc_Nmin = 0.0
   reservoir_C_leakage = 0.0
 
-  if (soil_carbon_option /= SOILC_CORPSE_N) then
+  if (.not.track_vegn_nitrogen) then
      scav_C_alloc = 0.0
      mine_C_alloc = 0.0
      Nfix_C_alloc = 0.0
@@ -733,7 +733,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   ! The total will then be divided between cohorts based on their relative
   ! root and mycorrhizal biomass
 
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
     call myc_scavenger_N_uptake(soilc,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
     call myc_miner_N_uptake(soilc,soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
@@ -758,7 +758,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
      ! accumulate npp for the current day
      cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i);
 
-     if(sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
+     if(sp%dynamic_root_exudation .AND. track_vegn_nitrogen) then
        ! Initial allocation scheme: root exudation/mycorrhizal allocation depends
        ! on ratio of leaf biomass to max (as determined by N uptake)
        ! Root exudation fraction of NPP limited by some maximum value.
@@ -853,7 +853,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
      total_root_exudate_N(:) = total_root_exudate_N(:) + profile(:)*root_exudate_N(i)*cc%nindivs
 
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
-     if(cc%nitrogen_stress<=0.05 .AND. cc%stored_N>0 .AND. soil_carbon_option == SOILC_CORPSE_N) then
+     if(cc%nitrogen_stress<=0.05 .AND. cc%stored_N>0 .AND. track_vegn_nitrogen) then
        total_N_leakage(:) = total_N_leakage(:) + cc%stored_N*excess_stored_N_leakage_rate*profile(:)*cc%nindivs
        cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
      endif
@@ -1039,7 +1039,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
 
 ! 20170617:
   total_myc_CO2_prod = 0.0; total_myc_Nmin = 0.0
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
     call myc_scavenger_N_uptake(soilc,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
     call myc_miner_N_uptake(soilc,soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
@@ -1087,7 +1087,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
 
      ! 20170617: retranslocate part of N back to storage and reduce nitrogen pools; put
      !           retranslocated N into storage
-     if (soil_carbon_option==SOILC_CORPSE_N) &
+     if (track_vegn_nitrogen) &
          cc%stored_N = cc%stored_N + deltaNL*sp%leaf_N_retrans_frac   &
                                    + deltaNR*sp%root_N_retrans_frac
      if (is_watch_point()) then
@@ -1119,7 +1119,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
      cc%bsw  = cc%bsw  - md_bsw
      ! 20170617: update N pools. For now, assuming that there is no N re-translocation during
      ! either branch loss or turnover of wood and sapwood.
-     if (soil_carbon_option==SOILC_CORPSE_N) then
+     if (track_vegn_nitrogen) then
         cc%sapwood_N = cc%sapwood_N - md_bsw/sp%sapwood_c2n
      endif
 
@@ -1129,7 +1129,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
      leaf_litt_N(:) = leaf_litt_N(:) + sp%fract_live(:) * deltaNL*cc%nindivs*(1.0-sp%leaf_N_retrans_frac)
      wood_litt_C(:) = wood_litt_C(:) + sp%fract_wood(:) * md_bsw*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
-     if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
+     if (track_vegn_nitrogen) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
              sp%fract_wood(:)*md_bsw/sp%sapwood_c2n
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
@@ -1151,7 +1151,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
         C_alloc_to_N_acq(i) = max(npp(i),0.0)*sp%root_exudate_frac
      endif
      ! modify exudate due to nitrogen stress
-     if (sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
+     if (sp%dynamic_root_exudation .AND. track_vegn_nitrogen) then
         ! 20170617: modify frac for exudate depending on N state
         ! Add an optional smoothing filter to nitrogen stress (no smoothing if tau is zero)
         w = 1/(1+sp%tau_smooth_nstress/dt_fast_yr)
@@ -1200,7 +1200,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
      total_root_exudate_N(:) = total_root_exudate_N(:) + profile(:)*root_exudate_N(i)*cc%nindivs
 
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
-     if(cc%nitrogen_stress<=min_N_stress .AND. cc%stored_N>0 .AND. soil_carbon_option == SOILC_CORPSE_N) then
+     if(cc%nitrogen_stress<=min_N_stress .AND. cc%stored_N>0 .AND. track_vegn_nitrogen) then
         total_N_leakage(:) = total_N_leakage(:) + cc%stored_N*excess_stored_N_leakage_rate*profile(:)*cc%nindivs*dt_fast_yr
         cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
      endif
@@ -1565,7 +1565,7 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
 
   ! 20170617: calculate N stress (function of stored N) here
   !           N traget possibly in relation with NSC target
-  if (soil_carbon_option==SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
      if (cc%status == LEAF_ON) then
         cc%nitrogen_stress = max(min_N_stress,(N_storage_target-cc%stored_N)/N_storage_target)
      else
@@ -1617,7 +1617,7 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
         delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**2 * cc%height - cc%brsw
      end select
      delta_bsw_branch = max(min(delta_bsw_branch,0.1*cc%nsc/(1+sp%GROWTH_RESP)),0.0)
-     if (soil_carbon_option==SOILC_CORPSE_N) then
+     if (track_vegn_nitrogen) then
         delta_nsw_branch = delta_bsw_branch/sp%sapwood_c2n
      else
         delta_nsw_branch = 0.0
@@ -1628,7 +1628,7 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
      endif
      cc%brsw = cc%brsw + delta_bsw_branch
      cc%bsw  = cc%bsw  + delta_bsw_branch
-     if (soil_carbon_option==SOILC_CORPSE_N) then
+     if (track_vegn_nitrogen) then
         cc%sapwood_N = cc%sapwood_N + delta_nsw_branch
         cc%stored_N  = cc%stored_N  - delta_nsw_branch
      endif
@@ -1715,17 +1715,17 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
      ! update biomass pools due to growth
      cc%bl     = cc%bl    + deltaBL;   cc%leaf_N = cc%leaf_N + deltaNL ! updated in vegn_int_ppa
      cc%br     = cc%br    + deltaBR;   cc%root_N = cc%root_N + deltaNR
-     cc%bsw    = cc%bsw   + deltaBSW;  if (soil_carbon_option==SOILC_CORPSE_N) cc%sapwood_N = cc%sapwood_N + deltaBSW/sp%sapwood_c2n
+     cc%bsw    = cc%bsw   + deltaBSW;  if (track_vegn_nitrogen) cc%sapwood_N = cc%sapwood_N + deltaBSW/sp%sapwood_c2n
      cc%bseed  = cc%bseed + deltaSeed;
-     if (soil_carbon_option==SOILC_CORPSE_N) &
+     if (track_vegn_nitrogen) &
            cc%seed_N = cc%seed_N + deltaSeed/sp%seed_c2n ! TODO: calculate seed_c2n as derived quantity in vegn_data initialization
      cc%nsc    = cc%nsc - (deltaBL + deltaBR + deltaSeed + deltaBSW + delta_bsw_branch)*(1+sp%GROWTH_RESP)
      cc%stored_N = cc%stored_N - deltaNL - deltaNR
 
-     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.soil_carbon_option==SOILC_CORPSE_N.and.N_limits_live_biomass) then
+     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.track_vegn_nitrogen.and.N_limits_live_biomass) then
          __DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n)
      endif
-     if (soil_carbon_option==SOILC_CORPSE_N) cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
+     if (track_vegn_nitrogen) cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
 
      wood_prod = deltaBSW*days_per_year ! conversion from kgC/day to kgC/year
      ! compute daily respiration fluxes
@@ -1830,7 +1830,7 @@ subroutine biomass_allocation_ppa(cc, temp, wood_prod,leaf_root_gr,sw_seed_gr,de
      endif
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
-     if (soil_carbon_option==SOILC_CORPSE_N) then
+     if (track_vegn_nitrogen) then
        cc%sapwood_N = cc%sapwood_N - deltaBwood/sp%sapwood_c2n
        cc%wood_N    = cc%wood_N    + deltaBwood/sp%wood_c2n
        cc%stored_N  = cc%stored_N  + deltaBwood/sp%sapwood_c2n - deltaBwood/sp%wood_c2n
@@ -1905,7 +1905,7 @@ subroutine update_LR_tendencies(cc, deltaBL, deltaBR, deltaNL, deltaNR)
   real :: f
 
   associate(sp=>spdata(cc%species))
-  if (soil_carbon_option==SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
      deltaNL = deltaBL/sp%leaf_live_c2n
      deltaNR = deltaBR/sp%froot_live_c2n
      if (deltaNL+deltaNR > 0.1*cc%stored_N.and.N_limits_live_biomass) then
@@ -2247,7 +2247,7 @@ subroutine vegn_biogeography(vegn)
     spp=cc%species
      call update_species(cc, vegn%t_ann, vegn%t_cold, &
           vegn%p_ann*seconds_per_year, vegn%ncm, vegn%landuse)
-    if(spp .ne. cc%species .and. soil_carbon_option .eq. SOILC_CORPSE_N) then
+    if(spp .ne. cc%species .and. track_vegn_nitrogen) then
       ! Reset stored nitrogen when species changes
       call update_biomass_pools(cc)
       target_stored_N = 1.5*cc%bliving*(cc%Pl/spdata(cc%species)%leaf_live_c2n+cc%Pr/spdata(cc%species)%froot_live_c2n)

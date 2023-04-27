@@ -153,10 +153,11 @@ public :: &
     nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
     tree_grass_option, reserved_grass_frac, &
 
+    track_vegn_nitrogen, N_limits_live_biomass, &
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
-    c2n_N_fixer, N_limits_live_biomass, &
+    c2n_N_fixer, &
     excess_stored_N_leakage_rate, min_N_stress, &
     et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
 
@@ -539,13 +540,15 @@ real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allo
 character(24)   :: NSC_target_to_use = 'from-blmax' ! or 'from-bsw'
 logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are merged when cohorts are merged
 
+logical, protected :: track_vegn_nitrogen   = .FALSE.  ! if true, nitrogen is accounted for in vegetation
+logical, protected :: N_limits_live_biomass = .FALSE.  ! if true, nitrogen availability affects vegetation processes
+
 real, protected :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real, protected :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
 real, protected :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
 real, protected :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
 real, protected :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
 real, protected :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
-logical, protected :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real, protected :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
 real, protected :: min_N_stress = 0.05            ! Minimum value for N stress
 real, protected :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
@@ -612,10 +615,11 @@ namelist /vegn_data_nml/ &
   tree_grass_competition, reserved_grass_frac, &
 
   ! N-related namelist values
+  track_vegn_nitrogen, N_limits_live_biomass, &
   mycorrhizal_turnover_time, &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
-  c2n_N_fixer, N_limits_live_biomass, &
+  c2n_N_fixer, &
   excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
   et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
 
@@ -693,6 +697,12 @@ subroutine read_vegn_data_namelist()
   else
      call error_mesg('read_vegn_namleist', 'option tree_grass_competition="'// &
           trim(tree_grass_competition)//'" is invalid, use "pure-ppa", "trees-squeeze-grass", or "trees-top-grass"', FATAL)
+  endif
+
+  ! nitrogen parameter consistency check
+  if (N_limits_live_biomass.and..not.track_vegn_nitrogen) then
+     call error_mesg('read_vegn_namleist', 'vegetation nitrogen options inconsistency: '// &
+        'track_vegn_nitrogen must be TRUE for N_limits_live_biomass=TRUE', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
