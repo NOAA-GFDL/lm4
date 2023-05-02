@@ -28,8 +28,8 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
-use soil_carbon_mod, only: soil_carbon_option, add_litter, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
+use soil_carbon_mod, only: soilc_CENT_t, soilc_CORPSE_t, soil_carbon_option, add_litter, &
+     SOILC_CORPSE_N
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
@@ -421,13 +421,13 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
      bdead1  = cc%bwood + cc%bsw
 
      ! update intermediate soil carbon pools
-     select case(soil_carbon_option)
-     case(SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+     select type(soilc=>tile%soilc)
+     class is (soilc_CENT_t)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + grazing_residue*( &
              sp%fsc_liv*(balive0-balive1)+sp%fsc_wood*(bdead0-bdead1))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*( &
              (1-sp%fsc_liv)*(balive0-balive1)+ (1-sp%fsc_wood)*(bdead0-bdead1))
-     case(SOILC_CORPSE, SOILC_CORPSE_N)
+     class is (soilc_CORPSE_t)
         if(blv0 < blv1) then ! Some biomass was re-absorbed due to N limitation. Reduce litter.
            delta_leaf=bleaf0-bleaf1   - (blv1-blv0)*(bleaf0-bleaf1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
            delta_root=bfroot0-bfroot1 - (blv1-blv0)*(bfroot0-bfroot1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
@@ -464,9 +464,9 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
 
        if (grazing_freq==GRAZING_DAILY) then
           ! Put carbon directly in soil pools
-          call add_litter(tile%soilc%litter_corpse(LITT_LEAF),leaflitter_C,leaflitter_N)
-          call add_litter(tile%soilc%litter_corpse(LITT_CWOOD),woodlitter_C,woodlitter_N)
-          call add_root_litter(tile%soilc,vegn,bglitter_C,bglitter_N)
+          call add_litter(soilc%litter_corpse(LITT_LEAF),leaflitter_C,leaflitter_N)
+          call add_litter(soilc%litter_corpse(LITT_CWOOD),woodlitter_C,woodlitter_N)
+          call add_root_litter(soilc,vegn,bglitter_C,bglitter_N)
        else
           vegn%litter_buff_C(:,LITT_LEAF) = vegn%litter_buff_C(:,LITT_LEAF) + &
                [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue
@@ -485,7 +485,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           vegn%fsn_pool_bg=vegn%fsn_pool_bg + bglitter_N(1)
           vegn%ssn_pool_bg = vegn%ssn_pool_bg + bglitter_N(2)
        endif
-     case default
+     class default
         call error_mesg('vegn_graze_pasture_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
      end associate
@@ -524,13 +524,13 @@ subroutine vegn_harvest_crop_lm3(tile)
      ! use for harvest only above-ground living biomass and waste the correspondent below living and wood
      vegn%harv_pool_C(HARV_POOL_CROP) = vegn%harv_pool_C(HARV_POOL_CROP) + &
           cc%bliving*(cc%Pl + cc%Psw*agf_bs)*fraction_harvested
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     select type(soilc => tile%soilc)
+     class is (soilc_CENT_t)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + fraction_harvested*(sp%fsc_liv*cc%bliving*cc%Pr + &
              sp%fsc_wood*(cc%bwood + cc%bliving*cc%Psw*(1-agf_bs)))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + fraction_harvested*((1-sp%fsc_liv)*cc%bliving*cc%Pr + &
              (1-sp%fsc_wood)*(cc%bwood + cc%bliving*cc%Psw*(1-agf_bs)))
-     case (SOILC_CORPSE, SOILC_CORPSE_N)
+     class is (soilc_CORPSE_t)
         vegn%litter_buff_C(:,LITT_CWOOD) = vegn%litter_buff_C(:,LITT_CWOOD) + &
                [sp%fsc_wood, 1-sp%fsc_wood, 0.0] * fraction_harvested*agf_bs*cc%bwood
 
@@ -575,7 +575,7 @@ subroutine vegn_harvest_crop_lm3(tile)
            cc%wood_N = cc%wood_N*(1-fraction_harvested)
        endif
 
-     case default
+     class default
         call error_mesg('vegn_harvest_crop_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
@@ -668,8 +668,8 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
           'harvested amount of dead biomass ('//string(delta)//' kgC/m2) is below zero', &
           FATAL)
 
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+     select type (soilc => tile%soilc)
+     class is (soilc_CENT_t)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_wood)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_wood
 
@@ -679,7 +679,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
              FATAL)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_liv)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_liv
-     case (SOILC_CORPSE, SOILC_CORPSE_N)
+     class is (soilc_CORPSE_t)
         delta = (cc%bwood+cc%bsw)*frac_harvested*agf_bs*frac_wood_wasted_ag
         vegn%litter_buff_C(:,LITT_CWOOD) = vegn%litter_buff_C(:,LITT_CWOOD) + &
             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta
@@ -731,7 +731,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
                 + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)
         endif
 
-    case default
+     class default
         call error_mesg('vegn_cut_forest_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
@@ -810,12 +810,12 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
   if (grazing_freq==GRAZING_DAILY) then
      ! move local pools to litter right away; in case of grazing_daily_litter_bug buffC
      ! and buffN are zero, so nothing happens
-     select case (soil_carbon_option)
-     case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        tile%soilc%litter_century_C(:,LITT_LEAF) = tile%soilc%litter_century_C(:,LITT_LEAF) + buffC(:)
-     case (SOILC_CORPSE,SOILC_CORPSE_N)
-        call add_litter(tile%soilc%litter_corpse(LITT_LEAF),buffC,buffN)
-     case default
+     select type (soilc => tile%soilc)
+     class is (soilc_CENT_t)
+        soilc%litter_century_C(:,LITT_LEAF) = soilc%litter_century_C(:,LITT_LEAF) + buffC(:)
+     class is (soilc_CORPSE_t)
+        call add_litter(soilc%litter_corpse(LITT_LEAF),buffC,buffN)
+     class default
         call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
      ! for litterfall diagnostics

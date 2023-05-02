@@ -40,9 +40,8 @@ use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohor
 use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
 use soil_util_mod, only : add_soil_carbon
-use soil_carbon_mod, only : soilc_t, soil_carbon_option, poolTotals, &
-      remove_C_N_fraction_from_pool, &
-      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
+use soil_carbon_mod, only : soilc_t, soilc_CENT_t, soilc_CORPSE_t, poolTotals, &
+      remove_C_N_fraction_from_pool
 use vegn_util_mod, only : kill_plants_ppa
 
 implicit none
@@ -2170,16 +2169,16 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
        height = 0.0      ; F_parameter = 0.0
     endif
 
-    select case (soil_carbon_option)
-    case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+    select type (soil)
+    class is (soilc_CENT_t)
        do i = 1, N_LITTER_POOLS
           litter_total_C(i) = sum(soil%litter_century_C(:,i))
        enddo
-    case (SOILC_CORPSE,SOILC_CORPSE_N)
+    class is (soilc_CORPSE_t)
        do i = 1, N_LITTER_POOLS
           call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C(i))
        enddo
-    case default
+    class default
        call error_mesg('vegn_fire_intensity','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
     end select
 
@@ -2507,20 +2506,20 @@ subroutine vegn_burn_ppa(tile)
   endif
   end associate
 
-  select case (soil_carbon_option)
-  case(SOILC_CORPSE,SOILC_CORPSE_N)
+  select type (sc=>tile%soilc)
+  class is (soilc_CORPSE_t)
      do i = 1,N_LITTER_POOLS
-        call remove_C_N_fraction_from_pool (tile%soilc%litter_corpse(i), CC_litter*BF, CC_litter*BF, &
+        call remove_C_N_fraction_from_pool (sc%litter_corpse(i), CC_litter*BF, CC_litter*BF, &
             litterC_removed=burned_C_1, protectedC_removed=burned_C_2, liveMicrobeC_removed=burned_C_3, &
             litterN_removed=burned_N_1, protectedN_removed=burned_N_2, liveMicrobeN_removed=burned_N_3  )
         burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
         burned_N = burned_N + sum(burned_N_1) + sum(burned_N_2) + burned_N_3
      enddo
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     burned_C = burned_C + CC_litter*BF*sum(tile%soilc%litter_century_C(:,:))
+  class is (soilc_CENT_t)
+     burned_C = burned_C + CC_litter*BF*sum(sc%litter_century_C(:,:))
      ! burned_N remains unmodified
-     tile%soilc%litter_century_C(:,:) = (1-CC_litter*BF)*tile%soilc%litter_century_C(:,:)
-  case default
+     sc%litter_century_C(:,:) = (1-CC_litter*BF)*sc%litter_century_C(:,:)
+  class default
      call error_mesg('vegn_burn_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
   call check_conservation_2(tile,'vegn_burn_ppa 1',lmass0,fmass0,cmass0-burned_C,nmass0-burned_N)
@@ -2659,8 +2658,8 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   burned_frac = vegn%burned_frac
 
   ! Burn litter
-  select case (soil_carbon_option)
-  case(SOILC_CORPSE,SOILC_CORPSE_N)
+  select type (soil)
+  class is (soilc_CORPSE_t)
      ! combustion completeness is the same for all litters except leaf litter
      do i = 1,N_LITTER_POOLS
         call remove_C_N_fraction_from_pool(soil%litter_corpse(i), CC_litt(i)*burned_frac, CC_litt(i)*burned_frac, &
@@ -2669,13 +2668,13 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
         burned_litt_C(i) = sum(burned_C_1) + sum(burned_C_2) + burned_C_3
         burned_litt_N(i) = sum(burned_N_1) + sum(burned_N_2) + burned_N_3
      enddo
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  class is (soilc_CENT_t)
      do i = 1,N_LITTER_POOLS
         burned_litt_C(i) = CC_litt(i)*burned_frac*sum(soil%litter_century_C(:,i))
         burned_litt_N(i) = 0.0
         soil%litter_century_C(:,i) = (1-CC_litt(i)*burned_frac)*soil%litter_century_C(:,i)
      enddo
-  case default
+  class default
      call error_mesg('vegn_burn_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 
@@ -3438,20 +3437,20 @@ subroutine update_fire_agb(vegn,soil)
          )
    enddo
 
-   select case (soil_carbon_option)
-   case (SOILC_CORPSE,SOILC_CORPSE_N)
+   select type (soil)
+   class is (soilc_CORPSE_t)
       ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
       do i = 1, N_LITTER_POOLS
          if (i == LITT_CWOOD) cycle
          call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C)
          vegn%fire_agb = vegn%fire_agb + litter_total_C
       enddo
-   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+   class is (soilc_CENT_t)
       do i = 1, N_LITTER_POOLS
          if (i == LITT_CWOOD) cycle
          vegn%fire_agb = vegn%fire_agb + sum(soil%litter_century_C(:,i))
       enddo
-   case default
+   class default
       call error_mesg('update_fire_agb','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
    end select
 

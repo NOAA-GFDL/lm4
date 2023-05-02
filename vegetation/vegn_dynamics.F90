@@ -40,8 +40,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_speci
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
-use soil_carbon_mod, only: soilc_t, soil_carbon_option, &
-    SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
+use soil_carbon_mod, only: soilc_t, soilc_CENT_t, soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
 use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
@@ -2323,8 +2322,8 @@ subroutine update_soil_pools(vegn, soil)
   real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
   real :: tau ! time scale of CENTURY-mode litter transfer to soil pools
 
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+  select type (soil)
+  class is (soilc_CENT_t)
      ! move carbon from intermediate spike-process buffers to litter
      do i = 1,N_C_TYPES
         do k = 1, N_LITTER_POOLS
@@ -2344,7 +2343,7 @@ subroutine update_soil_pools(vegn, soil)
      call deplete_pool1(soil%litter_century_C(C_MIC,  LITT_CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
      call deplete_pool1(soil%litter_century_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
 
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
+  class is (soilc_CORPSE_t)
 
      vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
      delta_C = vegn%litter_rate_C*dt_fast_yr
@@ -2403,7 +2402,7 @@ subroutine update_soil_pools(vegn, soil)
         litterN(k,:) = [deltafast_N,deltaslow_N,0.0] * profile(k)
      enddo
      call add_root_litter(soil, vegn, litterC, litterN )
-  case default
+  class default
      call error_mesg('update_soil_pools','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 end subroutine update_soil_pools

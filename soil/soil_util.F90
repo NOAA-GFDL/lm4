@@ -6,9 +6,9 @@ use fms_mod, only: error_mesg, FATAL
 use land_constants_mod, only: N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
      N_C_TYPES, C_FAST, C_SLOW
 use land_data_mod, only: log_version
-use soil_carbon_mod, only: soilc_t, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
-     SOILC_CORPSE, SOILC_CORPSE_N, soil_carbon_option, add_litter, &
-     add_C_N_to_rhizosphere
+use soil_carbon_mod, only: soilc_t, soilc_CENT_t, soilc_CORPSE_t, &
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
+     soil_carbon_option, add_litter, add_C_N_to_rhizosphere
 use soil_tile_mod, only: soil_tile_type, dz, num_l
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_exudate_profile
 use vegn_data_mod, only: spdata, tau_lflitt_transfer, tau_cwlitt_transfer
@@ -52,19 +52,17 @@ subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativ
   integer :: k
   real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
 
-  select case (soil_carbon_option)
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
-     ! do nothing
-  case default
+  select type (soil)
+  class is (soilc_CORPSE_t)
+     call rhizosphere_frac(vegn, rhiz_frac)
+     do k = 1,num_l
+        call add_litter(soil%org_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k), &
+                        negativeInputC, negativeInputN)
+     enddo
+  class default
      call error_mesg('add_root_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
   end select
 
-  call rhizosphere_frac(vegn, rhiz_frac)
-
-  do k = 1,num_l
-     call add_litter(soil%org_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k), &
-                     negativeInputC, negativeInputN)
-  enddo
 end subroutine add_root_litter
 
 ! ============================================================================
@@ -85,17 +83,20 @@ subroutine add_root_exudates(soil,exudateC,exudateN,ammonium,nitrate)
   if(present(nitrate))  NO3=nitrate
 
   ! ignore exudateN for CENTURY-like soil carbon options
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY)
-     fsc = sum(exudateC(:))
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
-     soil%fsc_in(1)      = soil%fsc_in(1)      + fsc ! for soil carbon equilibration
-  case (SOILC_CENTURY_BY_LAYER)
-     do k = 1, num_l
-        soil%fast_soil_C(k) = soil%fast_soil_C(k) + exudateC(k)
-        soil%fsc_in(k)      = soil%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
-     enddo
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
+  select type (soil)
+  class is (soilC_CENT_t)
+     select case(soil_carbon_option)
+     case (SOILC_CENTURY)
+        fsc = sum(exudateC(:))
+        soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+        soil%fsc_in(1)      = soil%fsc_in(1)      + fsc ! for soil carbon equilibration
+     case (SOILC_CENTURY_BY_LAYER)
+        do k = 1, num_l
+           soil%fast_soil_C(k) = soil%fast_soil_C(k) + exudateC(k)
+           soil%fsc_in(k)      = soil%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
+        enddo
+     end select
+  class is (soilc_CORPSE_t)
      do k=1,num_l
         call add_C_N_to_rhizosphere(soil%org_matter(k),   &
                                 newCarbon=[exudateC(k),0.0,0.0], &
@@ -159,50 +160,53 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes
   ! that there are no microbes in litter
 
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY)
-     if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
-        ! put litterfall in litter pools
-        soil%litter_century_C(:,LITT_LEAF)  = soil%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
-        soil%litter_century_C(:,LITT_CWOOD) = soil%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
-        fsc = sum(root_litt_C(:,C_FAST))
-        ssc = sum(root_litt_C(:,C_SLOW))
-     else
-        ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
-        ! reproducibility with older code versions
-        fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST) + sum(root_litt_C(:,C_FAST))
-        ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW) + sum(root_litt_C(:,C_SLOW))
-     endif
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
-     ! for budget tracking
-     soil%fsc_in(1) = soil%fsc_in(1) + fsc
-     soil%ssc_in(1) = soil%ssc_in(1) + ssc
-  case (SOILC_CENTURY_BY_LAYER)
-     if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
-        ! put litterfall in litter pools
-        soil%litter_century_C(:,LITT_LEAF)  = soil%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
-        soil%litter_century_C(:,LITT_CWOOD) = soil%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
-        fsc = 0.0; ssc = 0.0
-     else
-        ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
-        ! reproducibility with older code versions
-        fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST)
-        ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW)
-     endif
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
-     ! for budget tracking
-     soil%fsc_in(1) = soil%fsc_in(1) + fsc
-     soil%ssc_in(1) = soil%ssc_in(1) + ssc
-     do l = 1,num_l
-        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt_C(l,C_FAST)
-        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt_C(l,C_SLOW)
+  select type (soil)
+  class is (soilc_CENT_t)
+     select case (soil_carbon_option)
+     case (SOILC_CENTURY)
+        if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
+           ! put litterfall in litter pools
+           soil%litter_century_C(:,LITT_LEAF)  = soil%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
+           soil%litter_century_C(:,LITT_CWOOD) = soil%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
+           fsc = sum(root_litt_C(:,C_FAST))
+           ssc = sum(root_litt_C(:,C_SLOW))
+        else
+           ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
+           ! reproducibility with older code versions
+           fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST) + sum(root_litt_C(:,C_FAST))
+           ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW) + sum(root_litt_C(:,C_SLOW))
+        endif
+        soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+        soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
         ! for budget tracking
-        soil%fsc_in(l) = soil%fsc_in(l) + root_litt_C(l,C_FAST)
-        soil%ssc_in(l) = soil%ssc_in(l) + root_litt_C(l,C_SLOW)
-     enddo
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
+        soil%fsc_in(1) = soil%fsc_in(1) + fsc
+        soil%ssc_in(1) = soil%ssc_in(1) + ssc
+     case (SOILC_CENTURY_BY_LAYER)
+        if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
+           ! put litterfall in litter pools
+           soil%litter_century_C(:,LITT_LEAF)  = soil%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
+           soil%litter_century_C(:,LITT_CWOOD) = soil%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
+           fsc = 0.0; ssc = 0.0
+        else
+           ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
+           ! reproducibility with older code versions
+           fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST)
+           ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW)
+        endif
+        soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+        soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
+        ! for budget tracking
+        soil%fsc_in(1) = soil%fsc_in(1) + fsc
+        soil%ssc_in(1) = soil%ssc_in(1) + ssc
+        do l = 1,num_l
+           soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt_C(l,C_FAST)
+           soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt_C(l,C_SLOW)
+           ! for budget tracking
+           soil%fsc_in(l) = soil%fsc_in(l) + root_litt_C(l,C_FAST)
+           soil%ssc_in(l) = soil%ssc_in(l) + root_litt_C(l,C_SLOW)
+        enddo
+     end select
+  class is (soilc_CORPSE_t)
      call borrow_to_negatives(wood_litt_C,soil%neg_litt_C) ! borrow from wood litter first
      call borrow_to_negatives(wood_litt_N,soil%neg_litt_N) ! borrow from wood litter first
      call borrow_to_negatives(leaf_litt_C,soil%neg_litt_C) ! and from leaf litter second
@@ -214,7 +218,7 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
         call add_litter(soil%org_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l), &
                         negativeInputC=soil%neg_litt_C, negativeInputN=soil%neg_litt_N)
      enddo
-  case default
+  class default
      call error_mesg('add_soil_carbon','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
 

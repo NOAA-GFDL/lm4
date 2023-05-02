@@ -340,8 +340,8 @@ real function soil_tile_carbon (soil)
   real    :: temp
   integer :: i
 
-  select case (soil_carbon_option)
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
+  select type (soil)
+  class is (soilc_CORPSE_t)
      soil_tile_carbon = sum(soil%neg_litt_C)
      do i=1,num_l
         call poolTotals(soil%org_matter(i),totalCarbon=temp)
@@ -351,7 +351,7 @@ real function soil_tile_carbon (soil)
         call poolTotals(soil%litter_corpse(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
-  case default
+  class is (soilc_CENT_t)
      soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)) &
                       + sum(soil%litter_century_C(:,:))
   end select
@@ -366,8 +366,8 @@ real function soil_tile_nitrogen (soil)
   real    :: temp
   integer :: i
 
-  select case (soil_carbon_option)
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
+  select type (soil)
+  class is (soilc_CORPSE_t)
      soil_tile_nitrogen = sum(soil%neg_litt_N)
      do i=1,num_l
         call poolTotals(soil%org_matter(i),totalNitrogen=temp)
@@ -377,7 +377,7 @@ real function soil_tile_nitrogen (soil)
         call poolTotals(soil%litter_corpse(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
-  case default
+  class is (soilc_CENT_t)
      soil_tile_nitrogen = 0.0
   end select
 end function soil_tile_nitrogen
@@ -391,14 +391,14 @@ subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
      litter_slow_C,    & ! slow litter carbon, [kgC/m2]
      litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
 
-  select case(soil_carbon_option)
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  select type (soil)
+  class is (soilc_CENT_t)
      litter_fast_C    = soil%fast_soil_C(1)
      litter_slow_C    = soil%slow_soil_C(1)
      litter_deadmic_C = 0.0
-  case(SOILC_CORPSE, SOILC_CORPSE_N)
+  class is (soilc_CORPSE_t)
      call poolTotals(soil%litter_corpse(LITT_LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
-  case default
+  class default
      call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 end subroutine get_rav_C
