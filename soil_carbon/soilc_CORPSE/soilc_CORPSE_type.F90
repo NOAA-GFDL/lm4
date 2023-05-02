@@ -3,7 +3,7 @@ module soil_carbon_mod
 ! Do not use external model stuff if compiling standalone version
 #ifndef STANDALONE_SOIL_CARBON
 
-#include "../shared/debug.inc"
+#include "../../shared/debug.inc"
 
 use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
      N_LITTER_POOLS, LITT_LEAF, &
@@ -24,8 +24,8 @@ private
 
 
 ! ==== public interfaces =====================================================
-public :: soilc_t, soilc_CENT_t, soilc_CORPSE_t
-public :: new_soilc, merge_soilc, delete_soilc
+public :: soilc_t, soilc_CENT_t, soilc_CORPSE_t, soilc_CENT_copy, soilc_CORPSE_copy, soilc_ALL_ctor
+public :: merge_soilc
 public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 public :: soil_tile_carbon, soil_tile_nitrogen
 
@@ -40,7 +40,7 @@ public :: remove_C_N_fraction_from_pool
 public :: combine_pools
 public :: poolTotals, poolTotals1
 public :: init_soil_pool
-public :: read_soil_carbon_namelist
+public :: read_soilc_CORPSE_namelist
 
 public :: deposit_dissolved_C
 public :: dissolve_carbon
@@ -75,7 +75,7 @@ public :: adjust_pool_ncohorts
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_carbon_mod'
-#include "../shared/version_variable.inc"
+#include "../../shared/version_variable.inc"
 
 ! soil carbon options
 integer, parameter :: &
@@ -168,15 +168,9 @@ end type soilc_CENT_t
 type, extends(soilc_t) :: soilc_CORPSE_t
 end type soilc_CORPSE_t
 
-interface new_soilc
-   module procedure soilc_ctor
-   module procedure soilc_copy
-end interface
-
 !==== module variables =======================================================
 
 !---- namelist ---------------------------------------------------------------
-character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by-layer', or 'CORPSE', or 'CORPSE-N'
 logical                   :: use_rhizosphere_cohort=.FALSE.  ! Use 2 fixed cohorts for rhizosphere and bulk soil if true
 logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
 real,dimension(N_C_TYPES) :: Ea=(/37e3,54e3,50e3/)          ! Activation energy (kJ/mol)
@@ -247,8 +241,8 @@ integer :: soilMaxCohorts=7            ! Maximum number of cohorts in soil carbo
 logical :: microbe_driven_protection=.TRUE. ! Whether to use microbial biomass in protection rate
 integer :: N_limit_scheme = NLIM_OVERFLOW  ! N limitation scheme to use: See definitions above
 
-namelist /soil_carbon_nml/ &
-    soil_carbon_model_to_use, use_rhizosphere_cohort,&
+namelist /soilc_CORPSE_nml/ &
+    use_rhizosphere_cohort,&
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
     tLongest,&
@@ -265,7 +259,8 @@ namelist /soil_carbon_nml/ &
 
 
 !---- end-of-namelist --------------------------------------------------------
-integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
+! integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
+integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
         ! one of SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 
 ! normalization factors for soil moisture aerobic respiration depencence
@@ -274,7 +269,7 @@ real :: aerobic_max, theta_resp_max
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-function soilc_ctor(soil) result(ptr)
+function soilc_ALL_ctor(soil) result(ptr)
   class(soilc_t), pointer :: ptr
   type(soil_tile_type), intent(in) :: soil
 
@@ -319,22 +314,7 @@ function soilc_ctor(soil) result(ptr)
   ptr%asoil_in(:)            = 0.0
   ptr%fsc_in(:)              = 0.0
   ptr%ssc_in(:)              = 0.0
-end function soilc_ctor
-
-! ============================================================================
-function soilc_copy(soilc) result(ptr)
-  class(soilc_t), pointer :: ptr
-  class(soilc_t), intent(in) :: soilc
-
-  allocate(ptr, source=soilc)
-  ! copy all non-pointer members
-  select type(soilc)
-  type is (soilc_CORPSE_t)
-      ptr => soilc_CORPSE_copy(soilc)
-  type is (soilc_CENT_t)
-      ptr => soilc_CENT_copy(soilc)
-  end select
-end function soilc_copy
+end function
 
 function soilc_CENT_copy(soilc) result(ptr)
   type(soilc_CENT_t), pointer :: ptr
@@ -351,15 +331,6 @@ function soilc_CORPSE_copy(soilc) result(ptr)
   allocate(ptr)
   ptr = soilc
 end function
-
-! ============================================================================
-subroutine delete_soilc(ptr)
-  type(soilc_t), pointer :: ptr
-
-  ! no need to deallocate components of soil_tile, because F2003 takes care of
-  ! allocatable components deallocation when soil_tile is deallocated
-  deallocate(ptr)
-end subroutine delete_soilc
 
 ! ============================================================================
 ! returns soil tile carbon content, kg C/m2
@@ -496,7 +467,7 @@ end subroutine init_soil_pool
 
 ! =============================================================================
 #ifndef STANDALONE_SOIL_CARBON
-subroutine read_soil_carbon_namelist
+subroutine read_soilc_CORPSE_namelist
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
@@ -504,39 +475,24 @@ subroutine read_soil_carbon_namelist
   call log_version(version, module_name, &
   __FILE__)
 
-  read (input_nml_file, nml=soil_carbon_nml, iostat=io)
-  ierr = check_nml_error(io, 'soil_carbon_nml')
+  read (input_nml_file, nml=soilc_CORPSE_nml, iostat=io)
+  ierr = check_nml_error(io, 'soilc_CORPSE_nml')
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
-     write(unit, nml=soil_carbon_nml)
+     write(unit, nml=soilc_CORPSE_nml)
   endif
-
-  ! parse soil carbon option
-  select case (soil_carbon_model_to_use)
-  case('CENTURY-like')
-    soil_carbon_option = SOILC_CENTURY
-  case('CENTURY-like-by-layer')
-    soil_carbon_option = SOILC_CENTURY_BY_LAYER
-  case('CORPSE')
-    soil_carbon_option = SOILC_CORPSE
-  case('CORPSE-N')
-    soil_carbon_option = SOILC_CORPSE_N
-  case default
-    call error_mesg('read_soil_carbon_namelist', &
-        '"'//trim(soil_carbon_model_to_use)//'" is an invalid option for soil_carbon_model_to_use', FATAL)
-  end select
 
 ! initialize normalization factor for aerobic respiration soil moisture function
 ! from solving theta dependence for maximum:
   theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
   aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
-end subroutine read_soil_carbon_namelist
+end subroutine
 #endif
 
 
 #ifdef STANDALONE_SOIL_CARBON
-subroutine read_soil_carbon_namelist(file)
+subroutine read_soilc_CORPSE_namelist(file)
 character*(*),optional,intent(in)::file
 
 integer :: namelistunit
@@ -548,7 +504,7 @@ OPEN(unit=namelistunit,file=file)
 else
 OPEN(unit=namelistunit,file='soilparams.nml')
 endif
-READ(unit=namelistunit,NML=soil_carbon_nml)
+READ(unit=namelistunit,NML=soilc_CORPSE_nml)
 CLOSE(unit=namelistunit)
 
 ! initialize normalization factor for aerobic respiration soil moisture function

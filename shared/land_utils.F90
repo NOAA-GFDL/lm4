@@ -2,7 +2,6 @@ module land_utils_mod
 
 use land_debug_mod, only : check_conservation, water_cons_tol, carbon_cons_tol, &
      nitrogen_cons_tol, heat_cons_tol, do_check_conservation
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_list_type, &
      first_elmt, loop_over_tiles, fptr_r0, fptr_r0i, &
      get_tile_water, land_tile_carbon, land_tile_nitrogen, land_tile_heat
@@ -77,10 +76,8 @@ subroutine check_conservation_1(tile,lmass,fmass,cmass,nmass,heat)
      if (present(lmass)) lmass = lmass1
      if (present(fmass)) fmass = fmass1
      if (present(cmass)) cmass = land_tile_carbon(tile)
-     if (present(nmass).and.soil_carbon_option==SOILC_CORPSE_N) then
-        nmass  = land_tile_nitrogen(tile)
-     endif
-     if (present(heat)) heat  = land_tile_heat(tile)
+     if (present(nmass)) nmass = land_tile_nitrogen(tile)
+     if (present(heat))  heat  = land_tile_heat(tile)
   endif
 end subroutine check_conservation_1
 
@@ -104,7 +101,7 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
      cmass1 = land_tile_carbon(tile)
      call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
   endif
-  if (present(nmass).and.soil_carbon_option==SOILC_CORPSE_N) then
+  if (present(nmass)) then
      nmass1  = land_tile_nitrogen(tile)
      call check_conservation (tag,'nitrogen', nmass, nmass1, nitrogen_cons_tol)
   endif
