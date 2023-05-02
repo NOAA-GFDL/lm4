@@ -10,7 +10,7 @@ use land_tile_io_mod, only : land_restart_type, &
      add_tile_data, get_tile_data, add_restart_axis
 use soil_carbon_mod, only : soilc_CENT_t
 use soil_tile_mod, only: num_l, zfull
-use soil_mod, only : write_soil_carbon_restart
+use soilc_mod, only : save_soilc_equilibration_data
 
 implicit none; private
 
@@ -43,7 +43,7 @@ subroutine save_soilc_CENT_restart(tile_dim_length, timestamp)
   call save_land_restart(restart)
   call free_land_restart(restart)
 
-  if (write_soil_carbon_restart) then
+  if (save_soilc_equilibration_data) then
      filename = 'RESTART/'//trim(timestamp)//'soilc_CENT_eq.nc'
      call init_land_restart(restart, filename, soilc_tile_exists, tile_dim_length)
      call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)

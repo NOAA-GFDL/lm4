@@ -15,6 +15,9 @@ implicit none; private
 
 public :: read_soil_carbon_namelist
 public :: new_soilc, delete_soilc
+
+public :: save_soilc_equilibration_data
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soilc_mod'
 #include "../shared/version_variable.inc"
@@ -27,7 +30,9 @@ end interface
 
 !---- namelist ---------------------------------------------------------------
 character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by-layer', or 'CORPSE', or 'CORPSE-N'
-namelist /soil_carbon_nml/ soil_carbon_model_to_use
+logical, protected :: save_soilc_equilibration_data = .FALSE. ! indicates whether to write
+                        ! information for soil carbon acceleration
+namelist /soil_carbon_nml/ soil_carbon_model_to_use, save_soilc_equilibration_data
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

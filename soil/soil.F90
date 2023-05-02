@@ -112,7 +112,6 @@ public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
-public :: write_soil_carbon_restart
 
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
@@ -151,8 +150,6 @@ real    :: hlf_factor           = 1.
 real    :: gw_flux_max          = 1.e10
 real    :: aquifer_heat_cap     = 0.         ! in equivalent liquid water amount, kg/m2
 logical :: use_tridiag_foradvec = .false.    ! use tridiagonal solution for advection
-                        ! information for soil carbon acceleration
-logical :: write_soil_carbon_restart = .FALSE. ! indicates whether to write
                         ! information for soil carbon acceleration
 logical :: horiz_init_wt        = .false.   ! initialize horizontal water table, if gw_option == GW_TILED
 logical :: use_coldstart_wtt_data = .false. ! read additional data for soil initialization
@@ -200,7 +197,6 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     bwood_macinf, &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
-                    write_soil_carbon_restart, &
                     max_soil_C_density, max_litter_thickness, r_rhiz, &
                     tau_smooth_frozen_freq
 !---- end of namelist --------------------------------------------------------
