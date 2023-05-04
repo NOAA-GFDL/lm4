@@ -43,11 +43,12 @@ contains
   procedure :: merge   => merge_CENT   ! merge this soil carbon with another
   procedure :: total_C => total_C_CENT ! returns total C [kgC/m2]
   procedure :: total_N => total_N_CENT ! returns total N [kgN/m2]
-  procedure :: rav_C   => rav_C_CENT   ! returns amounts of fas, slow, and (dead) microbial C [kgC/m2]
-
-  procedure :: get_DOC => get_DOC_CENT
-  procedure :: get_DON => get_DOC_CENT
-  procedure :: get_DIN => get_DIN_CENT
+  procedure :: rav_C   => rav_C_CENT   ! returns amounts of fast, slow, and (dead) microbial C [kgC/m2]
+                                       ! for litter evaporation resistance calculations
+  procedure :: get_DOC => get_zero_2D
+  procedure :: get_DON => get_zero_2D
+  procedure :: get_nit => get_zero_1D
+  procedure :: get_amm => get_zero_1D
 end type soilc_CENT_t
 
 ! ---- module data
@@ -178,19 +179,26 @@ subroutine rav_C_CENT(soilc,fast_C,slow_C,dmic_C)
   dmic_C = 0.0
 end subroutine
 
-subroutine get_DOC_CENT(soilC, values)
+! --- the stuff below should go to soilc_utils_mod
+
+!> @brief return zeros in 1D array
+!! This subroutine is used to retrieve substances and values that are not present in
+!! soil carbon models, e.g. DOC when the dissolved carbon is not implemented
+subroutine get_zero_2D(soilC, values)
   class(soilc_CENT_t), intent(in)  :: soilc ! soil carbon data structure
   real,                intent(out) :: values(:,:) ! (N_C_TYPES, num_l) ! [kg C/m^2] dissolved organic carbon
 
   values(:,:) = 0.0
 end subroutine
 
-subroutine get_DIN_CENT(soilC, nitrate, ammonium)
-  class(soilc_CENT_t), intent(in)  :: soilc ! soil carbon data structure
-  real,                intent(out) :: nitrate(:),ammonium(:) ! [kg N/m^2] dissolved nitrate and ammonium
-
-  nitrate(:)  = 0.0
-  ammonium(:) = 0.0
+!> @brief return zeros in 1D array
+!! This function is used to retrieve substances and values that are not present in
+!! soil carbon models, e.g. nitrate or ammonium when the nitrogen dynamics is not
+!! implemented
+subroutine get_zero_1D(soilC, values)
+  class(soilc_CENT_t), intent(in)  :: soilc !< soil carbon data structure (unused)
+  real,                intent(out) :: values(:) !< returned values
+  values(:) = 0.0
 end subroutine
 
 end module

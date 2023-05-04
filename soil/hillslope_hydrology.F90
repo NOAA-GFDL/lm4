@@ -430,14 +430,11 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
 
                      if (tiled_DOC_flux) then
-                        call soilc %get_DOC(DOC )
-                        call soilc2%get_DOC(DOC2)
-
-                        ! These should always be zero if soil_carbon_option is not SOILC_CORPSE_N
-                        call soilc %get_DON(DON )
-                        call soilc2%get_DON(DON2)
-                        call soilc %get_DIN(nitrate, ammonium )
-                        call soilc2%get_DIN(nitrate2,ammonium2)
+                        call soilc%get_DOC(DOC)      ; call soilc2%get_DOC(DOC2)
+                        ! These should always be zero if soil nitrogen is not simulated
+                        call soilc%get_DON(DON)      ; call soilc2%get_DON(DON2)
+                        call soilc%get_nit(nitrate)  ; call soilc2%get_nit(nitrate2)
+                        call soilc%get_amm(ammonium) ; call soilc2%get_amm(ammonium2)
                      end if
 
                      ! Loop over vertical layers
@@ -539,12 +536,10 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
 
                      if (tiled_DOC_flux) then
-                        call soilc %get_DOC(DOC )
-                        call soilc2%get_DOC(DOC2)
-                        call soilc %get_DON(DON )
-                        call soilc2%get_DON(DON2)
-                        call soilc %get_DIN(nitrate, ammonium )
-                        call soilc2%get_DIN(nitrate2,ammonium2)
+                        call soilc%get_DOC(DOC)      ; call soilc2%get_DOC(DOC2)
+                        call soilc%get_DON(DON)      ; call soilc2%get_DON(DON2)
+                        call soilc%get_nit(nitrate)  ; call soilc2%get_nit(ammonium2)
+                        call soilc%get_amm(ammonium) ; call soilc2%get_amm(ammonium2)
                      end if
 
                      ! Loop over vertical layers
@@ -694,7 +689,8 @@ subroutine hlsp_hydrology_1(num_species)
                if (tiled_DOC_flux) then
                   call soilc%get_DOC(DOC)
                   call soilc%get_DON(DON)
-                  call soilc%get_DIN(nitrate,ammonium)
+                  call soilc%get_nit(nitrate)
+                  call soilc%get_amm(ammonium)
                end if
 
                ! Loop over vertical layers

@@ -12,9 +12,10 @@ contains
   procedure (get_real_func), deferred, pass :: total_N ! returns total N [kgN/m2]
   procedure (get_real_3),    deferred, pass :: rav_C   ! returns amounts of C [kgC/m2]
                                                        ! for legacy surface resistance calculations
-  procedure (get_real_2D),   deferred, pass :: get_DOC ! returns DOC, by type an by layer
-  procedure (get_real_2D),   deferred, pass :: get_DON ! returns DON, by type an by layer
-  procedure (get_DIN),       deferred, pass :: get_DIN ! returns nitrate and ammonium, by layer
+  procedure (get_real_2D),   deferred, pass :: get_DOC ! returns DOC, by type and by layer
+  procedure (get_real_2D),   deferred, pass :: get_DON ! returns DON, by type and by layer
+  procedure (get_real_1D),   deferred, pass :: get_nit ! returns nitrate by layer, kgN/m2
+  procedure (get_real_1D),   deferred, pass :: get_amm ! returns ammonium by layer, kgN/m2
 end type
 
 ! ---- abstract interfaces for methods
@@ -47,13 +48,14 @@ abstract interface
    subroutine get_real_2D(soilC, values)
       import :: soilc_t ! soil carbon data structure
       class(soilc_t), intent(in) :: soilC
-      real,           intent(out):: values(:,:) ! (N_C_TYPES, num_l)
+      real,           intent(out):: values(:,:) ! in many cases (N_C_TYPES, num_l)
    end subroutine
 
-   subroutine get_DIN(soilC, nitrate, ammonium)
+   ! given soil carbon data, returns 2D data
+   subroutine get_real_1D(soilC, values)
       import :: soilc_t ! soil carbon data structure
       class(soilc_t), intent(in) :: soilC
-      real,           intent(out):: nitrate(:), ammonium(:) ! (num_l)
+      real,           intent(out):: values(:) ! (num_l)
    end subroutine
 end interface
 

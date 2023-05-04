@@ -163,7 +163,8 @@ contains
   procedure :: rav_C   => rav_C_CORPSE   ! returns amounts of fas, slow, and (dead) microbial C [kgC/m2]
   procedure :: get_DOC => retrieve_DOC
   procedure :: get_DON => retrieve_DON
-  procedure :: get_DIN => retrieve_dissolved_mineral_N
+  procedure :: get_nit => retrieve_nitrate
+  procedure :: get_amm => retrieve_ammonium
 end type soilc_CORPSE_t
 
 !==== module variables =======================================================
@@ -2157,8 +2158,8 @@ subroutine retrieve_DOC(soilc, values)
 end subroutine retrieve_DOC
 
 subroutine retrieve_DON(soilc, values)
-    class(soilc_CORPSE_t), intent(in) :: soilc ! soil carbon data structure
-    real,                 intent(out) :: values(:,:)   ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic nitrogen
+    class(soilc_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
+    real,                  intent(out) :: values(:,:)   ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic nitrogen
     integer :: l
 
     if(soil_carbon_option == SOILC_CORPSE_N) then
@@ -2170,24 +2171,36 @@ subroutine retrieve_DON(soilc, values)
     endif
 end subroutine retrieve_DON
 
-
-subroutine retrieve_dissolved_mineral_N(soilc, nitrate, ammonium)
-    ! Maybe this should include some solubility parameter that differs between nitrate and ammonium
-    class(soilc_CORPSE_t), intent(in) :: soilc ! soil carbon data structure
-    real,                 intent(out) :: nitrate(:),ammonium(:) ! [kg N/m^2] dissolved nitrate and ammonium
+subroutine retrieve_nitrate(soilc, values)
+    class(soilc_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
+    real,                  intent(out) :: values(:) ! [kg N/m^2] dissolved nitrate
 
     integer :: l
 
     if(soil_carbon_option == SOILC_CORPSE_N) then
         do l=1,num_l
-            nitrate(l)  = soilc%org_matter(l)%nitrate
-            ammonium(l) = soilc%org_matter(l)%ammonium
+            values(l)  = soilc%org_matter(l)%nitrate
         end do
     else
-        nitrate=0.0
-        ammonium=0.0
+        values=0.0
     endif
-end subroutine retrieve_dissolved_mineral_N
+end subroutine
+
+subroutine retrieve_ammonium(soilc, values)
+    ! Maybe this should include some solubility parameter that differs between nitrate and ammonium
+    class(soilc_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
+    real,                  intent(out) :: values(:) ! [kg N/m^2] dissolved ammonium
+
+    integer :: l
+
+    if(soil_carbon_option == SOILC_CORPSE_N) then
+        do l=1,num_l
+            values(l) = soilc%org_matter(l)%ammonium
+        end do
+    else
+        values=0.0
+    endif
+end subroutine
 
 
 
