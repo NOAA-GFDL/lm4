@@ -6,7 +6,8 @@ use fms_mod, only: error_mesg, FATAL
 use land_constants_mod, only: N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
      N_C_TYPES, C_FAST, C_SLOW
 use land_data_mod, only: log_version
-use soil_carbon_mod, only: soilc_t, soilc_CENT_t, soilc_CORPSE_t, &
+use soilc_CENT_type_mod, only: soilc_CENT_t
+use soil_carbon_mod, only: soilc_t, soilc_CORPSE_t, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
      soil_carbon_option, add_litter, add_C_N_to_rhizosphere
 use soil_tile_mod, only: soil_tile_type, dz, num_l

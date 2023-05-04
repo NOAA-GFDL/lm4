@@ -3,13 +3,15 @@ module soilc_mod
 use fms_mod, only: check_nml_error, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL
 use land_data_mod, only: log_version
+use land_debug_mod, only: land_error_message
 
 use soil_tile_mod, only: soil_tile_type
+use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT
 use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     read_soilc_CORPSE_namelist, &
-    soilc_t, soilc_CENT_t, soilc_CORPSE_t, &
-    soilc_CENT_copy, soilc_CORPSE_copy, soilc_ALL_ctor
+    soilc_t, soilc_CORPSE_t, &
+    new_soilc_CORPSE
 
 implicit none; private
 
@@ -74,20 +76,24 @@ subroutine read_soil_carbon_namelist()
   end select
 end subroutine read_soil_carbon_namelist
 
-! ============================================================================
+!> @brief Create new empty soil carbon container
+!! @return Pointer to new allocated and initialized soil carbon container
 function soilc_ctor(soil) result(ptr)
   class(soilc_t), pointer :: ptr
   type(soil_tile_type), intent(in) :: soil
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-    ptr => soilc_ALL_ctor(soil)
+    ptr => new_soilc_CENT(soil)
   case (SOILC_CORPSE, SOILC_CORPSE_N)
-    ptr => soilc_ALL_ctor(soil)
+    ptr => new_soilc_CORPSE(soil)
+  case default
+    call land_error_message('soilc_ctor: The value of soil_carbon_option is invalid. This should never happen. See developer', FATAL)
   end select
 end function soilc_ctor
 
-! ============================================================================
+!> @brief Create a copy of soil carbon container
+!! @return Pointer to a copy of given soil carbon container
 function soilc_copy(soilc) result(ptr)
   class(soilc_t), pointer :: ptr
   class(soilc_t), intent(in) :: soilc
@@ -95,16 +101,18 @@ function soilc_copy(soilc) result(ptr)
   allocate(ptr, source=soilc)
   ! copy all non-pointer members
   select type(soilc)
-  type is (soilc_CORPSE_t)
-      ptr => soilc_CORPSE_copy(soilc)
   type is (soilc_CENT_t)
-      ptr => soilc_CENT_copy(soilc)
+     ptr => new_soilc_CENT(soilc)
+  type is (soilc_CORPSE_t)
+     ptr => new_soilc_CORPSE(soilc)
+  class default
+    call land_error_message('soilc_copy: The type of soilc is invalid. This should never happen. See developer', FATAL)
   end select
 end function soilc_copy
 
-! ============================================================================
+!> @brief Deallocate soil carbon contaner
 subroutine delete_soilc(ptr)
-  type(soilc_t), pointer :: ptr
+  class(soilc_t), pointer :: ptr
 
   ! no need to deallocate components of soil_tile, because F2003 takes care of
   ! allocatable components deallocation when soil_tile is deallocated

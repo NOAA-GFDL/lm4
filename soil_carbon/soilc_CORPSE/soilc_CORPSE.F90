@@ -52,12 +52,15 @@ subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
   ce = first_elmt(land_tile_map)
   do while (loop_over_tiles(ce,tile))
       if (.not.associated(tile%soilc)) cycle
-      do i = 1,N_LITTER_POOLS
-         call adjust_pool_ncohorts(tile%soilc%litter_corpse(i))
-      enddo
-      do i = 1,num_l
-         call adjust_pool_ncohorts(tile%soilc%org_matter(i))
-      enddo
+      select type (sc=>tile%soilc)
+      class is (soilc_CORPSE_t)
+         do i = 1,N_LITTER_POOLS
+            call adjust_pool_ncohorts(sc%litter_corpse(i))
+         enddo
+         do i = 1,num_l
+            call adjust_pool_ncohorts(sc%org_matter(i))
+         enddo
+      end select
   end do
   do i = 1, N_C_TYPES
      call add_tile_data(restart,trim(c_shortname(i))//'_soil_C','zfull','soilCCohort',sc_soil_C_ptr,i,trim(c_longname(i))//' soil carbon','kg/m2')
@@ -174,12 +177,15 @@ subroutine read_soilc_CORPSE_restart()
      ce = first_elmt(land_tile_map)
      do while(loop_over_tiles(ce,tile))
          if (.not.associated(tile%soil)) cycle
-         do i = 1,N_LITTER_POOLS
-            call adjust_pool_ncohorts(tile%soilc%litter_corpse(i))
-         enddo
-         do i = 1,num_l
-            call adjust_pool_ncohorts(tile%soilc%org_matter(i))
-         enddo
+         select type (sc=>tile%soilc)
+         class is (soilc_CORPSE_t)
+            do i = 1,N_LITTER_POOLS
+               call adjust_pool_ncohorts(sc%litter_corpse(i))
+            enddo
+            do i = 1,num_l
+               call adjust_pool_ncohorts(sc%org_matter(i))
+            enddo
+         end select
      end do
      do i = 1, N_C_TYPES
         call get_tile_data(restart,trim(c_shortname(i))//'_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr,i)

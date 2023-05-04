@@ -40,7 +40,9 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_speci
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
-use soil_carbon_mod, only: soilc_t, soilc_CENT_t, soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
+use soilc_type_mod, only : soilc_t
+use soilc_CENT_type_mod, only : soilc_CENT_t
+use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
 use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake

@@ -77,7 +77,9 @@ use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, 
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
-use soil_carbon_mod, only : soilc_t, soilc_CENT_t, soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+use soilc_type_mod, only : soilc_t
+use soilc_CENT_type_mod, only : soilc_CENT_t
+use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
@@ -2893,9 +2895,12 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_leaf_age, tile%diag, cc(1:N), cc(1:N)%leaf_age, weight=cc(1:N)%nindivs*cc(1:N)%leafarea, op=OP_AVERAGE)
 
      ! carbon budget tracking
-     call send_tile_data(id_fsc_in,  sum(tile%soilc%fsc_in(:)),  tile%diag)
+     select type (sc=>tile%soilc)
+     class is (soilc_CENT_t)
+        call send_tile_data(id_fsc_in,  sum(sc%fsc_in(:)),  tile%diag)
+        call send_tile_data(id_ssc_in,  sum(sc%ssc_in(:)),  tile%diag)
+     end select
      call send_tile_data(id_fsc_out, tile%vegn%fsc_out, tile%diag)
-     call send_tile_data(id_ssc_in,  sum(tile%soilc%ssc_in(:)),  tile%diag)
      call send_tile_data(id_ssc_out, tile%vegn%ssc_out, tile%diag)
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
@@ -3029,13 +3034,15 @@ subroutine update_vegn_slow( )
      do while (loop_over_tiles(ce,tile,l,k))
         call set_current_point(l,k) ! this is for debug output only
         if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
-
-        do ii = 1,N_LITTER_POOLS
-           call cull_cohorts(tile%soilc%litter_corpse(ii))
-        enddo
-        do ii=1,num_l
-           call cull_cohorts(tile%soilc%org_matter(ii))
-        enddo
+        select type (sc=>tile%soilc)
+        class is (soilc_CORPSE_t)
+           do ii = 1,N_LITTER_POOLS
+              call cull_cohorts(sc%litter_corpse(ii))
+           enddo
+           do ii=1,num_l
+              call cull_cohorts(sc%org_matter(ii))
+           enddo
+        end select
      enddo
   endif
 

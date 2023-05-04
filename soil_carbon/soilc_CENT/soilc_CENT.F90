@@ -8,7 +8,7 @@ use land_tile_mod, only : land_tile_type
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, add_restart_axis
-use soil_carbon_mod, only : soilc_CENT_t
+use soilc_CENT_type_mod, only : soilc_CENT_t
 use soil_tile_mod, only: num_l, zfull
 use soilc_mod, only : save_soilc_equilibration_data
 
@@ -161,7 +161,7 @@ subroutine soil_fsc_in_ptr(t,i,p)
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
   class is (soilc_CENT_t)
-      p=>t%soilc%fsc_in(i)
+      p=>s%fsc_in(i)
   end select
 end subroutine
 

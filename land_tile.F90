@@ -32,9 +32,8 @@ use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
      snow_tile_stock_pe, snow_tile_heat, snow_active
-use soil_carbon_mod, only : soilc_t, merge_soilc, &
-     soil_tile_carbon, soil_tile_nitrogen
-use soilc_mod, only: new_soilc, delete_soilc
+use soilc_type_mod, only : soilc_t
+use soilc_mod, only : new_soilc, delete_soilc
 
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
@@ -466,7 +465,7 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
   if (associated(tile%vegn)) &
      carbon = carbon + vegn_tile_carbon(tile%vegn)
   if (associated(tile%soilc)) &
-     carbon = carbon + soil_tile_carbon(tile%soilc)
+     carbon = carbon + tile%soilc%total_C()
 end function land_tile_carbon
 
 
@@ -482,7 +481,7 @@ function land_tile_nitrogen(tile) result(nitrogen) ; real nitrogen
   if (associated(tile%vegn)) &
      nitrogen = nitrogen + vegn_tile_nitrogen(tile%vegn)
   if (associated(tile%soilc)) &
-     nitrogen = nitrogen + soil_tile_nitrogen(tile%soilc)
+     nitrogen = nitrogen + tile%soilc%total_N()
 end function land_tile_nitrogen
 
 
@@ -577,7 +576,7 @@ subroutine merge_land_tiles(tile1,tile2)
   if(associated(tile1%soil)) &
        call merge_soil_tiles(tile1%soil, tile1%frac, tile2%soil, tile2%frac)
   if(associated(tile1%soilc)) &
-       call merge_soilc(tile1%soilc, tile1%frac, tile2%soilc, tile2%frac)
+       call tile2%soilc%merge(tile2%frac, tile1%soilc, tile1%frac)
 
   if(associated(tile1%cana)) &
        call merge_cana_tiles(tile1%cana, tile1%frac, tile2%cana, tile2%frac)

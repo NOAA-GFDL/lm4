@@ -38,7 +38,9 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
-use soil_carbon_mod, only: soilc_t, soilc_CENT_t, soilc_CORPSE_t, soil_pool, &
+use soilc_type_mod, only: soilc_t
+use soilc_CENT_type_mod, only: soilc_CENT_t
+use soil_carbon_mod, only: soilc_CORPSE_t, soil_pool, &
      poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool,transfer_pool_fraction, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
@@ -1896,18 +1898,25 @@ end subroutine soil_step_1
      ! N/wl -> kg N/kg H2O
      ! units of delta_time: s
      ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
-     where(soil%wl(1:num_l)>1.0e-4)
-        passive_ammonium_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
-        passive_nitrate_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
-     elsewhere
-        passive_ammonium_uptake(1:num_l)=0.0
-        passive_nitrate_uptake(1:num_l)=0.0
-     end where
-     soilc%org_matter(1:num_l)%ammonium=soilc%org_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
-     soilc%org_matter(1:num_l)%nitrate=soilc%org_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
-     passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
-     if (cc%nindivs>0) &
+     select type (soilc)
+     class is (soilc_CORPSE_t)
+        where(soil%wl(1:num_l)>1.0e-4)
+           passive_ammonium_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+           passive_nitrate_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        elsewhere
+           passive_ammonium_uptake(1:num_l)=0.0
+           passive_nitrate_uptake(1:num_l)=0.0
+        end where
+        soilc%org_matter(1:num_l)%ammonium=soilc%org_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
+        soilc%org_matter(1:num_l)%nitrate=soilc%org_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
+        passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
+        if (cc%nindivs>0) &
            cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
+     class is (soilc_CENT_t)
+        passive_N_uptake(ic) = 0.0
+     class default
+        call land_error_message('soil_step_2: unrecognized soil carbon type', FATAL)
+     end select
   enddo
 
   call send_cohort_data(id_passive_N_uptake,diag,vegn%cohorts(1:vegn%n_cohorts),passive_N_uptake/dt_fast_yr,weight=vegn%cohorts(1:vegn%n_cohorts)%nindivs, op=OP_SUM)
@@ -2984,7 +2993,7 @@ end subroutine Dsdt
 subroutine Dsdt_CORPSE(vegn, soil, soilc, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soilc_CORPSE_t),  intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
 
   real, dimension(N_C_TYPES) :: &
@@ -3075,7 +3084,7 @@ end subroutine Dsdt_CORPSE
 subroutine Dsdt_CENTURY(vegn, soil, soilc, diag, soilt, theta)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soilc_CENT_t),  intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
   real                , intent(in)    :: soilt ! average soil temperature, deg K
   real                , intent(in)    :: theta ! average soil moisture
@@ -4171,6 +4180,8 @@ subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
   tot_amm_uptake = 0.0
   tot_nit_uptake = 0.0
 
+  select type (soil)
+  class is (soilc_CORPSE_t)
   do i = 1,vegn%n_cohorts
      associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      do k = 1,num_l
@@ -4197,6 +4208,7 @@ subroutine active_root_N_uptake(soil,vegn,N_uptake,dt,update_pools)
      soil%org_matter(:)%ammonium = soil%org_matter(:)%ammonium - tot_amm_uptake(:)
      soil%org_matter(:)%nitrate  = soil%org_matter(:)%nitrate  - tot_nit_uptake(:)
   endif
+  end select
 end subroutine active_root_N_uptake
 
 
@@ -4219,6 +4231,9 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   logical :: myc_biomass_is_zero
 
   N = vegn%n_cohorts
+
+  select type (soil)
+  class is (soilc_CORPSE_t)
 
   associate(cc=>vegn%cohorts)
   myc_biomass_is_zero = (sum(cc(1:N)%scav_C*cc(1:N)%nindivs)<=0)
@@ -4306,6 +4321,11 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      N_uptake_cohorts(:) = 0.0
   endif
   end associate ! cc
+
+  class default
+     N_uptake_cohorts = 0.0
+     myc_efficiency   = 0.0
+  end select
 end subroutine myc_scavenger_N_uptake
 
 
@@ -4331,6 +4351,9 @@ subroutine myc_miner_N_uptake(soilc, soil,vegn,N_uptake_cohorts,C_uptake_cohorts
   integer :: N ! number of cohorts
 
   N = vegn%n_cohorts
+
+  select type (soilc)
+  class is (soilc_CORPSE_t)
 
   associate(cc=>vegn%cohorts)
   if(sum(cc(1:N)%mine_C*cc(1:N)%nindivs)>0) then
@@ -4408,6 +4431,13 @@ subroutine myc_miner_N_uptake(soilc, soil,vegn,N_uptake_cohorts,C_uptake_cohorts
     total_CO2prod      =0.0
   endif
   end associate ! cc
+
+  class default
+    N_uptake_cohorts(:) = 0.0
+    C_uptake_cohorts(:) = 0.0
+    total_CO2prod       = 0.0
+    myc_efficiency      = 0.0
+  end select
 end subroutine myc_miner_N_uptake
 
 
@@ -4419,6 +4449,9 @@ subroutine redistribute_peat_carbon(soil)
     real :: layer_total_C,layer_total_C_2,layer_max_C,layer_extra_C,fraction_to_remove
     real :: total_C_before,total_C_after
     real :: leaflitter_total_C, woodlitter_total_C
+
+    select type (soil)
+    class is (soilc_CORPSE_t)
 
     !For conservation check.
     total_C_before=0.0
@@ -4472,6 +4505,7 @@ subroutine redistribute_peat_carbon(soil)
             print *,'Carbon after:',total_C_after
             call error_mesg('redistribute_peat_carbon','Carbon not conserved after downward move',FATAL)
     endif
+    end select
 end subroutine redistribute_peat_carbon
 
 ! ============================================================================

@@ -11,8 +11,9 @@ use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
 use fms_mod, only: check_nml_error, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use land_data_mod, only: log_version
-use land_debug_mod, only: is_watch_point, check_var_range
+use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 
+use soilc_type_mod, only : soilc_t
 use soil_tile_mod, only : soil_tile_type, num_l, clay, dat_w_sat
 
 #endif
@@ -24,10 +25,10 @@ private
 
 
 ! ==== public interfaces =====================================================
-public :: soilc_t, soilc_CENT_t, soilc_CORPSE_t, soilc_CENT_copy, soilc_CORPSE_copy, soilc_ALL_ctor
-public :: merge_soilc
-public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
-public :: soil_tile_carbon, soil_tile_nitrogen
+public :: soilc_t, soilc_CORPSE_t, new_soilc_CORPSE
+! public :: merge_soilc
+! public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
+! public :: soil_tile_carbon, soil_tile_nitrogen
 
 
 public :: soil_pool
@@ -47,9 +48,9 @@ public :: dissolve_carbon
 
 public :: cull_cohorts
 public :: transfer_pool_fraction
-public :: retrieve_DOC ! report DOC concentration to hlsp_hydrology
-public :: retrieve_DON
-public :: retrieve_dissolved_mineral_N
+! public :: retrieve_DOC ! report DOC concentration to hlsp_hydrology
+! public :: retrieve_DON
+! public :: retrieve_dissolved_mineral_N
 public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
 public :: litterDensity
@@ -71,6 +72,12 @@ public :: ammonium_solubility, nitrate_solubility
 
 public :: adjust_pool_ncohorts
 ! =====end of public interfaces ==============================================
+
+! --- interfaces
+interface new_soilc_CORPSE
+   module procedure soilc_CORPSE_ctor
+   module procedure soilc_CORPSE_copy
+end interface
 
 
 ! ==== module constants ======================================================
@@ -142,30 +149,21 @@ type soil_pool
 end type soil_pool
 
 ! soil carbon container type
-type soilc_t
-  ! values for CENTURY-style soil carbon model
-  real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C ! surface litter (kgC/m2)
-  real, allocatable :: &
-      fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
-      slow_soil_C(:), & ! slow soil carbon pool, (kg C/m2), per layer
-  ! values for the diagnostic of carbon budget and soil carbon acceleration
-      asoil_in(:),    & ! input decomposition rate
-      fsc_in(:),      & ! input of fast soil C
-      ssc_in(:)         ! input of slow soil C
-
-  ! values for CORPSE
+type, extends(soilc_t) :: soilc_CORPSE_t
   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
   type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
   integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
 
   real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
   real :: neg_litt_N(N_C_TYPES) = 0.0 ! cumulative value of negative N litter input to soil
-end type soilc_t
-
-type, extends(soilc_t) :: soilc_CENT_t
-end type soilc_CENT_t
-
-type, extends(soilc_t) :: soilc_CORPSE_t
+contains
+  procedure :: merge   => merge_CORPSE   ! merge this soil carbon with another
+  procedure :: total_C => total_C_CORPSE ! returns total C [kgC/m2]
+  procedure :: total_N => total_N_CORPSE ! returns total N [kgN/m2]
+  procedure :: rav_C   => rav_C_CORPSE   ! returns amounts of fas, slow, and (dead) microbial C [kgC/m2]
+  procedure :: get_DOC => retrieve_DOC
+  procedure :: get_DON => retrieve_DON
+  procedure :: get_DIN => retrieve_dissolved_mineral_N
 end type soilc_CORPSE_t
 
 !==== module variables =======================================================
@@ -268,22 +266,18 @@ real :: aerobic_max, theta_resp_max
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-! ============================================================================
-function soilc_ALL_ctor(soil) result(ptr)
-  class(soilc_t), pointer :: ptr
-  type(soil_tile_type), intent(in) :: soil
+! constructors of CORPSE data structures
+!> @brief Create new (empty) soil carbon representation
+!! @return Pointer to new soil carbon data structure
+function soilc_CORPSE_ctor(soil) result(ptr)
+  class(soilc_CORPSE_t), pointer :: ptr
+  type(soil_tile_type), intent(in) :: soil !< soil tile data
 
   integer :: k
   real    :: Qmax
 
-  select case(soil_carbon_option)
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
-     allocate(soilc_CORPSE_t :: ptr)
-  case default
-     allocate(soilc_CENT_t :: ptr)
-  end select
+  allocate(ptr)
 
-  ! CORPSE
   allocate(ptr%org_matter(num_l))
   allocate(ptr%is_peat(num_l))
   ! Qmax in mgC/kg soil from Mayes et al 2012, converted to g/m3 using solid density of 2650 kg/m3
@@ -300,114 +294,76 @@ function soilc_ALL_ctor(soil) result(ptr)
      call init_soil_pool(ptr%litter_corpse(k), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
   enddo
   ptr%is_peat(:) = 0
-
-  ! CENTURY-like
-  ptr%litter_century_C(:,:)  = 0.0
-  allocate( &
-      ptr%fast_soil_C(num_l), &
-      ptr%slow_soil_C(num_l), &
-      ptr%asoil_in   (num_l), &
-      ptr%fsc_in     (num_l), &
-      ptr%ssc_in     (num_l)  )
-  ptr%fast_soil_C(:)         = 0.0
-  ptr%slow_soil_C(:)         = 0.0
-  ptr%asoil_in(:)            = 0.0
-  ptr%fsc_in(:)              = 0.0
-  ptr%ssc_in(:)              = 0.0
 end function
 
-function soilc_CENT_copy(soilc) result(ptr)
-  type(soilc_CENT_t), pointer :: ptr
-  type(soilc_CENT_t), intent(in) :: soilc
-
-  allocate(ptr)
-  ptr = soilc
-end function
-
+!> @brief Create a copy of existing soil carbon representation
+!! @return Pointer to new soil carbon data structure
 function soilc_CORPSE_copy(soilc) result(ptr)
   type(soilc_CORPSE_t), pointer :: ptr
-  type(soilc_CORPSE_t), intent(in) :: soilc
+  type(soilc_CORPSE_t), intent(in) :: soilc !< soil carbon data to copy
 
   allocate(ptr)
   ptr = soilc
 end function
 
-! ============================================================================
-! returns soil tile carbon content, kg C/m2
-real function soil_tile_carbon (soil)
-  class(soilc_t),  intent(in)  :: soil
+
+!> @brief Given soil carbon state, return total soil C
+!! @return total soil carbon, kgC/m2
+real function total_C_CORPSE (soilc) result(soil_tile_carbon)
+  class(soilc_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
 
   real    :: temp
   integer :: i
 
-  select type (soil)
-  class is (soilc_CORPSE_t)
-     soil_tile_carbon = sum(soil%neg_litt_C)
-     do i=1,num_l
-        call poolTotals(soil%org_matter(i),totalCarbon=temp)
-        soil_tile_carbon=soil_tile_carbon+temp
-     enddo
-     do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter_corpse(i),totalCarbon=temp)
-        soil_tile_carbon=soil_tile_carbon+temp
-     enddo
-  class is (soilc_CENT_t)
-     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)) &
-                      + sum(soil%litter_century_C(:,:))
-  end select
-end function soil_tile_carbon
+  soil_tile_carbon = sum(soilc%neg_litt_C)
+  do i=1,num_l
+     call poolTotals(soilc%org_matter(i),totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+  enddo
+  do i = 1,N_LITTER_POOLS
+     call poolTotals(soilc%litter_corpse(i),totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+  enddo
+end function
 
-! ============================================================================
-! returns soil tile nitrogen content, kg N/m2
+!> @brief Given soil carbon state, return total soil nitrogen
+!! @return total soil nitrogen, kgN/m2
 ! this should return zero if soil_carbon_option is not SOILC_CORPSE_N
-real function soil_tile_nitrogen (soil)
-  class(soilc_t),  intent(in)  :: soil
+real function total_N_CORPSE (soilc) result(soil_tile_nitrogen)
+  class(soilc_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
 
   real    :: temp
   integer :: i
 
-  select type (soil)
-  class is (soilc_CORPSE_t)
-     soil_tile_nitrogen = sum(soil%neg_litt_N)
-     do i=1,num_l
-        call poolTotals(soil%org_matter(i),totalNitrogen=temp)
-        soil_tile_nitrogen=soil_tile_nitrogen+temp
-     enddo
-     do i = 1,N_LITTER_POOLS
-        call poolTotals(soil%litter_corpse(i),totalNitrogen=temp)
-        soil_tile_nitrogen=soil_tile_nitrogen+temp
-     enddo
-  class is (soilc_CENT_t)
-     soil_tile_nitrogen = 0.0
-  end select
-end function soil_tile_nitrogen
+  soil_tile_nitrogen = sum(soilc%neg_litt_N)
+  do i=1,num_l
+     call poolTotals(soilc%org_matter(i),totalNitrogen=temp)
+     soil_tile_nitrogen=soil_tile_nitrogen+temp
+  enddo
+  do i = 1,N_LITTER_POOLS
+     call poolTotals(soilc%litter_corpse(i),totalNitrogen=temp)
+     soil_tile_nitrogen=soil_tile_nitrogen+temp
+  enddo
+end function
 
-! ============================================================================
-! given soil tile, returns carbon content of various components of litter
-subroutine get_rav_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
-  class(soilc_t), intent(in)  :: soil
+!> @brief Given soil carbon state, return carbon amount of litter relevant for surface
+!! resistance calculations in legacy treatment of soil surface resistance
+subroutine rav_C_CORPSE(soilc, fast_C,slow_C,dmic_C)
+  class(soilc_CORPSE_t), intent(in)  :: soilc !< soil carbon data structure
   real, intent(out) :: &
-     litter_fast_C,    & ! fast litter carbon, [kgC/m2]
-     litter_slow_C,    & ! slow litter carbon, [kgC/m2]
-     litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
+     fast_C,    & !< fast litter carbon, [kgC/m2]
+     slow_C,    & !< slow litter carbon, [kgC/m2]
+     dmic_C       !< mass of dead microbes in litter, [kgC/m2]
 
-  select type (soil)
-  class is (soilc_CENT_t)
-     litter_fast_C    = soil%fast_soil_C(1)
-     litter_slow_C    = soil%slow_soil_C(1)
-     litter_deadmic_C = 0.0
-  class is (soilc_CORPSE_t)
-     call poolTotals(soil%litter_corpse(LITT_LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
-  class default
-     call error_mesg('get_rav_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
-end subroutine get_rav_C
+  call poolTotals(soilc%litter_corpse(LITT_LEAF), &
+        fastC=fast_C, slowC=slow_C, deadMicrobeC=dmic_C)
+end subroutine
 
-! ============================================================================
-subroutine merge_soilc(s1,w1,s2,w2) ! merge sc1 into sc2
-  class(soilc_t), intent(in)    :: s1
-  class(soilc_t), intent(inout) :: s2
-  real          , intent(in)    :: w2,w1 ! merging weights
+!> @brief merge s1 into current soil carbon type s2, with given weights
+subroutine merge_CORPSE(s2,w2,s1,w1)
+  class(soilc_CORPSE_t), intent(inout) :: s2    !< current soil carbon state
+  class(soilc_t)       , intent(in)    :: s1    !< soil carbon state to be merged into current
+  real                 , intent(in)    :: w2,w1 !< merging weights
 
   integer :: k, i
   real    :: x1, x2 ! normalized relative weights
@@ -416,25 +372,22 @@ subroutine merge_soilc(s1,w1,s2,w2) ! merge sc1 into sc2
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
 
-
-  ! merge soil carbon
-  s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
-  s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
-  s2%litter_century_C(:,:) = s1%litter_century_C(:,:)*x1 + s2%litter_century_C(:,:)*x2
-  do i=1,num_l
-    call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
-  enddo
-  !is_peat is 1 or 0, so multiplying is like an AND operation
-  s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
-  do i = 1, N_LITTER_POOLS
-     call combine_pools(s1%litter_corpse(i),s2%litter_corpse(i),w1,w2)
-  enddo
-  s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
-  s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
-  s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
-  s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
-  s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
-end subroutine merge_soilc
+  select type(s1)
+  type is (soilc_CORPSE_t)
+     do i=1,num_l
+       call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
+     enddo
+     !is_peat is 1 or 0, so multiplying is like an AND operation
+     s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
+     do i = 1, N_LITTER_POOLS
+        call combine_pools(s1%litter_corpse(i),s2%litter_corpse(i),w1,w2)
+     enddo
+     s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
+     s2%neg_litt_N(:)  = s1%neg_litt_N(:)*x1 + s2%neg_litt_N(:)*x2
+  class default
+     call land_error_message('merge_CORPSE: attempt to merge incompatible soil carbon types', FATAL)
+  end select
+end subroutine
 
 
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
@@ -2193,54 +2146,47 @@ real function Cpoolcomp(pool1,sum1,pool2,sum2,norm) result(compval)
     ENDIF
 end function
 
-subroutine retrieve_DOC(soil, DOC, num_l)
-
-   type(soil_pool),dimension(:),intent(in) :: soil ! soil carbon pointer
-   integer, intent(in)  :: num_l ! number of soil layers
-   real, intent(out)    :: DOC(N_C_TYPES, num_l) ! [kg C/m^2] dissolved organic carbon
+subroutine retrieve_DOC(soilc, values)
+   class(soilc_CORPSE_t), intent(in) :: soilc  ! soil carbon data structure
+   real,                 intent(out) :: values(:,:) ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic carbon
    integer :: l
 
    do l=1,num_l
-      DOC(1:N_C_TYPES,l)=soil(l)%dissolved_carbon(1:N_C_TYPES)
+      values(1:N_C_TYPES,l)=soilc%org_matter(l)%dissolved_carbon(1:N_C_TYPES)
    end do
-
 end subroutine retrieve_DOC
 
-subroutine retrieve_DON(soil, DON, num_l)
-
-    type(soil_pool),dimension(:),intent(in) :: soil ! soil carbon pointer
-    integer, intent(in)  :: num_l ! number of soil layers
-    real, intent(out)    :: DON(N_C_TYPES, num_l) ! [kg C/m^2] dissolved organic nitrogen
+subroutine retrieve_DON(soilc, values)
+    class(soilc_CORPSE_t), intent(in) :: soilc ! soil carbon data structure
+    real,                 intent(out) :: values(:,:)   ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic nitrogen
     integer :: l
 
     if(soil_carbon_option == SOILC_CORPSE_N) then
         do l=1,num_l
-            DON(1:N_C_TYPES,l)=soil(l)%dissolved_nitrogen(1:N_C_TYPES)
+            values(1:N_C_TYPES,l)=soilc%org_matter(l)%dissolved_nitrogen(1:N_C_TYPES)
         end do
     else
-        DON=0.0
+        values=0.0
     endif
 end subroutine retrieve_DON
 
 
-subroutine retrieve_dissolved_mineral_N(soil,nitrate,ammonium,num_l)
+subroutine retrieve_dissolved_mineral_N(soilc, nitrate, ammonium)
     ! Maybe this should include some solubility parameter that differs between nitrate and ammonium
-    type(soil_pool),dimension(:),intent(in) :: soil ! soil carbon pointer
-    integer, intent(in)  :: num_l ! number of soil layers
-    real, intent(out)    :: nitrate(num_l),ammonium(num_l) ! [kg N/m^2] dissolved nitrate and ammonium
+    class(soilc_CORPSE_t), intent(in) :: soilc ! soil carbon data structure
+    real,                 intent(out) :: nitrate(:),ammonium(:) ! [kg N/m^2] dissolved nitrate and ammonium
+
     integer :: l
 
     if(soil_carbon_option == SOILC_CORPSE_N) then
         do l=1,num_l
-            nitrate(l)=soil(l)%nitrate
-            ammonium(l)=soil(l)%ammonium
+            nitrate(l)  = soilc%org_matter(l)%nitrate
+            ammonium(l) = soilc%org_matter(l)%ammonium
         end do
-
     else
         nitrate=0.0
         ammonium=0.0
     endif
-
 end subroutine retrieve_dissolved_mineral_N
 
 
