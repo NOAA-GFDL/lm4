@@ -44,7 +44,7 @@ use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
-use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
+use soil_util_mod, only: add_soil_carbon, add_root_litter !, add_root_exudates
 use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
 implicit none
@@ -867,7 +867,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + sum(N_fixation(1:N)*c(1:N)%nindivs)
 
   ! fsc_in and ssc_in updated in add_root_exudates
-  call add_root_exudates(soilc,total_root_exudate_C,total_root_exudate_N,total_myc_Nmin,total_N_leakage*dt_fast_yr)
+  call soilc%add_root_exudates(total_root_exudate_C,total_root_exudate_N,total_myc_Nmin,total_N_leakage*dt_fast_yr)
 
   ! add litter accumulated over the cohorts
   call add_soil_carbon(soilc, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
@@ -1222,7 +1222,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
 
   ! add litter and exudates accumulated over the cohorts
   ! 20170617: revisit exudates for allocation to different kind of N startegies
-  call add_root_exudates(soilc, total_root_exudate_C, total_root_exudate_N, total_myc_Nmin, total_N_leakage)
+  call soilc%add_root_exudates( total_root_exudate_C, total_root_exudate_N, total_myc_Nmin, total_N_leakage)
   call add_soil_carbon(soilc, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                     leaf_litt_N, wood_litt_N, root_litt_N  )
   ! update soil carbon
