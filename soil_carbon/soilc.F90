@@ -6,7 +6,7 @@ use land_data_mod, only: log_version
 use land_debug_mod, only: land_error_message
 
 use soil_tile_mod, only: soil_tile_type
-use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT
+use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT, read_soilc_CENT_namelist
 use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     read_soilc_CORPSE_namelist, &
@@ -70,7 +70,7 @@ subroutine read_soil_carbon_namelist()
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-!    call read_soilc_CENT_namelist()
+    call read_soilc_CENT_namelist()
   case (SOILC_CORPSE, SOILC_CORPSE_N)
     call read_soilc_CORPSE_namelist()
   end select

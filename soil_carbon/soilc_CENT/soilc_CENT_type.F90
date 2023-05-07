@@ -14,8 +14,6 @@ use soilc_type_mod, only : soilc_t
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta
 use vegn_tile_mod, only: vegn_tile_type
 
-use soil_carbon_mod, only: soil_carbon_option, SOILC_CENTURY
-
 implicit none; private
 
 ! ---- public items
@@ -248,7 +246,7 @@ subroutine add_soil_carbon_CENT(soilc, vegn, &
   ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes
   ! that there are no microbes in litter
 
-  if (soil_carbon_option==SOILC_CENTURY) then
+  if (bulk) then
      if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
         ! put litterfall in litter pools
         soilc%litter_century_C(:,LITT_LEAF)  = soilc%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
