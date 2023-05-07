@@ -25,7 +25,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
 use soil_tile_mod, only : num_l, dz
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_type
-use soil_util_mod, only : add_root_litter
+! use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soilc_CENT_type_mod, only: soilc_CENT_t
@@ -476,7 +476,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           ! Put carbon directly in soil pools
           call add_litter(soilc%litter_corpse(LITT_LEAF),leaflitter_C,leaflitter_N)
           call add_litter(soilc%litter_corpse(LITT_CWOOD),woodlitter_C,woodlitter_N)
-          call add_root_litter(soilc,vegn,bglitter_C,bglitter_N)
+          call soilc%add_root_litter(vegn,bglitter_C,bglitter_N)
        else
           vegn%litter_buff_C(:,LITT_LEAF) = vegn%litter_buff_C(:,LITT_LEAF) + &
                [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue
