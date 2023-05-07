@@ -4,12 +4,17 @@ use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
 
-use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, seconds_per_year
+use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, seconds_per_year, &
+     C_FAST, C_SLOW, LITT_LEAF, LITT_CWOOD
+
 use land_data_mod, only : log_version, lnd
 use land_debug_mod, only: land_error_message
 
 use soilc_type_mod, only : soilc_t
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta
+use vegn_tile_mod, only: vegn_tile_type
+
+use soil_carbon_mod, only: soil_carbon_option, SOILC_CENTURY
 
 implicit none; private
 
@@ -49,6 +54,10 @@ contains
   procedure :: get_DON => get_zero_2D
   procedure :: get_nit => get_zero_1D
   procedure :: get_amm => get_zero_1D
+
+  procedure :: add_soil_carbon   => add_soil_carbon_CENT
+  procedure :: add_root_litter   => add_root_litter_CENT
+  procedure :: add_root_exudates => add_root_exudates_CENT
 end type soilc_CENT_t
 
 ! ---- module data
@@ -84,7 +93,6 @@ subroutine read_soilc_CENT_namelist()
 
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
-
 end subroutine
 
 ! constructors
@@ -199,6 +207,131 @@ subroutine get_zero_1D(soilC, values)
   class(soilc_CENT_t), intent(in)  :: soilc !< soil carbon data structure (unused)
   real,                intent(out) :: values(:) !< returned values
   values(:) = 0.0
+end subroutine
+
+subroutine add_soil_carbon_CENT(soilc, vegn, &
+        leaf_litter_C, wood_litter_C, root_litter_C, &
+        leaf_litter_N, wood_litter_N, root_litter_N  )
+  class(soilc_CENT_t),   intent(inout) :: soilc
+  type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(in), optional :: leaf_litter_C(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: wood_litter_C(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: root_litter_C(:,:) ! (num_l,N_C_TYPES)
+  real, intent(in), optional :: leaf_litter_N(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: wood_litter_N(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: root_litter_N(:,:) ! (num_l,N_C_TYPES)
+
+  ! TODO: check array sizes
+
+  integer :: k
+  real :: fsc, ssc
+  real :: leaf_litt_C(N_C_TYPES)
+  real :: wood_litt_C(N_C_TYPES)
+  real :: root_litt_C(size(soilc%fast_soil_C),N_C_TYPES)
+
+  if (present(leaf_litter_C)) then
+     leaf_litt_C(:) = leaf_litter_C(:)
+  else
+     leaf_litt_C(:) = 0.0
+  endif
+  if (present(wood_litter_C)) then
+     wood_litt_C(:) = wood_litter_C(:)
+  else
+     wood_litt_C(:) = 0.0
+  endif
+  if (present(root_litter_C)) then
+     root_litt_C(:,:) = root_litter_C(:,:)
+  else
+     root_litt_C(:,:) = 0.0
+  endif
+
+  ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes
+  ! that there are no microbes in litter
+
+  if (soil_carbon_option==SOILC_CENTURY) then
+     if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
+        ! put litterfall in litter pools
+        soilc%litter_century_C(:,LITT_LEAF)  = soilc%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
+        soilc%litter_century_C(:,LITT_CWOOD) = soilc%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
+        fsc = sum(root_litt_C(:,C_FAST))
+        ssc = sum(root_litt_C(:,C_SLOW))
+     else
+        ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
+        ! reproducibility with older code versions
+        fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST) + sum(root_litt_C(:,C_FAST))
+        ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW) + sum(root_litt_C(:,C_SLOW))
+     endif
+     soilc%fast_soil_C(1) = soilc%fast_soil_C(1) + fsc
+     soilc%slow_soil_C(1) = soilc%slow_soil_C(1) + ssc
+     ! for budget tracking
+     soilc%fsc_in(1) = soilc%fsc_in(1) + fsc
+     soilc%ssc_in(1) = soilc%ssc_in(1) + ssc
+  else ! by-layer soil carbon model
+     if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
+        ! put litterfall in litter pools
+        soilc%litter_century_C(:,LITT_LEAF)  = soilc%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
+        soilc%litter_century_C(:,LITT_CWOOD) = soilc%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
+        fsc = 0.0; ssc = 0.0
+     else
+        ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
+        ! reproducibility with older code versions
+        fsc = leaf_litt_C(C_FAST) + wood_litt_C(C_FAST)
+        ssc = leaf_litt_C(C_SLOW) + wood_litt_C(C_SLOW)
+     endif
+     soilc%fast_soil_C(1) = soilc%fast_soil_C(1) + fsc
+     soilc%slow_soil_C(1) = soilc%slow_soil_C(1) + ssc
+     ! for budget tracking
+     soilc%fsc_in(1) = soilc%fsc_in(1) + fsc
+     soilc%ssc_in(1) = soilc%ssc_in(1) + ssc
+     do k = 1,size(soilc%fast_soil_C)
+        soilc%fast_soil_C(k) = soilc%fast_soil_C(k) + root_litt_C(k,C_FAST)
+        soilc%slow_soil_C(k) = soilc%slow_soil_C(k) + root_litt_C(k,C_SLOW)
+        ! for budget tracking
+        soilc%fsc_in(k) = soilc%fsc_in(k) + root_litt_C(k,C_FAST)
+        soilc%ssc_in(k) = soilc%ssc_in(k) + root_litt_C(k,C_SLOW)
+     enddo
+  endif
+
+  ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
+  vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
+  vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
+
+end subroutine add_soil_carbon_CENT
+
+!> @brief Add new root litter to soil carbon and nitrogen
+!! For CENTURY-like soil carbon model model, it prints error message and stops with FATAL error
+subroutine add_root_litter_CENT(soilC, vegn, litterC, litterN)
+  class(soilc_CENT_t)  , intent(inout) :: soilC !< soil carbon state
+  type(vegn_tile_type) , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
+  real                 , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
+  real                 , intent(in)    :: litterN(:,:) !< new litter nitrogen content kgN/m2 of soil layer
+
+  call land_error_message('add_root_litter_CENT called -- this should never happen', FATAL)
+end subroutine
+
+!> @brief Add root exudates to vertical profile
+subroutine add_root_exudates_CENT(soilc, exudateC, exudateN, ammonium, nitrate)
+  class(soilc_CENT_t), intent(inout) :: soilc !< soil carbon data
+  real, intent(in)           :: exudateC(:) !< (num_l) amount of C in exudate, kgC/m2 per layer
+  real, intent(in), optional :: exudateN(:) !< (num_l) amount of N in exudate, kgN/m2 per layer
+  real, intent(in), optional :: ammonium(:) !< (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
+  real, intent(in), optional :: nitrate (:) !< (num_l) amount of  nitrate in exudate, kgN/m2(?) per layer
+
+  ! NOTE: nitrogen-related exudates are ignored in current implementation of LM3-like soil carbon
+
+  integer :: k  ! iterator across layers
+  real    :: fsc
+
+  if (bulk) then
+     fsc = sum(exudateC(:))
+     soilc%fast_soil_C(1) = soilc%fast_soil_C(1) + fsc
+     soilc%fsc_in(1)      = soilc%fsc_in(1)      + fsc ! for soil carbon equilibration
+  else
+     do k = 1, size(soilc%fast_soil_C(:))
+        soilc%fast_soil_C(k) = soilc%fast_soil_C(k) + exudateC(k)
+        soilc%fsc_in(k)      = soilc%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
+     enddo
+  endif
 end subroutine
 
 end module

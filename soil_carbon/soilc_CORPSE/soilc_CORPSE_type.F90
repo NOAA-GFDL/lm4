@@ -5,8 +5,9 @@ module soil_carbon_mod
 
 #include "../../shared/debug.inc"
 
+use constants_mod, only: PI
 use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
-     N_LITTER_POOLS, LITT_LEAF, &
+     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
      c_shortname, c_longname, c_diagname
 use fms_mod, only: check_nml_error, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
@@ -15,6 +16,8 @@ use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 
 use soilc_type_mod, only : soilc_t
 use soil_tile_mod, only : soil_tile_type, num_l, clay, dat_w_sat
+use vegn_tile_mod, only : vegn_tile_type
+use vegn_data_mod, only : spdata
 
 #endif
 
@@ -165,12 +168,17 @@ contains
   procedure :: get_DON => retrieve_DON
   procedure :: get_nit => retrieve_nitrate
   procedure :: get_amm => retrieve_ammonium
+
+  procedure :: add_soil_carbon   => add_soil_carbon_CORPSE
+  procedure :: add_root_litter   => add_root_litter_CORPSE
+  procedure :: add_root_exudates => add_root_exudates_CORPSE
 end type soilc_CORPSE_t
 
 !==== module variables =======================================================
 
 !---- namelist ---------------------------------------------------------------
 logical                   :: use_rhizosphere_cohort=.FALSE.  ! Use 2 fixed cohorts for rhizosphere and bulk soil if true
+real :: r_rhiz = 0.001                 ! Radius of rhizosphere around root (m)
 logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
 real,dimension(N_C_TYPES) :: Ea=(/37e3,54e3,50e3/)          ! Activation energy (kJ/mol)
 real :: Ea_NH4=37e3                    ! Activation energy for immobilization of ammonium (kJ/mol)
@@ -241,7 +249,7 @@ logical :: microbe_driven_protection=.TRUE. ! Whether to use microbial biomass i
 integer :: N_limit_scheme = NLIM_OVERFLOW  ! N limitation scheme to use: See definitions above
 
 namelist /soilc_CORPSE_nml/ &
-    use_rhizosphere_cohort,&
+    use_rhizosphere_cohort, r_rhiz, &
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
     tLongest,&
@@ -390,6 +398,150 @@ subroutine merge_CORPSE(s2,w2,s1,w1)
   end select
 end subroutine
 
+!> @brief Add new root litter to soil carbon and nitrogen
+subroutine add_root_litter_CORPSE(soilC, vegn, litterC, litterN)
+  class(soilc_CORPSE_t) , intent(inout) :: soilC !< soil carbon state
+  type(vegn_tile_type)  , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
+  real                  , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
+  real                  , intent(in)    :: litterN(:,:) !< new litter nitrogen content kgN/m2 of soil layer
+
+  integer :: k
+  real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
+
+  call rhizosphere_frac(vegn, rhiz_frac)
+  do k = 1,num_l
+     call add_litter(soilC%org_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k))
+  enddo
+end subroutine
+
+subroutine add_soil_carbon_CORPSE(soilc, vegn, &
+        leaf_litter_C, wood_litter_C, root_litter_C, &
+        leaf_litter_N, wood_litter_N, root_litter_N  )
+  class(soilc_CORPSE_t), intent(inout) :: soilc
+  type(vegn_tile_type),  intent(inout) :: vegn
+  real, intent(in), optional :: leaf_litter_C(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: wood_litter_C(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: root_litter_C(:,:) ! (num_l,N_C_TYPES)
+  real, intent(in), optional :: leaf_litter_N(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: wood_litter_N(:)   ! (N_C_TYPES)
+  real, intent(in), optional :: root_litter_N(:,:) ! (num_l,N_C_TYPES)
+
+  integer :: k
+  real :: leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
+  real :: wood_litt_C(N_C_TYPES), wood_litt_N(N_C_TYPES)
+  real :: root_litt_C(size(soilc%org_matter),N_C_TYPES), &
+          root_litt_N(size(soilc%org_matter),N_C_TYPES)
+  real :: rhiz_frac(size(soilc%org_matter))
+
+  if (present(leaf_litter_C)) then
+     leaf_litt_C(:) = leaf_litter_C(:)
+  else
+     leaf_litt_C(:) = 0.0
+  endif
+  if (present(wood_litter_C)) then
+     wood_litt_C(:) = wood_litter_C(:)
+  else
+     wood_litt_C(:) = 0.0
+  endif
+  if (present(root_litter_C)) then
+     root_litt_C(:,:) = root_litter_C(:,:)
+  else
+     root_litt_C(:,:) = 0.0
+  endif
+  if (present(leaf_litter_N)) then
+     leaf_litt_N(:) = leaf_litter_N(:)
+  else
+     leaf_litt_N(:) = 0.0
+  endif
+  if (present(wood_litter_N)) then
+     wood_litt_N(:) = wood_litter_N(:)
+  else
+     wood_litt_N(:) = 0.0
+  endif
+  if (present(root_litter_N)) then
+     root_litt_N(:,:) = root_litter_N(:,:)
+  else
+     root_litt_N(:,:) = 0.0
+  endif
+
+  ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes
+  ! that there are no microbes in litter
+
+  call borrow_to_negatives(wood_litt_C,soilc%neg_litt_C) ! borrow from wood litter first
+  call borrow_to_negatives(wood_litt_N,soilc%neg_litt_N) ! borrow from wood litter first
+  call borrow_to_negatives(leaf_litt_C,soilc%neg_litt_C) ! and from leaf litter second
+  call borrow_to_negatives(leaf_litt_N,soilc%neg_litt_N) ! and from leaf litter second
+  call add_litter(soilc%litter_corpse(LITT_LEAF),  leaf_litt_C, leaf_litt_N, negativeInputC=soilc%neg_litt_C, negativeInputN=soilc%neg_litt_N)
+  call add_litter(soilc%litter_corpse(LITT_CWOOD), wood_litt_C, wood_litt_N, negativeInputC=soilc%neg_litt_C, negativeInputN=soilc%neg_litt_N)
+  call rhizosphere_frac(vegn, rhiz_frac)
+  do k = 1,size(soilc%org_matter)
+     call add_litter(soilc%org_matter(k), root_litt_C(k,:), root_litt_N(k,:), rhiz_frac(k), &
+                     negativeInputC=soilc%neg_litt_C, negativeInputN=soilc%neg_litt_N)
+  enddo
+
+  ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
+  vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
+  vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
+
+contains
+
+  ! given litter and amount of negative litter from previous time step, attempts to borrow
+  ! positive carbon to reduce the amount of negativs
+  subroutine borrow_to_negatives(litt, negatives)
+    real, intent(inout) :: litt(:), negatives(:)
+
+    litt      = litt + negatives
+    negatives = min(litt,0.0)
+    litt      = max(litt,0.0)
+  end subroutine borrow_to_negatives
+
+end subroutine add_soil_carbon_CORPSE
+
+!> @brief Calculate volumetric fraction of rhizosphere in each layer
+subroutine rhizosphere_frac(vegn, rhiz_frac)
+  type(vegn_tile_type), intent(in)  :: vegn !< vegetation state
+  real                , intent(out) :: rhiz_frac(:)!< volumentric fraction of rhizosphere
+
+  real :: rhiz_vol(num_l)  ! volume of rhizosphere in each layer, m3/m2
+  integer :: i
+
+  ! first calculate the volume of rhizosphere
+  rhiz_vol(:) = 0.0
+  do i = 1,vegn%n_cohorts
+     associate(cc=>vegn%cohorts(i),sp=>spdata(vegn%cohorts(i)%species))
+     rhiz_vol(:) = rhiz_vol(:) + &
+         PI*((r_rhiz+sp%root_r)**2-sp%root_r**2)*cc%root_length(1:num_l)*cc%nindivs
+     end associate
+  enddo
+  ! rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:)/dz(1:num_l))
+  ! If root_length is m/m3, then we should not divide by dz here
+  rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:))
+end subroutine rhizosphere_frac
+
+!> @brief Add exudates to the soil
+subroutine add_root_exudates_CORPSE(soilc, exudateC, exudateN, ammonium, nitrate)
+  class(soilc_CORPSE_t), intent(inout)  :: soilC !< soil carbon data structure
+  real,intent(in)           :: exudateC(:) !< (num_l) amount of C in exudate, kgC/m2 per layer
+  real,intent(in), optional :: exudateN(:) !< (num_l) amount of N in exudate, kgN/m2 per layer
+  real,intent(in), optional :: ammonium(:) !< (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
+  real,intent(in), optional :: nitrate (:) !< (num_l) amount of  nitrate in exudate, kgN/m2(?) per layer
+
+  real, dimension(size(soilc%org_matter)) :: NH4,NO3
+  integer :: k
+
+  NH4(:)=0.0
+  NO3(:)=0.0
+  if(present(ammonium)) NH4=ammonium
+  if(present(nitrate))  NO3=nitrate
+
+  do k=1,size(soilc%org_matter)
+     call add_C_N_to_rhizosphere(soilc%org_matter(k),   &
+                   newCarbon   = [exudateC(k),0.0,0.0], &
+                   newNitrogen = [exudateN(k),0.0,0.0]  )
+     soilc%org_matter(k)%ammonium = soilc%org_matter(k)%ammonium + NH4(k)
+     soilc%org_matter(k)%nitrate  = soilc%org_matter(k)%nitrate  + NO3(k)
+  enddo
+end subroutine add_root_exudates_CORPSE
 
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
     type(soil_pool),intent(inout)::pool

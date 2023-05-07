@@ -1,5 +1,7 @@
 module soilc_type_mod
 
+use vegn_tile_mod, only: vegn_tile_type
+
 implicit none; private
 
 public :: soilc_t
@@ -16,6 +18,10 @@ contains
   procedure (get_real_2D),   deferred, pass :: get_DON ! returns DON, by type and by layer
   procedure (get_real_1D),   deferred, pass :: get_nit ! returns nitrate by layer, kgN/m2
   procedure (get_real_1D),   deferred, pass :: get_amm ! returns ammonium by layer, kgN/m2
+
+  procedure (add_soil_carbon),   deferred, pass :: add_soil_carbon ! add new surface and sub-surface litter to soil carbon and nitrogen
+  procedure (add_root_litter),   deferred, pass :: add_root_litter ! add new root litter to soil carbon and nitrogen
+  procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
 end type
 
 ! ---- abstract interfaces for methods
@@ -56,6 +62,40 @@ abstract interface
       import :: soilc_t ! soil carbon data structure
       class(soilc_t), intent(in) :: soilC
       real,           intent(out):: values(:) ! (num_l)
+   end subroutine
+
+   subroutine add_soil_carbon(soilC, vegn, &
+          leaf_litter_C, wood_litter_C, root_litter_C, &
+          leaf_litter_N, wood_litter_N, root_litter_N  )
+      import :: soilc_t,vegn_tile_type
+
+      class(soilc_t),       intent(inout) :: soilC
+      type(vegn_tile_type), intent(inout) :: vegn
+
+      real, intent(in), optional :: leaf_litter_C(:)   ! (N_C_TYPES)
+      real, intent(in), optional :: wood_litter_C(:)   ! (N_C_TYPES)
+      real, intent(in), optional :: root_litter_C(:,:) ! (num_l,N_C_TYPES)
+      real, intent(in), optional :: leaf_litter_N(:)   ! (N_C_TYPES)
+      real, intent(in), optional :: wood_litter_N(:)   ! (N_C_TYPES)
+      real, intent(in), optional :: root_litter_N(:,:) ! (num_l,N_C_TYPES)
+   end subroutine
+
+   subroutine add_root_litter(soilC, vegn, litterC, litterN)
+      import :: soilc_t,vegn_tile_type
+      class(soilc_t),       intent(inout)  :: soilC ! soil carbon data structure
+      type(vegn_tile_type), intent(in)     :: vegn ! vegetation data structure, for rhizosphere caculations
+      real, intent(in) :: litterC(:, :) ! (num_l, N_C_TYPES) kgC/m2 of soil layer
+      real, intent(in) :: litterN(:, :) ! (num_l, N_C_TYPES) kgN/m2 of soil layer
+   end subroutine
+
+   ! add root exudates to soil carbon
+   subroutine add_root_exudates(soilC, exudateC, exudateN, ammonium, nitrate)
+      import :: soilc_t
+      class(soilc_t), intent(inout)  :: soilC ! soil carbon data structure
+      real,intent(in)           :: exudateC(:) ! (num_l) amount of C in exudate, kgC/m2 per layer
+      real,intent(in), optional :: exudateN(:) ! (num_l) amount of N in exudate, kgN/m2 per layer
+      real,intent(in), optional :: ammonium(:) ! (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
+      real,intent(in), optional :: nitrate (:) ! (num_l) amount of  nitrate in exudate, kgN/m2(?) per layer
    end subroutine
 end interface
 
