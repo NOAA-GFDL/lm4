@@ -39,7 +39,7 @@ use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
-use soil_util_mod, only : add_soil_carbon
+! use soil_util_mod, only : add_soil_carbon
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soil_carbon_mod, only : soilc_CORPSE_t, poolTotals, &
@@ -2581,7 +2581,7 @@ subroutine vegn_burn_ppa(tile)
      end associate ! sp
   enddo
   ! add carbon to soil
-  call add_soil_carbon(tile%soilc, tile%vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call tile%soilc%add_soil_carbon( tile%vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                               leaf_litt_N, wood_litt_N, root_litt_N  )
 
   ! adjust population density in the untouched portion of the grid
@@ -2762,7 +2762,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      enddo
      end associate
   enddo
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   ! Get total combusted, killed

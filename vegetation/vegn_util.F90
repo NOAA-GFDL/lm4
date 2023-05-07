@@ -9,7 +9,7 @@ use land_constants_mod, only: N_C_TYPES, C_FAST
 use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, carbon_cons_tol
 use soil_carbon_mod, only : deadmic_slow_frac, soilc_t
 use soil_tile_mod, only : soil_tile_type, num_l, dz
-use soil_util_mod, only : add_soil_carbon
+! use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
       min_cohort_nindivs, seedling_relayer_bug
 use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa
@@ -209,7 +209,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      vegn%cohorts=>cc
   endif
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if (is_watch_point()) then
@@ -371,7 +371,7 @@ subroutine add_seedlings_ppa(vegn, soil, soilc, seed_C, seed_N, germination_fact
   enddo
 
 
-  call add_soil_carbon(soilc, vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
+  call soilc%add_soil_carbon( vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
 
   vegn%n_cohorts = k
   if (.not.seedling_relayer_bug) then
