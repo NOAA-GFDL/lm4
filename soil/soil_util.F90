@@ -22,7 +22,7 @@ public :: soil_util_init
 ! public :: add_root_litter
 ! public :: add_root_exudates
 public :: add_soil_carbon
-public :: rhizosphere_frac
+! public :: rhizosphere_frac
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_util'
