@@ -2878,8 +2878,8 @@ endif
    ! ------ what to do for quantities averaged monthly and regridded over snow partial cover? 
    ! ------ Here they are saved weighted by the fractional snow cover
    ! recompute the snow area frac and near surface properties here to get that at end of snow processes calculations
-  call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
-  call s%nearsurf_properties()
+  call snow_get_depth_area ( tile%snow%sp, tile%snow%sp%depth, snow_area )
+  call tile%snow%sp%nearsurf_properties()
    ! if(tile%snow%nlayers > 0) then
   call send_tile_data(id_snow_avrg_optd, snow_area * tile%snow%sp%avrg_optd(), tile%diag)
   call send_tile_data(id_snow_avrg_sph, snow_area * tile%snow%sp%avrg_sph(), tile%diag)
