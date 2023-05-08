@@ -143,6 +143,9 @@ real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer(MAX_OPT_LAYERS) = [0.01, (-1.0,i=2,MAX_OPT_LAYERS)] !< prescribed layer thicknesses
+logical lap_albedo_include_bc = .TRUE.
+logical lap_albedo_include_md = .TRUE.
+logical lap_albedo_include_om = .TRUE.
 
 real, protected, public :: &
    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
@@ -157,7 +160,8 @@ character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
 
 namelist /snowpack_nml/ &
          opt_layer_R, opt_layer_N, opt_layer_max, heat_cond_to_use, &
-         cpw, csw, clw, use_mcm_masking, depth_crit
+         cpw, csw, clw, use_mcm_masking, depth_crit, &
+         lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
         !  opt_layer, opt_layer_R, opt_layer_N, opt_layer_max, use_cm_conductance
 ! ---- end of namelist
 
@@ -1385,26 +1389,39 @@ subroutine snowpack_nearsurf_properties(s)
   ! optical diameter
   ! density [must be computed] [kg m^-3]
   ! LAI concentration [must be computed] [ppm] - see params
-  ! BC equivant concentration as needed for albedo calculations
+  ! BC equivalent concentration as needed for albedo calculations
   
   ! first compute the properties needed for each layer and not yet available
   if (s%nlayers > 0) then
   do il = 1, s%nlayers
     rho_snow(il) = s%snow(il)%ws / s%snow(il)%dz 
-    ! rho_snow(il) = (s%snow(il)%ws + s%snow(il)%wl) / s%snow(il)%dz 
-    ! Note, this is the equivalent MASS of black carbon 
-    ! bring it to concentration here [ppm = mug/g]
-    ! bceq(il) = s%snow(il)%wc(1) + s%snow(il)%wc(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-                                  ! s%snow(il)%wc(3)*(LAI_abs(3)/LAI_abs(1))
-    bceq_im(il) = s%snow(il)%wc_im(1) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-                                        s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
-    bceq_em(il) = s%snow(il)%wc_em(1) + s%snow(il)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-                                        s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1)) 
+    ! Note, this is the equivalent MASS of black carbon - bring it to concentration here [ppm = mug/g]
 
-    ! bceq_im(il) = bceq_im(il) / (s%snow(il)%ws + s%snow(il)%wl) ! * 1E6 ! concentration already in ppm = mg/kg 
-    ! bceq_em(il) = bceq_em(il) / (s%snow(il)%ws + s%snow(il)%wl) ! * 1E6 ! concentration already in ppm = mg/kg 
-    bceq_im(il) = bceq_im(il) / (s%snow(il)%ws) ! * 1E6 ! concentration already in ppm = mg/kg 
-    bceq_em(il) = bceq_em(il) / (s%snow(il)%ws) ! * 1E6 ! concentration already in ppm = mg/kg 
+    ! bceq_im(il) = s%snow(il)%wc_im(1) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + & 
+    !                                     s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
+    ! bceq_em(il) = s%snow(il)%wc_em(1) + s%snow(il)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + & 
+    !                                     s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1)) 
+
+    ! added option to selectively turn off one of the specie in the computation
+    ! of near surface LAP concentration used in albedo calculations
+    bceq_im(il) = 0.0
+    bceq_em(il) = 0.0
+    if (lap_albedo_include_bc) then
+      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(1) 
+      bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(1) 
+    endif
+    if (lap_albedo_include_md) then
+      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) 
+      bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(2)*(LAI_abs(2)/LAI_abs(1))
+    endif
+    if (lap_albedo_include_om) then
+      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
+      bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1))
+    endif
+
+    bceq_im(il) = bceq_im(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
+    bceq_em(il) = bceq_em(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
+
   enddo
 
   ! thickn = 0.03 ! set layer thickness to 3cm as in Vionnet et al., 2012
