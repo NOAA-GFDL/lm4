@@ -172,7 +172,6 @@ real    :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
 real :: max_soil_C_density = 50.0   !(kgC/m3) -- for redistribution of peat
 real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
 
-real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
 real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
@@ -198,7 +197,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     bwood_macinf, &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
-                    max_soil_C_density, max_litter_thickness, r_rhiz, &
+                    max_soil_C_density, max_litter_thickness, &
                     tau_smooth_frozen_freq
 !---- end of namelist --------------------------------------------------------
 
