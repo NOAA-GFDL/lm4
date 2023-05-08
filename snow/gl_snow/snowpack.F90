@@ -143,9 +143,9 @@ real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer(MAX_OPT_LAYERS) = [0.01, (-1.0,i=2,MAX_OPT_LAYERS)] !< prescribed layer thicknesses
-logical lap_albedo_include_bc = .TRUE.
-logical lap_albedo_include_md = .TRUE.
-logical lap_albedo_include_om = .TRUE.
+logical :: lap_albedo_include_bc = .TRUE.
+logical :: lap_albedo_include_md = .TRUE.
+logical :: lap_albedo_include_om = .TRUE.
 
 real, protected, public :: &
    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
