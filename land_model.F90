@@ -294,17 +294,15 @@ integer :: &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
   id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1, &
 
-    ! ====== EZSNOW New snowpack fields to add to diagnostics =======
+    ! =============== EZSNOW New snowpack fields to add to diagnostics ===================
   id_snow_avrg_optd,id_snow_avrg_sph,id_snow_avrg_age,id_snow_density,id_snow_avrg_T, &
-  id_snow_avrg_dendr, &
-  id_snow_nearsurf_bceq_tot,id_snow_nearsurf_bceq_im,id_snow_nearsurf_bceq_em,       &
-  id_snow_avrg_bceq_tot,id_snow_avrg_bceq_im,id_snow_avrg_bceq_em,       &
+  id_snow_avrg_dendr, id_snow_avrg_bceq_tot,id_snow_avrg_bceq_im,id_snow_avrg_bceq_em,       &
   id_snow_nearsurf_optd, id_snow_nearsurf_sph,id_snow_nearsurf_density,id_snow_nearsurf_age, &
-  id_snow_nearsurf_dendr, &
-  id_snow_depth, &
-  id_snow_liq,id_snow_ice, &
+  id_snow_nearsurf_dendr, id_snow_nearsurf_bceq_tot,id_snow_nearsurf_bceq_im,id_snow_nearsurf_bceq_em,       &
+  id_snow_depth, id_snow_liq, id_snow_ice, &
   id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit
-  ! ======            End of new snowpack diag fields       =======
+  ! ==================            End of new snowpack diag fields      ===================
+
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
@@ -2877,28 +2875,29 @@ endif
   if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_CO2-DOC_to_atmos, tile%diag)
 
    ! ------ EZSNOW - send additional snowpack diagnostics
-   ! ------ what to do for quantities averaged monthly when snow partial cover? set missing val
+   ! ------ what to do for quantities averaged monthly and regridded over snow partial cover? 
+   ! ------ Here they are saved weighted by the fractional snow cover
+   ! recompute the snow area frac and near surface properties here to get that at end of snow processes calculations
+  call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+  call s%nearsurf_properties()
    ! if(tile%snow%nlayers > 0) then
-  call send_tile_data(id_snow_avrg_optd, tile%snow%sp%avrg_optd(), tile%diag)
-  call send_tile_data(id_snow_avrg_sph, tile%snow%sp%avrg_sph(), tile%diag)
-  call send_tile_data(id_snow_avrg_age, tile%snow%sp%avrg_age(), tile%diag)
-  call send_tile_data(id_snow_avrg_dendr, tile%snow%sp%avrg_dendr(), tile%diag)
-  call send_tile_data(id_snow_density, tile%snow%sp%density(), tile%diag)
-  ! call send_tile_data(id_snow_avrg_T, tile%snow%sp%avrg_T(), tile%diag)
-  call send_tile_data(id_snow_avrg_T, snow_avrg_T, tile%diag)
-  ! call send_tile_data(id_snow_lai_im, tile%snow%lai_im(), tile%diag)
-  ! call send_tile_data(id_snow_lai_em, tile%snow%lai_em(), tile%diag)
-  call send_tile_data(id_snow_avrg_bceq_tot, tile%snow%sp%avrg_bceq_tot(), tile%diag)
-  call send_tile_data(id_snow_avrg_bceq_im, tile%snow%sp%avrg_bceq_im(), tile%diag)
-  call send_tile_data(id_snow_avrg_bceq_em, tile%snow%sp%avrg_bceq_em(), tile%diag)
-  call send_tile_data(id_snow_nearsurf_bceq_tot, tile%snow%sp%nearsurf_bceq_tot, tile%diag)
-  call send_tile_data(id_snow_nearsurf_bceq_im, tile%snow%sp%nearsurf_bceq_im, tile%diag)
-  call send_tile_data(id_snow_nearsurf_bceq_em, tile%snow%sp%nearsurf_bceq_em, tile%diag)
-  call send_tile_data(id_snow_nearsurf_optd, tile%snow%sp%nearsurf_optd, tile%diag)
-  call send_tile_data(id_snow_nearsurf_sph, tile%snow%sp%nearsurf_sph, tile%diag)
-  call send_tile_data(id_snow_nearsurf_density, tile%snow%sp%nearsurf_rho, tile%diag)
-  call send_tile_data(id_snow_nearsurf_age, tile%snow%sp%nearsurf_age, tile%diag)
-  call send_tile_data(id_snow_nearsurf_dendr, tile%snow%sp%nearsurf_dendr, tile%diag)
+  call send_tile_data(id_snow_avrg_optd, snow_area * tile%snow%sp%avrg_optd(), tile%diag)
+  call send_tile_data(id_snow_avrg_sph, snow_area * tile%snow%sp%avrg_sph(), tile%diag)
+  call send_tile_data(id_snow_avrg_age, snow_area * tile%snow%sp%avrg_age(), tile%diag)
+  call send_tile_data(id_snow_avrg_dendr, snow_area * tile%snow%sp%avrg_dendr(), tile%diag)
+  call send_tile_data(id_snow_density, snow_area * tile%snow%sp%density(), tile%diag)
+  call send_tile_data(id_snow_avrg_T, snow_area * snow_avrg_T, tile%diag)
+  call send_tile_data(id_snow_avrg_bceq_tot, snow_area * tile%snow%sp%avrg_bceq_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_bceq_im, snow_area * tile%snow%sp%avrg_bceq_im(), tile%diag)
+  call send_tile_data(id_snow_avrg_bceq_em, snow_area * tile%snow%sp%avrg_bceq_em(), tile%diag)
+  call send_tile_data(id_snow_nearsurf_bceq_tot, snow_area * tile%snow%sp%nearsurf_bceq_tot, tile%diag)
+  call send_tile_data(id_snow_nearsurf_bceq_im, snow_area * tile%snow%sp%nearsurf_bceq_im, tile%diag)
+  call send_tile_data(id_snow_nearsurf_bceq_em, snow_area * tile%snow%sp%nearsurf_bceq_em, tile%diag)
+  call send_tile_data(id_snow_nearsurf_optd, snow_area * tile%snow%sp%nearsurf_optd, tile%diag)
+  call send_tile_data(id_snow_nearsurf_sph, snow_area * tile%snow%sp%nearsurf_sph, tile%diag)
+  call send_tile_data(id_snow_nearsurf_density, snow_area * tile%snow%sp%nearsurf_rho, tile%diag)
+  call send_tile_data(id_snow_nearsurf_age, snow_area * tile%snow%sp%nearsurf_age, tile%diag)
+  call send_tile_data(id_snow_nearsurf_dendr, snow_area * tile%snow%sp%nearsurf_dendr, tile%diag)
   ! endif
   ! snow-related quantities defined also when snow depth = 0 (= no snow layers)
   ! do the follwing vars in update_land_bc_fast, as done in old model version

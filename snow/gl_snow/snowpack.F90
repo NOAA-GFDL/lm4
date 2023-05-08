@@ -1513,14 +1513,24 @@ subroutine snowpack_nearsurf_properties(s)
 
   else ! case of no snow on the ground
 
-    s%nearsurf_bceq_im = -9999.9 ! concentration [ppm]
-    s%nearsurf_bceq_em = -9999.9 ! concentration [ppm]
-    s%nearsurf_rho = -9999.9  ! snow density [total mass / total depth] [kg m^-3]
-    s%nearsurf_optd = -9999.9  ! mass weighted average optical diameter [m]
-    s%nearsurf_dendr = -9999.9  ! mass weighted average snow grain dendricity [number in [0,1]]
-    s%nearsurf_age = -9999.9  ! mass weighted average snow age [days]
-    s%nearsurf_sph = -9999.9  ! mass weighted average snow grain sphericity [number in [0,1]]
-    s%nearsurf_T = -9999.9  ! hCap weighted average snow temperature [K]
+    ! s%nearsurf_bceq_im = -9999.9 ! concentration [ppm]
+    ! s%nearsurf_bceq_em = -9999.9 ! concentration [ppm]
+    ! s%nearsurf_rho = -9999.9  ! snow density [total mass / total depth] [kg m^-3]
+    ! s%nearsurf_optd = -9999.9  ! mass weighted average optical diameter [m]
+    ! s%nearsurf_dendr = -9999.9  ! mass weighted average snow grain dendricity [number in [0,1]]
+    ! s%nearsurf_age = -9999.9  ! mass weighted average snow age [days]
+    ! s%nearsurf_sph = -9999.9  ! mass weighted average snow grain sphericity [number in [0,1]]
+    ! s%nearsurf_T = -9999.9  ! hCap weighted average snow temperature [K]
+
+    ! updated to zero when no snow because these are saved as diagnostics weighted by snow area fraction.
+    s%nearsurf_bceq_im = 0.0 ! concentration [ppm]
+    s%nearsurf_bceq_em = 0.0 ! concentration [ppm]
+    s%nearsurf_rho = 0.0  ! snow density [total mass / total depth] [kg m^-3]
+    s%nearsurf_optd = 0.0  ! mass weighted average optical diameter [m]
+    s%nearsurf_dendr = 0.0  ! mass weighted average snow grain dendricity [number in [0,1]]
+    s%nearsurf_age = 0.0  ! mass weighted average snow age [days]
+    s%nearsurf_sph = 0.0  ! mass weighted average snow grain sphericity [number in [0,1]]
+    s%nearsurf_T = 0.0  ! hCap weighted average snow temperature [K]
 
   endif
 
