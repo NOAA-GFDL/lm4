@@ -21,7 +21,6 @@ use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_
      vegn_mergecohorts_ppa
 use snow_tile_mod,   only : snow_active
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
-! use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, merge_land_tile_into_list, loop_over_tiles, &

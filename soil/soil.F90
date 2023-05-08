@@ -35,7 +35,6 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
-use soil_util_mod, only: soil_util_init!, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
 use soilc_type_mod, only: soilc_t
@@ -330,8 +329,6 @@ subroutine read_soil_namelist()
                      '"use_tridiag_foradvec" == .true.', NOTE)
      use_tridiag_foradvec = .true.
   end if
-
-  call soil_util_init(r_rhiz)
 end subroutine read_soil_namelist
 
 

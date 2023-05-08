@@ -25,7 +25,6 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
 use soil_tile_mod, only : num_l, dz
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_type
-! use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soilc_CENT_type_mod, only: soilc_CENT_t
