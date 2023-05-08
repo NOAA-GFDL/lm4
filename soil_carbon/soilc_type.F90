@@ -1,10 +1,12 @@
 module soilc_type_mod
 
+use land_data_mod, only : lnd ! only for deplete_pool
 use vegn_tile_mod, only: vegn_tile_type
 
 implicit none; private
 
 public :: soilc_t
+public :: deplete_pool
 
 ! abstract type representing soil carbon model
 type, abstract :: soilc_t
@@ -22,6 +24,8 @@ contains
   procedure (add_soil_carbon),   deferred, pass :: add_soil_carbon ! add new surface and sub-surface litter to soil carbon and nitrogen
   procedure (add_root_litter),   deferred, pass :: add_root_litter ! add new root litter to soil carbon and nitrogen
   procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
+
+  procedure (update_soil_pools), deferred, pass :: update_soil_pools
 end type
 
 ! ---- abstract interfaces for methods
@@ -97,6 +101,37 @@ abstract interface
       real,intent(in), optional :: ammonium(:) ! (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
       real,intent(in), optional :: nitrate (:) ! (num_l) amount of  nitrate in exudate, kgN/m2(?) per layer
    end subroutine
+
+   subroutine update_soil_pools(soilc, vegn)
+      import :: soilc_t, vegn_tile_type
+      class(soilc_t),       intent(inout) :: soilc
+      type(vegn_tile_type), intent(inout) :: vegn
+   end subroutine
 end interface
+
+contains
+
+!> @brief Move substance from one pool to another
+!!
+!! given an intermediate pool of C or N, and its spending rate, move the amount
+!! of mass corresponding to one fast time step from the pool to the destination.
+!! The spending rate is adjusted so that intermediate pool is never depleted below zero.
+!!
+!! @note
+!! Spending rate argument is also updated, to be correctly reported to diagnostics
+subroutine deplete_pool(pool, rate, dest, accum)
+   real, intent(inout) :: pool !< C or N intermediate pool, kg
+   real, intent(inout) :: rate !< C or N spending rate, kg/yr
+   real, intent(inout) :: dest !< C or N destination pool, kg
+   real, intent(inout), optional :: accum !< accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
+
+   real :: delta ! change in pool over time step, kg
+
+   rate  = MAX( 0.0, MIN(rate, pool/lnd%dt_fast_yr) ) ! adjust rate
+   delta = rate * lnd%dt_fast_yr
+   dest  = dest + delta
+   pool  = pool - delta
+   if (present(accum)) accum = accum + delta ! increment accumulator
+end subroutine deplete_pool
 
 end module

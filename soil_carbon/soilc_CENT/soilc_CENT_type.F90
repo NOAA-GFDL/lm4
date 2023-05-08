@@ -5,12 +5,12 @@ use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
 use time_manager_mod, only: time_type_to_real
 
 use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, seconds_per_year, &
-     C_FAST, C_SLOW, LITT_LEAF, LITT_CWOOD
+     C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD
 
 use land_data_mod, only : log_version, lnd
 use land_debug_mod, only: land_error_message
 
-use soilc_type_mod, only : soilc_t
+use soilc_type_mod, only : soilc_t, deplete_pool
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta
 use vegn_tile_mod, only: vegn_tile_type
 
@@ -56,6 +56,7 @@ contains
   procedure :: add_soil_carbon   => add_soil_carbon_CENT
   procedure :: add_root_litter   => add_root_litter_CENT
   procedure :: add_root_exudates => add_root_exudates_CENT
+  procedure :: update_soil_pools => update_soil_pools_CENT
 end type soilc_CENT_t
 
 ! ---- module data
@@ -331,5 +332,54 @@ subroutine add_root_exudates_CENT(soilc, exudateC, exudateN, ammonium, nitrate)
      enddo
   endif
 end subroutine
+
+subroutine update_soil_pools_CENT(soilc, vegn)
+  class(soilc_CENT_t), intent(inout) :: soilc
+  type(vegn_tile_type) , intent(inout) :: vegn
+
+  integer :: i,k
+  ! move carbon from intermediate spike-process buffers to litter
+  do i = 1,N_C_TYPES
+     do k = 1, N_LITTER_POOLS
+        call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soilc%litter_century_C(i,k),vegn%litterfall_C(i,k))
+     enddo
+  enddo
+
+  call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soilc%slow_soil_C(1), soilc%ssc_in(1))
+
+  ! transfer litter to soilc pools, with constant time scales
+  call deplete_pool1(soilc%litter_century_C(C_FAST, LITT_LEAF),  tau_lflitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_century_C(C_MIC,  LITT_LEAF),  tau_lflitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_century_C(C_SLOW, LITT_LEAF),  tau_lflitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
+
+  call deplete_pool1(soilc%litter_century_C(C_FAST, LITT_CWOOD), tau_cwlitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_century_C(C_MIC,  LITT_CWOOD), tau_cwlitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_century_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
+end subroutine
+
+!> @brief Move substance from one pool to another
+!!
+!! Given an intermediate pool of C or N, and its e-folding time scale,
+!! move the amount of mass corresponding to one fats time step from the
+!! pool to the destination.
+!!
+!! In contrast to "deplete_pool" subroutime it accepts the time scale
+!! tau, instead os pending rate
+subroutine deplete_pool1(pool, tau, dest, accum)
+   real, intent(inout) :: pool !< C or N intermediate pool, kg
+   real, intent(in)    :: tau  !< C or N e-folding time scale, years
+   real, intent(inout) :: dest !< C or N destination pool, kg
+   real, intent(inout), optional :: accum !< accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
+
+   real :: rate ! rate of depletion, kgC/m2/year
+
+   if (tau > 0) then
+      rate = pool/tau
+   else
+      rate = pool/dt_fast_yr
+   endif
+   call deplete_pool(pool, rate, dest, accum)
+end subroutine deplete_pool1
 
 end module

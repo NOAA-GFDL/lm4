@@ -6,18 +6,20 @@ module soil_carbon_mod
 #include "../../shared/debug.inc"
 
 use constants_mod, only: PI
-use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
-     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, &
-     c_shortname, c_longname, c_diagname
 use fms_mod, only: check_nml_error, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
-use land_data_mod, only: log_version
+use time_manager_mod, only: time_type_to_real
+
+use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
+     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, seconds_per_year
+use land_data_mod, only: log_version, lnd
 use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 
-use soilc_type_mod, only : soilc_t
-use soil_tile_mod, only : soil_tile_type, num_l, clay, dat_w_sat
+use soilc_type_mod, only : soilc_t, deplete_pool
+use soil_tile_mod, only : soil_tile_type, num_l, dz, clay, dat_w_sat
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_data_mod, only : spdata
+use vegn_cohort_mod, only : cohort_root_litter_profile
 
 #endif
 
@@ -112,6 +114,9 @@ integer,parameter::FATAL=0,NOTE=1
 
 real, parameter :: zero(N_C_TYPES) = 0.0 ! to avoid dynamically allocated arrays
 
+real :: delta_time ! fast (physical) time step, s
+real :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
+
 ! ==== types =================================================================
 
 ! Individual litter cohort with its own carbon pools
@@ -172,6 +177,7 @@ contains
   procedure :: add_soil_carbon   => add_soil_carbon_CORPSE
   procedure :: add_root_litter   => add_root_litter_CORPSE
   procedure :: add_root_exudates => add_root_exudates_CORPSE
+  procedure :: update_soil_pools => update_soil_pools_CORPSE
 end type soilc_CORPSE_t
 
 !==== module variables =======================================================
@@ -543,6 +549,76 @@ subroutine add_root_exudates_CORPSE(soilc, exudateC, exudateN, ammonium, nitrate
   enddo
 end subroutine add_root_exudates_CORPSE
 
+subroutine update_soil_pools_CORPSE(soilc, vegn)
+  class(soilc_CORPSE_t), intent(inout) :: soilc
+  type(vegn_tile_type),  intent(inout) :: vegn
+
+  integer :: i,k
+  real :: deltafast, deltaslow, deltafast_N, deltaslow_N
+  real :: profile(num_l), profile1(num_l), psum ! for deposition profile calculation
+  real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
+  real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
+  real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
+
+  vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
+  delta_C = vegn%litter_rate_C*dt_fast_yr
+
+  if(soil_carbon_option == SOILC_CORPSE_N) then
+     vegn%litter_rate_N = MAX(0.0, MIN(vegn%litter_rate_N, vegn%litter_buff_N/dt_fast_yr))
+  else
+     vegn%litter_rate_N = 0.0
+  endif
+  delta_N = vegn%litter_rate_N*dt_fast_yr
+
+  do i = 1,N_LITTER_POOLS
+     call add_litter(soilc%litter_corpse(i), delta_C(:,i), delta_N(:,i))
+  enddo
+  vegn%litter_buff_C = vegn%litter_buff_C - delta_C
+  vegn%litter_buff_N = vegn%litter_buff_N - delta_N
+  ! for litterfall diagnostics
+  vegn%litterfall_C(:,:) = vegn%litterfall_C(:,:) + delta_C(:,:)
+
+  deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
+  deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)
+
+  if (soil_carbon_option == SOILC_CORPSE_N) then
+     deltafast_N = 0.0 ; call deplete_pool(vegn%fsn_pool_bg, vegn%fsn_rate_bg, deltafast_N)
+     deltaslow_N = 0.0 ; call deplete_pool(vegn%ssn_pool_bg, vegn%ssn_rate_bg, deltaslow_N)
+  else
+     vegn%fsn_rate_bg = 0.0
+     deltafast_N      = 0.0
+     vegn%fsn_pool_bg = 0.0
+
+     vegn%ssn_rate_bg = 0.0
+     deltaslow_N      = 0.0
+     vegn%ssn_pool_bg = 0.0
+  endif
+
+  ! vertical profile of litter is proportional to the average of litter profiles
+  ! of all cohorts, weighted with biomasses of fine roots. This does not seem to
+  ! be a very good assumption, since fine roots sometimes die (mass is zero),
+  ! but profile should not be zero in this case.
+  profile(:) = 0.0
+  do i = 1,vegn%n_cohorts
+     associate(cc=>vegn%cohorts(i))
+     call cohort_root_litter_profile(cc,dz,profile1)
+     profile(:) = profile(:) + profile1(:)*cc%br*cc%nindivs
+     end associate
+  enddo
+  psum = sum(profile)
+  if (psum>0) then
+     profile(:) = profile(:)/psum
+  else
+     profile(:) = 0.0
+     profile(1) = 1.0
+  endif
+  do k = 1,num_l
+     litterC(k,:) = [deltafast,deltaslow,0.0] * profile(k)
+     litterN(k,:) = [deltafast_N,deltaslow_N,0.0] * profile(k)
+  enddo
+  call add_root_litter_CORPSE(soilc, vegn, litterC, litterN )
+end subroutine
+
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
     type(soil_pool),intent(inout)::pool
     real,optional,intent(in) :: protectionRate,Qmax
@@ -593,6 +669,9 @@ subroutine read_soilc_CORPSE_namelist
 ! from solving theta dependence for maximum:
   theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
   aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+
+  delta_time = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
+  dt_fast_yr = delta_time/seconds_per_year
 end subroutine
 #endif
 

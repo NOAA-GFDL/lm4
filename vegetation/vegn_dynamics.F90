@@ -910,7 +910,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   ! NEP is equal to NPP minus soil respiration
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
-  call update_soil_pools(vegn, soilc)
+  call soilc%update_soil_pools(vegn)
 
 
   ! ---- diagnostic section
@@ -1233,7 +1233,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
 !  vegn%nep = sum(npp(1:M)*c(1:M)%nindivs) - vegn%rh
   vegn%nep = sum((gpp(1:M)-resp(1:M))*c(1:M)%nindivs) - vegn%rh
 
-  call update_soil_pools(vegn, soilc)
+  call soilc%update_soil_pools(vegn)
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'
@@ -2289,124 +2289,6 @@ subroutine deplete_pool(pool, rate, dest, accum)
    pool  = pool - delta
    if (present(accum)) accum = accum + delta ! increment accumulator
 end subroutine deplete_pool
-
-! =============================================================================
-! given an intermediate pool of C or N, and its e-folding time scale, move the amount
-! of mass corresponding to one fats time step from the pool to the destination.
-subroutine deplete_pool1(pool, tau, dest, accum)
-   real, intent(inout) :: pool ! C or N intermediate pool, kg
-   real, intent(in)    :: tau  ! C or N e-folding time scale, years
-   real, intent(inout) :: dest ! C or N destination pool, kg
-   real, intent(inout), optional :: accum ! accumulator for soil carbon equilibration, e.g. fs_in or ssc_in
-
-   real :: rate ! rate of depletion, kgC/m2/year
-
-   if (tau > 0) then
-      rate = pool/tau
-   else
-      rate = pool/dt_fast_yr
-   endif
-   call deplete_pool(pool, rate, dest, accum)
-end subroutine deplete_pool1
-
-! =============================================================================
-subroutine update_soil_pools(vegn, soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  class(soilc_t),       intent(inout) :: soil
-
-  ! ---- local vars
-  integer :: i,k
-  real :: deltafast, deltaslow, deltafast_N, deltaslow_N
-  real :: profile(num_l), profile1(num_l), psum ! for deposition profile calculation
-  real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
-  real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
-  real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
-  real :: tau ! time scale of CENTURY-mode litter transfer to soil pools
-
-  select type (soil)
-  class is (soilc_CENT_t)
-     ! move carbon from intermediate spike-process buffers to litter
-     do i = 1,N_C_TYPES
-        do k = 1, N_LITTER_POOLS
-           call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soil%litter_century_C(i,k),vegn%litterfall_C(i,k))
-        enddo
-     enddo
-
-     call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soil%slow_soil_C(1), soil%ssc_in(1))
-
-     ! transfer litter to soil pools, with constant time scales
-     call deplete_pool1(soil%litter_century_C(C_FAST, LITT_LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_MIC,  LITT_LEAF),  tau_lflitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_SLOW, LITT_LEAF),  tau_lflitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
-
-     call deplete_pool1(soil%litter_century_C(C_FAST, LITT_CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_MIC,  LITT_CWOOD), tau_cwlitt_transfer, soil%fast_soil_C(1), soil%fsc_in(1))
-     call deplete_pool1(soil%litter_century_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soil%slow_soil_C(1), soil%ssc_in(1))
-
-  class is (soilc_CORPSE_t)
-
-     vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
-     delta_C = vegn%litter_rate_C*dt_fast_yr
-
-     if(soil_carbon_option == SOILC_CORPSE_N) then
-        vegn%litter_rate_N = MAX(0.0, MIN(vegn%litter_rate_N, vegn%litter_buff_N/dt_fast_yr))
-     else
-        vegn%litter_rate_N = 0.0
-     endif
-     delta_N = vegn%litter_rate_N*dt_fast_yr
-
-     do i = 1,N_LITTER_POOLS
-        call add_litter(soil%litter_corpse(i), delta_C(:,i), delta_N(:,i))
-     enddo
-     vegn%litter_buff_C = vegn%litter_buff_C - delta_C
-     vegn%litter_buff_N = vegn%litter_buff_N - delta_N
-     ! for litterfall diagnostics
-     vegn%litterfall_C(:,:) = vegn%litterfall_C(:,:) + delta_C(:,:)
-
-     deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
-     deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)
-
-     if (soil_carbon_option == SOILC_CORPSE_N) then
-        deltafast_N = 0.0 ; call deplete_pool(vegn%fsn_pool_bg, vegn%fsn_rate_bg, deltafast_N)
-        deltaslow_N = 0.0 ; call deplete_pool(vegn%ssn_pool_bg, vegn%ssn_rate_bg, deltaslow_N)
-     else
-        vegn%fsn_rate_bg = 0.0
-        deltafast_N      = 0.0
-        vegn%fsn_pool_bg = 0.0
-
-        vegn%ssn_rate_bg = 0.0
-        deltaslow_N      = 0.0
-        vegn%ssn_pool_bg = 0.0
-     endif
-
-     ! vertical profile of litter is proportional to the average of litter profiles
-     ! of all cohorts, weighted with biomasses of fine roots. This does not seem to
-     ! be a very good assumption, since fine roots sometimes die (mass is zero),
-     ! but profile should not be zero in this case.
-     profile(:) = 0.0
-     do i = 1,vegn%n_cohorts
-        associate(cc=>vegn%cohorts(i))
-        call cohort_root_litter_profile(cc,dz,profile1)
-        profile(:) = profile(:) + profile1(:)*cc%br*cc%nindivs
-        end associate
-     enddo
-     psum = sum(profile)
-     if (psum>0) then
-        profile(:) = profile(:)/psum
-     else
-        profile(:) = 0.0
-        profile(1) = 1.0
-     endif
-     do k = 1,num_l
-        litterC(k,:) = [deltafast,deltaslow,0.0] * profile(k)
-        litterN(k,:) = [deltafast_N,deltaslow_N,0.0] * profile(k)
-     enddo
-     call soil%add_root_litter(vegn, litterC, litterN )
-  class default
-     call error_mesg('update_soil_pools','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
-end subroutine update_soil_pools
 
 ! ============================================================================
 subroutine vegn_reproduction_ppa(seed_transport_option)
