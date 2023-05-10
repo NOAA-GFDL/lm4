@@ -15,8 +15,11 @@ use land_constants_mod, only : N_C_TYPES, C_FAST, C_SLOW, C_MIC, Rugas, &
 use land_data_mod, only: log_version, lnd
 use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 
+use tile_diag_buff_mod, only : diag_buff_type
+
 use soilc_type_mod, only : soilc_t, deplete_pool
-use soil_tile_mod, only : soil_tile_type, num_l, dz, clay, dat_w_sat
+use soil_tile_mod, only : soil_tile_type, num_l, dz, clay, dat_w_sat, &
+    soil_theta, soil_ice_porosity
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_data_mod, only : spdata
 use vegn_cohort_mod, only : cohort_root_litter_profile
@@ -62,9 +65,6 @@ public :: litterDensity
 public :: deadmic_slow_frac
 public :: theta_func
 
-#ifndef STANDALONE_SOIL_CARBON
-public :: A_function
-#endif
 public :: debug_pool
 
 public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
@@ -178,6 +178,7 @@ contains
   procedure :: add_root_litter   => add_root_litter_CORPSE
   procedure :: add_root_exudates => add_root_exudates_CORPSE
   procedure :: update_soil_pools => update_soil_pools_CORPSE
+  procedure :: dsdt              => dsdt_CORPSE
 end type soilc_CORPSE_t
 
 !==== module variables =======================================================
@@ -618,6 +619,106 @@ subroutine update_soil_pools_CORPSE(soilc, vegn)
   enddo
   call add_root_litter_CORPSE(soilc, vegn, litterC, litterN )
 end subroutine
+
+! ============================================================================
+subroutine dsdt_CORPSE(soilc, soil, vegn, diag, soilt, theta)
+  class(soilc_CORPSE_t), intent(inout) :: soilc
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real                , intent(in)    :: soilt ! average soil temperature, deg K [unused]
+  real                , intent(in)    :: theta ! average soil moisture [unused]
+
+  real, dimension(N_C_TYPES) :: &
+     litter_C_loss_rate, litter_N_loss_rate
+  real,dimension(N_LITTER_POOLS) :: litter_nitrif, litter_denitrif, litter_N_mineralization, litter_N_immobilization
+  real, dimension(num_l) :: &
+     soil_nitrif, soil_denitrif, soil_N_mineralization, soil_N_immobilization, &
+     decomp_T, decomp_theta, ice_porosity
+  real, dimension(num_l,N_C_TYPES) :: C_loss_rate, N_loss_rate
+
+  integer :: i,k
+  real :: CO2prod
+
+  decomp_T = soil%T(:)
+  decomp_theta = soil_theta(soil)
+  ice_porosity = soil_ice_porosity(soil)
+  vegn%rh=0.0
+
+  !  First surface litter is decomposed
+  do k = 1,N_LITTER_POOLS
+     call update_pool(soilc%litter_corpse(k), decomp_T(1), decomp_theta(1), &
+            1.0-(decomp_theta(1)+ice_porosity(1)), dt_fast_yr, dz(1), &
+            litter_C_loss_rate, litter_N_loss_rate, CO2prod, &
+            litter_nitrif(k), litter_denitrif(k),&
+            litter_N_mineralization(k), Litter_N_immobilization(k))
+     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
+     ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers
+     ! for litter diagnostic output.
+#ifdef TEMP_SEND_DATA_FROM_SOILC
+     do i = 1, N_C_TYPES
+        call send_tile_data(id_litter_rsoil_C(k,i), litter_C_loss_rate(i), diag)
+        call send_tile_data(id_litter_rsoil_N(k,i), litter_N_loss_rate(i), diag)
+     enddo
+#endif
+     ! for budget check
+     vegn%fsc_out     = vegn%fsc_out     + litter_C_loss_rate(C_FAST)*dt_fast_yr
+     vegn%ssc_out     = vegn%ssc_out     + litter_C_loss_rate(C_SLOW)*dt_fast_yr
+     vegn%deadmic_out = vegn%deadmic_out + litter_C_loss_rate(C_MIC) *dt_fast_yr
+  enddo
+
+
+  ! Next we have to go through layers and decompose the soil carbon pools
+  do k=1,num_l
+     call update_pool(soilc%org_matter(k), decomp_T(k), decomp_theta(k), &
+               1.0-(decomp_theta(k)+ice_porosity(k)), dt_fast_yr, dz(k), &
+               C_loss_rate(k,:), N_loss_rate(k,:), CO2prod, &
+               soil_nitrif(k), soil_denitrif(k), &
+               soil_N_mineralization(k), soil_N_immobilization(k))
+     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
+  enddo
+#ifdef TEMP_SEND_DATA_FROM_SOILC
+  do i = 1, N_C_TYPES
+     if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
+     if (id_rsoil_N(i)>0) call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
+  enddo
+#endif
+  ! for budget check
+  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(:, C_FAST))*dt_fast_yr
+  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(:, C_SLOW))*dt_fast_yr
+  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(:, C_MIC)) *dt_fast_yr
+
+  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + (sum(soil_denitrif)+sum(litter_denitrif))
+
+  ! ---- diagnostic section
+#ifdef TEMP_SEND_DATA_FROM_SOILC
+  call send_tile_data(id_rsoil, vegn%rh, diag)
+
+  if (id_decomp_theta>0) call send_tile_data(id_decomp_theta, decomp_theta(:),diag)
+  if (id_air_filled>0)   call send_tile_data(id_air_filled, 1.0-(decomp_theta(:)+ice_porosity(:)),diag)
+  if (id_theta_func>0) call send_tile_data(id_theta_func, &
+      theta_func(decomp_theta(:),1.0-(decomp_theta(:)+ice_porosity(:))),diag)
+
+  if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
+             (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
+  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif(:)/dt_fast_yr/dz(1:num_l), diag)
+  if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
+             (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
+  if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
+                (sum(soil_N_immobilization)+sum(litter_N_immobilization))/dt_fast_yr,diag)
+  if (id_total_nitrification_rate>0) call send_tile_data(id_total_nitrification_rate, &
+          (sum(soil_nitrif)+sum(litter_nitrif))/dt_fast_yr,diag)
+
+  do i = 1, N_C_TYPES
+     if (id_negative_litter_C(i)>0) call send_tile_data(id_negative_litter_C(i),soilc%neg_litt_C(i),diag)
+     if (id_negative_litter_N(i)>0) call send_tile_data(id_negative_litter_N(i),soilc%neg_litt_N(i),diag)
+  enddo
+  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
+  if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soilc%neg_litt_N),diag)
+
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
+#endif
+end subroutine Dsdt_CORPSE
 
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
     type(soil_pool),intent(inout)::pool
@@ -1303,55 +1404,6 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
 
     call check_cohort(cohort,'end of update_cohort')
 end subroutine update_cohort
-
-! ============================================================================
-! The combined reduction in decomposition rate as a funciton of TEMP and MOIST
-! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
-! CENTURY code
-elemental function A_function(soilt, theta) result(A)
-  real :: A                 ! return value, resulting reduction in decomposition rate
-  real, intent(in) :: soilt ! effective temperature for soil carbon decomposition
-  real, intent(in) :: theta
-
-  real :: soil_temp; ! temperature of the soil, deg C
-  real :: Td; ! rate multiplier due to temp
-  real :: Wd; ! rate reduction due to mositure
-
-  ! coefficeints and terms used in temperaturex term
-  real :: Topt,Tmax,t1,t2,tshl,tshr;
-
-  soil_temp = soilt-273.16;
-
-  ! EFFECT OF TEMPERATURE
-  ! from Bolker's century code
-  Tmax=45.0;
-  if (soil_temp > Tmax) soil_temp = Tmax;
-  Topt=35.0;
-  tshr=0.2; tshl=2.63;
-  t1=(Tmax-soil_temp)/(Tmax-Topt);
-  t2=exp((tshr/tshl)*(1.-t1**tshl));
-  Td=t1**tshr*t2;
-
-  if (soil_temp > -10) Td=Td+0.05;
-  if (Td > 1.) Td=1.;
-
-  ! EFFECT OF MOISTURE
-  ! Linn and Doran, 1984, Soil Sci. Amer. J. 48:1267-1272
-  ! This differs from the Century Wd
-  ! was modified by slm/ens based on the figures from the above paper
-  !     (not the reported function)
-
-  if(theta <= 0.3) then
-     Wd = 0.2;
-  else if(theta <= 0.6) then
-     Wd = 0.2+0.8*(theta-0.3)/0.3;
-  else
-     Wd = exp(2.3*(0.6-theta));
-  endif
-
-  A = (Td*Wd); ! the combined (multiplicative) effect of temp and water
-               ! on decomposition rates
-end function A_function
 
 ! =======================================================================================
 pure subroutine initializeCohort(cohort,&

@@ -10,6 +10,8 @@ use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, seconds_per_year, &
 use land_data_mod, only : log_version, lnd
 use land_debug_mod, only: land_error_message
 
+use tile_diag_buff_mod, only : diag_buff_type
+
 use soilc_type_mod, only : soilc_t, deplete_pool
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta
 use vegn_tile_mod, only: vegn_tile_type
@@ -57,6 +59,7 @@ contains
   procedure :: add_root_litter   => add_root_litter_CENT
   procedure :: add_root_exudates => add_root_exudates_CENT
   procedure :: update_soil_pools => update_soil_pools_CENT
+  procedure :: dsdt              => dsdt_CENT
 end type soilc_CENT_t
 
 ! ---- module data
@@ -381,5 +384,101 @@ subroutine deplete_pool1(pool, tau, dest, accum)
    endif
    call deplete_pool(pool, rate, dest, accum)
 end subroutine deplete_pool1
+
+subroutine dsdt_CENT(soilc, soil, vegn, diag, soilt, theta)
+  class(soilc_CENT_t)  , intent(inout) :: soilc
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real                , intent(in)    :: soilt ! average soil temperature, deg K
+  real                , intent(in)    :: theta ! average soil moisture
+
+  real :: fast_C_loss(size(soilc%fast_soil_C))
+  real :: slow_C_loss(size(soilc%slow_soil_C))
+  real :: A          (size(soilc%slow_soil_C)) ! decomp rate reduction due to moisture and temperature
+
+  if (bulk) then
+      A(:) = A_function(soilt, theta)
+  else
+      A(:) = A_function(soil%T, soil_theta(soil))
+  endif
+
+  fast_C_loss = soilc%fast_soil_C(:)*A*K1*dt_fast_yr;
+  slow_C_loss = soilc%slow_soil_C(:)*A*K2*dt_fast_yr;
+
+  soilc%fast_soil_C = soilc%fast_soil_C - fast_C_loss;
+  soilc%slow_soil_C = soilc%slow_soil_C - slow_C_loss;
+
+  ! for budget check
+  vegn%fsc_out = vegn%fsc_out + sum(fast_C_loss(:));
+  vegn%ssc_out = vegn%ssc_out + sum(slow_C_loss(:));
+
+  ! loss of C to atmosphere and leaching
+  vegn%rh = sum(fast_C_loss(:)+slow_C_loss(:))/dt_fast_yr;
+
+  ! accumulate decomposition rate reduction for the soil carbon restart output
+  soilc%asoil_in(:) = soilc%asoil_in(:) + A(:)
+
+  ! ---- diagnostic section
+#ifdef TEMP_SEND_DATA_FROM_SOILC
+  call send_tile_data(id_rsoil_C(C_FAST), fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
+  call send_tile_data(id_rsoil_C(C_SLOW), slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
+  call send_tile_data(id_rsoil, vegn%rh, diag)
+
+  ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
+  !       e.g. weight it with the carbon loss, or something like that
+  if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
+#endif
+end subroutine dsdt_CENT
+
+! ============================================================================
+! The combined reduction in decomposition rate as a funciton of TEMP and MOIST
+! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
+! CENTURY code
+elemental function A_function(soilt, theta) result(A)
+  real :: A                 ! return value, resulting reduction in decomposition rate
+  real, intent(in) :: soilt ! effective temperature for soil carbon decomposition
+  real, intent(in) :: theta
+
+  real :: soil_temp; ! temperature of the soil, deg C
+  real :: Td; ! rate multiplier due to temp
+  real :: Wd; ! rate reduction due to mositure
+
+  ! coefficeints and terms used in temperaturex term
+  real :: Topt,Tmax,t1,t2,tshl,tshr;
+
+  soil_temp = soilt-273.16;
+
+  ! EFFECT OF TEMPERATURE
+  ! from Bolker's century code
+  Tmax=45.0;
+  if (soil_temp > Tmax) soil_temp = Tmax;
+  Topt=35.0;
+  tshr=0.2; tshl=2.63;
+  t1=(Tmax-soil_temp)/(Tmax-Topt);
+  t2=exp((tshr/tshl)*(1.-t1**tshl));
+  Td=t1**tshr*t2;
+
+  if (soil_temp > -10) Td=Td+0.05;
+  if (Td > 1.) Td=1.;
+
+  ! EFFECT OF MOISTURE
+  ! Linn and Doran, 1984, Soil Sci. Amer. J. 48:1267-1272
+  ! This differs from the Century Wd
+  ! was modified by slm/ens based on the figures from the above paper
+  !     (not the reported function)
+
+  if(theta <= 0.3) then
+     Wd = 0.2;
+  else if(theta <= 0.6) then
+     Wd = 0.2+0.8*(theta-0.3)/0.3;
+  else
+     Wd = exp(2.3*(0.6-theta));
+  endif
+
+  A = (Td*Wd); ! the combined (multiplicative) effect of temp and water
+               ! on decomposition rates
+end function A_function
 
 end module

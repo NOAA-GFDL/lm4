@@ -44,7 +44,7 @@ use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
-use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
+use soil_mod, only: active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
 implicit none
 private
@@ -903,7 +903,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   endif
 
   ! update soil carbon
-  call Dsdt(vegn, soil, soilc, diag, soilt, theta)
+  call soilc%dsdt(soil, vegn, diag, soilt, theta)
 
   vegn%rh = vegn%rh + total_myc_CO2_prod/dt_fast_yr
 
@@ -1225,7 +1225,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
   call soilc%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                     leaf_litt_N, wood_litt_N, root_litt_N  )
   ! update soil carbon
-  call Dsdt(vegn, soil, soilc, diag, tsoil, theta)
+  call soilc%dsdt(soil, vegn, diag, tsoil, theta)
   vegn%rh = vegn%rh + total_myc_CO2_prod/dt_fast_yr
 
 

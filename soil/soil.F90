@@ -43,7 +43,7 @@ use soil_carbon_mod, only: soilc_CORPSE_t, soil_pool, &
      poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool,transfer_pool_fraction, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     A_function, debug_pool, adjust_pool_ncohorts, &
+     debug_pool, adjust_pool_ncohorts, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
      deposit_dissolved_C, dissolve_carbon, theta_func
 
@@ -63,7 +63,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
-use vegn_data_mod, only: K1, K2, spdata
+use vegn_data_mod, only: spdata
 use vegn_cohort_mod, only : vegn_cohort_type, &
      cohort_uptake_profile, cohort_root_litter_profile
 
@@ -108,7 +108,6 @@ public :: soil_step_2
 public :: soil_step_3
 public :: soil_data_beta
 
-public :: Dsdt
 public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
@@ -2961,170 +2960,6 @@ subroutine soil_step_3(soil, diag)
   end select
 
 end subroutine soil_step_3
-
-
-! ============================================================================
-subroutine Dsdt(vegn, soil, soilc, diag, soilt, theta)
-  class(soilc_t), intent(inout)       :: soilc
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  type(diag_buff_type), intent(inout) :: diag
-  real                , intent(in)    :: soilt ! average soil temperature, deg K
-  real                , intent(in)    :: theta ! average soil moisture
-
-  select type(soilc)
-  class is (soilc_CENT_t)
-     call Dsdt_CENTURY(vegn, soil, soilc, diag, soilt, theta)
-  class is (soilc_CORPSE_t)
-     call Dsdt_CORPSE(vegn, soil, soilc, diag)
-  class default
-     call error_mesg('Dsdt','unrecognized soil carbon option -- this should never happen', FATAL)
-  end select
-  ! CMOR diag
-  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
-end subroutine Dsdt
-
-
-! ============================================================================
-subroutine Dsdt_CORPSE(vegn, soil, soilc, diag)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  class(soilc_CORPSE_t),  intent(inout) :: soilc
-  type(diag_buff_type), intent(inout) :: diag
-
-  real, dimension(N_C_TYPES) :: &
-     litter_C_loss_rate, litter_N_loss_rate
-  real,dimension(N_LITTER_POOLS) :: litter_nitrif, litter_denitrif, litter_N_mineralization, litter_N_immobilization
-  real, dimension(num_l) :: &
-     soil_nitrif, soil_denitrif, soil_N_mineralization, soil_N_immobilization, &
-     decomp_T, decomp_theta, ice_porosity
-  real, dimension(num_l,N_C_TYPES) :: C_loss_rate, N_loss_rate
-
-  integer :: i,k
-  real :: CO2prod
-
-  decomp_T = soil%T(:)
-  decomp_theta = soil_theta(soil)
-  ice_porosity = soil_ice_porosity(soil)
-  vegn%rh=0.0
-
-  !  First surface litter is decomposed
-  do k = 1,N_LITTER_POOLS
-     call update_pool(soilc%litter_corpse(k), decomp_T(1), decomp_theta(1), &
-            1.0-(decomp_theta(1)+ice_porosity(1)), dt_fast_yr, dz(1), &
-            litter_C_loss_rate, litter_N_loss_rate, CO2prod, &
-            litter_nitrif(k), litter_denitrif(k),&
-            litter_N_mineralization(k), Litter_N_immobilization(k))
-     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
-     ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers
-     ! for litter diagnostic output.
-     do i = 1, N_C_TYPES
-        call send_tile_data(id_litter_rsoil_C(k,i), litter_C_loss_rate(i), diag)
-        call send_tile_data(id_litter_rsoil_N(k,i), litter_N_loss_rate(i), diag)
-     enddo
-     ! for budget check
-     vegn%fsc_out     = vegn%fsc_out     + litter_C_loss_rate(C_FAST)*dt_fast_yr
-     vegn%ssc_out     = vegn%ssc_out     + litter_C_loss_rate(C_SLOW)*dt_fast_yr
-     vegn%deadmic_out = vegn%deadmic_out + litter_C_loss_rate(C_MIC) *dt_fast_yr
-  enddo
-
-
-  ! Next we have to go through layers and decompose the soil carbon pools
-  do k=1,num_l
-     call update_pool(soilc%org_matter(k), decomp_T(k), decomp_theta(k), &
-               1.0-(decomp_theta(k)+ice_porosity(k)), dt_fast_yr, dz(k), &
-               C_loss_rate(k,:), N_loss_rate(k,:), CO2prod, &
-               soil_nitrif(k), soil_denitrif(k), &
-               soil_N_mineralization(k), soil_N_immobilization(k))
-     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
-  enddo
-  do i = 1, N_C_TYPES
-     if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
-     if (id_rsoil_N(i)>0) call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
-  enddo
-  ! for budget check
-  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(:, C_FAST))*dt_fast_yr
-  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(:, C_SLOW))*dt_fast_yr
-  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(:, C_MIC)) *dt_fast_yr
-
-  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + (sum(soil_denitrif)+sum(litter_denitrif))
-
-  ! ---- diagnostic section
-  call send_tile_data(id_rsoil, vegn%rh, diag)
-
-  if (id_decomp_theta>0) call send_tile_data(id_decomp_theta, decomp_theta(:),diag)
-  if (id_air_filled>0)   call send_tile_data(id_air_filled, 1.0-(decomp_theta(:)+ice_porosity(:)),diag)
-  if (id_theta_func>0) call send_tile_data(id_theta_func, &
-      theta_func(decomp_theta(:),1.0-(decomp_theta(:)+ice_porosity(:))),diag)
-
-  if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
-             (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
-  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif(:)/dt_fast_yr/dz(1:num_l), diag)
-  if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
-             (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
-  if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
-                (sum(soil_N_immobilization)+sum(litter_N_immobilization))/dt_fast_yr,diag)
-  if (id_total_nitrification_rate>0) call send_tile_data(id_total_nitrification_rate, &
-          (sum(soil_nitrif)+sum(litter_nitrif))/dt_fast_yr,diag)
-
-  do i = 1, N_C_TYPES
-     if (id_negative_litter_C(i)>0) call send_tile_data(id_negative_litter_C(i),soilc%neg_litt_C(i),diag)
-     if (id_negative_litter_N(i)>0) call send_tile_data(id_negative_litter_N(i),soilc%neg_litt_N(i),diag)
-  enddo
-  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
-  if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soilc%neg_litt_N),diag)
-end subroutine Dsdt_CORPSE
-
-
-! ============================================================================
-subroutine Dsdt_CENTURY(vegn, soil, soilc, diag, soilt, theta)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  class(soilc_CENT_t),  intent(inout) :: soilc
-  type(diag_buff_type), intent(inout) :: diag
-  real                , intent(in)    :: soilt ! average soil temperature, deg K
-  real                , intent(in)    :: theta ! average soil moisture
-
-  real :: fast_C_loss(size(soilc%fast_soil_C))
-  real :: slow_C_loss(size(soilc%slow_soil_C))
-  real :: A          (size(soilc%slow_soil_C)) ! decomp rate reduction due to moisture and temperature
-
-  select case (soil_carbon_option)
-  case(SOILC_CENTURY)
-      A(:) = A_function(soilt, theta)
-  case(SOILC_CENTURY_BY_LAYER)
-      A(:) = A_function(soil%T, soil_theta(soil))
-  case default
-    call error_mesg('Dsdt_CENTURY','The value of soil_carbon_option is invalid. This should never happen. See developer.',FATAL)
-  end select
-
-  fast_C_loss = soilc%fast_soil_C(:)*A*K1*dt_fast_yr;
-  slow_C_loss = soilc%slow_soil_C(:)*A*K2*dt_fast_yr;
-
-  soilc%fast_soil_C = soilc%fast_soil_C - fast_C_loss;
-  soilc%slow_soil_C = soilc%slow_soil_C - slow_C_loss;
-
-  ! for budget check
-  vegn%fsc_out = vegn%fsc_out + sum(fast_C_loss(:));
-  vegn%ssc_out = vegn%ssc_out + sum(slow_C_loss(:));
-
-  ! loss of C to atmosphere and leaching
-  vegn%rh = sum(fast_C_loss(:)+slow_C_loss(:))/dt_fast_yr;
-
-  ! accumulate decomposition rate reduction for the soil carbon restart output
-  soilc%asoil_in(:) = soilc%asoil_in(:) + A(:)
-
-  ! ---- diagnostic section
-  call send_tile_data(id_rsoil_C(C_FAST), fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
-  call send_tile_data(id_rsoil_C(C_SLOW), slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
-  call send_tile_data(id_rsoil, vegn%rh, diag)
-
-  ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
-  !       e.g. weight it with the carbon loss, or something like that
-  if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
-
-end subroutine Dsdt_CENTURY
-
 
 ! ============================================================================
 subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)

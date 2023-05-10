@@ -1,6 +1,8 @@
 module soilc_type_mod
 
 use land_data_mod, only : lnd ! only for deplete_pool
+use tile_diag_buff_mod, only : diag_buff_type
+use soil_tile_mod, only: soil_tile_type
 use vegn_tile_mod, only: vegn_tile_type
 
 implicit none; private
@@ -26,6 +28,7 @@ contains
   procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
 
   procedure (update_soil_pools), deferred, pass :: update_soil_pools
+  procedure (dsdt),              deferred, pass :: dsdt
 end type
 
 ! ---- abstract interfaces for methods
@@ -106,6 +109,16 @@ abstract interface
       import :: soilc_t, vegn_tile_type
       class(soilc_t),       intent(inout) :: soilc
       type(vegn_tile_type), intent(inout) :: vegn
+   end subroutine
+
+   subroutine dsdt(soilc, soil, vegn, diag, soilt, theta)
+      import soilc_t, soil_tile_type, vegn_tile_type, diag_buff_type
+      class(soilc_t), intent(inout)       :: soilc
+      type(soil_tile_type), intent(inout) :: soil
+      type(vegn_tile_type), intent(inout) :: vegn
+      type(diag_buff_type), intent(inout) :: diag
+      real                , intent(in)    :: soilt ! average soil temperature, deg K
+      real                , intent(in)    :: theta ! average soil moisture
    end subroutine
 end interface
 
