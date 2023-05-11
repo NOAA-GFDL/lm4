@@ -111,7 +111,7 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
 
-use soilc_restart_mod, only : read_soilc_restart, save_soilc_restart
+use soilc_restart_mod, only : soilc_init, save_soilc_restart
 
 implicit none
 private
@@ -455,7 +455,7 @@ subroutine land_model_init &
   call hlsp_init ( id_ug ) ! Must be called before soil_init
   call soil_init ( id_ug, id_band, id_zfull)
   call hlsp_hydro_init (id_ug, id_zfull) ! Must be called after soil_init
-  call read_soilc_restart ()
+  call soilc_init ( id_ug )
   call vegn_init ( id_ug, id_band, id_cellarea )
   call lake_init ( id_ug )
   call glac_init ( id_ug )

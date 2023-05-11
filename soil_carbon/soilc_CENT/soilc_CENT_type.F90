@@ -1,19 +1,21 @@
 module soilc_CENT_type_mod
 
 use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
-            stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
+        stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
 
-use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, seconds_per_year, &
-     C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD
+use land_constants_mod, only : N_LITTER_POOLS, seconds_per_year, &
+        N_C_TYPES, C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD
 
 use land_data_mod, only : log_version, lnd
 use land_debug_mod, only: land_error_message
 
 use tile_diag_buff_mod, only : diag_buff_type
+use tile_diag_base_mod, only : set_default_diag_filter, &
+        register_tiled_diag_field, send_tile_data
 
 use soilc_type_mod, only : soilc_t, deplete_pool
-use soil_tile_mod, only: soil_tile_type, num_l, soil_theta
+use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
 use vegn_tile_mod, only: vegn_tile_type
 
 implicit none; private
@@ -21,7 +23,7 @@ implicit none; private
 ! ---- public items
 public :: soilc_CENT_t
 public :: new_soilc_CENT
-public :: read_soilc_CENT_namelist
+public :: read_soilc_CENT_namelist, soilc_diag_init_CENT
 
 ! ---- interfces
 interface new_soilc_CENT
@@ -76,6 +78,9 @@ namelist /soil_carbon_CENT_nml/ bulk, K1, K2, tau_lflitt_transfer, tau_cwlitt_tr
 real :: delta_time ! fast (physical) time step, s
 real :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 
+! diag fields ID
+integer :: id_asoil, id_rsoil, id_rsoil_C(N_C_TYPES), id_rh
+
 contains
 
 !> read namelist
@@ -95,6 +100,28 @@ subroutine read_soilc_CENT_namelist()
 
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
+end subroutine
+
+!> @brief Register diagnostic fields
+subroutine soilc_diag_init_CENT(id_ug)
+  integer,intent(in)  :: id_ug    !<Unstructured axis id.
+
+  character(*), parameter :: diag_mod_name = 'soil'
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
+
+
+  id_asoil = register_tiled_diag_field ( diag_mod_name, 'asoil', &
+       [ id_ug ], lnd%time, 'aerobic activity modifier', &
+       missing_value=-100.0 )
+  id_rsoil = register_tiled_diag_field ( diag_mod_name, 'rsoil',  &
+       [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
+
+id_rh = -1
+id_rsoil_C(:) = -1
+!   id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
+!        axes, lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
+
 end subroutine
 
 ! constructors
@@ -420,7 +447,6 @@ subroutine dsdt_CENT(soilc, soil, vegn, diag, soilt, theta)
   soilc%asoil_in(:) = soilc%asoil_in(:) + A(:)
 
   ! ---- diagnostic section
-#ifdef TEMP_SEND_DATA_FROM_SOILC
   call send_tile_data(id_rsoil_C(C_FAST), fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
   call send_tile_data(id_rsoil_C(C_SLOW), slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
@@ -429,7 +455,6 @@ subroutine dsdt_CENT(soilc, soil, vegn, diag, soilt, theta)
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
-#endif
 end subroutine dsdt_CENT
 
 ! ============================================================================

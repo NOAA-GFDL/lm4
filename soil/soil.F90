@@ -236,7 +236,6 @@ integer ::  &
     id_div_bf, id_div_if, id_div_al, id_div, &
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
     id_protected_total_C, id_protected_total_N, &
-    id_asoil,id_rsoil,&
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
@@ -841,9 +840,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
         (/id_ug/), lnd%time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
   id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
 
-  id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
-       axes(1:1), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-
   id_protected_C = register_tiled_diag_field ( module_name, 'prot_soil_C', axes,  &
        lnd%time, 'protected soil carbon content', 'kg C/m3', missing_value=-100.0 )
   id_protected_N = register_tiled_diag_field ( module_name, 'prot_soil_N', axes,  &
@@ -1186,10 +1182,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_f_geo_sat = register_tiled_static_field ( module_name, 'f_geo_sat',  &
        (/id_ug, id_band/), 'geometric brdf weight, saturated soil', &
        missing_value=-1.0 )
-
-  id_asoil = register_tiled_diag_field ( module_name, 'asoil', &
-       (/id_ug/), lnd%time, 'aerobic activity modifier', &
-       missing_value=-100.0 )
 
   ! the following fields are for compatibility with older diag tables only
   call add_tiled_static_field_alias ( id_slope_Z, module_name, 'slope_Z',  &

@@ -3,22 +3,24 @@ module soilc_restart_mod
 use soil_carbon_mod,  only : soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     SOILC_CORPSE, SOILC_CORPSE_N
-use soilc_CENT_mod,   only : read_soilc_CENT_restart,   save_soilc_CENT_restart
+use soilc_CENT_mod,   only : soilc_init_CENT, save_soilc_CENT_restart
 use soilc_CORPSE_mod, only : read_soilc_CORPSE_restart, save_soilc_CORPSE_restart
 
 implicit none; private
 
 ! ==== public interfaces =====================================================
-public :: read_soilc_restart
+public :: soilc_init
 public :: save_soilc_restart
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine read_soilc_restart()
+subroutine soilc_init( id_ug )
+  integer,intent(in) :: id_ug    !<Unstructured axis id.
+
   select case (soil_carbon_option)
   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-    call read_soilc_CENT_restart()
+    call soilc_init_CENT( id_ug )
   case(SOILC_CORPSE, SOILC_CORPSE_N)
     call read_soilc_CORPSE_restart()
   end select

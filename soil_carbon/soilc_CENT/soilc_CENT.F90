@@ -8,14 +8,14 @@ use land_tile_mod, only : land_tile_type
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, add_restart_axis
-use soilc_CENT_type_mod, only : soilc_CENT_t
+use soilc_CENT_type_mod, only : soilc_CENT_t, soilc_diag_init_CENT
 use soil_tile_mod, only: num_l, zfull
 use soilc_mod, only : save_soilc_equilibration_data
 
 implicit none; private
 
 public :: save_soilc_CENT_restart
-public :: read_soilc_CENT_restart
+public :: soilc_init_CENT
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -58,11 +58,12 @@ subroutine save_soilc_CENT_restart(tile_dim_length, timestamp)
 end subroutine
 
 ! ============================================================================
-subroutine read_soilc_CENT_restart()
-  character(*), parameter :: restart_file_name = 'INPUT/soilc_CENT.nc'
-  logical :: restart_exists
+subroutine soilc_init_CENT( id_ug )
+  integer,intent(in)  :: id_ug    !<Unstructured axis id.
 
+  character(*), parameter :: restart_file_name = 'INPUT/soilc_CENT.nc'
   type(land_restart_type) :: restart ! restart file i/o object
+  logical                 :: restart_exists
   integer :: i,k
 
   call open_land_restart(restart,restart_file_name,restart_exists)
@@ -89,6 +90,9 @@ subroutine read_soilc_CENT_restart()
      call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
      call free_land_restart(restart)
   endif
+
+  ! initialize diagnostics
+  call soilc_diag_init_CENT( id_ug )
 end subroutine
 
 ! ============================================================================
