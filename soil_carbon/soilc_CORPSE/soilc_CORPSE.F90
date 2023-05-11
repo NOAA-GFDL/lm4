@@ -10,7 +10,8 @@ use land_tile_io_mod, only: land_restart_type, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
 use soil_tile_mod, only: num_l, zfull
-use soil_carbon_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, soil_carbon_option, SOILC_CORPSE_N, soilMaxCohorts
+use soil_carbon_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, soil_carbon_option, &
+     SOILC_CORPSE_N, soilMaxCohorts, soilc_diag_init_CORPSE
 use soilc_mod, only: save_soilc_equilibration_data
 
 use soil_accessors_mod, only: soil_gross_nitrogen_flux_into_tile_ptr, soil_gross_nitrogen_flux_out_of_tile_ptr
@@ -18,18 +19,10 @@ use soilc_CORPSE_accessors_mod ! use everything
 
 implicit none; private
 
-public :: read_soilc_CORPSE_restart
+public :: soilc_init_CORPSE
 public :: save_soilc_CORPSE_restart
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-! ============================================================================
-subroutine soil_carbon_init_CORPSE
-end subroutine
-
-! ============================================================================
-subroutine read_soilc_restart_CORPSE()
-end subroutine
 
 ! ============================================================================
 subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
@@ -163,12 +156,18 @@ subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
   endif
 end subroutine
 
-subroutine read_soilc_CORPSE_restart()
+subroutine soilc_init_CORPSE( id_ug, id_zfull )
+  integer,intent(in) :: id_ug    !< Unstructured axis id
+  integer,intent(in) :: id_zfull !< Vertical (depth) axis id
+
   type(land_restart_type) :: restart ! restart file i/o object
   logical :: restart_exists
   type(land_tile_enum_type)     :: ce   ! tile list enumerator
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   integer :: i,k
+
+  ! initialize diagnostics
+  call soilc_diag_init_CORPSE( id_ug, id_zfull )
 
   call open_land_restart(restart,'INPUT/soilc_CORPSE.nc',restart_exists)
   if (restart_exists) then

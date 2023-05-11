@@ -58,13 +58,17 @@ subroutine save_soilc_CENT_restart(tile_dim_length, timestamp)
 end subroutine
 
 ! ============================================================================
-subroutine soilc_init_CENT( id_ug )
-  integer,intent(in)  :: id_ug    !<Unstructured axis id.
+subroutine soilc_init_CENT( id_ug, id_zfull )
+  integer,intent(in)  :: id_ug    !< Unstructured axis id
+  integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
   character(*), parameter :: restart_file_name = 'INPUT/soilc_CENT.nc'
   type(land_restart_type) :: restart ! restart file i/o object
   logical                 :: restart_exists
   integer :: i,k
+
+  ! initialize diagnostics
+  call soilc_diag_init_CENT( id_ug, id_zfull )
 
   call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
@@ -91,8 +95,6 @@ subroutine soilc_init_CENT( id_ug )
      call free_land_restart(restart)
   endif
 
-  ! initialize diagnostics
-  call soilc_diag_init_CENT( id_ug )
 end subroutine
 
 ! ============================================================================

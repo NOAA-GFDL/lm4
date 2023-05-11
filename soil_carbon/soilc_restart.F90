@@ -4,7 +4,7 @@ use soil_carbon_mod,  only : soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     SOILC_CORPSE, SOILC_CORPSE_N
 use soilc_CENT_mod,   only : soilc_init_CENT, save_soilc_CENT_restart
-use soilc_CORPSE_mod, only : read_soilc_CORPSE_restart, save_soilc_CORPSE_restart
+use soilc_CORPSE_mod, only : soilc_init_CORPSE, save_soilc_CORPSE_restart
 
 implicit none; private
 
@@ -15,14 +15,15 @@ public :: save_soilc_restart
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine soilc_init( id_ug )
-  integer,intent(in) :: id_ug    !<Unstructured axis id.
+subroutine soilc_init( id_ug, id_zfull )
+  integer,intent(in) :: id_ug    !< Unstructured axis id
+  integer,intent(in) :: id_zfull !< Vertical (depth) axis id
 
   select case (soil_carbon_option)
   case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-    call soilc_init_CENT( id_ug )
+    call soilc_init_CENT( id_ug, id_zfull )
   case(SOILC_CORPSE, SOILC_CORPSE_N)
-    call read_soilc_CORPSE_restart()
+    call soilc_init_CORPSE( id_ug, id_zfull )
   end select
 end subroutine
 

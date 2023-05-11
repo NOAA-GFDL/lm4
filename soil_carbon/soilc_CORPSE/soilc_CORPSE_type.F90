@@ -16,6 +16,8 @@ use land_data_mod, only: log_version, lnd
 use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 
 use tile_diag_buff_mod, only : diag_buff_type
+use tile_diag_base_mod, only : set_default_diag_filter, &
+        register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
 use soilc_type_mod, only : soilc_t, deplete_pool
 use soil_tile_mod, only : soil_tile_type, num_l, dz, clay, dat_w_sat, &
@@ -49,7 +51,7 @@ public :: remove_C_N_fraction_from_pool
 public :: combine_pools
 public :: poolTotals, poolTotals1
 public :: init_soil_pool
-public :: read_soilc_CORPSE_namelist
+public :: read_soilc_CORPSE_namelist, soilc_diag_init_CORPSE
 
 public :: deposit_dissolved_C
 public :: dissolve_carbon
@@ -279,6 +281,9 @@ integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
 
 ! normalization factors for soil moisture aerobic respiration depencence
 real :: aerobic_max, theta_resp_max
+
+! diag fields ID
+integer :: id_rsoil
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -691,9 +696,9 @@ subroutine dsdt_CORPSE(soilc, soil, vegn, diag, soilt, theta)
   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + (sum(soil_denitrif)+sum(litter_denitrif))
 
   ! ---- diagnostic section
-#ifdef TEMP_SEND_DATA_FROM_SOILC
   call send_tile_data(id_rsoil, vegn%rh, diag)
 
+#ifdef TEMP_SEND_DATA_FROM_SOILC
   if (id_decomp_theta>0) call send_tile_data(id_decomp_theta, decomp_theta(:),diag)
   if (id_air_filled>0)   call send_tile_data(id_air_filled, 1.0-(decomp_theta(:)+ice_porosity(:)),diag)
   if (id_theta_func>0) call send_tile_data(id_theta_func, &
@@ -749,7 +754,6 @@ subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
 end subroutine init_soil_pool
 
 ! =============================================================================
-#ifndef STANDALONE_SOIL_CARBON
 subroutine read_soilc_CORPSE_namelist
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
@@ -774,7 +778,20 @@ subroutine read_soilc_CORPSE_namelist
   delta_time = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
   dt_fast_yr = delta_time/seconds_per_year
 end subroutine
-#endif
+
+subroutine soilc_diag_init_CORPSE ( id_ug, id_zfull )
+  integer,intent(in)  :: id_ug    !< Unstructured axis id
+  integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
+
+  character(*), parameter :: diag_mod_name = 'soil'
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
+
+  id_rsoil = register_tiled_diag_field ( diag_mod_name, 'rsoil',  &
+       [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+end subroutine
 
 
 #ifdef STANDALONE_SOIL_CARBON

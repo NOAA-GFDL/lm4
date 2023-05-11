@@ -14,20 +14,17 @@ use land_data_mod,      only : lnd, log_version, land_data_type
 use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : & ! use everything except send_tile_data interface, which we extend in this module
-BASE_TILED_FIELD_ID, BASE_COHORT_FIELD_ID, &
-OP_AVERAGE, OP_SUM, OP_MAX, OP_MIN, OP_VAR, OP_STD, &
-n_fields, fields, &
-tiled_diag_field_type, &
-tile_diag_base_init, tile_diag_base_end, set_default_diag_filter, &
-register_tiled_area_fields, &
-register_tiled_diag_field, &
-register_tiled_static_field, &
-register_cohort_diag_field, &
-add_tiled_diag_field_alias, &
-add_tiled_static_field_alias, &
-send_tile_data_0d, send_tile_data_1d, &
-send_cohort_data, &
-get_area_id, get_field_id
+        BASE_TILED_FIELD_ID, BASE_COHORT_FIELD_ID, &
+        OP_AVERAGE, OP_SUM, OP_MAX, OP_MIN, OP_VAR, OP_STD, &
+        cmor_name, cmor_mrsos_depth, &
+        n_fields, fields, &
+        tiled_diag_field_type, &
+        tile_diag_base_init, tile_diag_base_end, set_default_diag_filter, &
+        register_tiled_area_fields, register_tiled_diag_field, &
+        register_tiled_static_field, register_cohort_diag_field, &
+        add_tiled_diag_field_alias, add_tiled_static_field_alias, &
+        send_tile_data_0d, send_tile_data_1d, send_cohort_data, &
+        get_area_id, get_field_id
 
 implicit none; private
 
@@ -62,11 +59,7 @@ public :: get_area_id, get_field_id
 public :: send_global_land_diag ! unused?
 
 public :: OP_AVERAGE, OP_SUM, OP_MAX, OP_MIN, OP_VAR, OP_STD
-
-! name of the table used for CMOR-compatible variables
-character(*), public, parameter :: cmor_name='cmor_land'
-real,         public, parameter :: cmor_mrsos_depth=0.1 ! depth of mrsos soil
-                                    ! moisture averaging, m
+public :: cmor_name, cmor_mrsos_depth
 
 interface send_tile_data
    module procedure send_tile_data_0d

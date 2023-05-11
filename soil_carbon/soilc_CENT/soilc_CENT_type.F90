@@ -12,9 +12,10 @@ use land_debug_mod, only: land_error_message
 
 use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : set_default_diag_filter, &
-        register_tiled_diag_field, send_tile_data
+        register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
 use soilc_type_mod, only : soilc_t, deplete_pool
+use soilc_util_mod, only : register_soilc_diag_fields
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
 use vegn_tile_mod, only: vegn_tile_type
 
@@ -103,8 +104,9 @@ subroutine read_soilc_CENT_namelist()
 end subroutine
 
 !> @brief Register diagnostic fields
-subroutine soilc_diag_init_CENT(id_ug)
-  integer,intent(in)  :: id_ug    !<Unstructured axis id.
+subroutine soilc_diag_init_CENT(id_ug, id_zfull)
+  integer,intent(in)  :: id_ug    !< Unstructured axis id
+  integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
   character(*), parameter :: diag_mod_name = 'soil'
   ! set the default sub-sampling filter for the fields below
@@ -115,12 +117,24 @@ subroutine soilc_diag_init_CENT(id_ug)
        [ id_ug ], lnd%time, 'aerobic activity modifier', &
        missing_value=-100.0 )
   id_rsoil = register_tiled_diag_field ( diag_mod_name, 'rsoil',  &
-       [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
+       [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
 
-id_rh = -1
-id_rsoil_C(:) = -1
-!   id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
-!        axes, lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
+  id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
+       [ id_ug, id_zfull ], lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', &
+       missing_value=-100.0 )
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+
+  id_rh = register_tiled_diag_field ( CMOR_NAME, 'rh', [ id_ug ], &
+       lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_rh, CMOR_NAME, 'rhLut', [ id_ug ],  &
+       lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.FALSE., missing_value=-100.0)
 
 end subroutine
 

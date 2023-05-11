@@ -16,8 +16,8 @@ use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, &
-     N_C_TYPES, C_FAST, C_SLOW, C_MIC, c_shortname, c_longname, c_diagname, &
-     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, l_shortname, l_longname, l_diagname, &
+     N_C_TYPES, C_FAST, C_SLOW, C_MIC, c_shortname, &
+     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, l_shortname, &
      seconds_per_year
 use land_numerics_mod, only : tridiag
 use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
@@ -37,15 +37,17 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 use soil_accessors_mod ! use everything
 
-use soilc_type_mod, only: soilc_t
-use soilc_CENT_type_mod, only: soilc_CENT_t
-use soil_carbon_mod, only: soilc_CORPSE_t, soil_pool, &
+use soilc_type_mod, only : soilc_t
+use soilc_CENT_type_mod, only : soilc_CENT_t
+use soil_carbon_mod, only : soilc_CORPSE_t, soil_pool, &
      poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool,transfer_pool_fraction, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      debug_pool, adjust_pool_ncohorts, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
      deposit_dissolved_C, dissolve_carbon, theta_func
+use soilc_util_mod, only : register_soilc_diag_fields, &
+    register_litter_diag_fields, register_litter_soilc_diag_fields
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -280,7 +282,7 @@ integer :: id_st_diff
 
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, id_mrfsofr, id_mrlqso, &
+    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_mrfsofr, id_mrlqso, &
     id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
     id_cSoilAbove1m, &
     id_nSoil, id_nLitter, id_nLitterCwd, id_nLitterLeaf, id_nMineral, id_nMineralNH4, id_nMineralNO3
@@ -698,110 +700,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 end subroutine soil_init
 
 
-! ============================================================================
-function replace_text (s,text,rep)  result(outs)
-character(*), intent(in) :: s,text,rep
-character(len(s)+100) :: outs     ! provide outs with extra 100 char len
-
-integer      :: i, nt, nr
-
-outs = s ; nt = len_trim(text) ; nr = len_trim(rep)
-do
-   i = index(outs,text(:nt)) ; if (i == 0) exit
-   outs = outs(:i-1) // rep(:nr) // outs(i+nt:)
-end do
-end function replace_text
-
-! ============================================================================
-function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name) result (id)
-
-  integer :: id(N_C_TYPES)
-
-  character(len=*), intent(in) :: module_name
-  character(len=*), intent(in) :: field_name
-  integer,          intent(in) :: axes(:)
-  type(time_type),  intent(in) :: init_time
-  character(len=*), intent(in), optional :: long_name
-  character(len=*), intent(in), optional :: units
-  real,             intent(in), optional :: missing_value
-  real,             intent(in), optional :: range(2)
-  character(len=*), intent(in), optional :: op ! aggregation operation
-  character(len=*), intent(in), optional :: standard_name
-
-  integer :: i
-
-  do i = 1, N_C_TYPES
-     id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<ctype>',trim(c_diagname(i)))), &
-             axes, init_time, &
-             trim(replace_text(long_name,'<ctype>',trim(c_longname(i)))), &
-             units, missing_value, range, op, standard_name)
-  enddo
-end function register_soilc_diag_fields
-
-! ============================================================================
-! registered an array of diag fields, one per litter pool
-function register_litter_diag_fields(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name) result (id)
-
-  integer :: id(N_LITTER_POOLS)
-
-  character(len=*), intent(in) :: module_name
-  character(len=*), intent(in) :: field_name
-  integer,          intent(in) :: axes(:)
-  type(time_type),  intent(in) :: init_time
-  character(len=*), intent(in), optional :: long_name
-  character(len=*), intent(in), optional :: units
-  real,             intent(in), optional :: missing_value
-  real,             intent(in), optional :: range(2)
-  character(len=*), intent(in), optional :: op ! aggregation operation
-  character(len=*), intent(in), optional :: standard_name
-
-  integer :: i
-
-  do i = 1, N_LITTER_POOLS
-     id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<ltype>',trim(l_diagname(i)))), &
-             axes, init_time, &
-             trim(replace_text(long_name,'<ltype>',trim(l_longname(i)))), &
-             units, missing_value, range, op, standard_name)
-  enddo
-end function register_litter_diag_fields
-
-! ============================================================================
-! registered a 2D array of diag fields, one per litter pool per carbon type
-function register_litter_soilc_diag_fields(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name) result (id)
-
-  integer :: id(N_LITTER_POOLS, N_C_TYPES)
-
-  character(len=*), intent(in) :: module_name
-  character(len=*), intent(in) :: field_name
-  integer,          intent(in) :: axes(:)
-  type(time_type),  intent(in) :: init_time
-  character(len=*), intent(in), optional :: long_name
-  character(len=*), intent(in), optional :: units
-  real,             intent(in), optional :: missing_value
-  real,             intent(in), optional :: range(2)
-  character(len=*), intent(in), optional :: op ! aggregation operation
-  character(len=*), intent(in), optional :: standard_name
-
-  integer :: i, k
-  character(128) :: name
-  character(512) :: lname
-
-  do i = 1, N_C_TYPES
-     do k = 1, N_LITTER_POOLS
-        name = replace_text(field_name,'<ctype>',trim(c_diagname(i)))
-        name = replace_text(name,      '<ltype>',trim(l_diagname(k)))
-        lname = replace_text(long_name,'<ctype>',trim(c_longname(i)))
-        lname = replace_text(lname,    '<ltype>',trim(l_longname(k)))
-        id(k,i) = register_tiled_diag_field(module_name, trim(name), axes, init_time, trim(lname), &
-             units, missing_value, range, op, standard_name)
-     enddo
-  enddo
-end function register_litter_soilc_diag_fields
 
 ! ============================================================================
 subroutine soil_diag_init(id_ug,id_band,id_zfull)
@@ -1315,14 +1213,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Carbon Mass in Leaf Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='leaf_debris_mass_content_of_carbon', &
        fill_missing=.TRUE.)
-  id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
-       lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
-       fill_missing=.TRUE.)
-  call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:1),  &
-       lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
-       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
-       fill_missing=.FALSE., missing_value=-100.0)
   id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', axes(1:1), &
        lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &

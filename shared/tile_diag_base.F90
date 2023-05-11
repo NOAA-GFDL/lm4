@@ -131,6 +131,11 @@ integer, parameter :: & ! symbolic constants for cohort filter numbers
    CFILTER_BY_SP_CANOPY = 6, &
    CFILTER_BY_SP_UNDER  = 7
 
+! name of the table used for CMOR-compatible variables
+character(*), public, parameter :: CMOR_NAME='cmor_land'
+real,         public, parameter :: CMOR_MRSOS_DEPTH=0.1 ! depth of mrsos soil
+                                    ! moisture averaging, m
+
 type :: cohort_filter_type
   integer       :: tag
   integer       :: extra_axes
