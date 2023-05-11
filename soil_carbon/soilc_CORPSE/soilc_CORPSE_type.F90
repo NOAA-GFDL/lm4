@@ -20,6 +20,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
 use soilc_type_mod, only : soilc_t, deplete_pool
+use soilc_util_mod, only : register_soilc_diag_fields
 use soil_tile_mod, only : soil_tile_type, num_l, dz, clay, dat_w_sat, &
     soil_theta, soil_ice_porosity
 use vegn_tile_mod, only : vegn_tile_type
@@ -283,7 +284,7 @@ integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
 real :: aerobic_max, theta_resp_max
 
 ! diag fields ID
-integer :: id_rsoil
+integer :: id_rsoil, id_rsoil_C(N_C_TYPES), id_rsoil_N(N_C_TYPES), id_rh
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -682,12 +683,10 @@ subroutine dsdt_CORPSE(soilc, soil, vegn, diag, soilt, theta)
                soil_N_mineralization(k), soil_N_immobilization(k))
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
   enddo
-#ifdef TEMP_SEND_DATA_FROM_SOILC
   do i = 1, N_C_TYPES
      if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
      if (id_rsoil_N(i)>0) call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
   enddo
-#endif
   ! for budget check
   vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(:, C_FAST))*dt_fast_yr
   vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(:, C_SLOW))*dt_fast_yr
@@ -720,9 +719,9 @@ subroutine dsdt_CORPSE(soilc, soil, vegn, diag, soilt, theta)
   enddo
   if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
   if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soilc%neg_litt_N),diag)
+#endif
 
   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
-#endif
 end subroutine Dsdt_CORPSE
 
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
@@ -791,6 +790,26 @@ subroutine soilc_diag_init_CORPSE ( id_ug, id_zfull )
   id_rsoil = register_tiled_diag_field ( diag_mod_name, 'rsoil',  &
        [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
+
+  id_rsoil_C(:) = register_soilc_diag_fields( diag_mod_name, 'rsoil_<ctype>', &
+       [ id_ug, id_zfull ], lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', &
+       missing_value=-100.0 )
+
+  id_rsoil_N(:) = register_soilc_diag_fields( diag_mod_name, 'rsoil_N_<ctype>', &
+       [ id_ug, id_zfull ], lnd%time, '<ctype> soil nitrogen respiration', 'kg N/(m3 year)', &
+       missing_value=-100.0 )
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+
+  id_rh = register_tiled_diag_field ( CMOR_NAME, 'rh', [ id_ug ], &
+       lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_rh, CMOR_NAME, 'rhLut', [ id_ug ],  &
+       lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.FALSE., missing_value=-100.0)
 end subroutine
 
 

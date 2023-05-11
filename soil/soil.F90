@@ -260,7 +260,6 @@ integer, dimension(N_C_TYPES) :: &
     id_soil_C,           id_soil_N, &
     id_soil_dissolved_C, id_soil_dissolved_N, &
     id_soil_protected_C, id_soil_protected_N, &
-    id_rsoil_C,          id_rsoil_N, &
     id_C_leaching, id_DON_leaching
 integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_C, id_litter_N, id_litter_dissolved_C, id_litter_dissolved_N, &
@@ -758,8 +757,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, lnd%time, '<ctype> dissolved soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_soil_protected_C(:) = register_soilc_diag_fields(module_name, '<ctype>_prot_C', &
        axes, lnd%time, '<ctype> protected soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
-       axes, lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
 
   id_C_leaching(:) = register_soilc_diag_fields ( module_name, '<ctype>_C_leaching', axes, &
        lnd%time, 'net layer <ctype> soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
@@ -772,8 +769,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, lnd%time, '<ctype> dissolved soil nitrogen', 'kg N/m3', missing_value=-100.0 )
   id_soil_protected_N(:) = register_soilc_diag_fields(module_name, '<ctype>_prot_N', &
        axes, lnd%time, '<ctype> protected soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_rsoil_N(:) = register_soilc_diag_fields(module_name, 'rsoil_N_<ctype>', &
-       axes, lnd%time, '<ctype> soil nitrogen respiration', 'kg N/(m3 year)', missing_value=-100.0 )
 
   ! litter fields
   id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C', &

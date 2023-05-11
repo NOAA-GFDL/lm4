@@ -120,9 +120,10 @@ subroutine soilc_diag_init_CENT(id_ug, id_zfull)
        [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
 
-  id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
+  id_rsoil_C(:) = register_soilc_diag_fields( diag_mod_name, 'rsoil_<ctype>', &
        [ id_ug, id_zfull ], lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', &
        missing_value=-100.0 )
+
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
