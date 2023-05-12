@@ -107,7 +107,6 @@ public :: soil_get_sfc_temp
 public :: soil_radiation
 public :: soil_step_1
 public :: soil_step_2
-public :: soil_step_3
 public :: soil_data_beta
 
 public :: active_root_N_uptake
@@ -241,7 +240,7 @@ integer ::  &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
-    id_Qmax, id_frozen_freq, id_decomp_theta, id_air_filled, id_theta_func
+    id_Qmax, id_frozen_freq
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -271,10 +270,7 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 
 integer :: &
     id_total_NH4,id_total_NO3,&
-    id_soil_NO3,id_soil_NH4,&
-    id_total_denitrification_rate,id_soil_denitrification_rate,&
-    id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
-    id_total_nitrification_rate
+    id_soil_NO3,id_soil_NH4
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -825,20 +821,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'soil NO3 content', 'kg N/m3', missing_value=-100.0 )
   id_soil_NH4 = register_tiled_diag_field ( module_name, 'soil_NH4', axes,  &
        lnd%time, 'soil NH4 content', 'kg N/m3', missing_value=-100.0 )
-  id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'tot_denitrif_rate',  &
-       (/id_ug/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
-       missing_value=-100.0 )
-  id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrif_rate', axes,  &
-       lnd%time, 'Denitrification rate', 'kg N/m3/year', missing_value=-100.0 )
-  id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'tot_N_mnrl_rate',  &
-       (/id_ug/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
-       missing_value=-100.0 )
-  id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'tot_N_immob_rate',  &
-      (/id_ug/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
-      missing_value=-100.0 )
-  id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'tot_nitrif_rate',  &
-       (/id_ug/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
-       missing_value=-100.0 )
 
   id_Qmax = register_tiled_static_field ( module_name, 'soil_Qmax', axes(1:1),  &
        'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
@@ -931,12 +913,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
   id_frozen_freq  = register_tiled_diag_field ( module_name, 'frozen_freq',  axes,       &
        lnd%time, 'frequency of frozen soil (time smoothed)', '1',  missing_value=-100.0 )
-  id_decomp_theta = register_tiled_diag_field ( module_name, 'water_filled_por', axes,  &
-       lnd%time, 'water filled porosity for carbon decomposition', '1', missing_value=-100.0 )
-  id_air_filled = register_tiled_diag_field ( module_name, 'air_filled_por', axes,  &
-       lnd%time, 'air filled porosity for carbon decomposition', '1', missing_value=-100.0 )
-  id_theta_func = register_tiled_diag_field ( module_name, 'theta_func', axes,  &
-       lnd%time, 'moisture-related scaling factor for carbon decomposition', '1', missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:1), &
        lnd%time, 'number of iterations for soil uptake',  missing_value=-100.0 )
@@ -2669,174 +2645,6 @@ end subroutine soil_step_1
   call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
 
 end subroutine soil_step_2
-
-! ============================================================================
-subroutine soil_step_3(soil, diag)
-  class(soilc_t),       intent(inout) :: soil
-  type(diag_buff_type), intent(inout) :: diag
-
-  real :: soil_C(N_C_TYPES, num_l),      soil_N(N_C_TYPES, num_l), &
-          dissolved_C(N_C_TYPES, num_l), dissolved_N(N_C_TYPES, num_l), &
-          protected_C(N_C_TYPES,num_l),  protected_N(N_C_TYPES,num_l), &
-          livemic_C(num_l), livemic_N(num_l), &
-          layer_C(num_l),   layer_N(num_l)
-  real :: litter_C(N_C_TYPES), litter_dissolved_C(N_C_TYPES), litter_protected_C(N_C_TYPES), litter_livemic_C, litter_total_C, &
-          litter_N(N_C_TYPES), litter_dissolved_N(N_C_TYPES), litter_protected_N(N_C_TYPES), litter_livemic_N, litter_total_N
-  integer :: i, k, l, ncohorts(num_l), litter_ncohorts
-  real :: total_C(N_C_TYPES), total_livemic_C, total_prot_C(N_C_TYPES), total_diss_C(N_C_TYPES), &
-          total_N(N_C_TYPES), total_livemic_N, total_prot_N(N_C_TYPES), total_diss_N(N_C_TYPES)
-  real :: total_NO3, total_NH4
-  real :: total_litter_C, total_litter_N ! total C and N in all litter, for diagnostics
-
-  select type(soil)
-  class is (soilc_CENT_t)
-     call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
-     call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
-     call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
-     call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
-     call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(:,:)), diag)
-     do k = 1, N_LITTER_POOLS
-        if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(:,k)), diag)
-        do i = 1, N_C_TYPES
-           call send_tile_data(id_litter_C(k,i), soil%litter_century_C(i,k), diag)
-        enddo
-     enddo
-
-     ! --- CMOR vars
-     if (id_csoilfast>0)   call send_tile_data(id_csoilfast,   sum(soil%fast_soil_C(:)), diag)
-     if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
-     call send_tile_data(id_csoilslow, 0.0, diag)
-     if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
-     if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
-     if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
-     if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,LITT_CWOOD)), diag)
-     if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LITT_LEAF)), diag)
-     ! --- end of CMOR vars
-
-  class is (soilc_CORPSE_t)
-
-     do l = 1,num_l
-        call poolTotals1 ( soil%org_matter(l), ncohorts=ncohorts(l), &
-            litterC=soil_C(:,l), livemicC=livemic_C(l), protectedC=protected_C(:,l), dissolvedC=dissolved_C(:,l), totalC=layer_C(l), &
-            litterN=soil_N(:,l), livemicN=livemic_N(l), protectedN=protected_N(:,l), dissolvedN=dissolved_N(:,l), totalN=layer_N(l)  )
-     enddo
-     total_C(:)      = sum(soil_C(:,:),2)
-     total_livemic_C = sum(livemic_C)
-     total_prot_C    = sum(protected_C(:,:),2)
-     total_diss_C    = sum(dissolved_C(:,:),2)
-     total_N(:)      = sum(soil_N(:,:),2)
-     total_livemic_N = sum(livemic_N)
-     total_prot_N    = sum(protected_N(:,:),2)
-     total_diss_N    = sum(dissolved_N(:,:),2)
-     total_NO3       = sum(soil%org_matter(1:num_l)%nitrate)
-     total_NH4       = sum(soil%org_matter(1:num_l)%ammonium)
-
-     ! --- CMOR vars
-     if (id_csoilfast   > 0) call send_tile_data(id_csoilfast,   total_C(C_FAST)+total_C(C_MIC)+total_livemic_C, diag)
-     if (id_csoilmedium > 0) call send_tile_data(id_csoilmedium, total_C(C_SLOW),      diag)
-     if (id_csoilslow   > 0) call send_tile_data(id_csoilslow,   sum(total_prot_C(:)), diag)
-     if (id_csoil       > 0) call send_tile_data(id_csoil,       sum(layer_C(:)),      diag)
-     if (id_cSoilLevels > 0) call send_tile_data(id_cSoilLevels, layer_C(:),           diag)
-     if (id_cSoilAbove1m > 0) call send_tile_data(id_cSoilAbove1m, sum(layer_C(:)*mrs1m_weight(:)), diag)
-
-     if (id_nSoil       > 0) call send_tile_data(id_nSoil,       sum(layer_N(:)),      diag)
-     if (id_nMineral    > 0) call send_tile_data(id_nMineral,    total_NO3+total_NH4,  diag)
-     if (id_nMineralNH4 > 0) call send_tile_data(id_nMineralNH4, total_NH4,            diag)
-     if (id_nMineralNO3 > 0) call send_tile_data(id_nMineralNO3, total_NO3,            diag)
-     ! --- end of CMOR vars
-
-     call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
-     do i = 1, N_C_TYPES
-        call send_tile_data(id_soil_C(i),           soil_C(i,:)/dz(1:num_l),      diag)
-        call send_tile_data(id_soil_N(i),           soil_N(i,:)/dz(1:num_l),      diag)
-        call send_tile_data(id_soil_protected_C(i), protected_C(i,:)/dz(1:num_l), diag)
-        call send_tile_data(id_soil_protected_N(i), protected_N(i,:)/dz(1:num_l), diag)
-        call send_tile_data(id_soil_dissolved_C(i), dissolved_C(i,:)/dz(1:num_l), diag)
-        call send_tile_data(id_soil_dissolved_N(i), dissolved_N(i,:)/dz(1:num_l), diag)
-     enddo
-     call send_tile_data(id_protected_C, sum(protected_C,1)/dz(1:num_l), diag)
-     call send_tile_data(id_protected_N, sum(protected_N,1)/dz(1:num_l), diag)
-     call send_tile_data(id_livemic_C, livemic_C/dz(1:num_l), diag)
-     call send_tile_data(id_livemic_N, livemic_N/dz(1:num_l), diag)
-     call send_tile_data(id_total_C_layered, layer_C(:)/dz(1:num_l), diag)
-     call send_tile_data(id_total_N_layered, layer_N(:)/dz(1:num_l), diag)
-     if (id_soil_DOC>0) call send_tile_data(id_soil_DOC, sum(dissolved_C,1)/dz(1:num_l), diag)
-     if (id_soil_DON>0) call send_tile_data(id_soil_DON, sum(dissolved_N,1)/dz(1:num_l), diag)
-
-     call send_tile_data(id_soil_NO3, soil%org_matter(1:num_l)%nitrate/dz(1:num_l),diag)
-     call send_tile_data(id_soil_NH4, soil%org_matter(1:num_l)%ammonium/dz(1:num_l),diag)
-     call send_tile_data(id_total_NO3, total_NO3, diag)
-     call send_tile_data(id_total_NH4, total_NH4, diag)
-
-     ! leaf litter diagnostics
-     total_litter_C = 0.0; total_litter_N = 0.0
-     do k = 1, N_LITTER_POOLS
-        call poolTotals1 (soil%litter_corpse(k), ncohorts=litter_ncohorts, &
-            litterC=litter_C(:), livemicC=litter_livemic_C, protectedC=litter_protected_C(:), dissolvedC=litter_dissolved_C(:), totalC=litter_total_C, &
-            litterN=litter_N(:), livemicN=litter_livemic_N, protectedN=litter_protected_N(:), dissolvedN=litter_dissolved_N(:), totalN=litter_total_N  )
-        total_C(:)      = total_C(:) + litter_C(:)
-        total_livemic_C = total_livemic_C + litter_livemic_C
-        total_diss_C    = total_diss_C + sum(soil%litter_corpse(k)%dissolved_carbon(:))
-        total_prot_C    = total_prot_C + sum(litter_protected_C(:))
-        total_N(:)      = total_N(:) + litter_N(:)
-        total_livemic_N = total_livemic_N + litter_livemic_N
-        total_diss_N    = total_diss_N + sum(soil%litter_corpse(k)%dissolved_nitrogen(:))
-        total_prot_N    = total_prot_N + sum(litter_protected_N(:))
-        total_NO3       = total_NO3 + soil%litter_corpse(k)%nitrate
-        total_NH4       = total_NO3 + soil%litter_corpse(k)%ammonium
-        total_litter_C  = total_litter_C + litter_total_C
-        total_litter_N  = total_litter_N + litter_total_N
-
-        call send_tile_data(id_nlittercohorts(k), real(litter_ncohorts), diag)
-        call send_tile_data(id_litter_livemic_C(k), litter_livemic_C, diag)
-        call send_tile_data(id_litter_livemic_N(k), litter_livemic_N, diag)
-        call send_tile_data(id_litter_total_C(k), litter_total_C, diag)
-        call send_tile_data(id_litter_total_N(k), litter_total_N, diag)
-        call send_tile_data(id_litter_nitrate(k), soil%litter_corpse(k)%nitrate, diag)
-        call send_tile_data(id_litter_ammonium(k), soil%litter_corpse(k)%ammonium, diag)
-        do i = 1, N_C_TYPES
-           call send_tile_data(id_litter_C(k,i), litter_C(i), diag)
-           call send_tile_data(id_litter_N(k,i), litter_N(i), diag)
-           call send_tile_data(id_litter_protected_C(k,i), litter_protected_C(i), diag)
-           call send_tile_data(id_litter_protected_N(k,i), litter_protected_N(i), diag)
-           call send_tile_data(id_litter_dissolved_C(k,i), soil%litter_corpse(k)%dissolved_carbon(i), diag)
-           call send_tile_data(id_litter_dissolved_N(k,i), soil%litter_corpse(k)%dissolved_nitrogen(i), diag)
-        enddo
-        ! CMOR diagnostics
-        select case (k)
-        case (LITT_CWOOD)
-           call send_tile_data(id_cLitterCwd, litter_total_C, diag)
-           call send_tile_data(id_nLitterCwd, litter_total_N, diag)
-        case (LITT_LEAF)
-           call send_tile_data(id_cLitterLeaf, litter_total_C, diag)
-           call send_tile_data(id_nLitterLeaf, litter_total_N, diag)
-        end select
-     enddo
-
-     ! diagnostic of totals
-     call send_tile_data(id_fsc, total_C(C_FAST), diag)
-     call send_tile_data(id_fsN, total_N(C_FAST), diag)
-     call send_tile_data(id_ssc, total_C(C_SLOW), diag)
-     call send_tile_data(id_ssN, total_N(C_SLOW), diag)
-     call send_tile_data(id_deadmic_total_C, total_C(C_MIC), diag)
-     call send_tile_data(id_deadmic_total_N, total_N(C_MIC), diag)
-     call send_tile_data(id_livemic_total_C, total_livemic_C, diag)
-     call send_tile_data(id_livemic_total_N, total_livemic_N, diag)
-     call send_tile_data(id_protected_total_C, sum(total_prot_C), diag)
-     call send_tile_data(id_protected_total_N, sum(total_prot_N), diag)
-     call send_tile_data(id_dissolved_total_C, sum(total_diss_C), diag)
-     call send_tile_data(id_dissolved_total_N, sum(total_diss_N), diag)
-     call send_tile_data(id_total_soil_C, sum(total_C+total_diss_C+total_prot_C)+total_livemic_C, diag)
-     call send_tile_data(id_total_soil_N, sum(total_N+total_diss_N+total_prot_N)+total_livemic_N, diag)
-     ! --- CMOR vars
-     call send_tile_data(id_cLitter, total_litter_C, diag)
-     call send_tile_data(id_nLitter, total_litter_N, diag)
-     ! --- end of CMOR vars
-  class default
-     call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
-  end select
-
-end subroutine soil_step_3
 
 ! ============================================================================
 subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)

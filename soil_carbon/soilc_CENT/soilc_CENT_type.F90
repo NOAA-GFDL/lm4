@@ -63,6 +63,7 @@ contains
   procedure :: add_root_exudates => add_root_exudates_CENT
   procedure :: update_soil_pools => update_soil_pools_CENT
   procedure :: dsdt              => dsdt_CENT
+  procedure :: step3             => step3_CENT
 end type soilc_CENT_t
 
 ! ---- module data
@@ -471,6 +472,42 @@ subroutine dsdt_CENT(soilc, soil, vegn, diag, soilt, theta)
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
 end subroutine dsdt_CENT
+
+! ============================================================================
+subroutine step3_CENT(soilc, diag)
+  class(soilc_CENT_t),   intent(inout) :: soilc
+  type(diag_buff_type), intent(inout) :: diag
+
+  integer :: i, k
+
+#ifdef TEMP_SEND_DATA_FROM_SOILC
+  associate (soil=>soilc) ! to avoid renaming
+  call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
+  call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
+  call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
+  call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
+  call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(:,:)), diag)
+  do k = 1, N_LITTER_POOLS
+     if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(:,k)), diag)
+     do i = 1, N_C_TYPES
+        call send_tile_data(id_litter_C(k,i), soil%litter_century_C(i,k), diag)
+     enddo
+  enddo
+
+  ! --- CMOR vars
+  if (id_csoilfast>0)   call send_tile_data(id_csoilfast,   sum(soil%fast_soil_C(:)), diag)
+  if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
+  call send_tile_data(id_csoilslow, 0.0, diag)
+  if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
+  if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
+  if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
+  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,CWOOD)), diag)
+  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LEAF)), diag)
+  ! --- end of CMOR vars
+  end associate
+#endif
+
+end subroutine
 
 ! ============================================================================
 ! The combined reduction in decomposition rate as a funciton of TEMP and MOIST

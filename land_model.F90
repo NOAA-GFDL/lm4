@@ -39,7 +39,7 @@ use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_te
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
+     soil_radiation, soil_step_1, soil_step_2, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags
 use soilc_mod, only : read_soil_carbon_namelist
@@ -2375,8 +2375,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
              tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
      call vegn_step_3 (tile%vegn, tile%soil, tile%soilc, tile%cana%T, precip_l+precip_s, &
           ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
-     ! if vegn is present, then soil must be too
-     call soil_step_3(tile%soilc, tile%diag)
+     call tile%soilc%step3(tile%diag)
 
      call update_fire_fast(tile, p_surf, atmos_wind, l)
   endif

@@ -29,6 +29,7 @@ contains
 
   procedure (update_soil_pools), deferred, pass :: update_soil_pools
   procedure (dsdt),              deferred, pass :: dsdt
+  procedure (step3),             deferred, pass :: step3
 end type
 
 ! ---- abstract interfaces for methods
@@ -119,6 +120,12 @@ abstract interface
       type(diag_buff_type), intent(inout) :: diag
       real                , intent(in)    :: soilt ! average soil temperature, deg K
       real                , intent(in)    :: theta ! average soil moisture
+   end subroutine
+
+   subroutine step3(soilc, diag)
+      import soilc_t, diag_buff_type
+      class(soilc_t),       intent(inout) :: soilc
+      type(diag_buff_type), intent(inout) :: diag
    end subroutine
 end interface
 
