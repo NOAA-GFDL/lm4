@@ -62,6 +62,7 @@ contains
   procedure :: add_soil_carbon   => add_soil_carbon_CENT
   procedure :: add_root_litter   => add_root_litter_CENT
   procedure :: add_root_exudates => add_root_exudates_CENT
+  procedure :: tracer_leaching   => tracer_leaching_CENT
   procedure :: update_soil_pools => update_soil_pools_CENT
   procedure :: dsdt              => dsdt_CENT
   procedure :: step3             => step3_CENT
@@ -438,6 +439,24 @@ subroutine add_root_exudates_CENT(soilc, exudateC, exudateN, ammonium, nitrate)
         soilc%fsc_in(k)      = soilc%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
      enddo
   endif
+end subroutine
+
+subroutine tracer_leaching_CENT(soilC, diag, &
+     wl, flow, div, &
+     div_hlsp_DOC, div_hlsp_DON, div_hlsp_NO3, div_hlsp_NH4, &
+     ! output
+     total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div )
+  class(soilc_CENT_t),  intent(inout) :: soilC
+  type(diag_buff_type), intent(inout) :: diag
+
+  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+  real, intent(in) :: div_hlsp_DOC(:,:) ! (N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+  real, intent(in) :: div_hlsp_DON(:,:) ! (N_C_TYPES, num_l) [kg N/m^2/s] net divergence
+  real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! (num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+
+  real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
+
+  total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
 end subroutine
 
 subroutine update_soil_pools_CENT(soilc, vegn)

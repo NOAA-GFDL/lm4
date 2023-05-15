@@ -26,6 +26,7 @@ contains
   procedure (add_soil_carbon),   deferred, pass :: add_soil_carbon ! add new surface and sub-surface litter to soil carbon and nitrogen
   procedure (add_root_litter),   deferred, pass :: add_root_litter ! add new root litter to soil carbon and nitrogen
   procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
+  procedure (tracer_leaching),   deferred, pass :: tracer_leaching
 
   procedure (update_soil_pools), deferred, pass :: update_soil_pools
   procedure (dsdt),              deferred, pass :: dsdt
@@ -105,6 +106,21 @@ abstract interface
       real,intent(in), optional :: ammonium(:) ! (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
       real,intent(in), optional :: nitrate (:) ! (num_l) amount of  nitrate in exudate, kgN/m2(?) per layer
    end subroutine
+
+   subroutine tracer_leaching(soilC, diag, &
+         wl, flow, div, &
+         div_hlsp_DOC, div_hlsp_DON, div_hlsp_NO3, div_hlsp_NH4, &
+         ! output
+         total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div )
+      import :: soilc_t, diag_buff_type
+      type(diag_buff_type), intent(inout) :: diag
+      class(soilc_t), intent(inout) :: soilC
+      real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+      real, intent(in) :: div_hlsp_DOC(:,:) ! (N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+      real, intent(in) :: div_hlsp_DON(:,:) ! (N_C_TYPES, num_l) [kg N/m^2/s] net divergence
+      real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! (num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+      real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
+   end subroutine tracer_leaching
 
    subroutine update_soil_pools(soilc, vegn)
       import :: soilc_t, vegn_tile_type
