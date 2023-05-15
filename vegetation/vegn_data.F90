@@ -154,7 +154,7 @@ public :: &
     tree_grass_option, reserved_grass_frac, &
 
     track_vegn_nitrogen, N_limits_live_biomass, &
-    mycorrhizal_turnover_time, &
+    deadmic_slow_frac, mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, &
@@ -540,6 +540,7 @@ logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are
 logical, protected :: track_vegn_nitrogen   = .FALSE.  ! if true, nitrogen is accounted for in vegetation
 logical, protected :: N_limits_live_biomass = .FALSE.  ! if true, nitrogen availability affects vegetation processes
 
+real, protected :: deadmic_slow_frac         = 0.0     ! Fraction of microbial turnover that goes to slow pool
 real, protected :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real, protected :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
 real, protected :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
@@ -613,7 +614,7 @@ namelist /vegn_data_nml/ &
 
   ! N-related namelist values
   track_vegn_nitrogen, N_limits_live_biomass, &
-  mycorrhizal_turnover_time, &
+  deadmic_slow_frac, mycorrhizal_turnover_time, &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, &

@@ -30,7 +30,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, track_vegn_nitrogen, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
-     excess_stored_N_leakage_rate, min_N_stress, &
+     excess_stored_N_leakage_rate, min_N_stress, deadmic_slow_frac, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
      mycorrhizal_turnover_time, N_fixer_turnover_time
 use vegn_tile_mod, only: vegn_tile_type, vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
@@ -42,8 +42,6 @@ use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
-use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
-    add_litter, deadmic_slow_frac
 
 implicit none
 private

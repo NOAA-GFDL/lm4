@@ -29,7 +29,7 @@ use soil_tile_mod, only : soil_tile_type, gw_option, GW_TILED, initval, &
         num_l, dz, zhalf, clay, dat_w_sat, &
         soil_theta, soil_ice_porosity
 use vegn_tile_mod, only : vegn_tile_type
-use vegn_data_mod, only : spdata
+use vegn_data_mod, only : spdata, deadmic_slow_frac
 use vegn_cohort_mod, only : cohort_root_litter_profile
 
 #endif
@@ -70,7 +70,6 @@ public :: transfer_pool_fraction
 public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
 public :: litterDensity
-public :: deadmic_slow_frac
 public :: theta_func
 
 public :: debug_pool
@@ -226,7 +225,6 @@ real, dimension(N_C_TYPES) :: vmaxref_denitrif=(/450e0,2.5e0,60e0/) ! Organic ma
 real :: k_denitrif=1e-2                ! Half saturation constant for denitrification (kgNO3-N/kgNO3-N demand/year)
 real :: denitrif_NO3_factor=0.93       ! g N denitrified per g C decomposed. Determined by 4/5 N:C stoichiometry of reaction (Heinen, 2006)
 real :: CN_microb=8                    ! Fixed microbial C:N ratio
-real :: deadmic_slow_frac=0.0     ! Fraction of microbial turnover that goes to slow pool
 
 real,dimension(N_C_TYPES) :: eup=(/0.6,0.2,0.1/)            ! Fraction of degraded C that goes into microbial biomass
 real,dimension(N_C_TYPES) :: eup_myc=(/0.6,0.2,0.1/)        ! Fraction of degraded C that goes into mycorrhizal biomass
@@ -281,7 +279,7 @@ namelist /soilc_CORPSE_nml/ &
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
     tLongest,&
-    litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,min_dry_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
+    litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,min_dry_resp_factor,microbe_driven_protection,&
     Ea_NH4,Ea_NO3,Ea_nitrif,Ea_denitr,denitrif_theta_min,&
     V_NH4_ref,V_NO3_ref,Knitr_ref,Kdenitr_ref,&
     CN_microb,mup,gamma_nitr,tProtected_N,&
