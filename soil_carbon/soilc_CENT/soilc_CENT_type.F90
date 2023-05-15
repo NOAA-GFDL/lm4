@@ -15,7 +15,8 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
 use soilc_type_mod, only : soilc_t, deplete_pool
-use soilc_util_mod, only : register_soilc_diag_fields
+use soilc_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
+        register_litter_soilc_diag_fields
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
 use vegn_tile_mod, only: vegn_tile_type
 
@@ -81,7 +82,15 @@ real :: delta_time ! fast (physical) time step, s
 real :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 
 ! diag fields ID
-integer :: id_asoil, id_rsoil, id_rsoil_C(N_C_TYPES), id_rh
+integer :: id_fsc, id_ssc, id_total_soil_C, id_asoil, id_rsoil
+integer, dimension(N_C_TYPES) :: id_soil_C, id_rsoil_C
+integer, dimension(N_LITTER_POOLS) :: id_litter_total_C
+integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: id_litter_C
+
+! diag IDs of CMOR variables
+integer :: id_csoil, id_nSoil, id_rh, &
+    id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, &
+    id_cLitter, id_cLitterCwd, id_cLitterLeaf
 
 contains
 
@@ -110,19 +119,36 @@ subroutine soilc_diag_init_CENT(id_ug, id_zfull)
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
   character(*), parameter :: diag_mod_name = 'soil'
+  integer :: axes(2)
+
+  ! define array of axis indices
+  axes = [ id_ug,id_zfull ]
+
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
 
+  id_fsc = register_tiled_diag_field ( diag_mod_name, 'fsc', axes(1:1),  &
+       lnd%time, 'total fast soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
+  id_ssc = register_tiled_diag_field ( diag_mod_name, 'ssc', axes(1:1),  &
+       lnd%time, 'total slow soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
+  id_soil_C(:) = register_soilc_diag_fields(diag_mod_name, '<ctype>_soil_C', &
+       axes, lnd%time, '<ctype> soil carbon', 'kg C/m3', missing_value=-100.0 )
+  id_total_soil_C = register_tiled_diag_field ( diag_mod_name, 'tot_soil_C', axes(1:1),  &
+       lnd%time, 'total carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
+  id_litter_C(:,:) = register_litter_soilc_diag_fields ( diag_mod_name, '<ltype>litt_<ctype>_C', &
+       axes(1:1), lnd%time, '<ctype> <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litter_total_C(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_C', &
+       axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
 
   id_asoil = register_tiled_diag_field ( diag_mod_name, 'asoil', &
-       [ id_ug ], lnd%time, 'aerobic activity modifier', &
+       axes(1:1), lnd%time, 'aerobic activity modifier', &
        missing_value=-100.0 )
   id_rsoil = register_tiled_diag_field ( diag_mod_name, 'rsoil',  &
-       [ id_ug ], lnd%time, 'soil respiration', 'kg C/(m2 year)', &
+       axes(1:1), lnd%time, 'soil respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
 
   id_rsoil_C(:) = register_soilc_diag_fields( diag_mod_name, 'rsoil_<ctype>', &
-       [ id_ug, id_zfull ], lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', &
+       axes, lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', &
        missing_value=-100.0 )
 
 
@@ -132,6 +158,41 @@ subroutine soilc_diag_init_CENT(id_ug, id_zfull)
   id_rh = register_tiled_diag_field ( CMOR_NAME, 'rh', [ id_ug ], &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.TRUE.)
+  id_csoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
+       lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_csoil, CMOR_NAME, 'cSoilLut', axes(1:1),  &
+       lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_carbon', fill_missing=.FALSE.)
+  id_csoilfast = register_tiled_diag_field ( CMOR_NAME, 'cSoilFast', axes(1:1),  &
+       lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='fast_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
+  id_csoilmedium = register_tiled_diag_field ( CMOR_NAME, 'cSoilMedium', axes(1:1),  &
+       lnd%time, 'Carbon Mass in Medium Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='medium_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
+  id_csoilslow = register_tiled_diag_field ( CMOR_NAME, 'cSoilSlow', axes(1:1),  &
+       lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='slow_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
+  id_cSoilLevels = register_tiled_diag_field ( CMOR_NAME, 'cSoilLevels', axes,  lnd%time, &
+       'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
+       'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
+  id_cLitter = register_tiled_diag_field ( CMOR_NAME, 'cLitter', axes(1:1), &
+       lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
+       missing_value=-100.0, standard_name='litter_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_cLitter, CMOR_NAME, 'cLitterLut', axes(1:1),  &
+       lnd%time, 'carbon in above and belowground litter pools on land use tiles', &
+       'kg m-2', missing_value=-100.0, &
+       standard_name='litter_mass_content_of_carbon', fill_missing=.FALSE.)
+  id_cLitterCwd = register_tiled_diag_field ( CMOR_NAME, 'cLitterCwd', axes(1:1), &
+       lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
+  id_cLitterLeaf = register_tiled_diag_field ( CMOR_NAME, 'cLitterLeaf', axes(1:1), &
+       lnd%time, 'Carbon Mass in Leaf Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='leaf_debris_mass_content_of_carbon', &
        fill_missing=.TRUE.)
   call add_tiled_diag_field_alias ( id_rh, CMOR_NAME, 'rhLut', [ id_ug ],  &
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
@@ -480,7 +541,6 @@ subroutine step3_CENT(soilc, diag)
 
   integer :: i, k
 
-#ifdef TEMP_SEND_DATA_FROM_SOILC
   associate (soil=>soilc) ! to avoid renaming
   call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
@@ -501,11 +561,10 @@ subroutine step3_CENT(soilc, diag)
   if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
   if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
   if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
-  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,CWOOD)), diag)
-  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LEAF)), diag)
+  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,LITT_CWOOD)), diag)
+  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LITT_LEAF)), diag)
   ! --- end of CMOR vars
   end associate
-#endif
 
 end subroutine
 
