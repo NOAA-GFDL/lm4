@@ -105,8 +105,6 @@ public :: soil_step_1
 public :: soil_step_2
 public :: soil_data_beta
 
-public :: redistribute_peat_carbon
-
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
 
@@ -162,9 +160,6 @@ real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water sa
 real    :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
   ! before warning or abort
 
-real :: max_soil_C_density = 50.0   !(kgC/m3) -- for redistribution of peat
-real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
-
 real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
@@ -190,7 +185,6 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     bwood_macinf, &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
-                    max_soil_C_density, max_litter_thickness, &
                     tau_smooth_frozen_freq
 !---- end of namelist --------------------------------------------------------
 
@@ -3220,73 +3214,6 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
          + flow(num_l+1)*soil%T(num_l)) &
          /((aquifer_heat_cap+soil%groundwater(1)-d_GW) + flow(num_l+1))
 end subroutine advection_tri
-
-! ============================================================================
-subroutine redistribute_peat_carbon(soil)
-    class(soilc_t), intent(inout) :: soil
-
-    integer :: nn
-    real :: layer_total_C,layer_total_C_2,layer_max_C,layer_extra_C,fraction_to_remove
-    real :: total_C_before,total_C_after
-    real :: leaflitter_total_C, woodlitter_total_C
-
-    select type (soil)
-    class is (soilc_CORPSE_t)
-
-    !For conservation check.
-    total_C_before=0.0
-    do nn=1,num_l
-    call poolTotals(soil%org_matter(num_l),layer_total_C)
-    total_C_before=total_C_before+layer_total_C
-    enddo
-
-    call poolTotals(soil%litter_corpse(LITT_LEAF),totalCarbon=leaflitter_total_C)
-    call poolTotals(soil%litter_corpse(LITT_CWOOD),totalCarbon=woodlitter_total_C)
-    layer_total_C=leaflitter_total_C+woodlitter_total_C
-
-    layer_max_C=max_litter_thickness*max_soil_C_density
-    layer_extra_C = layer_total_C-layer_max_C
-    if(layer_extra_C>0) then
-        fraction_to_remove=1.0-layer_max_C/layer_total_C
-        call transfer_pool_fraction(soil%litter_corpse(LITT_LEAF),soil%org_matter(1),fraction_to_remove)
-        call transfer_pool_fraction(soil%litter_corpse(LITT_CWOOD),soil%org_matter(1),fraction_to_remove)
-    endif
-
-    !Move carbon down if it exceeds layer_max_C
-    do nn=1,num_l-1
-        call poolTotals(soil%org_matter(nn),totalCarbon=layer_total_C)
-        layer_max_C=dz(nn)*max_soil_C_density
-        layer_extra_C=layer_total_C-layer_max_C
-        if (layer_extra_C>0) then
-            fraction_to_remove=1.0-layer_max_C/layer_total_C
-            call transfer_pool_fraction(soil%org_matter(nn),soil%org_matter(nn+1),fraction_to_remove)
-            soil%is_peat(nn)=1
-        endif
-
-        if (layer_extra_C < 0 .and. (soil%is_peat(nn).ne.0) .and. (soil%is_peat(nn+1).ne.0)) then
-             call poolTotals(soil%org_matter(nn+1),totalCarbon=layer_total_C_2)
-             fraction_to_remove = -layer_extra_C/layer_total_C_2
-             if (fraction_to_remove > 0.5) then
-                soil%is_peat(nn+1)=0
-             else
-                call transfer_pool_fraction(soil%org_matter(nn+1),soil%org_matter(nn),fraction_to_remove)
-             endif
-        endif
-    enddo
-
-    total_C_after=0.0
-    do nn=1,num_l
-    call poolTotals(soil%org_matter(num_l),layer_total_C)
-    total_C_after=total_C_after+layer_total_C
-    enddo
-
-    if (abs(total_C_before-total_C_after)>1e-10) then
-            print *,'Carbon before:',total_C_before
-            print *,'Carbon after:',total_C_after
-            call error_mesg('redistribute_peat_carbon','Carbon not conserved after downward move',FATAL)
-    endif
-    end select
-end subroutine redistribute_peat_carbon
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating whether component

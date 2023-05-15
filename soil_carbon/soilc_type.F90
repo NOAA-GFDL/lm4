@@ -35,6 +35,7 @@ contains
   procedure (update_soil_pools), deferred, pass :: update_soil_pools
   procedure (dsdt),              deferred, pass :: dsdt
   procedure (step3),             deferred, pass :: step3
+  procedure (redistribute_peat_carbon), deferred, pass :: redistribute_peat_carbon
 end type
 
 ! ---- abstract interfaces for methods
@@ -179,6 +180,12 @@ abstract interface
       class(soilc_t),       intent(inout) :: soilc
       type(diag_buff_type), intent(inout) :: diag
    end subroutine
+
+   subroutine redistribute_peat_carbon(soilc)
+      import :: soilc_t, vegn_tile_type, soil_tile_type
+      class(soilc_t), intent(inout) :: soilc
+   end subroutine
+
 end interface
 
 contains

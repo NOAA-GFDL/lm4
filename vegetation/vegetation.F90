@@ -55,7 +55,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass
-use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
+use soil_mod, only : soil_data_beta, &
      register_litter_soilc_diag_fields
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
@@ -2684,7 +2684,7 @@ subroutine update_vegn_slow( )
      call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0 .and. do_peat_redistribution) then
-        call redistribute_peat_carbon(tile%soilc)
+        call tile%soilc%redistribute_peat_carbon()
      endif
 
      if (month1 /= month0.and.do_patch_disturbance) then

@@ -71,6 +71,7 @@ contains
   procedure :: update_soil_pools => update_soil_pools_CENT
   procedure :: dsdt              => dsdt_CENT
   procedure :: step3             => step3_CENT
+  procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CENT
 end type soilc_CENT_t
 
 ! ---- module data
@@ -679,5 +680,13 @@ elemental function A_function(soilt, theta) result(A)
   A = (Td*Wd); ! the combined (multiplicative) effect of temp and water
                ! on decomposition rates
 end function A_function
+
+! ============================================================================
+subroutine redistribute_peat_carbon_CENT(soilc)
+  class(soilc_CENT_t), intent(inout) :: soilc
+
+  call error_mesg('redistribute_peat_carbon_CENT','not implemented; should it be?', FATAL)
+end subroutine
+
 
 end module
