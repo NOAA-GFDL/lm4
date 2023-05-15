@@ -44,7 +44,6 @@ use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE_N, &
     add_litter, deadmic_slow_frac
-use soil_mod, only: active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
 implicit none
 private
@@ -734,10 +733,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   ! root and mycorrhizal biomass
 
   if (track_vegn_nitrogen) then
-    call myc_scavenger_N_uptake(soilc,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
-    call myc_miner_N_uptake(soilc,soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call soilc%myc_scavenger_N_uptake(vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call soilc%myc_miner_N_uptake(soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
-    call active_root_N_uptake(soilc,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+    call soilc%active_root_N_uptake(vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
   endif
 
   do i = 1, vegn%n_cohorts
@@ -1040,10 +1039,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
 ! 20170617:
   total_myc_CO2_prod = 0.0; total_myc_Nmin = 0.0
   if (track_vegn_nitrogen) then
-    call myc_scavenger_N_uptake(soilc,vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
-    call myc_miner_N_uptake(soilc,soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call soilc%myc_scavenger_N_uptake(vegn,scav_N_uptake,scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call soilc%myc_miner_N_uptake(soil,vegn,mine_N_uptake,mine_C_uptake,mining_CO2prod,mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
-    call active_root_N_uptake(soilc,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+    call soilc%active_root_N_uptake(vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
   endif
 
   do i = 1, vegn%n_cohorts

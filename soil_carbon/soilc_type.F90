@@ -28,6 +28,10 @@ contains
   procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
   procedure (tracer_leaching),   deferred, pass :: tracer_leaching
 
+  procedure (active_root_N_uptake),   deferred, pass :: active_root_N_uptake
+  procedure (myc_miner_N_uptake),     deferred, pass :: myc_miner_N_uptake
+  procedure (myc_scavenger_N_uptake), deferred, pass :: myc_scavenger_N_uptake
+
   procedure (update_soil_pools), deferred, pass :: update_soil_pools
   procedure (dsdt),              deferred, pass :: dsdt
   procedure (step3),             deferred, pass :: step3
@@ -121,6 +125,38 @@ abstract interface
       real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! (num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
       real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
    end subroutine tracer_leaching
+
+
+   subroutine active_root_N_uptake(soilc, vegn, N_uptake, dt, update_pools)
+      import :: soilc_t, vegn_tile_type
+      class(soilc_t), intent(inout) :: soilc
+      type(vegn_tile_type), intent(in)    :: vegn
+      real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
+      real,    intent(in)  :: dt ! in years
+      logical, intent(in)  :: update_pools
+   end subroutine active_root_N_uptake
+
+   subroutine myc_scavenger_N_uptake(soilc, vegn, N_uptake_cohorts, myc_efficiency, dt, update_pools)
+      import :: soilc_t, vegn_tile_type
+      class(soilc_t),  intent(inout) :: soilc
+      type(vegn_tile_type), intent(in) :: vegn
+      real,intent(out) :: N_uptake_cohorts(:) ! Units: kgN/m2 per individual
+      real, intent(in) :: dt  ! dt in years
+      logical, intent(in) :: update_pools
+      real, intent(out) :: myc_efficiency ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
+   end subroutine
+
+   subroutine myc_miner_N_uptake(soilc,soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
+      import :: soilc_t, vegn_tile_type, soil_tile_type
+      class(soilc_t),       intent(inout) :: soilc
+      type(soil_tile_type), intent(in)    :: soil
+      type(vegn_tile_type), intent(in)    :: vegn
+      real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
+      real,    intent(out) :: total_CO2prod ! Units of kgC/m2 (not per individual)
+      real,    intent(in)  :: dt  ! dt in years
+      logical, intent(in)  :: update_pools
+      real,    intent(out) :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
+   end subroutine
 
    subroutine update_soil_pools(soilc, vegn)
       import :: soilc_t, vegn_tile_type

@@ -63,6 +63,11 @@ contains
   procedure :: add_root_litter   => add_root_litter_CENT
   procedure :: add_root_exudates => add_root_exudates_CENT
   procedure :: tracer_leaching   => tracer_leaching_CENT
+
+  procedure :: active_root_N_uptake   => active_root_N_uptake_CENT
+  procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake_CENT
+  procedure :: myc_miner_N_uptake     => myc_miner_N_uptake_CENT
+
   procedure :: update_soil_pools => update_soil_pools_CENT
   procedure :: dsdt              => dsdt_CENT
   procedure :: step3             => step3_CENT
@@ -457,6 +462,45 @@ subroutine tracer_leaching_CENT(soilC, diag, &
   real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
 
   total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
+end subroutine
+
+! ============================================================================
+! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
+subroutine active_root_N_uptake_CENT(soilc, vegn, N_uptake, dt, update_pools)
+  class(soilc_CENT_t), intent(inout) :: soilc
+  type(vegn_tile_type), intent(in)    :: vegn
+  real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
+  real,    intent(in)  :: dt ! in years
+  logical, intent(in)  :: update_pools
+
+  N_uptake       = 0.0
+end subroutine
+
+! ============================================================================
+! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
+subroutine myc_scavenger_N_uptake_CENT(soilc,vegn,N_uptake_cohorts,myc_efficiency,dt,update_pools)
+  class(soilc_CENT_t),  intent(inout) :: soilc
+  type(vegn_tile_type), intent(in) :: vegn
+  real,intent(out) :: N_uptake_cohorts(:) ! Units: kgN/m2 per individual
+  real, intent(in) :: dt  ! dt in years
+  logical, intent(in) :: update_pools
+  real, intent(out) :: myc_efficiency ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
+
+  N_uptake_cohorts = 0.0
+  myc_efficiency   = 0.0
+end subroutine
+
+! ============================================================================
+! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
+subroutine myc_miner_N_uptake_CENT(soilc,soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
+  class(soilc_CENT_t), intent(inout) :: soilc
+  type(soil_tile_type), intent(in) :: soil
+  type(vegn_tile_type), intent(in) :: vegn
+  real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
+  real,    intent(out) :: total_CO2prod ! Units of kgC/m2 (not per individual)
+  real,    intent(in)  :: dt  ! dt in years
+  logical, intent(in)  :: update_pools
+  real,    intent(out) :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 end subroutine
 
 subroutine update_soil_pools_CENT(soilc, vegn)
