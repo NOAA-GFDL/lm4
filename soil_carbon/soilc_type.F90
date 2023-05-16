@@ -22,10 +22,12 @@ contains
   procedure (get_real_2D),   deferred, pass :: get_DON ! returns DON, by type and by layer
   procedure (get_real_1D),   deferred, pass :: get_nit ! returns nitrate by layer, kgN/m2
   procedure (get_real_1D),   deferred, pass :: get_amm ! returns ammonium by layer, kgN/m2
+  procedure (get_real_1D),   deferred, pass :: get_littC ! returns litter carbon, by litter pool, kgC/m2
 
   procedure (add_soil_carbon),   deferred, pass :: add_soil_carbon ! add new surface and sub-surface litter to soil carbon and nitrogen
   procedure (add_root_litter),   deferred, pass :: add_root_litter ! add new root litter to soil carbon and nitrogen
   procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
+  procedure (burn_litter_frac),  deferred, pass :: burn_litter_frac  ! burn a fraction of sfc litter and retuen amounts of burned carbon and nitrogen
   procedure (tracer_leaching),   deferred, pass :: tracer_leaching
 
   procedure (active_root_N_uptake),   deferred, pass :: active_root_N_uptake
@@ -110,6 +112,13 @@ abstract interface
       real,intent(in), optional :: exudateN(:) ! (num_l) amount of N in exudate, kgN/m2 per layer
       real,intent(in), optional :: ammonium(:) ! (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
       real,intent(in), optional :: nitrate (:) ! (num_l) amount of  nitrate in exudate, kgN/m2(?) per layer
+   end subroutine
+
+   subroutine burn_litter_frac(soilc, frac, burned_C, burned_N)
+      import :: soilc_t
+      class(soilc_t), intent(inout) :: soilc
+      real, intent(in)  :: frac(:) ! (N_LITTER_POOLS) fraction of litter to burn [0,1], per litter pool
+      real, intent(out) :: burned_C, burned_N ! amounts of burned carbon and nitrogen
    end subroutine
 
    subroutine tracer_leaching(soilC, diag, &

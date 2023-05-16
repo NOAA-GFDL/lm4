@@ -40,9 +40,6 @@ use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohor
 use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
 use soilc_type_mod, only : soilc_t
-use soilc_CENT_type_mod, only : soilc_CENT_t
-use soil_carbon_mod, only : soilc_CORPSE_t, poolTotals, &
-      remove_C_N_fraction_from_pool
 use vegn_util_mod, only : kill_plants_ppa
 
 implicit none
@@ -2129,9 +2126,9 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
 end subroutine vegn_fire_ROS
 
 !!! dsward_crownfires
-subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
+subroutine vegn_fire_intensity(vegn,soilc,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
     type(vegn_tile_type), intent(inout) :: vegn
-    class(soilc_t),       intent(in)    :: soil
+    class(soilc_t),       intent(in)    :: soilc
     real, intent(in)    :: theta,theta_extinction
     real, intent(in)    :: ROS_surface
 
@@ -2170,18 +2167,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
        height = 0.0      ; F_parameter = 0.0
     endif
 
-    select type (soil)
-    class is (soilc_CENT_t)
-       do i = 1, N_LITTER_POOLS
-          litter_total_C(i) = sum(soil%litter_century_C(:,i))
-       enddo
-    class is (soilc_CORPSE_t)
-       do i = 1, N_LITTER_POOLS
-          call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C(i))
-       enddo
-    class default
-       call error_mesg('vegn_fire_intensity','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-    end select
+    call soilc%get_littC(litter_total_C)
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
@@ -2466,8 +2452,7 @@ subroutine vegn_burn_ppa(tile)
   real :: CC_litter ! combustion completeness of litter
   real :: CC_gross ! combustion completeness of wood/sapwood, taking into account above-ground fraction
   real :: cover ! weight for combustion completeness averaging
-  real, dimension(N_C_TYPES) :: burned_C_1, burned_C_2, burned_N_1, burned_N_2
-  real :: burned_C_3, burned_N_3, burned_C, burned_N
+  real :: burned_frac(N_LITTER_POOLS), burned_C, burned_N
   real, dimension(N_C_TYPES) :: leaf_litt_C, wood_litt_C, leaf_litt_N, wood_litt_N ! accumulated litter, kg/m2
   real, dimension(num_l, N_C_TYPES) :: root_litt_C, root_litt_N ! accumulated root litter per soil layer, kgC/m2
   type(vegn_cohort_type), pointer :: bc(:) ! pointer for cohort reallocation, if necessary
@@ -2507,22 +2492,8 @@ subroutine vegn_burn_ppa(tile)
   endif
   end associate
 
-  select type (sc=>tile%soilc)
-  class is (soilc_CORPSE_t)
-     do i = 1,N_LITTER_POOLS
-        call remove_C_N_fraction_from_pool (sc%litter_corpse(i), CC_litter*BF, CC_litter*BF, &
-            litterC_removed=burned_C_1, protectedC_removed=burned_C_2, liveMicrobeC_removed=burned_C_3, &
-            litterN_removed=burned_N_1, protectedN_removed=burned_N_2, liveMicrobeN_removed=burned_N_3  )
-        burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
-        burned_N = burned_N + sum(burned_N_1) + sum(burned_N_2) + burned_N_3
-     enddo
-  class is (soilc_CENT_t)
-     burned_C = burned_C + CC_litter*BF*sum(sc%litter_century_C(:,:))
-     ! burned_N remains unmodified
-     sc%litter_century_C(:,:) = (1-CC_litter*BF)*sc%litter_century_C(:,:)
-  class default
-     call error_mesg('vegn_burn_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
+  burned_frac(:) = CC_litter*BF
+  call tile%soilc%burn_litter_frac(burned_frac, burned_C, burned_N)
   call check_conservation_2(tile,'vegn_burn_ppa 1',lmass0,fmass0,cmass0-burned_C,nmass0-burned_N)
 
   ! burn vegetation
@@ -2603,9 +2574,9 @@ subroutine vegn_burn_ppa(tile)
 end subroutine vegn_burn_ppa
 
 ! =======================================================================================
-subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
+subroutine vegn_burn_lm3(vegn,soilc,tile_area_m2)
   type(vegn_tile_type), intent(inout) :: vegn
-  class(soilc_t),       intent(inout) :: soil
+  class(soilc_t),       intent(inout) :: soilc
   real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
 
   integer :: i, l
@@ -2659,25 +2630,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   burned_frac = vegn%burned_frac
 
   ! Burn litter
-  select type (soil)
-  class is (soilc_CORPSE_t)
-     ! combustion completeness is the same for all litters except leaf litter
-     do i = 1,N_LITTER_POOLS
-        call remove_C_N_fraction_from_pool(soil%litter_corpse(i), CC_litt(i)*burned_frac, CC_litt(i)*burned_frac, &
-              burned_C_1, burned_C_2, burned_C_3, &
-              burned_N_1, burned_N_2, burned_N_3  )
-        burned_litt_C(i) = sum(burned_C_1) + sum(burned_C_2) + burned_C_3
-        burned_litt_N(i) = sum(burned_N_1) + sum(burned_N_2) + burned_N_3
-     enddo
-  class is (soilc_CENT_t)
-     do i = 1,N_LITTER_POOLS
-        burned_litt_C(i) = CC_litt(i)*burned_frac*sum(soil%litter_century_C(:,i))
-        burned_litt_N(i) = 0.0
-        soil%litter_century_C(:,i) = (1-CC_litt(i)*burned_frac)*soil%litter_century_C(:,i)
-     enddo
-  class default
-     call error_mesg('vegn_burn_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
+  call soilc%burn_litter_frac(CC_litt(:)*burned_frac, burned_C, burned_N)
 
   do i = 1,vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
@@ -2761,8 +2714,8 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      enddo
      end associate
   enddo
-  call soil%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
-                                   leaf_litt_N, wood_litt_N, root_litt_N  )
+  call soilc%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   ! Get total combusted, killed
   vegn%csmoke_pool = vegn%csmoke_pool + burned_C + sum(burned_litt_C)
@@ -3423,11 +3376,11 @@ subroutine calc_fire_derivs(&
 end subroutine calc_fire_derivs
 
 
-subroutine update_fire_agb(vegn,soil)
+subroutine update_fire_agb(vegn,soilc)
    type(vegn_tile_type), intent(inout) :: vegn
-   class(soilc_t),       intent(in)    :: soil
+   class(soilc_t),       intent(in)    :: soilc
 
-   real    :: litter_total_C
+   real    :: litt_C(N_LITTER_POOLS)
    integer :: i
 
    vegn%fire_agb = 0.0
@@ -3438,23 +3391,12 @@ subroutine update_fire_agb(vegn,soil)
          )
    enddo
 
-   select type (soil)
-   class is (soilc_CORPSE_t)
-      ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
-      do i = 1, N_LITTER_POOLS
-         if (i == LITT_CWOOD) cycle
-         call poolTotals(soil%litter_corpse(i),totalCarbon=litter_total_C)
-         vegn%fire_agb = vegn%fire_agb + litter_total_C
-      enddo
-   class is (soilc_CENT_t)
-      do i = 1, N_LITTER_POOLS
-         if (i == LITT_CWOOD) cycle
-         vegn%fire_agb = vegn%fire_agb + sum(soil%litter_century_C(:,i))
-      enddo
-   class default
-      call error_mesg('update_fire_agb','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-   end select
-
+   ! Calculate litter carbon, ignoring coarseWoodLitter, which should not contribute to spread
+   call soilc%get_littC(litt_C)
+   do i = 1, N_LITTER_POOLS
+      if (i == LITT_CWOOD) cycle
+      vegn%fire_agb = vegn%fire_agb + litt_C(i)
+   enddo
 end subroutine update_fire_agb
 
 ! =====================================================================================
@@ -3599,7 +3541,8 @@ function burns_as_agri(tile) result(answer)
 end function burns_as_agri
 
 ! ============================================================================
-! tile existence detector: returns TRUE if component model tile exists
+! tile existence detector: returns a logical value indicating whether component
+! model tile exists or not
 logical function vegn_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    vegn_tile_exists = associated(tile%vegn)

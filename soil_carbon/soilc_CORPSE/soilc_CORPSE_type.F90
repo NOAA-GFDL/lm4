@@ -180,10 +180,12 @@ contains
   procedure :: get_DON => retrieve_DON
   procedure :: get_nit => retrieve_nitrate
   procedure :: get_amm => retrieve_ammonium
+  procedure :: get_littC => get_littC_CORPSE
 
   procedure :: add_soil_carbon   => add_soil_carbon_CORPSE
   procedure :: add_root_litter   => add_root_litter_CORPSE
   procedure :: add_root_exudates => add_root_exudates_CORPSE
+  procedure :: burn_litter_frac  => burn_litter_frac_CORPSE
   procedure :: tracer_leaching   => tracer_leaching_CORPSE
 
   procedure :: active_root_N_uptake   => active_root_N_uptake
@@ -761,6 +763,17 @@ subroutine rav_C_CORPSE(soilc, fast_C,slow_C,dmic_C)
 
   call poolTotals(soilc%litter_corpse(LITT_LEAF), &
         fastC=fast_C, slowC=slow_C, deadMicrobeC=dmic_C)
+end subroutine
+
+!> @brief Given soil carbon state, returns total litter C per litter pool
+subroutine get_littC_CORPSE(soilc, values)
+  class(soilc_CORPSE_t), intent(in)  :: soilc     !< soil carbon data structure
+  real, intent(out)                  :: values(:) !< total C in litter, by litter pool, kgC/m2
+
+  integer :: i
+  do i = 1, N_LITTER_POOLS
+     call poolTotals(soilc%litter_corpse(i),totalCarbon=values(i))
+  enddo
 end subroutine
 
 !> @brief merge s1 into current soil carbon type s2, with given weights
@@ -2010,6 +2023,27 @@ subroutine redistribute_peat_carbon_CORPSE(soilC)
             call error_mesg('redistribute_peat_carbon','Carbon not conserved after downward move',FATAL)
     endif
 end subroutine
+
+!> @brief Burn given fraction of litter and return amounts of burned C and N
+subroutine burn_litter_frac_CORPSE(soilc, frac, burned_C, burned_N)
+  class(soilc_CORPSE_t), intent(inout) :: soilc !< soil carbon data structure
+  real, intent(in)  :: frac(:)            !< fraction of litter to burn [0,1]
+  real, intent(out) :: burned_C, burned_N !< amounts of burned carbon and nitrogen
+
+  integer :: i
+  real, dimension(N_C_TYPES) :: burned_C_1, burned_C_2, burned_N_1, burned_N_2
+  real :: burned_C_3, burned_N_3
+
+  burned_C = 0.0; burned_N = 0.0
+  do i = 1,N_LITTER_POOLS
+     call remove_C_N_fraction_from_pool (soilc%litter_corpse(i), frac(i), frac(i), &
+         litterC_removed=burned_C_1, protectedC_removed=burned_C_2, liveMicrobeC_removed=burned_C_3, &
+         litterN_removed=burned_N_1, protectedN_removed=burned_N_2, liveMicrobeN_removed=burned_N_3  )
+     burned_C = burned_C + sum(burned_C_1) + sum(burned_C_2) + burned_C_3
+     burned_N = burned_N + sum(burned_N_1) + sum(burned_N_2) + burned_N_3
+  enddo
+end subroutine
+
 
 subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
     type(soil_pool),intent(inout)::pool

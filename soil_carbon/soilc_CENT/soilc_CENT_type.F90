@@ -58,10 +58,12 @@ contains
   procedure :: get_DON => get_zero_2D
   procedure :: get_nit => get_zero_1D
   procedure :: get_amm => get_zero_1D
+  procedure :: get_littC => get_littC_CENT
 
   procedure :: add_soil_carbon   => add_soil_carbon_CENT
   procedure :: add_root_litter   => add_root_litter_CENT
   procedure :: add_root_exudates => add_root_exudates_CENT
+  procedure :: burn_litter_frac  => burn_litter_frac_CENT
   procedure :: tracer_leaching   => tracer_leaching_CENT
 
   procedure :: active_root_N_uptake   => active_root_N_uptake_CENT
@@ -300,6 +302,17 @@ subroutine rav_C_CENT(soilc,fast_C,slow_C,dmic_C)
   dmic_C = 0.0
 end subroutine
 
+!> @brief Given soil carbon state, returns total litter C per litter pool
+subroutine get_littC_CENT(soilc, values)
+  class(soilc_CENT_t), intent(in)  :: soilc     !< soil carbon data structure
+  real,                intent(out) :: values(:) !< total C in litter, by litter pool, kgC/m2
+
+  integer :: i
+  do i = 1, N_LITTER_POOLS
+     values(i) = sum(soilc%litter_century_C(:,i))
+  enddo
+end subroutine
+
 ! --- the stuff below should go to soilc_utils_mod
 
 !> @brief return zeros in 1D array
@@ -445,6 +458,21 @@ subroutine add_root_exudates_CENT(soilc, exudateC, exudateN, ammonium, nitrate)
         soilc%fsc_in(k)      = soilc%fsc_in(k)      + exudateC(k) ! for soil carbon equilibration
      enddo
   endif
+end subroutine
+
+!> @brief Burn given fraction of litter and return amounts of burned C and N
+subroutine burn_litter_frac_CENT(soilc, frac, burned_C, burned_N)
+  class(soilc_CENT_t), intent(inout) :: soilc !< soil carbon data structure
+  real, intent(in)  :: frac(:)            !< fraction of litter to burn [0,1]
+  real, intent(out) :: burned_C, burned_N !< amounts of burned carbon and nitrogen
+
+  integer :: i
+
+  burned_C = 0.0; burned_N = 0.0
+  do i = 1,N_LITTER_POOLS
+     burned_C = burned_C + frac(i)*sum(soilc%litter_century_C(:,i))
+     soilc%litter_century_C(:,i) = (1-frac(i))*soilc%litter_century_C(:,i)
+  enddo
 end subroutine
 
 subroutine tracer_leaching_CENT(soilC, diag, &
