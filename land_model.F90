@@ -1211,8 +1211,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   logical           :: phot_co2_overridden ! flag indicating successful override
 
   ! EZSNOW variables for snow LAIs data override
-  real, allocatable :: wetdep_bc(:), wetdep_md(:), wetdep_om(:)   ! buffer for data
-  real, allocatable :: drydep_bc(:), drydep_md(:), drydep_om(:)   ! buffer for data
+  real, allocatable :: wetdep_bc(:)
+  real, allocatable :: wetdep_md(:)
+  real, allocatable :: wetdep_om(:)   ! buffer for data
+  real, allocatable :: drydep_bc(:)
+  real, allocatable :: drydep_md(:)
+  real, allocatable :: drydep_om(:)   ! buffer for data
   logical           :: wetdep_bc_overridden, wetdep_md_overridden, wetdep_om_overridden  ! flag indicating successful override
   logical           :: drydep_bc_overridden, drydep_md_overridden, drydep_om_overridden  ! flag indicating successful override
 
