@@ -1286,6 +1286,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
+!$OMP                                  wetdep_bc,wetdep_md,wetdep_om,drydep_bc,drydep_md,drydep_om, &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
   do l = lnd%ls, lnd%le
