@@ -851,12 +851,16 @@ subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
     dre_wet = (dt_hours*3600.0) * (10.0**18 * 4.22 * 10.0**(-13) * (fliq)**3 )/(4.0*PI*old_re**2)
 
     re_abs_diff =old_re-re_0
-    if (re_abs_diff < -1E-6) then
-        write(*,*) "Flanner 2006: Re, Re0, Re - Re0 = ", old_re, re_0, re_abs_diff
-        call land_error_message("Error in metamorph_FlannerZender2006 in snow_evolution_mod: re-re0 < 0 found!", FATAL)
-    else
-        re_abs_diff = max(1E-8, re_abs_diff)
-    endif
+    ! if (re_abs_diff < -1E-6) then
+    !     write(*,*) "Flanner 2006: Re, Re0, Re - Re0 = ", old_re, re_0, re_abs_diff
+    !     call land_error_message("Error in metamorph_FlannerZender2006 in snow_evolution_mod: re-re0 < 0 found!", FATAL)
+    ! else
+    !     re_abs_diff = max(1E-8, re_abs_diff)
+    ! endif
+    ! since the parameterization for snow drift can lead to optical diameters
+    ! smaller than minimum value here, we set the difference to a positive value
+    ! when this happens if the wind drift routine is used in the model.
+    re_abs_diff = max(1E-8, re_abs_diff)
     
     dre_dry = drdt0 * (tau/(re_abs_diff + tau))**(1.0/kap) * dt_hours
     ! new_re = ( old_re + dre_dry + dre_wet )*f_old + re_0 * f_new + re_refr * f_refr
