@@ -2018,6 +2018,12 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
                 endif
         endif
     endif
+    !  address case of negative solid precipitation
+    if (fprec<0.0) then
+        fprec2 = 0.0
+        s%topsnowdeficit = s%topsnowdeficit + fprec*dt
+        s%topsnowheatdeficit = s%topsnowheatdeficit + CSW*fprec*dt*(tprec-TFREEZE) 
+    endif
 
     ! now add the new fresh snow to the top of the remaining snowpack
     if(verbose) write(*,*) "fprec left, ", fprec2
@@ -2373,6 +2379,13 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
         s%topwater = 0.0
         s%topwheat = 0.0
     endif 
+
+    ! additionally, if prec < 0 must also be passed down as it was not added to the snowpack
+    !  but it's already included in snow_lprec if there are zero snow layers
+    if ((s%nlayers>0).and.(lprec<0)) then
+        snow_lprec = snow_lprec + lprec
+        snow_hlprec = snow_hlprec + lprec*CLW*(tprec-TFREEZE) + lprec*HLF
+    endif
 
     if (s%nlayers > 0) then
         if (s%snow(1)%dz<0.0) then
@@ -3761,7 +3774,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     ! END SNOW SOLID BALANCE
 
     if (abs(vegn_lprec)>0.0) then
-        ltprec = TFREEZE + vegn_hlprec/CLW/abs(vegn_lprec) ! get T from heat content - LM4p2 does not include latent 
+        ! ltprec = TFREEZE + vegn_hlprec/CLW/abs(vegn_lprec) ! get T from heat content - LM4p2 does not include latent 
+        ltprec = TFREEZE + vegn_hlprec/CLW/vegn_lprec ! get T from heat content - LM4p2 does not include latent 
     else
         ltprec = 273.15  ! no energy added, but needs to be defined
     endif
