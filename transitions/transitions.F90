@@ -24,7 +24,7 @@ use vegn_data_mod, only : &
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
-use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
+use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood, crop_type
 use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
@@ -44,7 +44,7 @@ use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
-use crop_debug_mod, only: debug_crop
+use debug_crop_mod, only: debug_crop
 
 implicit none
 private
@@ -99,6 +99,9 @@ integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
 real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data to
         ! units of [fractions of vegetated area per year]
 type(time_type) :: time0 ! time of previous transition calculations
+
+ type(crop_type) :: crop
+ logical :: crop_exists
 
 integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
 integer :: overshoot_opt = -1 ! selector for overshoot handling options, for efficiency
@@ -425,6 +428,8 @@ subroutine land_transitions (time)
   real    :: w
   real    :: diag(lnd%ls:lnd%le)
   logical :: used
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
 
   if (.not.do_landuse_change) &
        return ! do nothing if landuse change not requested
@@ -496,11 +501,35 @@ subroutine land_transitions (time)
   do l = lnd%ls,lnd%le
      ! set current point for debugging
      call set_current_point(l,1)
+     ce = first_elmt(land_tile_map(l))
+     crop_exists = .FALSE.
+     do while (loop_over_tiles(ce,tile))
+        if (associated(tile%vegn)) then
+           if (tile%vegn%landuse == LU_CROP) then
+              crop = tile%vegn%Crop
+              crop_exists = .TRUE.
+              call debug_crop(tile%vegn,'preexisting crop tile before transitions')
+           endif
+        endif
+     enddo
      ! transition land area between different tile types
      call land_transitions_0d(land_tile_map(l), &
           transitions(l,:)%donor, &
           transitions(l,:)%acceptor,&
           transitions(l,:)%frac )
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile))
+        if (associated(tile%vegn)) then
+           if (tile%vegn%landuse == LU_CROP) then
+              if(crop_exists) then
+                 tile%vegn%Crop = crop
+                 call debug_crop(tile%vegn,'preexisting crop tile after transitions')
+              else
+                 call debug_crop(tile%vegn,'new crop tile after transitions')
+              endif
+           endif
+        endif
+     enddo
   enddo
 
   ! deallocate array of transitions
@@ -826,7 +855,7 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
-        call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
+!       call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! calculate remaining area of transition
         tfrac = tfrac-darea
      endif
@@ -961,7 +990,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         temp%vegn%age_since_disturbance = 0.0
         temp%vegn%age_since_landuse     = 0.0
 
-        call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
+!       call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif

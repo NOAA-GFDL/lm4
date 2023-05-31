@@ -4867,7 +4867,7 @@ subroutine dealloc_cplr2land( bnd )
 end subroutine dealloc_cplr2land
 
 
-! ===========================================================================
+!===========================================================================
 !  Prints checksums of the various fields in the atmos_land_boundary_type.
 subroutine atm_lnd_bnd_type_chksum(id, timestep, albt)
     character(len=*), intent(in) :: id  ! Label to differentiate where this

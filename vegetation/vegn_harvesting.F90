@@ -18,7 +18,8 @@ use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
-     nspecies, spdata, agf_bs, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, WINTER_WHEAT, IDLE, ACTIVE
+     nspecies, spdata, agf_bs, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, &
+     WINTER_WHEAT, IDLE, ACTIVE_ON_COMPUTED_SCHEDULE, ACTIVE_ON_LM3_SCHEDULE, crop_name
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
 use soil_tile_mod, only : num_l, LEAF, CWOOD
@@ -30,7 +31,7 @@ use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
 use vegn_crop_mod, only: crop_init, crop_calendar, crop_end, save_crop_restart
-use crop_debug_mod, only: debug_crop
+use debug_crop_mod, only: debug_crop
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
@@ -317,9 +318,9 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
   integer, intent(in) :: L ! index of current grid cell in unstructured grid
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
-  if (end_of_month .and. crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
+  if (crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
      call crop_calendar(tile%vegn, tile%diag, L)
- endif
+  endif
 
   associate(vegn=>tile%vegn)
   select case(vegn%landuse)
@@ -337,15 +338,19 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
      select case(crop_schedule_option)
      case (CROP_SCHEDULE_LM3)
         if (end_of_year) then
-            call vegn_harvest_cropland (tile)
-            call vegn_plant_crop (tile)
+           call vegn_harvest_cropland (tile)
+           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_LM3: vegn_harvest_cropland called')
+           call vegn_plant_crop (tile)
+           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_LM3: vegn_plant_crop called')
         endif
      case (CROP_SCHEDULE_PRESCRIBED)
         if (end_of_day.AND.day_of_year==nint(crop_harvest_day(L))) then
            call vegn_harvest_cropland (tile)
+           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_PRESCRIBED: vegn_harvest_cropland called')
         endif
         if (end_of_day.AND.day_of_year==nint(crop_planting_day(L))) then
            call vegn_plant_crop (tile)
+           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_PRESCRIBED: vegn_plant_crop called')
         endif
      case (CROP_SCHEDULE_COMPUTED)
         ! Note that vegn%Crop%plant_opt and vegn%Crop%harvest_opt are zero where the MIRCA data has no crop area
@@ -353,23 +358,42 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
         ! In such cases planting and harvesting defaults to the CROP_SCHEDULE_LM3 behavior.
         if(nint(vegn%Crop%plant_opt) == 0 .OR. nint(vegn%Crop%harvest_opt) == 0) then
           if (end_of_year) then
-             call vegn_harvest_cropland (tile)
-             call vegn_plant_crop (tile)
+             if(vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
+               call vegn_harvest_cropland (tile)
+               call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_harvest_cropland called to harvest grass')
+             endif
+             if(vegn%Crop%status == IDLE) then
+               call vegn_plant_crop (tile)
+               vegn%Crop%status = ACTIVE_ON_LM3_SCHEDULE
+               if(vegn%Crop%current_crop == NO_CROP) then
+                 call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_plant_crop called to plant grass because MIRCA data has no crop here')
+               else
+                 call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_plant_crop called to plant grass because the climate is unsuitable for '//crop_name(vegn%Crop%current_crop))
+               endif
+             endif
           endif
         else
-          if (end_of_day.AND.day_of_year==nint(vegn%Crop%harvest_opt) .and. tile%vegn%Crop%status == ACTIVE) then
-             call vegn_harvest_cropland (tile)
+          if (end_of_day .AND. day_of_year==nint(vegn%Crop%plant_opt)) then
+             if (vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
+               ! harvest grass before planting crop
+               call vegn_harvest_cropland (tile)
+               call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_harvest_cropland called to harvest grass prior to planting crop')
+             endif
+             if (vegn%Crop%status == IDLE) then
+               call vegn_plant_crop (tile)
+               vegn%Crop%status = ACTIVE_ON_COMPUTED_SCHEDULE
+               call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_plant_crop called to plant '//crop_name(vegn%Crop%current_crop))
+             endif
           endif
-          if (end_of_day.AND.day_of_year==nint(vegn%Crop%plant_opt) .and. tile%vegn%Crop%status == IDLE) then
-             call vegn_plant_crop (tile)
+          if (end_of_day .AND. day_of_year==nint(vegn%Crop%harvest_opt) .AND. vegn%Crop%status == ACTIVE_ON_COMPUTED_SCHEDULE) then
+             call vegn_harvest_cropland (tile)
+             call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_harvest_cropland called to harvest '//crop_name(vegn%Crop%current_crop))
           endif
         endif
      end select ! crop_schedule_option
   end select
   end associate
 end subroutine vegn_harvesting
-
-
 ! ============================================================================
 subroutine vegn_graze_pasture(tile)
   type(land_tile_type), intent(inout) :: tile
@@ -403,7 +427,6 @@ subroutine vegn_harvest_cropland(tile)
      call vegn_harvest_crop_lm3(tile)
   endif
   tile%vegn%Crop%status = IDLE
-  call debug_crop(tile%vegn,'HelloZ vegn_harvest_cropland called') ! debug
 end subroutine vegn_harvest_cropland
 
 
@@ -416,8 +439,6 @@ subroutine vegn_plant_crop(tile)
   else
      ! do nothing at the moment -- later add turning phenology on
   endif
-  tile%vegn%Crop%status = ACTIVE
-  call debug_crop(tile%vegn,'HelloZ vegn_plant_crop called') ! debug
 end subroutine vegn_plant_crop
 
 ! ============================================================================

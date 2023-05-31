@@ -20,7 +20,7 @@ use vegn_data_mod, only : &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
      tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
-     do_bl_max_merge, IDLE, ACTIVE
+     do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C
@@ -63,6 +63,7 @@ public :: vegn_seed_N_supply
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+public :: crop_type
 
 integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
           ! fires can burn; dimension of daily history arrays in vegn_tile
@@ -74,10 +75,6 @@ interface new_vegn_tile
 end interface
 
 ! ======= types related to crops =================================================================
-
- interface assignment(=)
-   module procedure crop_assignment
- end interface
 
  type :: crop_type
    real :: tc_av_climate(12)
@@ -96,7 +93,6 @@ end interface
    integer :: current_crop
    real :: plant_beg, plant_opt, plant_end, harvest_beg, harvest_opt, harvest_end ! The calendar of the current_crop is assigned to these
    integer :: status
-   logical :: watchpoint
  end type crop_type
 
 ! ==== types =================================================================
@@ -244,29 +240,6 @@ real, public :: &
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-! ============================================================================
- subroutine crop_assignment(crop1,crop2)
-  type(crop_type), intent(out) :: crop1
-  type(crop_type), intent(in)  :: crop2
-
-   crop1%tc_av_climate    = crop2%tc_av_climate
-   crop1%precip_av_climate= crop2%precip_av_climate
-   crop1%T_mid_mth        = crop2%T_mid_mth
-   crop1%P_mid_mth        = crop2%P_mid_mth
-   crop1%crop_cal_Maize   = crop2%crop_cal_Maize
-   crop1%crop_cal_Soy     = crop2%crop_cal_Soy
-   crop1%crop_cal_SW      = crop2%crop_cal_SW
-   crop1%crop_cal_WW      = crop2%crop_cal_WW
-   crop1%crop_cal_Rice_1  = crop2%crop_cal_Rice_1
-   crop1%crop_cal_Rice_2  = crop2%crop_cal_Rice_2
-   crop1%current_crop     = crop2%current_crop
-   crop1%plant_beg        = crop2%plant_beg
-   crop1%plant_opt        = crop2%plant_opt
-   crop1%plant_end        = crop2%plant_end
-   crop1%harvest_beg      = crop2%harvest_beg
-   crop1%harvest_opt      = crop2%harvest_opt
-   crop1%harvest_end      = crop2%harvest_end
- end subroutine crop_assignment
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)
   type(vegn_tile_type), pointer :: ptr ! return value
@@ -1184,4 +1157,5 @@ function vegn_tile_tag(vegn) result(tag)
   tag = vegn%tag
 end function vegn_tile_tag
 
+! ============================================================================
 end module vegn_tile_mod

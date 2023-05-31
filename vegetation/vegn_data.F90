@@ -44,15 +44,17 @@ integer, public, parameter :: & ! life form of the plant
  FORM_WOODY = 1
  ! in future, possibly add mosses...
 
-integer, public, parameter :: IDLE = 0, ACTIVE = 1
+integer, public, parameter :: IDLE = 0, ACTIVE_ON_COMPUTED_SCHEDULE = 1, ACTIVE_ON_LM3_SCHEDULE = 2
 integer, public, parameter :: &
- NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has no crop area.
+ NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has zero crop area.
                      ! In such cases the crop tile is treated the same way as it was before vegn_crop_mod was introduced.
  MAIZE        = 1, &
  SOYBEAN      = 2, &
  RICE         = 3, &
  SPRING_WHEAT = 4, &
  WINTER_WHEAT = 5
+
+character(len=12), public, parameter :: crop_name(0:5)=(/'NO_CROP     ','MAIZE       ','SOYBEAN     ','RICE        ','SPRING_WHEAT','WINTER_WHEAT'/)
 
 integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass

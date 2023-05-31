@@ -68,7 +68,7 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point, check_temp_range, &
      check_var_range, land_error_message, log_date
-use crop_debug_mod, only: debug_crop, debug_crop_1
+use debug_crop_mod, only: debug_crop, debug_crop_1
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
      co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
@@ -2520,9 +2520,7 @@ subroutine update_vegn_slow( )
   ! would happen if we used average length of year for given calendar.
   age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
-  if(day0 /= day1) then ! debug_pjp
-! if(month0 /= month1) then
-     ! heartbeat
+  if(day0 /= day1) then
      write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
