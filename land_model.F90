@@ -301,6 +301,8 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
   id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 
+integer :: id_treeFrac_L, id_grassFrac_L, id_grassFracC3_L, id_grassFracC4_L
+
 integer :: id_sg_face, id_ug_face, id_ug_pe
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
@@ -2761,6 +2763,12 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call send_cellfrac_data(id_fracLut_pst,  is_pst)
   call send_cellfrac_data(id_fracLut_urb,  is_urban)
 
+  ! land fractions
+  call send_landfrac_cohort_data(id_treeFrac_L,    is_tree)
+  call send_landfrac_cohort_data(id_grassFrac_L,   is_grass)
+  call send_landfrac_cohort_data(id_grassFracC3_L, is_c3grass)
+  call send_landfrac_cohort_data(id_grassFracC4_L, is_c4grass)
+
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -4310,6 +4318,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_snow_frac = register_tiled_diag_field ( module_name, 'snow_frac', axes, time, &
              'fraction of area that is covered by snow','1', missing_value=-1.0e+20)
 
+  ! CMOR treeFrac is normalized per grid cell area and cannot be saved per tile;
+  ! land/treeFrac can be saved for each of the land tile categories
+  id_treeFrac_L = register_tiled_diag_field (module_name, 'treeFrac', axes, time, &
+                    'Tree Cover Fraction', '%', missing_value=-1e+20)
+  id_grassFrac_L = register_tiled_diag_field (module_name, 'grassFrac', axes, time, &
+                    'Grass Cover Fraction', '%', missing_value=-1e+20)
+  id_grassFracC3_L = register_tiled_diag_field (module_name, 'grassFracC3', axes, time, &
+                    'C3 Grass Cover Fraction', '%', missing_value=-1e+20)
+  id_grassFracC4_L = register_tiled_diag_field (module_name, 'grassFracC4', axes, time, &
+                    'C4 Grass Cover Fraction', '%', missing_value=-1e+20)
+
   ! CMOR/CMIP variables
   id_pcp = register_tiled_diag_field ( cmor_name, 'pcp', axes, time, &
              'Total Precipitation', 'kg m-2 s-1', missing_value=-1.0e+20, &
@@ -4648,6 +4667,29 @@ subroutine send_cellfrac_cohort_data(id, ttest, ctest, scale)
   enddo
   used = send_data(id, frac, lnd%time)
 end subroutine send_cellfrac_cohort_data
+
+subroutine send_landfrac_cohort_data(id, ctest, scale)
+  integer, intent(in) :: id ! id of the diagnostic field
+  procedure(cohort_test_func) :: ctest ! returns TRUE for cohorts whose fraction is counted
+  real, intent(in), optional  :: scale ! scaling factor, for unit conversions
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
+  real :: scale_
+
+  if (.not.id>0) return ! do nothing if the field was not registered
+  scale_ = 100.0 ! by fractions are in percent
+  if (present(scale)) scale_ = scale
+
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce, tile))
+     if (associated(tile%vegn)) then
+        ! calculate fraction of area covered by suitable cohorts
+        call send_tile_data(id, scale_*cohort_area_frac(tile%vegn,ctest), tile%diag)
+     endif
+  enddo
+end subroutine send_landfrac_cohort_data
 
 
 ! ============================================================================
