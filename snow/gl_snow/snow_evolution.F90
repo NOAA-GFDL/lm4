@@ -35,6 +35,7 @@ public :: use_internal_sources
 public :: min_snow_depth
 public :: do_mgimplicit
 public :: albedo_to_use
+public :: thresh_snow_depth_swheat
 
 
 
@@ -145,13 +146,14 @@ real :: max_snow = 1000.0 ! to sweep huge snow above this threshold [kg m^-3]
 logical :: prevent_tiny_snow = .true.
 logical :: correct_surface_T = .false.
 real :: depth_surface_T_corr = 0.2
+real :: thresh_snow_depth_swheat = 0.05 ! snow depth threshold [m] above which internal sw heat sources are computed
 
 namelist /snow_evolution_nml/ &
          do_compaction, do_metamorph, do_wind_drift, do_split, do_merge, &
          use_internal_sources, do_snow_check_cons, &
          min_snow_mass, min_snow_depth, max_snow, prevent_tiny_snow, do_mgimplicit, &
          metamor_model, file_data_F06, wlmax_to_use, albedo_to_use, &
-         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr 
+         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat 
 ! ---- end of namelist
 
 

@@ -50,7 +50,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
 snow_get_depth_area, snow_step_1, snow_step_2, &
 save_snow_restart, sweep_tiny_snow, compute_snow_albedo
-use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, albedo_to_use, gl_sweep_huge_snow
+use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use parent_snow_tile_mod, only : snow_radiation, snow_option
 use snow_constants_mod, only: NTRACERS
 !!!! ========================================
@@ -2232,7 +2232,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                  ! assign to each snow layer sw radiation based on snicar rad transfer
                  ! for now, in case of thin snow assign all radiation to surface balance
                  ! else in case of thick snow assign all to snow - no to underlying soil
-                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > 0.05) & 
+                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
                                             .and. (tile%snow%sp%nlayers > 0))) then
                     ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
                     fswg_surface = 0.0
@@ -2253,7 +2253,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                     fswg_surface = fswg
                  endif
               else ! snow option = ez but albedo model not SNICAR
-                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > 0.05) & 
+                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
                                             .and. (tile%snow%sp%nlayers > 0))) then
                     ! call tile%snow%sp%sw_sources_lm4p2(fswg)
                     ! call tile%snow%sp%sw_sources(fswg_dir, fswg_dif, cosz)
