@@ -10,7 +10,7 @@ use mpp_mod, only: input_nml_file
 use fms2_io_mod, only: open_file, close_file, read_data, FmsNetcdfFile_t, get_valid, &
      get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
      Valid_t, is_valid, variable_exists, register_variable_attribute, FmsNetcdfDomainFile_t, &
-     get_variable_attribute, register_axis
+     variable_att_exists, get_variable_attribute, register_axis
 use axis_utils2_mod, only: axis_edges
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
@@ -761,7 +761,11 @@ logical function domain_read_data(filename, variable_name, variable_data, domain
 
   !< FMS2io requires the domain decomposed dimensions before reading them
   do i = 1, ndim
-    call get_variable_attribute(fileobj, dimnames(i), "cartesian_axis", cart_axis)
+    if (variable_att_exists(fileobj, dimnames(i), "cartesian_axis")) then
+      call get_variable_attribute(fileobj, dimnames(i), "cartesian_axis", cart_axis)
+    else if (variable_att_exists(fileobj, dimnames(i), "axis")) then
+      call get_variable_attribute(fileobj, dimnames(i), "axis", cart_axis)
+    endif
     if (lowercase(cart_axis) .eq. "x" .or. lowercase(cart_axis) .eq. "y" ) then
       call register_axis(fileobj, dimnames(i), cart_axis)
     endif
