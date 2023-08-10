@@ -77,9 +77,9 @@ public :: debug_pool
 public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     SOILC_CORPSE, SOILC_CORPSE_N
 
-public :: soil_NO3_deposition!x2z
-public :: soil_NH4_deposition!x2z
-public :: soil_org_N_deposition
+! public :: soil_NO3_deposition!x2z
+! public :: soil_NH4_deposition!x2z
+! public :: soil_org_N_deposition
 public :: ammonium_solubility, nitrate_solubility
 
 public :: adjust_pool_ncohorts
@@ -188,6 +188,7 @@ contains
   procedure :: burn_litter_frac  => burn_litter_frac_CORPSE
   procedure :: tracer_leaching   => tracer_leaching_CORPSE
 
+  procedure :: deposit_N              => deposit_N_CORPSE
   procedure :: active_root_N_uptake   => active_root_N_uptake
   procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake
   procedure :: myc_miner_n_uptake     => myc_miner_n_uptake
@@ -1397,6 +1398,21 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,w
 
     where(divergence_loss>tracer_mass) divergence_loss=tracer_mass
 end subroutine tracer_advection
+
+! ============================================================================
+! Deposition of nitrogen
+subroutine deposit_N_CORPSE(soilc, NH4, NO3, N_org)
+  class(soilc_CORPSE_t), intent(inout) :: soilc
+  real, intent(in) :: NH4, NO3, N_org ! amounts of NH4, NO3, and organic nitrogen to deposit, kg N/m2
+
+  ! Do N deposition first. For now, it all goes to leaf litter
+  ! slm, ens 20180523: in contrast to original bns design, N deposition (which includes
+  ! both deposition from the atmosphere and fertilization) now goes into upper soil layer.
+  call soil_NH4_deposition   (NH4  *dt_fast_yr, soilc%org_matter(1))
+  call soil_NO3_deposition   (NO3  *dt_fast_yr, soilc%org_matter(1))
+  call soil_org_N_deposition (N_org*dt_fast_yr, soilc%org_matter(1))
+
+end subroutine
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)

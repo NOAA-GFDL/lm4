@@ -30,6 +30,7 @@ contains
   procedure (burn_litter_frac),  deferred, pass :: burn_litter_frac  ! burn a fraction of sfc litter and retuen amounts of burned carbon and nitrogen
   procedure (tracer_leaching),   deferred, pass :: tracer_leaching
 
+  procedure (deposit_N),              deferred, pass :: deposit_N
   procedure (active_root_N_uptake),   deferred, pass :: active_root_N_uptake
   procedure (myc_miner_N_uptake),     deferred, pass :: myc_miner_N_uptake
   procedure (myc_scavenger_N_uptake), deferred, pass :: myc_scavenger_N_uptake
@@ -136,6 +137,11 @@ abstract interface
       real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
    end subroutine tracer_leaching
 
+   subroutine deposit_N(soilc, NH4, NO3, N_org)
+      import :: soilc_t
+      class(soilc_t), intent(inout) :: soilc
+      real, intent(in) :: NH4, NO3, N_org ! amounts of NH4, NO3, and organic nitrogen to deposit, kg N/m2
+   end subroutine deposit_N
 
    subroutine active_root_N_uptake(soilc, vegn, N_uptake, dt, update_pools)
       import :: soilc_t, vegn_tile_type

@@ -66,6 +66,7 @@ contains
   procedure :: burn_litter_frac  => burn_litter_frac_CENT
   procedure :: tracer_leaching   => tracer_leaching_CENT
 
+  procedure :: deposit_N              => deposit_N_CENT
   procedure :: active_root_N_uptake   => active_root_N_uptake_CENT
   procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake_CENT
   procedure :: myc_miner_N_uptake     => myc_miner_N_uptake_CENT
@@ -491,6 +492,14 @@ subroutine tracer_leaching_CENT(soilC, diag, &
   real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
 
   total_DOC_div=0.0; total_DON_div=0.0; total_NO3_div=0.0; total_NH4_div=0.0
+end subroutine
+
+! ============================================================================
+! Deposition of nitrogen
+subroutine deposit_N_CENT(soilc, NH4, NO3, N_org)
+  class(soilc_CENT_t), intent(inout) :: soilc
+  real, intent(in) :: NH4, NO3, N_org ! amounts of NH4, NO3, and organic nitrogen to deposit, kg N/m2
+  ! do nothing now: nitrogen deposition is ignored
 end subroutine
 
 ! ============================================================================
