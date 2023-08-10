@@ -79,7 +79,7 @@ use vegn_harvesting_mod, only : &
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
-use soil_carbon_mod, only : soilc_CORPSE_t, soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+use soil_carbon_mod, only : soilc_CORPSE_t, &
      soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
@@ -3026,25 +3026,23 @@ subroutine update_vegn_slow( )
     endif
   endif
 
-  if(soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-     ! Knock soil carbon cohorts down to their maximum number.
-     ! For reproducibility across restarts, this must be done after all processes
-     ! that can add soil or litter carbon cohorts.
-     ce = first_elmt(land_tile_map, lnd%ls)
-     do while (loop_over_tiles(ce,tile,l,k))
-        call set_current_point(l,k) ! this is for debug output only
-        if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
-        select type (sc=>tile%soilc)
-        class is (soilc_CORPSE_t)
-           do ii = 1,N_LITTER_POOLS
-              call cull_cohorts(sc%litter_corpse(ii))
-           enddo
-           do ii=1,num_l
-              call cull_cohorts(sc%org_matter(ii))
-           enddo
-        end select
-     enddo
-  endif
+  ! Knock soil carbon cohorts down to their maximum number.
+  ! For reproducibility across restarts, this must be done after all processes
+  ! that can add soil or litter carbon cohorts.
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l,k))
+     call set_current_point(l,k) ! this is for debug output only
+     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+     select type (sc=>tile%soilc)
+     class is (soilc_CORPSE_t)
+        do ii = 1,N_LITTER_POOLS
+           call cull_cohorts(sc%litter_corpse(ii))
+        enddo
+        do ii=1,num_l
+           call cull_cohorts(sc%org_matter(ii))
+        enddo
+     end select
+  enddo
 
   ! send litterfall data
   ce = first_elmt(land_tile_map, lnd%ls)
