@@ -29,7 +29,6 @@ use land_tile_diag_mod, only : cmor_name, &
      add_tiled_diag_field_alias
 use land_debug_mod, only : is_watch_point
 use vegn_data_mod, only : LU_PAST, LU_CROP
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
 implicit none
 private
@@ -204,8 +203,6 @@ subroutine nitrogen_sources_init(time, id_ug)
 
   ! do nothing further if no nitrogen in the model
   if (do_nitrogen_deposition) then
-     if(soil_carbon_option .NE. SOILC_CORPSE_N) call error_mesg('nitrogen_sources_init',&
-         'WARNING: do_nitrogen_deposition is TRUE but soil_carbon_option is not SOILC_CORPSE_N. N dep will likely have no effect.',NOTE)
 
      ! calculate fractions of organic nitrogen in deposition, fertilizer, and  manure
      ndep_org_frac   = 1.0 - ndep_nit_frac   - ndep_amm_frac
