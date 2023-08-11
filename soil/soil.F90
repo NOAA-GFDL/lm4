@@ -39,13 +39,9 @@ use soil_accessors_mod ! use everything
 
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
-use soil_carbon_mod, only : soilc_CORPSE_t, soil_pool, &
-     poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
-     update_pool,transfer_pool_fraction, &
+use soil_carbon_mod, only : soilc_CORPSE_t, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     debug_pool, adjust_pool_ncohorts, &
-     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility, &
-     deposit_dissolved_C, dissolve_carbon, theta_func
+     debug_pool, ammonium_solubility, nitrate_solubility
 use soilc_util_mod, only : register_soilc_diag_fields, &
     register_litter_diag_fields, register_litter_soilc_diag_fields
 

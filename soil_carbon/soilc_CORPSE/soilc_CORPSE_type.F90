@@ -47,30 +47,30 @@ public :: soilc_t, soilc_CORPSE_t, new_soilc_CORPSE
 ! public :: soil_tile_carbon, soil_tile_nitrogen
 
 
-public :: soil_pool
+! public :: soil_pool
 public :: soilMaxCohorts
 
-public :: update_pool
+! public :: update_pool
 public :: add_litter
-public :: add_C_N_to_rhizosphere
-public :: remove_C_N_fraction_from_pool
-public :: combine_pools
-public :: poolTotals, poolTotals1
-public :: init_soil_pool
+! public :: add_C_N_to_rhizosphere
+! public :: remove_C_N_fraction_from_pool
+! public :: combine_pools
+! public :: poolTotals, poolTotals1
+! public :: init_soil_pool
 public :: read_soilc_CORPSE_namelist, soilc_diag_init_CORPSE
 
-public :: deposit_dissolved_C
-public :: dissolve_carbon
+! public :: deposit_dissolved_C
+! public :: dissolve_carbon
 
 public :: cull_cohorts
-public :: transfer_pool_fraction
+! public :: transfer_pool_fraction
 ! public :: retrieve_DOC ! report DOC concentration to hlsp_hydrology
 ! public :: retrieve_DON
 ! public :: retrieve_dissolved_mineral_N
-public :: mycorrhizal_mineral_N_uptake_rate
-public :: mycorrhizal_decomposition
-public :: litterDensity
-public :: theta_func
+! public :: mycorrhizal_mineral_N_uptake_rate
+! public :: mycorrhizal_decomposition
+! public :: litterDensity
+! public :: theta_func
 
 public :: debug_pool
 

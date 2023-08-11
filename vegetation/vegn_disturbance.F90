@@ -27,8 +27,7 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
-use soil_carbon_mod, only : soilc_t, add_litter, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
+use soil_carbon_mod, only : soilc_t
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_util_mod, only : kill_plants_ppa
