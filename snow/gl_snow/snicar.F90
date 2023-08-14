@@ -176,7 +176,7 @@ end subroutine read_snow_snicar_namelist
    real flx_absi_snw(1, s%nlayers, NBANDS) ! fraction of SWdown absorbed in each layer
 
    integer il, ib,it, NL
-   real sum_absd_snw(NBANDS), sum_absi_snw(NBANDS)
+   ! real sum_absd_snw(NBANDS), sum_absi_snw(NBANDS)
 
    NL = s%nlayers
    flg_snw_ice = 1 ! set to CLM - remove
@@ -278,14 +278,14 @@ end subroutine read_snow_snicar_namelist
             allocate(s%sw_frac_dif(s%nlayers, NBANDS))
          endif
          ! write(*,*) "init sums"
-         sum_absd_snw = 0.0
-         sum_absi_snw = 0.0
-         do il=1, NL
-            do ib=1,NBANDS
-               sum_absd_snw(ib) = sum_absd_snw(ib) + flx_absd_snw(1, il, ib) 
-               sum_absi_snw(ib) = sum_absi_snw(ib) + flx_absi_snw(1, il, ib) 
-            enddo
-         enddo
+         ! sum_absd_snw = 0.0
+         ! sum_absi_snw = 0.0
+         ! do il=1, NL
+         !    do ib=1,NBANDS
+         !       sum_absd_snw(ib) = sum_absd_snw(ib) + flx_absd_snw(1, il, ib) 
+         !       sum_absi_snw(ib) = sum_absi_snw(ib) + flx_absi_snw(1, il, ib) 
+         !    enddo
+         ! enddo
          do il=1, NL
             do ib=1,NBANDS
                ! if (sum_absd_snw(ib) >(1E-7)) then

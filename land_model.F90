@@ -1648,6 +1648,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, DIMENSION(NBANDS) :: fswg_dir, fswg_dif ! needed for SNICAR snow albedo option
   real lswept_huge, fswept_huge, hlswept_huge, hfswept_huge
   real, dimension(NTRACERS) :: lost_wc_em1_huge, lost_wc_im1_huge
+  real, DIMENSION(NBANDS) :: sum_sw_frac_dir, sum_sw_frac_dif
   ! =======
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
@@ -1730,11 +1731,18 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
                                    .and. (tile%snow%sp%nlayers > 0))) then
            ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+           sum_sw_frac_dir = 0.0
+           sum_sw_frac_dif = 0.0
            do il=1,tile%snow%sp%nlayers
               tile%snow%sp%swheat(il) =     fswg_dir(1) * tile%snow%sp%sw_frac_dir(il, 1) + & 
                                             fswg_dif(1) * tile%snow%sp%sw_frac_dif(il, 1) + &
                                             fswg_dir(2) * tile%snow%sp%sw_frac_dir(il, 2) + & 
                                             fswg_dif(2) * tile%snow%sp%sw_frac_dif(il, 2)    
+
+                                            sum_sw_frac_dir(1)  = sum_sw_frac_dir(1) + tile%snow%sp%sw_frac_dir(il, 1) 
+                                            sum_sw_frac_dir(2)  = sum_sw_frac_dir(2) + tile%snow%sp%sw_frac_dir(il, 2) 
+                                            sum_sw_frac_dif(1)  = sum_sw_frac_dif(1) + tile%snow%sp%sw_frac_dif(il, 1) 
+                                            sum_sw_frac_dif(2)  = sum_sw_frac_dif(2) + tile%snow%sp%sw_frac_dif(il, 2) 
 
             
            enddo
@@ -1742,16 +1750,25 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
             ! Instead, I should let the leftovers for the soil / for the top
            ! fswg_surface = 0.0
            ! // TODO: absorb that in the soil instead that at the surface
-           if ((sum(tile%snow%sp%sw_frac_dir(:, 1))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))>1.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))>1.0)  ) then
+           if ((sum_sw_frac_dir(1)>1.0+1E-7).or. (sum_sw_frac_dif(1)>1.0+1E-7) .or.(sum_sw_frac_dir(2) >1.0+1E-7).or. (sum_sw_frac_dif(2) >1.0+1E-7)  ) then
+            write(*,*) "sum of sw_frac_dir(1):", sum_sw_frac_dir(1)
+            write(*,*) "sum of sw_frac_dir(2):", sum_sw_frac_dir(2)
+            write(*,*) "sum of sw_frac_dif(1):", sum_sw_frac_dif(1)
+            write(*,*) "sum of sw_frac_dif(2):", sum_sw_frac_dif(2)
             call land_error_message("Error in sw sources from SNICAR: a total larger than 1!", severity=FATAL)
            endif
-           if ((sum(tile%snow%sp%sw_frac_dir(:, 1))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))<0.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))<0.0)  ) then
+         !   if ((sum(tile%snow%sp%sw_frac_dir(:, 1))<0.0-1E-7).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))<0.0-1E-7) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))<0.0-1E-7).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))<0.0-1E-7)  ) then
+           if ((sum_sw_frac_dir(1)<0.0-1E-7).or. (sum_sw_frac_dif(1)<0.0-1E-7) .or.(sum_sw_frac_dir(2) <0.0-1E-7).or. (sum_sw_frac_dif(2) <0.0-1E-7)  ) then
+            write(*,*) "sum of sw_frac_dir(1):", sum_sw_frac_dir(1)
+            write(*,*) "sum of sw_frac_dir(2):", sum_sw_frac_dir(2)
+            write(*,*) "sum of sw_frac_dif(1):", sum_sw_frac_dif(1)
+            write(*,*) "sum of sw_frac_dif(2):", sum_sw_frac_dif(2)
             call land_error_message("Error in sw sources from SNICAR: a total is < 0!", severity=FATAL)
            endif
-           fswg_surface = fswg_dir(1) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 1))) + &
-                          fswg_dif(1) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 1))) + &
-                          fswg_dir(2) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 2))) + &
-                          fswg_dif(2) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 2)))
+           fswg_surface = fswg_dir(1) * (1.0 - sum_sw_frac_dir(1)) + &
+                          fswg_dif(1) * (1.0 - sum_sw_frac_dif(1)) + &
+                          fswg_dir(2) * (1.0 - sum_sw_frac_dir(2)) + &
+                          fswg_dif(2) * (1.0 - sum_sw_frac_dif(2))
         else
            if (tile%snow%sp%nlayers>0) then
               ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
