@@ -1637,7 +1637,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! ====== EZSNOW additional local variables 
   real :: grnd_T_preprec
-  real :: fswg_surface
+  real :: fswg_surface, fswg_substrate
   real begw_check !, endw_check, netw_check ! to check mass balance after snow step 2
   real begh_check !, endh_check, neth_check ! to check heat balance after snow step 2
   real, DIMENSION(NTRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2 ! currently only 1 is used
@@ -1707,6 +1707,82 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     nflux0=0.0
   endif
   ! - end of conservation check, part 1
+
+
+  ! EZSNOW : moved this here before soil step 1 in order to pass leftover heat to substrate (soil/lake/glac)
+  ! calculate net shortwave for ground and canopy
+  fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
+    !!!! EZSNOW - START ALBEDO PREPROCESSING
+  ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
+  fswg_dir = tile%Sg_dir * ISa_dn_dir 
+  fswg_dif = tile%Sg_dif * ISa_dn_dif
+  ! -----
+           ! EZSNOW
+  if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat) 
+  begw_check = tile%snow%sp%SWE() ! init conservation checks
+  begh_check = tile%snow%sp%heat() ! init conservation checks
+
+  if (trim(lowercase(snow_option)) == 'gl') then
+     if (trim(lowercase(albedo_to_use))=='snicar') then
+        ! assign to each snow layer sw radiation based on snicar rad transfer
+        ! for now, in case of thin snow assign all radiation to surface balance
+        ! else in case of thick snow assign all to snow - no to underlying soil
+        if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
+                                   .and. (tile%snow%sp%nlayers > 0))) then
+           ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+           do il=1,tile%snow%sp%nlayers
+              tile%snow%sp%swheat(il) =     fswg_dir(1) * tile%snow%sp%sw_frac_dir(il, 1) + & 
+                                            fswg_dif(1) * tile%snow%sp%sw_frac_dif(il, 1) + &
+                                            fswg_dir(2) * tile%snow%sp%sw_frac_dir(il, 2) + & 
+                                            fswg_dif(2) * tile%snow%sp%sw_frac_dif(il, 2)    
+
+            
+           enddo
+            ! //FIXME here the fractions are NOT summed up to one. 
+            ! Instead, I should let the leftovers for the soil / for the top
+           ! fswg_surface = 0.0
+           ! // TODO: absorb that in the soil instead that at the surface
+           if ((sum(tile%snow%sp%sw_frac_dir(:, 1))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))>1.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))>1.0)  ) then
+            call land_error_message("Error in sw sources from SNICAR: a total larger than 1!", severity=FATAL)
+           endif
+           if ((sum(tile%snow%sp%sw_frac_dir(:, 1))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))<0.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))<0.0)  ) then
+            call land_error_message("Error in sw sources from SNICAR: a total is < 0!", severity=FATAL)
+           endif
+           fswg_surface = fswg_dir(1) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 1))) + &
+                          fswg_dif(1) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 1))) + &
+                          fswg_dir(2) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 2))) + &
+                          fswg_dif(2) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 2)))
+        else
+           if (tile%snow%sp%nlayers>0) then
+              ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+              tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
+           else
+              ALLOCATE(tile%snow%sp%swheat(1))
+              tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
+           endif
+           fswg_surface = fswg
+        endif
+     else ! snow option = ez but albedo model not SNICAR
+        if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
+                                   .and. (tile%snow%sp%nlayers > 0))) then
+           ! call tile%snow%sp%sw_sources_lm4p2(fswg)
+           ! call tile%snow%sp%sw_sources(fswg_dir, fswg_dif, cosz)
+           call tile%snow%sp%sw_sources(fswg_dir, fswg_dif)
+           fswg_surface = 0.0
+        else
+           ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+           tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
+           fswg_surface = fswg
+        endif
+     endif ! end albedo choice
+     !                           input      input   output   output    input   input      input
+   !   call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
+  else
+     ! case of CM snow model
+     fswg_surface=fswg
+  endif
+  fswg_substrate = 0.0
+  !!!! EZSNOW - END ALBEDO PREPROCESSING
 
   ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
   ! avoid numerical issues.
@@ -1782,6 +1858,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          __DEBUG1__( associated(tile%vegn) )
          __DEBUG4__( snow_active, snow_T, snow_liq, snow_ice)
       endif
+
+     ! NOTE: moved it here now that albedo pre-calculation is done before 
+     call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
+
 
    else
       call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
@@ -1873,12 +1953,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   DEgDqc    = -cana_dens*con_g_v
   DEgDpsig  =  cana_dens*con_g_v*grnd_qsat*grnd_rh_psi
 
-  ! calculate net shortwave for ground and canopy
-  fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
-  ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
-  fswg_dir = tile%Sg_dir * ISa_dn_dir 
-  fswg_dif = tile%Sg_dif * ISa_dn_dif
-  ! -----
+!   ! calculate net shortwave for ground and canopy
+!   fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
+!   ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
+!   ! EZSNOW : move this before soil step 1
+!   fswg_dir = tile%Sg_dir * ISa_dn_dir 
+!   fswg_dif = tile%Sg_dif * ISa_dn_dif
+!   ! -----
   vegn_fsw = 0
   do k = 1,N
      vegn_fsw = vegn_fsw+f(k)*SUM(swnet(k,:))
@@ -2222,55 +2303,70 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          ! delta_xx(i) = X0(i) + X1(i)*delta_Tg + X2(i)*delta_psig.
 
 
-         ! EZSNOW
-           if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat) 
-           begw_check = tile%snow%sp%SWE() ! init conservation checks
-           begh_check = tile%snow%sp%heat() ! init conservation checks
+         ! ! EZSNOW
+         !   if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat) 
+         !   begw_check = tile%snow%sp%SWE() ! init conservation checks
+         !   begh_check = tile%snow%sp%heat() ! init conservation checks
   
-           if (trim(lowercase(snow_option)) == 'gl') then
-              if (trim(lowercase(albedo_to_use))=='snicar') then
-                 ! assign to each snow layer sw radiation based on snicar rad transfer
-                 ! for now, in case of thin snow assign all radiation to surface balance
-                 ! else in case of thick snow assign all to snow - no to underlying soil
-                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
-                                            .and. (tile%snow%sp%nlayers > 0))) then
-                    ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-                    fswg_surface = 0.0
-                    do il=1,tile%snow%sp%nlayers
-                       tile%snow%sp%swheat(il) =     fswg_dir(1) * tile%snow%sp%sw_frac_dir(il, 1) + & 
-                                                     fswg_dif(1) * tile%snow%sp%sw_frac_dif(il, 1) + &
-                                                     fswg_dir(2) * tile%snow%sp%sw_frac_dir(il, 2) + & 
-                                                     fswg_dif(2) * tile%snow%sp%sw_frac_dif(il, 2)    
-                    enddo
-                 else
-                    if (tile%snow%sp%nlayers>0) then
-                       ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-                       tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
-                    else
-                       ALLOCATE(tile%snow%sp%swheat(1))
-                       tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
-                    endif
-                    fswg_surface = fswg
-                 endif
-              else ! snow option = ez but albedo model not SNICAR
-                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
-                                            .and. (tile%snow%sp%nlayers > 0))) then
-                    ! call tile%snow%sp%sw_sources_lm4p2(fswg)
-                    ! call tile%snow%sp%sw_sources(fswg_dir, fswg_dif, cosz)
-                    call tile%snow%sp%sw_sources(fswg_dir, fswg_dif)
-                    fswg_surface = 0.0
-                 else
-                    ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-                    tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
-                    fswg_surface = fswg
-                 endif
-              endif ! end albedo choice
-              !                           input      input   output   output    input   input      input
-              call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
-           else
-              ! case of CM snow model
-              fswg_surface=fswg
-           endif
+         !   if (trim(lowercase(snow_option)) == 'gl') then
+         !      if (trim(lowercase(albedo_to_use))=='snicar') then
+         !         ! assign to each snow layer sw radiation based on snicar rad transfer
+         !         ! for now, in case of thin snow assign all radiation to surface balance
+         !         ! else in case of thick snow assign all to snow - no to underlying soil
+         !         if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
+         !                                    .and. (tile%snow%sp%nlayers > 0))) then
+         !            ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+         !            do il=1,tile%snow%sp%nlayers
+         !               tile%snow%sp%swheat(il) =     fswg_dir(1) * tile%snow%sp%sw_frac_dir(il, 1) + & 
+         !                                             fswg_dif(1) * tile%snow%sp%sw_frac_dif(il, 1) + &
+         !                                             fswg_dir(2) * tile%snow%sp%sw_frac_dir(il, 2) + & 
+         !                                             fswg_dif(2) * tile%snow%sp%sw_frac_dif(il, 2)    
+
+                     
+         !            enddo
+         !             ! //FIXME here the fractions are NOT summed up to one. 
+         !             ! Instead, I should let the leftovers for the soil / for the top
+         !            ! fswg_surface = 0.0
+         !            ! // TODO: absorb that in the soil instead that at the surface
+         !            if ((sum(tile%snow%sp%sw_frac_dir(:, 1))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))>1.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))>1.0)  ) then
+         !             call land_error_message("Error in sw sources from SNICAR: a total larger than 1!", severity=FATAL)
+         !            endif
+         !            if ((sum(tile%snow%sp%sw_frac_dir(:, 1))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))<0.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))<0.0)  ) then
+         !             call land_error_message("Error in sw sources from SNICAR: a total is < 0!", severity=FATAL)
+         !            endif
+         !            fswg_surface = fswg_dir(1) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 1))) + &
+         !                           fswg_dif(1) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 1))) + &
+         !                           fswg_dir(2) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 2))) + &
+         !                           fswg_dif(2) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 2)))
+         !         else
+         !            if (tile%snow%sp%nlayers>0) then
+         !               ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+         !               tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
+         !            else
+         !               ALLOCATE(tile%snow%sp%swheat(1))
+         !               tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
+         !            endif
+         !            fswg_surface = fswg
+         !         endif
+         !      else ! snow option = ez but albedo model not SNICAR
+         !         if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) & 
+         !                                    .and. (tile%snow%sp%nlayers > 0))) then
+         !            ! call tile%snow%sp%sw_sources_lm4p2(fswg)
+         !            ! call tile%snow%sp%sw_sources(fswg_dir, fswg_dif, cosz)
+         !            call tile%snow%sp%sw_sources(fswg_dir, fswg_dif)
+         !            fswg_surface = 0.0
+         !         else
+         !            ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+         !            tile%snow%sp%swheat = 0.0 ! don't change fswg in this case 
+         !            fswg_surface = fswg
+         !         endif
+         !      endif ! end albedo choice
+         !      !                           input      input   output   output    input   input      input
+         !      call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
+         !   else
+         !      ! case of CM snow model
+         !      fswg_surface=fswg
+         !   endif
 
            ! solve the non-linear equation for energy balance at the surface.
 

@@ -2697,7 +2697,7 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
         else if (trim(lowercase(albedo_to_use)) == 'crocus') then
             call compute_albedo_crocus(s, p_atm) ! add to it cos dependence through modificed snow grain?
         else if (trim(lowercase(albedo_to_use)) == 'snicar') then
-            call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modificed snow grain?
+            call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modified snow grain?
         else
             ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
             call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)

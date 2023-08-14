@@ -288,18 +288,18 @@ end subroutine read_snow_snicar_namelist
          enddo
          do il=1, NL
             do ib=1,NBANDS
-               if (sum_absd_snw(ib) >(1E-7)) then
-                  s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) / sum_absd_snw(ib)
-               else
-                  s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
-               endif
-               if (sum_absi_snw(ib) >(1E-7)) then
-                  s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) / sum_absi_snw(ib)
-               else
-                  s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
-               endif
-               ! s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
-               ! s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
+               ! if (sum_absd_snw(ib) >(1E-7)) then
+               !    s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) / sum_absd_snw(ib)
+               ! else
+               !    s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
+               ! endif
+               ! if (sum_absi_snw(ib) >(1E-7)) then
+               !    s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) / sum_absi_snw(ib)
+               ! else
+               !    s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
+               ! endif
+               s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
+               s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
             enddo
          enddo
          ! write(*,*) "end SNICAR albedo subroutine"
