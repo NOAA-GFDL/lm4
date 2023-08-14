@@ -1781,7 +1781,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! case of CM snow model
      fswg_surface=fswg
   endif
-  fswg_substrate = 0.0
+  fswg_substrate = fswg_surface
+  fswg_surface = 0.0
   !!!! EZSNOW - END ALBEDO PREPROCESSING
 
   ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
@@ -2619,7 +2620,7 @@ endif
   if (associated(tile%glac)) then
      call glac_step_2 &
           ( tile%glac, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-          subs_DT, subs_M_imp, subs_evap, &
+          subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate 
           subs_levap, subs_fevap, &
           subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
      subs_frunf = 0.
@@ -2629,7 +2630,7 @@ endif
   else if (associated(tile%lake)) then
      call lake_step_2 &
           ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-          subs_DT, subs_M_imp, subs_evap, &
+          subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate 
           use_tfreeze_in_grnd_latent, subs_levap, subs_fevap, &
           subs_melt, subs_Ttop, subs_Ctop )
      subs_lrunf = 0.
@@ -2641,7 +2642,7 @@ endif
   else if (associated(tile%soil)) then
      call soil_step_2 &
           ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-          vegn_uptk, subs_DT, subs_M_imp, subs_evap, &
+          vegn_uptk, subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate 
           use_tfreeze_in_grnd_latent, &
           ! output:
           subs_levap, subs_fevap, &
