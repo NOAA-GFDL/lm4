@@ -1719,8 +1719,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! -----
            ! EZSNOW
   if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat) 
-  begw_check = tile%snow%sp%SWE() ! init conservation checks
-  begh_check = tile%snow%sp%heat() ! init conservation checks
+!   begw_check = tile%snow%sp%SWE() ! init conservation checks
+!   begh_check = tile%snow%sp%heat() ! init conservation checks
 
   if (trim(lowercase(snow_option)) == 'gl') then
      if (trim(lowercase(albedo_to_use))=='snicar') then
@@ -2305,8 +2305,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
          ! ! EZSNOW
          !   if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat) 
-         !   begw_check = tile%snow%sp%SWE() ! init conservation checks
-         !   begh_check = tile%snow%sp%heat() ! init conservation checks
+           begw_check = tile%snow%sp%SWE() ! init conservation checks
+           begh_check = tile%snow%sp%heat() ! init conservation checks
   
          !   if (trim(lowercase(snow_option)) == 'gl') then
          !      if (trim(lowercase(albedo_to_use))=='snicar') then
