@@ -30,9 +30,10 @@ public :: read_snow_snicar_namelist
 !! //TODO check optical properties loaded
 !! //TODO check units
 !! //TODO cleanup old snicar versions
-!! //TODO check sno_fs and sno_AR
+!! //TODO check sno_fs and sno_AR values, see that shape is read correctly
+!! //TODO update flx_wgt_dif - flx_wgt_dir
 !! //TODO is_dust_internal_mixing, is_BC_internal_mixing <=> snicar_snobc_intmix, snicar_snodst_intmix 
-!! //TODO: ask to make sure order of layering vs variables loaded here passed from lm4p2
+!! //TODO: ask to make sure order of layering vs variables loaded here passed from lm4p2 (BOTH START FROM TOP?)
 !!  IN GLASS ordering of layers is from the TOP
 !!
 
@@ -51,9 +52,9 @@ character(len=*), parameter :: module_name = 'snicar_mod'
 
 integer :: snow_shape_defined = 0 ! IF SET TO ZERO, USE ACTUAL VALUE. ELSE, 1-2-3-4 IMPOSE SHAPE
 logical :: use_snicar_ad = .TRUE.
-logical :: is_dust_internal_mixing = .FALSE. ! FOR NOW FORCE IT
-logical :: is_BC_internal_mixing = .FALSE.   ! FOR NOW FORCE IT
-integer :: snicar_atm_type = 0 ! default
+logical :: is_dust_internal_mixing = .TRUE. ! FOR NOW FORCE IT
+logical :: is_BC_internal_mixing = .TRUE.   ! FOR NOW FORCE IT
+integer :: snicar_atm_type = 0 ! default (midlatitude winter)
 CHARACTER(LEN=22) :: ncid = "snicar_optics.nc"
 
 namelist /snow_snicar_nml/ &
@@ -64,9 +65,9 @@ namelist /snow_snicar_nml/ &
 ! // TODO: remove
 integer, parameter :: num_nourbanc = 1 ! EZDEV
 
-  ! EZSNOW - added for new HE version of snicar::
-  logical,  public :: snicar_snobc_intmix =    is_BC_internal_mixing   ! internal mixing of BC? ! EZSNOW ASK
-  logical,  public :: snicar_snodst_intmix =   is_dust_internal_mixing    ! internal mixing of DUST? ! EZSNOW ASK
+  ! EZSNOW - added for new HE version of snicar:: (when we are sure they are the same, update)
+  logical,  public :: snicar_snobc_intmix =    .TRUE.   ! internal mixing of BC? ! EZSNOW ASK
+  logical,  public :: snicar_snodst_intmix =   .TRUE.    ! internal mixing of DUST? ! EZSNOW ASK
   !
   integer,  public, parameter :: sno_nbr_aer =   8        ! number of aerosol species in snowpack
   logical,  public, parameter :: DO_SNO_OC =    .false.   ! parameter to include organic carbon (OC)
@@ -3136,14 +3137,30 @@ enddo
 ! The following weights are appropriate for surface-incident flux in a mid-latitude winter atmosphere
 !
 !           ! works for both 5-band & 480-band, flux weights directly read from input data
-! Direct:
-if (flg_slr_in == 1) then
+!!! \----- EZSNOW commented from here ----\
+! ! Direct: 
+! if (flg_slr_in == 1) then
 ! flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-flx_wgt(1:numrad_snw) = flx_wgt_dir(1,1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data ! EZSNOW TEMP //FIXME
-! Diffuse:
-elseif (flg_slr_in == 2) then
+! ! Diffuse:
+! elseif (flg_slr_in == 2) then
 ! flx_wgt(1:numrad_snw) = flx_wgt_dif(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-flx_wgt(1:numrad_snw) = flx_wgt_dif(1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data ! EZSNOW TEMP //FIXME
+! endif
+!!! \----- EZSNOW commented until here ----\
+
+! EZSNOW : until we read the correct data, and decide type of atm to use, use the old defult values::
+! These are mid-latitude winter, from SNICAR_RT
+if (flg_slr_in == 1) then ! direct 
+     flx_wgt(1) = 1.
+     flx_wgt(2) = 0.49352158521175
+     flx_wgt(3) = 0.18099494230665
+     flx_wgt(4) = 0.12094898498813
+     flx_wgt(5) = 0.20453448749347
+elseif (flg_slr_in == 2) then ! diffuse
+   flx_wgt(1) = 1.
+   flx_wgt(2) = 0.58581507618433
+   flx_wgt(3) = 0.20156903770812
+   flx_wgt(4) = 0.10917889346386
+   flx_wgt(5) = 0.10343699264369
 endif
 
 exp_min = exp(-argmax)
