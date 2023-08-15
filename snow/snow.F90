@@ -42,7 +42,8 @@ use cm_snow_tile_mod, only: cm_snow_tile_type
 
 use gl_snow_tile_mod, only: gl_snow_tile_type
 
-use snow_evolution_mod, only: gl_snow_step_2, gl_sweep_tiny_snow, gl_compute_snow_albedo
+use snow_evolution_mod, only: gl_snow_step_2, gl_sweep_tiny_snow, gl_compute_snow_albedo, &
+                              albedo_to_use, use_internal_sources, thresh_snow_depth_swheat
 
 use snow_constants_mod, only: NTRACERS 
 
@@ -229,7 +230,6 @@ end subroutine compute_snow_albedo
 
 subroutine partition_sw_heat_in_snow( &
    snow, fswg, fswg_dir, fswg_dif, & ! input
-   snow_option_passed, albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &  ! input
    fswg_substrate, fswg_surface) ! output
    !
    ! Given the shortwave radiation absorbed by snow + substrate (fswg) [W/m2]
@@ -240,7 +240,6 @@ subroutine partition_sw_heat_in_snow( &
    !
    class(snow_tile_type), intent(inout) :: snow !< state of snowpack
    real, intent(IN), dimension(NBANDS) :: fswg, fswg_dir, fswg_dif ! total sw absorbed by snow + substrate (total, dir only, dif only) [W/m2]
-   real, intent(IN) :: snow_option_passed, albedo_to_use, use_internal_sources, thresh_snow_depth_swheat ! model options
    real, intent(OUT) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
    real, intent(OUT) :: fswg_surface ! sw radiation to be absorbed at surface [W/m2]
 

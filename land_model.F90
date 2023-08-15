@@ -1716,10 +1716,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
   fswg_dir = tile%Sg_dir * ISa_dn_dir 
   fswg_dif = tile%Sg_dif * ISa_dn_dif
-  call partition_sw_heat_in_snow( &
-   tile%snow, fswg, fswg_dir, fswg_dif, & ! input
-   snow_option, albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &  ! input
-   fswg_substrate, fswg_surface)
+  call partition_sw_heat_in_snow(tile%snow, fswg, fswg_dir, fswg_dif, fswg_substrate, fswg_surface)
 !     !!!! EZSNOW - START ALBEDO PREPROCESSING - //TODO: move all this in a subroutine in snow mod
 !   ! -----
 !            ! EZSNOW
