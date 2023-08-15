@@ -239,9 +239,13 @@ subroutine partition_sw_heat_in_snow( &
    ! andabsoirption in the underlying substrate (lake/soil/glacier)
    !
    class(snow_tile_type), intent(inout) :: snow !< state of snowpack
-   real, intent(IN), dimension(NBANDS) :: fswg, fswg_dir, fswg_dif ! total sw absorbed by snow + substrate (total, dir only, dif only) [W/m2]
+   real, intent(IN) :: fswg ! total sw absorbed by snow + substrate [W/m2]
+   real, intent(IN), dimension(NBANDS) :: fswg_dir, fswg_dif ! total sw absorbed by snow + substrate (dir only, dif only) [W/m2]
    real, intent(OUT) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
    real, intent(OUT) :: fswg_surface ! sw radiation to be absorbed at surface [W/m2]
+
+   integer il
+   real, dimension(NBANDS) :: sum_sw_frac_dir, sum_sw_frac_dif
 
    if (ALLOCATED(snow%sp%swheat)) DEALLOCATE(snow%sp%swheat) 
    
