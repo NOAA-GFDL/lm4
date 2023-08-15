@@ -267,7 +267,7 @@ end subroutine read_snow_snicar_namelist
        flg_slr = 1; ! direct light
        call SNICAR_RT_HE(s%nlayers, flg_snw_ice, &
          (/ cosz /), flg_slr, wlmat, wsmat, remat, shmat,   &
-         trmat, subs_adir_mat, albsnd, flx_absd_snw)
+         trmat, subs_adif_mat, albsnd, flx_absd_snw)
        flg_slr = 2; ! diffuse light
        call SNICAR_RT_HE(s%nlayers, flg_snw_ice, &
          (/ cosz /), flg_slr, wlmat, wsmat, remat, shmat,   &
@@ -2938,19 +2938,19 @@ difgauswt(:) = &  ! gaussian weights
     ! idxshp = 3 => HEXAGONAL
     ! idxshp = 4 => KOCH
 
-! do i=-nlevsno+1,0,1
-! ! do i=snl_top,snl_btm,1
-!    if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 4)) then
-!       write(*,*) "detected snow shape out of bounds :: = ", snw_shp_input(1,i)
-!       call land_error_message("SNICAR_RT_HE in snicar_mod: Snow shape error, value out of bounds!", severity=FATAL)
-!    endif
-!    ! if (snw_shp_input(i) == 0) sno_shp(i) = snow_shape_defined
-!    if (snw_shp_input(1,i) == 1) sno_shp(i) = 'sphere' 
-!    if (snw_shp_input(1,i) == 2) sno_shp(i) = 'spheroid' 
-!    if (snw_shp_input(1,i) == 3) sno_shp(i) = 'hexagonal_plate' 
-!    if (snw_shp_input(1,i) == 4) sno_shp(i) = 'koch_snowflake' 
-! enddo
-sno_shp(:) = 'sphere'
+do i=-nlevsno+1,0,1
+! do i=snl_top,snl_btm,1
+   if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 4)) then
+      write(*,*) "detected snow shape out of bounds :: = ", snw_shp_input(1,i)
+      call land_error_message("SNICAR_RT_HE in snicar_mod: Snow shape error, value out of bounds!", severity=FATAL)
+   endif
+   ! if (snw_shp_input(i) == 0) sno_shp(i) = snow_shape_defined
+   if (snw_shp_input(1,i) == 1) sno_shp(i) = 'sphere' 
+   if (snw_shp_input(1,i) == 2) sno_shp(i) = 'spheroid' 
+   if (snw_shp_input(1,i) == 3) sno_shp(i) = 'hexagonal_plate' 
+   if (snw_shp_input(1,i) == 4) sno_shp(i) = 'koch_snowflake' 
+enddo
+! sno_shp(:) = 'sphere'
 sno_fs(:)  = 0.0
 sno_AR(:)  = 0.0
 !!! end EZSNOW addition
@@ -3141,33 +3141,31 @@ enddo
 ! The following weights are appropriate for surface-incident flux in a mid-latitude winter atmosphere
 !
 !           ! works for both 5-band & 480-band, flux weights directly read from input data
-!!! \----- EZSNOW commented from here ----\
 ! Direct: 
-if (flg_slr_in == 1) then
-! flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-flx_wgt(1:numrad_snw) = flx_wgt_dir(1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-! Diffuse:
-elseif (flg_slr_in == 2) then
-! flx_wgt(1:numrad_snw) = flx_wgt_dif(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-flx_wgt(1:numrad_snw) = flx_wgt_dif(1,1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-endif
-!!! \----- EZSNOW commented until here ----\
+! if (flg_slr_in == 1) then
+! ! flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! flx_wgt(1:numrad_snw) = flx_wgt_dir(1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! ! Diffuse:
+! elseif (flg_slr_in == 2) then
+! ! flx_wgt(1:numrad_snw) = flx_wgt_dif(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! flx_wgt(1:numrad_snw) = flx_wgt_dif(1,1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! endif
 
 ! EZSNOW : until we read the correct data, and decide type of atm to use, use the old defult values::
 ! These are mid-latitude winter, from SNICAR_RT
-! if (flg_slr_in == 1) then ! direct 
-!      flx_wgt(1) = 1.
-!      flx_wgt(2) = 0.49352158521175
-!      flx_wgt(3) = 0.18099494230665
-!      flx_wgt(4) = 0.12094898498813
-!      flx_wgt(5) = 0.20453448749347
-! elseif (flg_slr_in == 2) then ! diffuse
-!    flx_wgt(1) = 1.
-!    flx_wgt(2) = 0.58581507618433
-!    flx_wgt(3) = 0.20156903770812
-!    flx_wgt(4) = 0.10917889346386
-!    flx_wgt(5) = 0.10343699264369
-! endif
+if (flg_slr_in == 1) then ! direct 
+     flx_wgt(1) = 1.
+     flx_wgt(2) = 0.49352158521175
+     flx_wgt(3) = 0.18099494230665
+     flx_wgt(4) = 0.12094898498813
+     flx_wgt(5) = 0.20453448749347
+elseif (flg_slr_in == 2) then ! diffuse
+   flx_wgt(1) = 1.
+   flx_wgt(2) = 0.58581507618433
+   flx_wgt(3) = 0.20156903770812
+   flx_wgt(4) = 0.10917889346386
+   flx_wgt(5) = 0.10343699264369
+endif
 
 ! flx_wgt(1) = 1.
 ! flx_wgt(2) = 0.58581507618433
