@@ -32,6 +32,8 @@ public :: read_snow_snicar_namelist
 !! //TODO cleanup old snicar versions
 !! //TODO check sno_fs and sno_AR
 !! //TODO is_dust_internal_mixing, is_BC_internal_mixing <=> snicar_snobc_intmix, snicar_snodst_intmix 
+!! //TODO: ask to make sure order of layering vs variables loaded here passed from lm4p2
+!!  IN GLASS ordering of layers is from the TOP
 !!
 
 
@@ -63,8 +65,8 @@ namelist /snow_snicar_nml/ &
 integer, parameter :: num_nourbanc = 1 ! EZDEV
 
   ! EZSNOW - added for new HE version of snicar::
-  logical,  public, parameter :: snicar_snobc_intmix =    is_BC_internal_mixing   ! internal mixing of BC? ! EZSNOW ASK
-  logical,  public, parameter :: snicar_snodst_intmix =   is_dust_internal_mixing    ! internal mixing of DUST? ! EZSNOW ASK
+  logical,  public :: snicar_snobc_intmix =    is_BC_internal_mixing   ! internal mixing of BC? ! EZSNOW ASK
+  logical,  public :: snicar_snodst_intmix =   is_dust_internal_mixing    ! internal mixing of DUST? ! EZSNOW ASK
   !
   integer,  public, parameter :: sno_nbr_aer =   8        ! number of aerosol species in snowpack
   logical,  public, parameter :: DO_SNO_OC =    .false.   ! parameter to include organic carbon (OC)
