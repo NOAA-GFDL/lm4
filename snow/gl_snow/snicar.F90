@@ -63,8 +63,8 @@ namelist /snow_snicar_nml/ &
 integer, parameter :: num_nourbanc = 1 ! EZDEV
 
   ! EZSNOW - added for new HE version of snicar::
-!   logical,  public, parameter :: snicar_snobc_intmix =    .true.   ! internal mixing of BC? ! EZSNOW ASK
-!   logical,  public, parameter :: snicar_snodst_intmix =    .true.   ! internal mixing of DUST? ! EZSNOW ASK
+  logical,  public, parameter :: snicar_snobc_intmix =    is_BC_internal_mixing   ! internal mixing of BC? ! EZSNOW ASK
+  logical,  public, parameter :: snicar_snodst_intmix =   is_dust_internal_mixing    ! internal mixing of DUST? ! EZSNOW ASK
   !
   integer,  public, parameter :: sno_nbr_aer =   8        ! number of aerosol species in snowpack
   logical,  public, parameter :: DO_SNO_OC =    .false.   ! parameter to include organic carbon (OC)
@@ -227,7 +227,7 @@ end subroutine read_snow_snicar_namelist
       ! GET SNOW SHAPE FOR EACH LAYER
       if (snow_shape_defined==0) then
          ! IN THIS CASE USE ACTUAL COMPUTED GRAIN SHAPE
-         call compute_snow_grain_shape(s%snow(il)%dendr, s%snow(il)%dendr, shmat(1, il) )
+         call compute_snow_grain_shape(s%snow(il)%dendr, s%snow(il)%sph, shmat(1, il) )
       else ! case equal 1-2-3-4: FORCE GRAIN SHAPE
          shmat(1, il) = snow_shape_defined
       endif
@@ -2932,8 +2932,9 @@ difgauswt(:) = &  ! gaussian weights
     ! idxshp = 3 => HEXAGONAL
     ! idxshp = 4 => KOCH
 
-do i=-nlevsno+1,1,1
-   if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 5)) then
+do i=-nlevsno+1,0,1
+! do i=snl_top,snl_btm,1
+   if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 4)) then
       write(*,*) "detected snow shape out of bounds :: = ", snw_shp_input(1,i)
       call land_error_message("SNICAR_RT_HE in snicar_mod: Snow shape error, value out of bounds!", severity=FATAL)
    endif
@@ -3012,7 +3013,7 @@ wvl_ct(:)  = (/ 0.5, 0.85, 1.1, 1.35, 3.25 /)  ! 5-band
 ! end select
 
 ! Define constants
-! pi = SHR_CONST_PI
+! pi = SHR_CONST_PI ! EZSNOW commented
 
 ! always use Delta approximation for snow
 DELTA = 1
@@ -3025,7 +3026,7 @@ nstep = 1 ! EZSNOW :: NOT USED in LM4p2
 ! (when called from CSIM, there is only one column)
 do fc = 1,num_nourbanc
 ! c_idx = filter_nourbanc(fc)
-c_idx = fc
+c_idx = fc ! EZSNOW -> single column
 
 ! Zero absorbed radiative fluxes:
 do i=-nlevsno+1,1,1
@@ -3328,8 +3329,7 @@ if (wvl_doint <= 1.2) then
 
    ! BC-snow internal mixing applied to hydrophilic BC if activated
    ! BC-snow internal mixing primarily affect snow single-scattering albedo
-   ! if ( snicar_snobc_intmix .and. (mss_cnc_aer_lcl(i,1) > 0.0) ) then
-   if ( is_BC_internal_mixing .and. (mss_cnc_aer_lcl(i,1) > 0.0) ) then ! EZSNOW
+   if ( snicar_snobc_intmix .and. (mss_cnc_aer_lcl(i,1) > 0.0) ) then
       ! result from Eq.8b in He et al.(2017) is based on BC Re=0.1um &
       ! MAC=6.81 m2/g (@550 nm) & BC density=1.7g/cm3.
       ! To be consistent with Bond et al. 2006 recommeded value (BC MAC=7.5 m2/g @550nm)
@@ -3381,8 +3381,7 @@ if (wvl_doint <= 1.2) then
    ! all dust size bins here.
    tot_dst_snw_conc = (mss_cnc_aer_lcl(i,5) + mss_cnc_aer_lcl(i,6) + &
                        mss_cnc_aer_lcl(i,7) + mss_cnc_aer_lcl(i,8)) * 1.0E6 !kg/kg->ppm
-   ! if ( snicar_snodst_intmix .and. (tot_dst_snw_conc > 0.0) ) then
-   if ( is_dust_internal_mixing .and. (tot_dst_snw_conc > 0.0) ) then ! EZSNOW
+   if ( snicar_snodst_intmix .and. (tot_dst_snw_conc > 0.0) ) then
       do idb=1,6
          enh_omg_dstint_tmp(idb) = dstint_a1(idb)+dstint_a2(idb)*(tot_dst_snw_conc**dstint_a3(idb))
          enh_omg_dstint_tmp2(idb) = LOG10(max(enh_omg_dstint_tmp(idb),1.0))
