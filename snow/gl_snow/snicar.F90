@@ -3143,12 +3143,14 @@ enddo
 !           ! works for both 5-band & 480-band, flux weights directly read from input data
 !!! \----- EZSNOW commented from here ----\
 ! Direct: 
-! if (flg_slr_in == 1) then
+if (flg_slr_in == 1) then
 ! flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-! ! Diffuse:
-! elseif (flg_slr_in == 2) then
+flx_wgt(1:numrad_snw) = flx_wgt_dir(1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! Diffuse:
+elseif (flg_slr_in == 2) then
 ! flx_wgt(1:numrad_snw) = flx_wgt_dif(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
-! endif
+flx_wgt(1:numrad_snw) = flx_wgt_dif(1,1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+endif
 !!! \----- EZSNOW commented until here ----\
 
 ! EZSNOW : until we read the correct data, and decide type of atm to use, use the old defult values::
@@ -3167,11 +3169,11 @@ enddo
 !    flx_wgt(5) = 0.10343699264369
 ! endif
 
-flx_wgt(1) = 1.
-flx_wgt(2) = 0.58581507618433
-flx_wgt(3) = 0.20156903770812
-flx_wgt(4) = 0.10917889346386
-flx_wgt(5) = 0.10343699264369
+! flx_wgt(1) = 1.
+! flx_wgt(2) = 0.58581507618433
+! flx_wgt(3) = 0.20156903770812
+! flx_wgt(4) = 0.10917889346386
+! flx_wgt(5) = 0.10343699264369
 
 exp_min = exp(-argmax)
 
