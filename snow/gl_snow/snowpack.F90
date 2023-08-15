@@ -1556,10 +1556,10 @@ end subroutine snowpack_nearsurf_properties
 
 ! STANDALONE MODEL VERSION
 !> \given net SW radiation, distribute absorption through snow layers
-subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
+subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif, swdn_ground)
   class(snowpack_t), intent(inout) :: s
-  ! real, intent(out) :: swdn_ground ! sw radiation exiting the snowpack and passed to the ground [W m^-2]
-  real swdn_ground ! sw radiation exiting the snowpack and passed to the ground [W m^-2]
+  real, intent(out) :: swdn_ground ! sw radiation exiting the snowpack and passed to the ground [W m^-2]
+  ! real swdn_ground ! sw radiation exiting the snowpack and passed to the ground [W m^-2]
   real, INTENT(IN), DIMENSION(NBANDS) :: swnet_dir, swnet_dif ! net sw rad to snowpack
   integer il
   real Q_vis_dir, Q_nir_dir, Q_vis_dif, Q_nir_dif
@@ -1598,12 +1598,12 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
                   swnet_dif(2)*exp(-s%beta_rad(2)*s%depth()) 
     
     !  rescale SW absorbed by snow to match total - assume no penetration to underlying soil
-    if (swnet_in_total-swdn_ground > 0.0) then
-    do il = 1, s%nlayers
-      s%swheat(il) = s%swheat(il) * swnet_in_total/(swnet_in_total-swdn_ground)
-    enddo
-    swdn_ground = 0.0
-    endif
+    ! if (swnet_in_total-swdn_ground > 0.0) then
+    ! do il = 1, s%nlayers
+    !   s%swheat(il) = s%swheat(il) * swnet_in_total/(swnet_in_total-swdn_ground)
+    ! enddo
+    ! swdn_ground = 0.0
+    ! endif
 
     ! check conservation 
     total0 = swnet_in_total
