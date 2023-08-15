@@ -24,7 +24,7 @@ use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
-use land_debug_mod, only : is_watch_point
+use land_debug_mod, only : is_watch_point, land_error_message
 
 use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
     cm_save_snow_restart, cm_snow_get_depth_area, &
