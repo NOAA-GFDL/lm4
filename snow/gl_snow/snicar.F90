@@ -265,11 +265,11 @@ end subroutine read_snow_snicar_namelist
 
 
        flg_slr = 1; ! direct light
-       call SNICAR_RT_HE (s%nlayers, flg_snw_ice, &
+       call SNICAR_RT_HE(s%nlayers, flg_snw_ice, &
          (/ cosz /), flg_slr, wlmat, wsmat, remat, shmat,   &
          trmat, subs_adir_mat, albsnd, flx_absd_snw)
        flg_slr = 2; ! diffuse light
-       call SNICAR_RT_HE (s%nlayers, flg_snw_ice, &
+       call SNICAR_RT_HE(s%nlayers, flg_snw_ice, &
          (/ cosz /), flg_slr, wlmat, wsmat, remat, shmat,   &
          trmat, subs_adif_mat, albsni, flx_absi_snw)
 
@@ -2541,7 +2541,7 @@ end subroutine read_snow_snicar_namelist
 
 
      !-----------------------------------------------------------------------
-  subroutine SNICAR_RT_HE (nlevsno, flg_snw_ice, &
+  subroutine SNICAR_RT_HE(nlevsno, flg_snw_ice, &
    coszen, flg_slr_in, h2osno_liq, h2osno_ice, snw_rds, snw_shp_input, &
    mss_cnc_aer_in, albsfc, albout, flx_abs)
 !
@@ -3153,19 +3153,25 @@ enddo
 
 ! EZSNOW : until we read the correct data, and decide type of atm to use, use the old defult values::
 ! These are mid-latitude winter, from SNICAR_RT
-if (flg_slr_in == 1) then ! direct 
-     flx_wgt(1) = 1.
-     flx_wgt(2) = 0.49352158521175
-     flx_wgt(3) = 0.18099494230665
-     flx_wgt(4) = 0.12094898498813
-     flx_wgt(5) = 0.20453448749347
-elseif (flg_slr_in == 2) then ! diffuse
-   flx_wgt(1) = 1.
-   flx_wgt(2) = 0.58581507618433
-   flx_wgt(3) = 0.20156903770812
-   flx_wgt(4) = 0.10917889346386
-   flx_wgt(5) = 0.10343699264369
-endif
+! if (flg_slr_in == 1) then ! direct 
+!      flx_wgt(1) = 1.
+!      flx_wgt(2) = 0.49352158521175
+!      flx_wgt(3) = 0.18099494230665
+!      flx_wgt(4) = 0.12094898498813
+!      flx_wgt(5) = 0.20453448749347
+! elseif (flg_slr_in == 2) then ! diffuse
+!    flx_wgt(1) = 1.
+!    flx_wgt(2) = 0.58581507618433
+!    flx_wgt(3) = 0.20156903770812
+!    flx_wgt(4) = 0.10917889346386
+!    flx_wgt(5) = 0.10343699264369
+! endif
+
+flx_wgt(1) = 1.
+flx_wgt(2) = 0.58581507618433
+flx_wgt(3) = 0.20156903770812
+flx_wgt(4) = 0.10917889346386
+flx_wgt(5) = 0.10343699264369
 
 exp_min = exp(-argmax)
 
