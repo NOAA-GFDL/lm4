@@ -37,7 +37,9 @@ public :: read_snow_snicar_namelist
 !!  IN GLASS ordering of layers is from the TOP
 !! //TODO: IN GLASS-SNICAR, add options for clean snow or only-dust snow
 !!
-
+!! He version obtained from
+!! https://github.com/cenlinhe/CTSM/blob/snicar_allupdate/src/biogeophys/SnowSnicarMod.F90
+!!
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snicar_mod' 
@@ -265,11 +267,11 @@ end subroutine read_snow_snicar_namelist
        flg_slr = 1; ! direct light
        call SNICAR_RT_HE (s%nlayers, flg_snw_ice, &
          (/ cosz /), flg_slr, wlmat, wsmat, remat, shmat,   &
-         trmat, subs_adif_mat, albsni, flx_absi_snw)
+         trmat, subs_adir_mat, albsnd, flx_absd_snw)
        flg_slr = 2; ! diffuse light
        call SNICAR_RT_HE (s%nlayers, flg_snw_ice, &
          (/ cosz /), flg_slr, wlmat, wsmat, remat, shmat,   &
-         trmat, subs_adif_mat, albsnd, flx_absd_snw)
+         trmat, subs_adif_mat, albsni, flx_absi_snw)
 
 
    ! write(*,*) "COMPUTING SNICAR SNOW ALBEDO!"
@@ -3140,7 +3142,7 @@ enddo
 !
 !           ! works for both 5-band & 480-band, flux weights directly read from input data
 !!! \----- EZSNOW commented from here ----\
-! ! Direct: 
+! Direct: 
 ! if (flg_slr_in == 1) then
 ! flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
 ! ! Diffuse:
