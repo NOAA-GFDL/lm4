@@ -77,6 +77,7 @@ integer, parameter :: num_nourbanc = 1 ! EZDEV
   real, public, parameter :: snw_rds_min = 54.526 ! minimum allowed snow effective radius (also "fresh snow" value) [microns]
   integer,  parameter :: snw_rds_max_tbl = 1500          ! maximum effective radius defined in Mie lookup table [microns]
   integer,  parameter :: snw_rds_min_tbl = 30            ! minimium effective radius defined in Mie lookup table [microns]
+  integer,  parameter :: snw_rds_min_int = nint(snw_rds_min) ! minimum allowed snow effective radius as integer [microns]
   real, parameter :: snw_rds_max     = 1500.0      ! maximum allowed snow effective radius [microns]
   real, parameter :: min_snw = 1.0E-30            ! minimum snow mass required for SNICAR RT calculation [kg m-2]
   real, parameter :: tim_cns_bc_rmv  = 2.2E-8     ! time constant for removal of BC in snow on sea-ice [s-1] (50% mass removal/year)
@@ -2599,7 +2600,7 @@ real          , intent(out) :: flx_abs        ( 1: , -nlevsno+1: , 1: ) ! absorb
 ! integer :: nir_bnd_end  ! ending near-IR band index [idx]
 
 ! Local variables representing single-column values of arrays:
-real :: h2osno_total   ( 1: )                    ! total snow content (col) [kg/m2] ! EZSNOW moved here, compute from sum(liq + ice)
+! real :: h2osno_total   ( 1: )                    ! total snow content (col) [kg/m2] ! EZSNOW moved here, compute from sum(liq + ice)
 integer :: snl_lcl                            ! negative number of snow layers [nbr]
 integer :: snw_rds_lcl(-nlevsno+1:0)          ! snow effective radius [m^-6]
 real :: flx_slrd_lcl(1:numrad_snw)         ! direct beam incident irradiance [W/m2] (set to 1)
@@ -2621,7 +2622,7 @@ integer :: APRX_TYP                           ! two-stream approximation type
                              ! (1=Eddington, 2=Quadrature, 3=Hemispheric Mean) [nbr]
 integer :: DELTA                              ! flag to use Delta approximation (Joseph, 1976)
                              ! (1= use, 0= don't use)
-real(r8):: flx_wgt(1:numrad_snw)              ! weights applied to spectral bands,
+real :: flx_wgt(1:numrad_snw)              ! weights applied to spectral bands,
                              ! specific to direct and diffuse cases (bnd) [frc] 
 integer :: flg_nosnl                          ! flag: =1 if there is snow, but zero snow layers,
                              ! =0 if at least 1 snow layer [flg]   
@@ -2842,7 +2843,7 @@ real :: bcint_wvl_ct(1:16)                ! Parameterization band center wavelen
 real :: bcint_d0(1:16)                    ! Parameterization coefficients at each band center wavelength
 real :: bcint_d1(1:16)                    ! Parameterization coefficients at each band center wavelength
 real :: bcint_d2(1:16)                    ! Parameterization coefficients at each band center wavelength
-real :: den_bc = 1.49_r8                  ! target BC particle density (g/cm3) used in BC MAC adjustment
+real :: den_bc = 1.49                  ! target BC particle density (g/cm3) used in BC MAC adjustment
 real :: Re_bc = 0.045                     ! target BC effective radius (um) used in BC MAC adjustment
 real :: bcint_m(1:3)                      ! Parameterization coefficients for BC size adjustment in BC-snow int mix
 real :: bcint_n(1:3)                      ! Parameterization coefficients for BC size adjustment in BC-snow int mix
@@ -2871,6 +2872,9 @@ real :: enh_omg_dstint_intp2              ! dust-induced enhancement in snow 1-o
 real :: tot_dst_snw_conc                  ! total dust content in snow across all size bins (ppm=ug/g)
 integer  :: idb                               ! loop index
 
+real :: h2osno_total(num_nourbanc)
+real :: snl(num_nourbanc)
+
 !-----------------------------------------------------------------------
 
 ! Enforce expected array sizes
@@ -2890,7 +2894,7 @@ integer  :: idb                               ! loop index
 ! )
 
 ! snl = - nlevsno ! EZSNOW
-frac_sno = 1.0 ! EZSNOW
+! frac_sno = 1.0 ! EZSNOW
 
 h2osno_total(1) = sum(h2osno_ice + h2osno_liq) ! EZSNOW
 snl(1) = -nlevsno ! EZSNOW
@@ -2971,7 +2975,7 @@ g_F07_p0(1:7) = (/  5.292852E-1,  5.425909E-1,  5.601598E-1,  6.023407E-1, &
 ! Eq. 8b & Table 4 in He et al., 2017 J. Climate (wavelength>1.2um, no BC-snow int mixing effect)
 bcint_wvl(1:17) = (/ 0.20, 0.25, 0.30, 0.33, 0.36, 0.40, 0.44, 0.48, &
       0.52, 0.57, 0.64, 0.69, 0.75, 0.78, 0.87, 1.0, 1.2 /)
-bcint_wvl_ct(1:16) = bcint_wvl(2:17) * 0.5_r8 + bcint_wvl(1:16) * 0.5
+bcint_wvl_ct(1:16) = bcint_wvl(2:17) * 0.5 + bcint_wvl(1:16) * 0.5
 bcint_d0(1:16)  = (/ 2.48045   , 4.70305   , 4.68619   , 4.67369   , 4.65040   , &
       2.40364   , 7.95408E-1, 2.92745E-1, 8.63396E-2, 2.76299E-2, &
       1.40864E-2, 8.65705E-3, 6.12971E-3, 4.45697E-3, 3.06648E-2, &
@@ -3131,10 +3135,12 @@ enddo
 !           ! works for both 5-band & 480-band, flux weights directly read from input data
 ! Direct:
 if (flg_slr_in == 1) then
-flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! flx_wgt(1:numrad_snw) = flx_wgt_dir(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+flx_wgt(1:numrad_snw) = flx_wgt_dir(1,1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data ! EZSNOW TEMP //FIXME
 ! Diffuse:
 elseif (flg_slr_in == 2) then
-flx_wgt(1:numrad_snw) = flx_wgt_dif(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+! flx_wgt(1:numrad_snw) = flx_wgt_dif(1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data
+flx_wgt(1:numrad_snw) = flx_wgt_dif(1,1:numrad_snw)  ! VIS or NIR band sum is already normalized to 1.0 in input data ! EZSNOW TEMP //FIXME
 endif
 
 exp_min = exp(-argmax)
@@ -3387,7 +3393,7 @@ if (wvl_doint <= 1.2) then
       enh_omg_dstint_intp2 = 10.0 ** enh_omg_dstint_intp
       enh_omg_dstint_intp2 = min(1.0E5, max(enh_omg_dstint_intp2,1.0)) ! constrain enhancement to a reasonable range
       ss_alb_snw_lcl(i) = 1.0 - (1.0 - ss_alb_snw_lcl(i)) * enh_omg_dstint_intp2
-      ss_alb_snw_lcl(i) = max(0.5_r8, min(ss_alb_snw_lcl(i),1.0))
+      ss_alb_snw_lcl(i) = max(0.5, min(ss_alb_snw_lcl(i),1.0))
       ! reset all dust optics to zero  since it is accounted by updated snow ss_alb above
       ss_alb_aer_lcl(5:8)      = 0.0
       asm_prm_aer_lcl(5:8)     = 0.0
