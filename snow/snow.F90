@@ -228,8 +228,8 @@ end subroutine compute_snow_albedo
 
 
 subroutine partition_sw_heat_in_snow( &
-   snow, fswg, fswg_dir, fswg_dif ! input
-   snow_option_passed, albedo_to_use, use_internal_sources, thresh_snow_depth_swheat  ! input
+   snow, fswg, fswg_dir, fswg_dif, & ! input
+   snow_option_passed, albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &  ! input
    fswg_substrate, fswg_surface) ! output
    !
    ! Given the shortwave radiation absorbed by snow + substrate (fswg) [W/m2]
