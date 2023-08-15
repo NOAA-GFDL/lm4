@@ -35,6 +35,7 @@ public :: read_snow_snicar_namelist
 !! //TODO is_dust_internal_mixing, is_BC_internal_mixing <=> snicar_snobc_intmix, snicar_snodst_intmix 
 !! //TODO: ask to make sure order of layering vs variables loaded here passed from lm4p2 (BOTH START FROM TOP?)
 !!  IN GLASS ordering of layers is from the TOP
+!! //TODO: IN GLASS-SNICAR, add options for clean snow or only-dust snow
 !!
 
 
@@ -2935,18 +2936,19 @@ difgauswt(:) = &  ! gaussian weights
     ! idxshp = 3 => HEXAGONAL
     ! idxshp = 4 => KOCH
 
-do i=-nlevsno+1,0,1
-! do i=snl_top,snl_btm,1
-   if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 4)) then
-      write(*,*) "detected snow shape out of bounds :: = ", snw_shp_input(1,i)
-      call land_error_message("SNICAR_RT_HE in snicar_mod: Snow shape error, value out of bounds!", severity=FATAL)
-   endif
-   ! if (snw_shp_input(i) == 0) sno_shp(i) = snow_shape_defined
-   if (snw_shp_input(1,i) == 1) sno_shp(i) = 'sphere' 
-   if (snw_shp_input(1,i) == 2) sno_shp(i) = 'spheroid' 
-   if (snw_shp_input(1,i) == 3) sno_shp(i) = 'hexagonal_plate' 
-   if (snw_shp_input(1,i) == 4) sno_shp(i) = 'koch_snowflake' 
-enddo
+! do i=-nlevsno+1,0,1
+! ! do i=snl_top,snl_btm,1
+!    if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 4)) then
+!       write(*,*) "detected snow shape out of bounds :: = ", snw_shp_input(1,i)
+!       call land_error_message("SNICAR_RT_HE in snicar_mod: Snow shape error, value out of bounds!", severity=FATAL)
+!    endif
+!    ! if (snw_shp_input(i) == 0) sno_shp(i) = snow_shape_defined
+!    if (snw_shp_input(1,i) == 1) sno_shp(i) = 'sphere' 
+!    if (snw_shp_input(1,i) == 2) sno_shp(i) = 'spheroid' 
+!    if (snw_shp_input(1,i) == 3) sno_shp(i) = 'hexagonal_plate' 
+!    if (snw_shp_input(1,i) == 4) sno_shp(i) = 'koch_snowflake' 
+! enddo
+sno_shp(:) = 'sphere'
 sno_fs(:)  = 0.0
 sno_AR(:)  = 0.0
 !!! end EZSNOW addition
