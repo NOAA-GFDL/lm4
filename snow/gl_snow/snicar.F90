@@ -27,11 +27,11 @@ public :: compute_snicar_albedo
 public :: read_snow_snicar_namelist
 
 !! ENRICO EZSNOW NOTES
-!! //TODO check optical properties loaded
-!! //TODO check units
+!! //TODO check optical properties loaded - old file is ok for new snicar version?
+!! //TODO check units for input data (radius, conc. of imp.)
 !! //TODO cleanup old snicar versions
-!! //TODO check sno_fs and sno_AR values, see that shape is read correctly
-!! //TODO update flx_wgt_dif - flx_wgt_dir
+!! //TODO check sno_fs and sno_AR values, see that shape is read correctly layer-by-layer
+!! //TODO update flx_wgt_dif - flx_wgt_dir?  in RT_HE
 !! //TODO is_dust_internal_mixing, is_BC_internal_mixing <=> snicar_snobc_intmix, snicar_snodst_intmix 
 !! //TODO: ask to make sure order of layering vs variables loaded here passed from lm4p2 (BOTH START FROM TOP?)
 !!  IN GLASS ordering of layers is from the TOP
@@ -84,11 +84,11 @@ integer, parameter :: num_nourbanc = 1 ! EZDEV
   integer,  parameter :: snw_rds_max_tbl = 1500          ! maximum effective radius defined in Mie lookup table [microns]
   integer,  parameter :: snw_rds_min_tbl = 30            ! minimium effective radius defined in Mie lookup table [microns]
   integer,  parameter :: snw_rds_min_int = nint(snw_rds_min) ! minimum allowed snow effective radius as integer [microns]
-  real, parameter :: snw_rds_max     = 1500.0      ! maximum allowed snow effective radius [microns]
+!   real, parameter :: snw_rds_max     = 1500.0      ! maximum allowed snow effective radius [microns]
   real, parameter :: min_snw = 1.0E-30            ! minimum snow mass required for SNICAR RT calculation [kg m-2]
-  real, parameter :: tim_cns_bc_rmv  = 2.2E-8     ! time constant for removal of BC in snow on sea-ice [s-1] (50% mass removal/year)
-  real, parameter :: tim_cns_oc_rmv  = 2.2E-8     ! time constant for removal of OC in snow on sea-ice [s-1] (50% mass removal/year)
-  real, parameter :: tim_cns_dst_rmv = 2.2E-8     ! time constant for removal of dust in snow on sea-ice [s-1] (50% mass removal/year)
+!   real, parameter :: tim_cns_bc_rmv  = 2.2E-8     ! time constant for removal of BC in snow on sea-ice [s-1] (50% mass removal/year)
+!   real, parameter :: tim_cns_oc_rmv  = 2.2E-8     ! time constant for removal of OC in snow on sea-ice [s-1] (50% mass removal/year)
+!   real, parameter :: tim_cns_dst_rmv = 2.2E-8     ! time constant for removal of dust in snow on sea-ice [s-1] (50% mass removal/year)
 
   ! direct-beam weighted ice optical properties
   real :: ss_alb_snw_drc     (idx_Mie_snw_mx,numrad_snw);
@@ -211,17 +211,34 @@ end subroutine read_snow_snicar_namelist
       remat(1,il) = min(snw_rds_max_tbl, max(snw_rds_min_tbl, int(s%snow(il)%optd/2.0*1E6))) ! from optd [m] to GRAIN RADIUS IN [/mu m]
       ! // TODO: for now sum internally mixed and externally mixed tracers
       ! // wc[mg]-> compute concentration in kg/kg
+
+      ! init conc values - let's start with clean snow
+         trmat(1, il, 1) = 0.0
+         trmat(1, il, 2) = 0.0
+         trmat(1, il, 3) = 0.0
+         trmat(1, il, 4) = 0.0
+         trmat(1, il, 5) = 0.0
+         trmat(1, il, 6) = 0.0
+         trmat(1, il, 7) = 0.0
+         trmat(1, il, 8) = 0.0
+
       ! BLACK CARBON (1=PHI, 2=PHO)
+      if (lap_albedo_include_bc) then
       trmat(1, il, 1) = 0.5 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 2) = 0.5 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
+      endif
       ! ! ORGANIC CARBON (1=PHI, 2=PHO)
+      if (lap_albedo_include_oc) then
       trmat(1, il, 3) = 0.5 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 4) = 0.5 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
+      endif
       ! ! MINERAL DUST for various size bins
+      if (lap_albedo_include_oc) then
       trmat(1, il, 5) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 6) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 7) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 8) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
+      endif
 
 
 
@@ -2938,6 +2955,7 @@ difgauswt(:) = &  ! gaussian weights
     ! idxshp = 3 => HEXAGONAL
     ! idxshp = 4 => KOCH
 
+    ! note: grain shap array is for each layer, no for each column, as in lm4p2 we run single col here anyway.
 do i=-nlevsno+1,0,1
 ! do i=snl_top,snl_btm,1
    if ((snw_shp_input(1,i) < 1).or.(snw_shp_input(1,i) > 4)) then
@@ -2951,8 +2969,8 @@ do i=-nlevsno+1,0,1
    if (snw_shp_input(1,i) == 4) sno_shp(i) = 'koch_snowflake' 
 enddo
 ! sno_shp(:) = 'sphere'
-sno_fs(:)  = 0.0
-sno_AR(:)  = 0.0
+sno_fs(:)  = 0.0 ! ASK
+sno_AR(:)  = 0.0 ! ASK
 !!! end EZSNOW addition
 
 ! Table 3 of He et al 2017 JC
@@ -3058,7 +3076,7 @@ if ((coszen(c_idx) > 0.0) .and. (h2osno_lcl > min_snw)) then
 if (flg_snw_ice == 1) then
 ! If there is snow, but zero snow layers, we must create a layer locally.
 ! This layer is presumed to have the fresh snow effective radius.
-if (snl(c_idx) > -1) then
+if (snl(c_idx) > -1) then 
 flg_nosnl         =  1
 snl_lcl           =  -1
 h2osno_ice_lcl(0) =  h2osno_lcl
@@ -3154,13 +3172,13 @@ enddo
 ! EZSNOW : until we read the correct data, and decide type of atm to use, use the old defult values::
 ! These are mid-latitude winter, from SNICAR_RT
 if (flg_slr_in == 1) then ! direct 
-     flx_wgt(1) = 1.
+     flx_wgt(1) = 1.0
      flx_wgt(2) = 0.49352158521175
      flx_wgt(3) = 0.18099494230665
      flx_wgt(4) = 0.12094898498813
      flx_wgt(5) = 0.20453448749347
 elseif (flg_slr_in == 2) then ! diffuse
-   flx_wgt(1) = 1.
+   flx_wgt(1) = 1.0
    flx_wgt(2) = 0.58581507618433
    flx_wgt(3) = 0.20156903770812
    flx_wgt(4) = 0.10917889346386

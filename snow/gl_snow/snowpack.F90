@@ -30,6 +30,9 @@ public :: MAX_OPT_LAYERS
 public :: snowpack_init_lm4p2
 public :: read_snowpack_namelist
 public :: compute_snow_grain_shape
+public :: lap_albedo_include_bc
+public :: lap_albedo_include_md
+public :: lap_albedo_include_om
 
 
 !> \brief state of snow layer
