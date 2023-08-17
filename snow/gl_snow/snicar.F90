@@ -228,12 +228,12 @@ end subroutine read_snow_snicar_namelist
       trmat(1, il, 2) = 0.5 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
       endif
       ! ! ORGANIC CARBON (1=PHI, 2=PHO)
-      if (lap_albedo_include_oc) then
+      if (lap_albedo_include_om) then
       trmat(1, il, 3) = 0.5 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 4) = 0.5 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
       endif
       ! ! MINERAL DUST for various size bins
-      if (lap_albedo_include_oc) then
+      if (lap_albedo_include_md) then
       trmat(1, il, 5) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 6) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
       trmat(1, il, 7) = 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
