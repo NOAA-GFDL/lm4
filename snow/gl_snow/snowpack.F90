@@ -118,7 +118,7 @@ character(len=*), parameter :: module_name = 'snowpack_mod' ! lm4p2
 
 
 !> optimal snowpack layer distribution and associated calculations
-integer, parameter :: MAX_OPT_LAYERS = 3
+integer, parameter :: MAX_OPT_LAYERS = 32
 ! EZSNOW: made this allocatable
 real, ALLOCATABLE :: opt_layer(:)   !< prescribed layer thicknesses
 real, ALLOCATABLE :: opt_layer_z(:) !< lower boundary of optimal layers, m
@@ -522,8 +522,11 @@ subroutine update_dzopt_size(snow_depth)
 
   endif
 
-  if (opt_layer_z(size(opt_layer_z))< snow_depth) &
+  if (opt_layer_z(size(opt_layer_z))< snow_depth) then
+      write(*, * ) "Optimal layer thickness distribution error: snow depth = ", snow_depth
+      write(*, * ) "Optimal layer thickness distribution error: NEW_OPT_LAYERS  = ", NEW_OPT_LAYERS 
       call land_error_message("Optimal layer thickness distribution is not thick enough for given snow depth", FATAL)
+  endif
 
 end subroutine update_dzopt_size 
 
