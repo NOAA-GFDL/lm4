@@ -28,7 +28,8 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
-use snowpack_mod, only : cpw, clw, csw, read_snowpack_namelist
+use snowpack_mod ! need to load it all because here we read snowpack_nml used in cm snow
+! use snowpack_mod, only : cpw, clw, csw, read_snowpack_namelist
 
 
 implicit none
