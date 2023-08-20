@@ -99,6 +99,7 @@ subroutine cm_read_snow_namelist()
   integer :: l            ! layer iterator
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
+  call read_snowpack_namelist()  ! need to read some variables from snowpack module
 
   call log_version(version, module_name, &
   __FILE__)
@@ -144,7 +145,6 @@ subroutine cm_snow_init()
   type(land_restart_type) :: restart
   logical :: restart_exists
 
-  call read_snowpack_namelist()  ! need to read some variables from snowpack module
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
 
