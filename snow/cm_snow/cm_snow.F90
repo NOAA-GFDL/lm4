@@ -28,7 +28,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
-use snowpack_mod, only : cpw, clw, csw
+use snowpack_mod, only : cpw, clw, csw, read_snowpack_namelist
 
 
 implicit none
@@ -99,6 +99,7 @@ subroutine cm_read_snow_namelist()
   integer :: l            ! layer iterator
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
+  call read_snowpack_namelist()  ! need to read some variables from snowpack module
 
   call log_version(version, module_name, &
   __FILE__)
