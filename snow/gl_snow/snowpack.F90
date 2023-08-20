@@ -33,6 +33,8 @@ public :: compute_snow_grain_shape
 public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
 public :: lap_albedo_include_om
+public :: use_mcm_masking
+public :: depth_crit
 
 
 !> \brief state of snow layer
@@ -149,16 +151,16 @@ real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle 
 logical :: lap_albedo_include_bc = .TRUE.
 logical :: lap_albedo_include_md = .TRUE.
 logical :: lap_albedo_include_om = .TRUE.
+logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
+real    :: depth_crit            = 0.0167
+character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
 
 real, protected, public :: &
    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
    clw = 4218.0, &  ! specific heat of water (liquid)
    csw = 2106.0     ! specific heat of water (ice)
-logical, public :: use_mcm_masking       = .false.   ! MCM snow mask fn
-real, public    :: depth_crit            = 0.0167
 
-! logical :: use_cm_conductance = .FALSE.
-character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
+
 
 
 namelist /snowpack_nml/ &

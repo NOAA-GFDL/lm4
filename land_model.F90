@@ -3871,7 +3871,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 ! ======= EZSNOW updated snow albedo
 !   call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
-  ! call tile%snow%snow_get_sfc_temp(snow_top_temp) 
+!   call tile%snow%snow_get_sfc_temp(snow_top_temp) 
   if (tile%snow%snow_active()) then
       call tile%snow%snow_get_sfc_temp(snow_top_temp) 
    else
@@ -3880,14 +3880,10 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 !   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
   ! first run original albedo code in any case to get longwave opt properties [snow_refl_lw, snow_emis]
   call snow_radiation ( snow_top_temp, cosz, associated(tile%glac), snow_refl_dir_cm, snow_refl_dif_cm, snow_refl_lw, snow_emis)
-!   call snow_radiation ( TFREEZE-10.0, cosz, associated(tile%glac), snow_refl_dir_cm, snow_refl_dif_cm, snow_refl_lw, snow_emis)
-   ! FIXME - set fixed temperature for albedo calculations
-!   call snow_radiation ( TFREEZE-5.0, cosz, associated(tile%glac), snow_refl_dir_cm, snow_refl_dif_cm, snow_refl_lw, snow_emis)
   if (trim(lowercase(snow_option))=='gl') then
       call compute_snow_albedo(tile%snow, snow_top_temp, cosz, associated(tile%glac), 87000.0, subs_refl_dif, & ! input
                 snow_refl_dir, snow_refl_dif)
   else
-!   write(*,*) "using snow option :: ", snow_option
       snow_refl_dir = snow_refl_dir_cm
       snow_refl_dif = snow_refl_dif_cm
   endif

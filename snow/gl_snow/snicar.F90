@@ -2561,7 +2561,8 @@ end subroutine read_snow_snicar_namelist
   subroutine SNICAR_RT_HE(nlevsno, flg_snw_ice, &
    coszen, flg_slr_in, h2osno_liq, h2osno_ice, snw_rds, snw_shp_input, &
    mss_cnc_aer_in, albsfc, albout, flx_abs)
-!
+
+
 ! !DESCRIPTION:
 ! Determine reflectance of, and vertically-resolved solar absorption in, 
 ! snow with impurities.
@@ -2597,6 +2598,11 @@ end subroutine read_snow_snicar_namelist
 ! use clm_varpar       , only : nlevsno, numrad
 ! use clm_time_manager , only : get_nstep
 ! use shr_const_mod    , only : SHR_CONST_PI
+!
+! ENRICO ZORZETTO 2023:
+! modifications for implementation in lm4p2:
+! added as input number of snow layers (pos. integer nlevsno)
+! snicar is called for a single column (bounds, num_nourbanc, filter_nourbanc -> not used )
 !
 ! !ARGUMENTS:
 integer, INTENT(IN) :: nlevsno ! number of snow layers
