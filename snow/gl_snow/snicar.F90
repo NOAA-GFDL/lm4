@@ -170,6 +170,9 @@ subroutine read_snow_snicar_namelist()
      write(unit, nml=snow_snicar_nml)
   endif
 
+  ! read optical properties now
+  call read_snicar_optics_data()
+
 end subroutine read_snow_snicar_namelist
 
 
@@ -242,6 +245,8 @@ end subroutine read_snow_snicar_namelist
 
 
 
+
+
       ! GET INTERNAL VS EXTERNAL MIXING RATIO FOR EACH TRACER
       ! SKIP FOR NOW, //TODO
       ! USE SET VALUE IN NAMELIST FOR NOW
@@ -257,6 +262,104 @@ end subroutine read_snow_snicar_namelist
 
 
    enddo
+
+      if(is_watch_point()) then
+         write(*,*) "##### compute_snicar_albedo - start checkpoint 1 #####"
+         write(*,*) "snow_shape_defined = ", snow_shape_defined
+         write(*,*) "use_snicar_ad = ", use_snicar_ad
+         write(*,*) "is_dust_internal_mixing = ", is_dust_internal_mixing
+         write(*,*) "is_BC_internal_mixing = ", is_BC_internal_mixing
+         write(*,*) "snicar_atm_type = ", snicar_atm_type
+         write(*,*) "cosz = ", cosz
+         write(*,*) "subs_adif = ", subs_adif
+         write(*,*) "trmat = ", trmat
+         write(*,*) "wlmat = ", wlmat
+         write(*,*) "wsmat = ", wsmat
+         write(*,*) "shmat = ", shmat
+         write(*,*) "remat = ", remat
+         write(*,*) "print the state of snowpack:"
+         call s%print()
+         write(*,*) "##### compute_snicar_albedo - end checkpoint 1 #####"
+     endif
+
+
+     if(is_watch_point()) then
+      write(*,*) "##### compute_snicar_albedo - start checkpoint 1B #####"
+
+
+      write(*,*) "size of Mie parameters arrays:"
+      write(*,*) 'size of ss_alb_ice_drc', shape(ss_alb_snw_drc)
+      write(*,*) 'size of asm_prm_ice_drc', shape(asm_prm_snw_drc)
+      write(*,*) 'size of ext_cff_mss_ice_drc', shape(ext_cff_mss_snw_drc)
+      write(*,*) "direct-beam snow Mie parameters - min radius:"
+      write(*,*) 'ss_alb_ice_drc', ss_alb_snw_drc(1,:)
+      write(*,*) 'asm_prm_ice_drc', asm_prm_snw_drc(1,:)
+      write(*,*) 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc(1,:)
+
+      write(*,*) "diffuse snow Mie parameters - min radius:"
+      write(*,*)'ss_alb_ice_dfs', ss_alb_snw_dfs(1,:)           
+      write(*,*)'asm_prm_ice_dfs', asm_prm_snw_dfs(1,:)         
+      write(*,*)'ext_cff_mss_ice_dfs', ext_cff_mss_snw_dfs(1,:) 
+
+      write(*,*) "direct-beam snow Mie parameters - max radius:"
+      write(*,*) 'ss_alb_ice_drc', ss_alb_snw_drc(idx_Mie_snw_mx,:)
+      write(*,*) 'asm_prm_ice_drc', asm_prm_snw_drc(idx_Mie_snw_mx,:)
+      write(*,*) 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc(idx_Mie_snw_mx,:)
+
+      write(*,*) "diffuse snow Mie parameters - max radius:"
+      write(*,*)'ss_alb_ice_dfs', ss_alb_snw_dfs(idx_Mie_snw_mx,:)           
+      write(*,*)'asm_prm_ice_dfs', asm_prm_snw_dfs(idx_Mie_snw_mx,:)         
+      write(*,*)'ext_cff_mss_ice_dfs', ext_cff_mss_snw_dfs(idx_Mie_snw_mx,:) 
+
+   if (snicar_atm_type > 0)then
+      write(*,*) "Solar spectrum weights:"
+      write(*,*) "flx_wgt_dir", flx_wgt_dir
+      write(*,*) "flx_wgt_dif", flx_wgt_dif
+   endif
+
+   write(*,*) "hydrophiliic BC:"
+  write(*,*) ss_alb_bc1     
+  write(*,*) asm_prm_bc1    
+  write(*,*) ext_cff_mss_bc1
+  write(*,*) "hydrophobic BC:"
+  write(*,*) ss_alb_bc2     
+  write(*,*) asm_prm_bc2    
+  write(*,*) ext_cff_mss_bc2
+  write(*,*) "hydrophobic OC:"
+  write(*,*) ss_alb_oc1     
+  write(*,*) asm_prm_oc1    
+  write(*,*) ext_cff_mss_oc1
+  write(*,*) "hydrophilic OC:"
+  write(*,*) ss_alb_oc2     
+  write(*,*) asm_prm_oc2    
+  write(*,*) ext_cff_mss_oc2
+  write(*,*) "dust species 1::"
+  write(*,*) ss_alb_dst1     
+  write(*,*) asm_prm_dst1    
+  write(*,*) ext_cff_mss_dst1
+  write(*,*) "dust species 2::"
+  write(*,*) ss_alb_dst2     
+  write(*,*) asm_prm_dst2    
+  write(*,*) ext_cff_mss_dst2
+  write(*,*) "dust species 3::"
+  write(*,*) ss_alb_dst3     
+  write(*,*) asm_prm_dst3    
+  write(*,*) ext_cff_mss_dst3
+  write(*,*) "dust species 4::"
+  write(*,*) ss_alb_dst4     
+  write(*,*) asm_prm_dst4    
+  write(*,*) ext_cff_mss_dst4
+      write(*,*) "##### compute_snicar_albedo - end checkpoint 1B #####"
+  endif
+
+
+
+      ! if ((s%depth()>1.0).and.((s%nlayers > 5).and.(cosz > 0.3))) then
+      !    write(*,*) "snow depth = ", s%depth()
+      !    write(*,*) "snow nlayers = ", s%nlayers
+      !    call s%print()
+      !    call land_error_message("EZTEMP: here snow larger than threshold!", severity=FATAL)
+      ! endif
 
 
       !  flg_slr = 1; ! direct light
@@ -349,6 +452,18 @@ end subroutine read_snow_snicar_namelist
             enddo
          enddo
          ! write(*,*) "end SNICAR albedo subroutine"
+
+         if(is_watch_point()) then
+            write(*,*) "##### compute_snicar_albedo - start checkpoint 2 #####"
+            write(*,*) "Energy absorbed in the snowpack [for unit source]:"
+            write(*,*) "sw_frac_dir VIS = ", flx_absd_snw(1, :, 1) 
+            write(*,*) "sw_frac_dir NIR = ", flx_absd_snw(1, :, 2) 
+            write(*,*) "sw_frac_dif VIS = ", flx_absi_snw(1, :, 1) 
+            write(*,*) "sw_frac_dif NIR = ", flx_absi_snw(1, :, 2) 
+            write(*,*) "Direct albedo  VIS - NIR",          albsnd(1,:) 
+            write(*,*) "Diffuse albedo VIS - NIR",          albsni(1,:) 
+            write(*,*) "##### compute_snicar_albedo - end checkpoint 2 #####"
+        endif
    end subroutine compute_snicar_albedo
 
 
@@ -1250,6 +1365,28 @@ end subroutine read_snow_snicar_namelist
       call read_data( ncid, 'ss_alb_dust04', ss_alb_dst4,           no_domain=.true.)
       call read_data( ncid, 'asm_prm_dust04', asm_prm_dst4,         no_domain=.true.)
       call read_data( ncid, 'ext_cff_mss_dust04', ext_cff_mss_dst4, no_domain=.true.)
+
+
+
+      if(is_watch_point()) then
+         write(*,*) "##### read_snicar_optics_data - start checkpoint 1 #####"
+
+         write(*,*) "direct-beam snow Mie parameters:"
+         write(*,*) 'ss_alb_ice_drc', ss_alb_snw_drc
+         write(*,*) 'asm_prm_ice_drc', asm_prm_snw_drc
+         write(*,*) 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc
+         write(*,*) "diffuse snow Mie parameters:"
+         write(*,*)'ss_alb_ice_dfs', ss_alb_snw_dfs           
+         write(*,*)'asm_prm_ice_dfs', asm_prm_snw_dfs         
+         write(*,*)'ext_cff_mss_ice_dfs', ext_cff_mss_snw_dfs 
+
+      if (snicar_atm_type > 0)then
+         write(*,*) "Solar spectrum weights:"
+         write(*,*) "flx_wgt_dir", flx_wgt_dir
+         write(*,*) "flx_wgt_dif", flx_wgt_dif
+      endif
+         write(*,*) "##### read_snicar_optics_data - end checkpoint 1 #####"
+     endif
       !
       !    write(*,*) 'Successfully read snow optical properties'
       !    ! print some diagnostics:
