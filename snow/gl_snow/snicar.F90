@@ -447,8 +447,8 @@ end subroutine read_snow_snicar_namelist
                ! else
                !    s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
                ! endif
-               s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
-               s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
+               s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) ! this values are for unit down flux unit
+               s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) ! this values are for unit down flux unit
             enddo
          enddo
          ! write(*,*) "end SNICAR albedo subroutine"
@@ -460,6 +460,10 @@ end subroutine read_snow_snicar_namelist
             write(*,*) "sw_frac_dir NIR = ", flx_absd_snw(1, :, 2) 
             write(*,*) "sw_frac_dif VIS = ", flx_absi_snw(1, :, 1) 
             write(*,*) "sw_frac_dif NIR = ", flx_absi_snw(1, :, 2) 
+            write(*,*) "sum of sw_frac_dir VIS = ", sum(flx_absd_snw(1, :, 1))
+            write(*,*) "sum of sw_frac_dir NIR = ", sum(flx_absd_snw(1, :, 2))
+            write(*,*) "sum of sw_frac_dif VIS = ", sum(flx_absi_snw(1, :, 1))
+            write(*,*) "sum of sw_frac_dif NIR = ", sum(flx_absi_snw(1, :, 2))
             write(*,*) "Direct albedo  VIS - NIR",          albsnd(1,:) 
             write(*,*) "Diffuse albedo VIS - NIR",          albsni(1,:) 
             write(*,*) "##### compute_snicar_albedo - end checkpoint 2 #####"

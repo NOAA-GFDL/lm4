@@ -247,6 +247,12 @@ subroutine partition_sw_heat_in_snow( &
    integer il
    real, dimension(NBANDS) :: sum_sw_frac_dir, sum_sw_frac_dif
 
+   ! SNICAR computed flux absorbed in each snow layer for unit of incident flux
+   snow%sp%sw_frac_dir(il, 1) = snow%sp%sw_frac_dir(il, 1) * fswg_dir(1)
+   snow%sp%sw_frac_dir(il, 2) = snow%sp%sw_frac_dir(il, 2) * fswg_dir(2)
+   snow%sp%sw_frac_dif(il, 1) = snow%sp%sw_frac_dif(il, 1) * fswg_dif(1)
+   snow%sp%sw_frac_dif(il, 2) = snow%sp%sw_frac_dif(il, 2) * fswg_dif(2)
+
    if (ALLOCATED(snow%sp%swheat)) DEALLOCATE(snow%sp%swheat) 
    
    if (trim(lowercase(snow_option)) == 'gl') then
