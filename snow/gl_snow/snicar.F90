@@ -447,8 +447,11 @@ end subroutine read_snow_snicar_namelist
                ! else
                !    s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
                ! endif
-               s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) ! this values are for unit down flux unit
-               s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) ! this values are for unit down flux unit
+
+               ! snicar computes sw sources as fractions of unit incident flux
+               ! change sw sources as fractions of net flux [for unit incident] 
+               s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) / ( 1.0 - albsnd(ib) )
+               s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) / ( 1.0 - albsni(ib) )
             enddo
          enddo
          ! write(*,*) "end SNICAR albedo subroutine"
