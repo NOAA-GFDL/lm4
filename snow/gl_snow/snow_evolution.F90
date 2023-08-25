@@ -11,7 +11,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE, lowercase
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message
+use land_debug_mod, only : is_watch_point, land_error_message, __DEBUG1__
 use snicar_mod, only: compute_snicar_albedo
 use snow_constants_mod
 use snowpack_mod
@@ -190,6 +190,30 @@ subroutine read_snow_evolution_namelist()
      unit=stdlog()
      write(unit, nml=snow_evolution_nml)
   endif
+
+  if(is_watch_point()) then
+    write("EZNML CHECK - READ_SNOW_EVOLUTION_NAMELIST")
+    __DEBUG1__(do_compaction)
+    __DEBUG1__(do_metamorph)
+    __DEBUG1__(do_wind_drift)
+    __DEBUG1__(do_mgimplicit)
+    __DEBUG1__(use_internal_sources)
+    __DEBUG1__(wlmax_to_use)
+    __DEBUG1__(albedo_to_use)
+    __DEBUG1__(albedo_correction_to_use)
+    __DEBUG1__(metamor_model)
+    __DEBUG1__(file_data_F06)
+    __DEBUG1__(do_split)
+    __DEBUG1__(do_merge)
+    __DEBUG1__(do_snow_check_cons)
+    __DEBUG1__(min_snow_mass)
+    __DEBUG1__(min_snow_depth)
+    __DEBUG1__(max_snow)
+    __DEBUG1__(prevent_tiny_snow)
+    __DEBUG1__(correct_surface_T)
+    __DEBUG1__(depth_surface_T_corr)
+    __DEBUG1__(thresh_snow_depth_swheat)
+    endif
 
 end subroutine read_snow_evolution_namelist
 

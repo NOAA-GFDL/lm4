@@ -12,7 +12,7 @@ use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
-
+use land_debug_mod, only : is_watch_point, __DEBUG1__
 use snowpack_mod, only : snowpack_t, use_mcm_masking, depth_crit
 
 implicit none
@@ -344,6 +344,46 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   snow_num_l = num_l
   snow_dz    = dz
   snow_mc_fict = mc_fict
+
+
+    ! EZSNOW - check nml values here
+  if(is_watch_point()) then
+    write("EZNML CHECK - READ_SNOW_DATA_NAMELIST")
+      __DEBUG1__(w_sat) 
+      __DEBUG1__(psi_sat) 
+      __DEBUG1__(k_sat) 
+      __DEBUG1__(chb) 
+      __DEBUG1__(thermal_cond_ref) 
+      __DEBUG1__(z0_momentum) 
+      __DEBUG1__(refl_snow_max_dir)
+      __DEBUG1__(refl_snow_max_dif)
+      __DEBUG1__(refl_snow_min_dir)
+      __DEBUG1__(refl_snow_min_dif)
+      __DEBUG1__(emis_snow_max) 
+      __DEBUG1__(emis_snow_min) 
+      __DEBUG1__(k_over_B) 
+      __DEBUG1__(num_l) 
+      __DEBUG1__(dz)
+      __DEBUG1__(mc_fict)
+      __DEBUG1__(f_iso_cold)
+      __DEBUG1__(f_vol_cold)
+      __DEBUG1__(f_geo_cold)
+      __DEBUG1__(f_iso_warm)
+      __DEBUG1__(f_vol_warm)
+      __DEBUG1__(f_geo_warm)
+      __DEBUG1__(distinct_snow_on_glacier)
+      __DEBUG1__(f_iso_cold_on_glacier)
+      __DEBUG1__(f_vol_cold_on_glacier)
+      __DEBUG1__(f_geo_cold_on_glacier)
+      __DEBUG1__(f_iso_warm_on_glacier)
+      __DEBUG1__(f_vol_warm_on_glacier)
+      __DEBUG1__(f_geo_warm_on_glacier)
+      __DEBUG1__(refl_snow_max_dir_on_glacier)
+      __DEBUG1__(refl_snow_max_dif_on_glacier)
+      __DEBUG1__(refl_snow_min_dir_on_glacier)
+      __DEBUG1__(refl_snow_min_dif_on_glacier)
+    endif
+
 
 end subroutine read_snow_data_namelist
 

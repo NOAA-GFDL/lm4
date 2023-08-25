@@ -10,7 +10,7 @@ use fms_mod, only: open_namelist_file
 #endif
 use fms_mod, only : file_exist, check_nml_error, &
    close_file, stdlog, read_data, error_mesg, FATAL, WARNING, NOTE, field_size, write_data, mpp_pe, mpp_root_pe
-use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message 
+use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message, __DEBUG1__
 use land_data_mod, only : lnd, log_version
 use snow_constants_mod
 use constants_mod, only : PI
@@ -172,6 +172,16 @@ subroutine read_snow_snicar_namelist()
 
   ! read optical properties now
   call read_snicar_optics_data()
+
+  if(is_watch_point()) then
+   write("EZNML CHECK - READ_SNICAR_NAMELIST")
+      __DEBUG1__(snow_shape_defined)
+      __DEBUG1__(use_snicar_ad)
+      __DEBUG1__(is_dust_internal_mixing)
+      __DEBUG1__(is_BC_internal_mixing)
+      __DEBUG1__(snicar_atm_type)
+      __DEBUG1__(ncid)
+  endif
 
 end subroutine read_snow_snicar_namelist
 

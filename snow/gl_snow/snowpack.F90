@@ -11,7 +11,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE,lowercase
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message
+use land_debug_mod, only : is_watch_point, land_error_message, __DEBUG1__
 use constants_mod,      only: tfreeze, hlv, hlf, PI 
 use snow_constants_mod
 
@@ -141,11 +141,8 @@ contains
 end type dzopt_t
 
 ! ---- namelist
-integer :: i
 real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
-! real :: opt_layer_N   = 0.01 !< thickness of the bottom layer, m
 real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
-! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer(MAX_OPT_LAYERS) = [0.01, (-1.0,i=2,MAX_OPT_LAYERS)] !< prescribed layer thicknesses
 logical :: lap_albedo_include_bc = .TRUE.
@@ -398,6 +395,22 @@ subroutine read_snowpack_namelist()
 ! real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 ! ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
+
+  if(is_watch_point()) then
+    write("EZNML CHECK - READ_SNOWPACK_NAMELIST")
+    __DEBUG1__(opt_layer_N)
+    __DEBUG1__(opt_layer_max)
+    __DEBUG1__(opt_layer_R)
+    __DEBUG1__(lap_albedo_include_bc)
+    __DEBUG1__(lap_albedo_include_md)
+    __DEBUG1__(lap_albedo_include_om)
+    __DEBUG1__(cpw)
+    __DEBUG1__(clw)
+    __DEBUG1__(csw)
+    __DEBUG1__(use_mcm_masking)
+    __DEBUG1__(depth_crit)
+    __DEBUG1__(heat_cond_to_use)
+  endif
 
 end subroutine read_snowpack_namelist
 
