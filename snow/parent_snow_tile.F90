@@ -1,6 +1,6 @@
 module parent_snow_tile_mod
 #include <fms_platform.h>
-#include "shared/debug.inc"
+#include "../../shared/debug.inc"
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
