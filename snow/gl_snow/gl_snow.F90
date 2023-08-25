@@ -140,7 +140,7 @@ subroutine gl_snow_init()
 
   call read_snow_evolution_namelist() ! read snow evolution namelist parameters
   call read_snow_snicar_namelist() ! read SNICAR namelist parameters
-  call read_snicar_optics_data() ! read SNICAR snow optical data
+!   call read_snicar_optics_data() ! read SNICAR snow optical data ! already done in read nml
   call read_F06_data() ! Read flanner 2006 parameter table
 
 

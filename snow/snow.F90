@@ -76,7 +76,7 @@ contains
 
 subroutine read_snow_namelist()
 
-  call read_snow_data_namelist_brief()
+!   call read_snow_data_namelist_brief()
 
   select case(trim(lowercase(snow_option)))
       case('cm')
