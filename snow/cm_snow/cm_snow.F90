@@ -27,7 +27,7 @@ use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
-use land_debug_mod, only : is_watch_point, __DEBUG1__
+use land_debug_mod, only : is_watch_point
 use snowpack_mod ! need to load it all because here we read snowpack_nml used in cm snow
 ! use snowpack_mod, only : cpw, clw, csw, read_snowpack_namelist
 
@@ -134,7 +134,7 @@ subroutine cm_read_snow_namelist()
 
   ! EZSNOW - check nml values here
   if(is_watch_point()) then
-   write("EZNML CHECK - CM_READ_SNOW_NAMELIST")
+   write(*,*) "EZNML CHECK - CM_READ_SNOW_NAMELIST"
    __DEBUG1__(retro_heat_capacity)
    __DEBUG1__(lm2)
    __DEBUG1__(steal)

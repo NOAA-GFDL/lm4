@@ -1,5 +1,6 @@
 module parent_snow_tile_mod
 #include <fms_platform.h>
+#include "shared/debug.inc"
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
@@ -12,7 +13,7 @@ use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
-use land_debug_mod, only : is_watch_point, __DEBUG1__
+use land_debug_mod, only : is_watch_point
 use snowpack_mod, only : snowpack_t, use_mcm_masking, depth_crit
 
 implicit none
@@ -348,7 +349,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
 
     ! EZSNOW - check nml values here
   if(is_watch_point()) then
-    write("EZNML CHECK - READ_SNOW_DATA_NAMELIST")
+    write(*,*) "EZNML CHECK - READ_SNOW_DATA_NAMELIST"
       __DEBUG1__(w_sat) 
       __DEBUG1__(psi_sat) 
       __DEBUG1__(k_sat) 

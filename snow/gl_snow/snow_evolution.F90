@@ -11,7 +11,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE, lowercase
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message, __DEBUG1__
+use land_debug_mod, only : is_watch_point, land_error_message
 use snicar_mod, only: compute_snicar_albedo
 use snow_constants_mod
 use snowpack_mod
@@ -192,7 +192,7 @@ subroutine read_snow_evolution_namelist()
   endif
 
   if(is_watch_point()) then
-    write("EZNML CHECK - READ_SNOW_EVOLUTION_NAMELIST")
+    write(*,*) "EZNML CHECK - READ_SNOW_EVOLUTION_NAMELIST"
     __DEBUG1__(do_compaction)
     __DEBUG1__(do_metamorph)
     __DEBUG1__(do_wind_drift)
