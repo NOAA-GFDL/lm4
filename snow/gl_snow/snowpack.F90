@@ -419,6 +419,7 @@ end subroutine read_snowpack_namelist
 !> initialize snowpack module, in particular read namelist parameters
 ! version for lm4p2
 subroutine snowpack_init_lm4p2()
+  integer i
   integer :: io, k, n
   real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
 
