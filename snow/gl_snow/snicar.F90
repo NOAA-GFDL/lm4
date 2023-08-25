@@ -151,6 +151,9 @@ subroutine read_snow_snicar_namelist()
      write(unit, nml=snow_snicar_nml)
   endif
 
+ ! read optical properties now
+  call read_snicar_optics_data()
+
 end subroutine read_snow_snicar_namelist
 
 
