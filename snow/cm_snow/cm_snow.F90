@@ -133,7 +133,7 @@ subroutine cm_read_snow_namelist()
 
 
   ! EZSNOW - check nml values here
-  if(is_watch_point()) then
+!   if(is_watch_point()) then
    write(*,*) "EZNML CHECK - CM_READ_SNOW_NAMELIST"
    __DEBUG1__(retro_heat_capacity)
    __DEBUG1__(lm2)
@@ -147,7 +147,7 @@ subroutine cm_read_snow_namelist()
    __DEBUG1__(init_pack_wl)
    __DEBUG1__(min_snow_mass)
    __DEBUG1__(prevent_tiny_snow)
-endif
+! endif
 
 end subroutine cm_read_snow_namelist
 

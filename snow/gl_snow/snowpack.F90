@@ -397,7 +397,7 @@ subroutine read_snowpack_namelist()
 ! ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 
-  if(is_watch_point()) then
+  ! if(is_watch_point()) then
     write(*,*) "EZNML CHECK - READ_SNOWPACK_NAMELIST"
     __DEBUG1__(opt_layer_N)
     __DEBUG1__(opt_layer_max)
@@ -411,7 +411,7 @@ subroutine read_snowpack_namelist()
     __DEBUG1__(use_mcm_masking)
     __DEBUG1__(depth_crit)
     __DEBUG1__(heat_cond_to_use)
-  endif
+  ! endif
 
 end subroutine read_snowpack_namelist
 

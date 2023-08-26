@@ -383,7 +383,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
       __DEBUG1__(refl_snow_max_dif_on_glacier)
       __DEBUG1__(refl_snow_min_dir_on_glacier)
       __DEBUG1__(refl_snow_min_dif_on_glacier)
-    endif
+    ! endif
 
 
 end subroutine read_snow_data_namelist

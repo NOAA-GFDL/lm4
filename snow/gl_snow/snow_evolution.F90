@@ -191,7 +191,7 @@ subroutine read_snow_evolution_namelist()
      write(unit, nml=snow_evolution_nml)
   endif
 
-  if(is_watch_point()) then
+!   if(is_watch_point()) then
     write(*,*) "EZNML CHECK - READ_SNOW_EVOLUTION_NAMELIST"
     __DEBUG1__(do_compaction)
     __DEBUG1__(do_metamorph)
@@ -213,7 +213,7 @@ subroutine read_snow_evolution_namelist()
     __DEBUG1__(correct_surface_T)
     __DEBUG1__(depth_surface_T_corr)
     __DEBUG1__(thresh_snow_depth_swheat)
-    endif
+    ! endif
 
 end subroutine read_snow_evolution_namelist
 

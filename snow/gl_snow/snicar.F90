@@ -173,7 +173,7 @@ subroutine read_snow_snicar_namelist()
   ! read optical properties now
   call read_snicar_optics_data()
 
-  if(is_watch_point()) then
+!   if(is_watch_point()) then
    write(*,*) "EZNML CHECK - READ_SNICAR_NAMELIST"
       __DEBUG1__(snow_shape_defined)
       __DEBUG1__(use_snicar_ad)
@@ -181,7 +181,7 @@ subroutine read_snow_snicar_namelist()
       __DEBUG1__(is_BC_internal_mixing)
       __DEBUG1__(snicar_atm_type)
       __DEBUG1__(ncid)
-  endif
+!   endif
 
 end subroutine read_snow_snicar_namelist
 
