@@ -348,7 +348,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
 
 
     ! EZSNOW - check nml values here
-  if(is_watch_point()) then
+  ! if(is_watch_point()) then
     write(*,*) "EZNML CHECK - READ_SNOW_DATA_NAMELIST"
       __DEBUG1__(w_sat) 
       __DEBUG1__(psi_sat) 
