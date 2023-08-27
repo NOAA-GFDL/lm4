@@ -329,7 +329,7 @@ subroutine partition_sw_heat_in_snow( &
       __DEBUG1__(fswg_surface)
       __DEBUG1__(fswg_substrate)
       __DEBUG1__(snow%sp%swheat)
-      call s%print()
+      call snow%sp%print()
    endif
 
 end subroutine partition_sw_heat_in_snow
