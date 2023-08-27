@@ -322,6 +322,16 @@ subroutine partition_sw_heat_in_snow( &
       fswg_surface=fswg
       fswg_substrate = 0.0
    endif
+
+   if (is_watch_point()) then
+      write(*,*) "##### partition_sw_heat_in_snow checkpoint 1: #####"
+      __DEBUG1__(fswg)
+      __DEBUG1__(fswg_surface)
+      __DEBUG1__(fswg_substrate)
+      __DEBUG1__(snow%sp%swheat)
+      call s%print()
+   endif
+
 end subroutine partition_sw_heat_in_snow
 
 
