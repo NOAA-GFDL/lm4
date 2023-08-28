@@ -1648,7 +1648,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, DIMENSION(NBANDS) :: fswg_dir, fswg_dif ! needed for SNICAR snow albedo option
   real lswept_huge, fswept_huge, hlswept_huge, hfswept_huge
   real, dimension(NTRACERS) :: lost_wc_em1_huge, lost_wc_im1_huge
-  real, DIMENSION(NBANDS) :: sum_sw_frac_dir, sum_sw_frac_dif
   ! =======
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
@@ -1779,6 +1778,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   subs_subl = grnd_subl
 
    if (trim(lowercase(snow_option)) == 'gl') then ! EZSNOW updated snow step 1
+
       call tile%snow%sp%step1a(  &              ! input
          snow_active, snow_T, snow_rh, snow_liq, snow_ice, &   ! output
          snow_subl, snow_area, snow_E_max, delta_time, do_mgimplicit, grnd_T)   
@@ -2914,6 +2914,7 @@ endif
    ! ------ Here they are saved weighted by the fractional snow cover
    ! recompute the snow area frac and near surface properties here to get that at end of snow processes calculations
 !   call snow_get_depth_area ( tile%snow, tile%snow%sp%depth(), snow_area )
+  if (trim(lowercase(snow_option)) == 'gl') then
   snow_area = tile%snow%sp%area()
   call tile%snow%sp%nearsurf_properties()
    ! if(tile%snow%nlayers > 0) then
@@ -2945,6 +2946,7 @@ endif
   call send_tile_data(id_snow_topwheat, tile%snow%sp%topwheat, tile%diag)
   call send_tile_data(id_snow_topsnowdeficit, tile%snow%sp%topsnowdeficit, tile%diag)
   call send_tile_data(id_snow_topsnowheatdeficit, tile%snow%sp%topsnowheatdeficit, tile%diag)
+   endif
   ! call send_tile_data(id_snow_nlayers, real(tile%snow%nlayers), tile%diag)
   ! ------ end snow additional fields
 

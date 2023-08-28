@@ -1461,7 +1461,7 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
 
             ds = dt_hours * (1.0 - sph)/tau_i ! POSITIVE
             if (.not.is_dendritic) then
-                ddopt = -2.0 * 1E-4 * sph * (1.0 - sph)/tau_i ! NEGATIVE 
+                ddopt = -2.0 * 1E-4 * sph * dt_hours * (1.0 - sph)/tau_i ! NEGATIVE 
             else
                 ! dendricity from dopt and s
                 ! den = den_from_dopt(sph, dopt)

@@ -328,8 +328,10 @@ subroutine partition_sw_heat_in_snow( &
       __DEBUG1__(fswg)
       __DEBUG1__(fswg_surface)
       __DEBUG1__(fswg_substrate)
-      __DEBUG1__(snow%sp%swheat)
-      call snow%sp%print()
+      if (trim(lowercase(snow_option)) == 'gl') then
+         __DEBUG1__(snow%sp%swheat)
+         call snow%sp%print()
+      endif
    endif
 
 end subroutine partition_sw_heat_in_snow
