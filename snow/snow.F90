@@ -43,7 +43,8 @@ use cm_snow_tile_mod, only: cm_snow_tile_type
 use gl_snow_tile_mod, only: gl_snow_tile_type
 
 use snow_evolution_mod, only: gl_snow_step_2, gl_sweep_tiny_snow, gl_compute_snow_albedo, &
-                              albedo_to_use, use_internal_sources, thresh_snow_depth_swheat
+                              albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &
+                              assign_substrate_sw_to_surface
 
 use snow_constants_mod, only: NTRACERS 
 
@@ -241,6 +242,7 @@ subroutine partition_sw_heat_in_snow( &
    class(snow_tile_type), intent(inout) :: snow !< state of snowpack
    real, intent(IN) :: fswg ! total sw absorbed by snow + substrate [W/m2]
    real, intent(IN), dimension(NBANDS) :: fswg_dir, fswg_dif ! total sw absorbed by snow + substrate (dir only, dif only) [W/m2]
+   ! logical, intent(IN) :: assign_substrate_sw_to_surface ! if true, override code and assign excess heat to surface instead that passing it to underlying substrate
    real, intent(OUT) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
    real, intent(OUT) :: fswg_surface ! sw radiation to be absorbed at surface [W/m2]
 
@@ -323,6 +325,11 @@ subroutine partition_sw_heat_in_snow( &
       fswg_substrate = 0.0
    endif
 
+   if (assign_substrate_sw_to_surface) then
+      fswg_surface=fswg_surface + fswg_substrate
+      fswg_substrate = 0.0
+   endif
+
    if (is_watch_point()) then
       write(*,*) "##### partition_sw_heat_in_snow checkpoint 1: #####"
       __DEBUG1__(fswg)
@@ -380,8 +387,8 @@ subroutine snow_step_2 ( snow, snow_subl,                     &
    !  real, intent(out) :: delta_heat_DTg
     real, intent(in) :: dt ! delta time step
     real, intent(in) :: wind_atm, t_atm, p_surf 
-    real, intent(in) :: wetdep(NTRACERS) ! wet deposition of tracers from atmosphere [ppm]
-    real, intent(in) :: drydep(NTRACERS) ! dry 
+    real, intent(in) :: wetdep(NTRACERS) ! wet deposition rate of tracers from atmosphere [ppm]
+    real, intent(in) :: drydep(NTRACERS) ! dry deposition rate of tracers from atmosphere [mg/m2/s] 
     real, intent(out), DIMENSION(NTRACERS) :: lost_wc_em, lost_wc_im
     real, intent(in), DIMENSION(NTRACERS) :: mass_lai_em_1, mass_lai_im_1 ! mass of LAIs at beginning of step, for mass cons checks
     real, intent(in), DIMENSION(NTRACERS) :: lost_wc_em_st, lost_wc_im_st 

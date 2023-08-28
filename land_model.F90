@@ -50,7 +50,8 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
 snow_get_depth_area, snow_step_1, snow_step_2, &
 save_snow_restart, sweep_tiny_snow, compute_snow_albedo, partition_sw_heat_in_snow
-use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
+use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, & 
+                              albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use parent_snow_tile_mod, only : snow_radiation, snow_option
 use snow_constants_mod, only: NTRACERS
 !!!! ========================================
@@ -300,7 +301,8 @@ integer :: &
   id_snow_nearsurf_optd, id_snow_nearsurf_sph,id_snow_nearsurf_density,id_snow_nearsurf_age, &
   id_snow_nearsurf_dendr, id_snow_nearsurf_bceq_tot,id_snow_nearsurf_bceq_im,id_snow_nearsurf_bceq_em,       &
   id_snow_depth, id_snow_liq, id_snow_ice, &
-  id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit
+  id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit, &
+  id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om
   ! ==================            End of new snowpack diag fields      ===================
 
 
@@ -1261,11 +1263,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   allocate(drydep_md(lnd%ls:lnd%le))
   allocate(drydep_om(lnd%ls:lnd%le))
 
-  ! read deposition data in [mg/m2/s], multiply original fluxes by 1E6
+  ! read deposition data: Wet deposition fluxes in [ppm] ->[mg/m2/s]/[kg/m2/s] conc. in prcp.
   call data_override_ug("LND", "bc_wet_dep", wetdep_bc, lnd%time, override = wetdep_bc_overridden)
   call data_override_ug("LND", "md_wet_dep", wetdep_md, lnd%time, override = wetdep_md_overridden)
   call data_override_ug("LND", "om_wet_dep", wetdep_om, lnd%time, override = wetdep_om_overridden)
-
+  ! read deposition data: Dry deposition fluxes in [mg/m2/s]
   call data_override_ug("LND", "bc_dry_dep", drydep_bc, lnd%time, override = drydep_bc_overridden)
   call data_override_ug("LND", "md_dry_dep", drydep_md, lnd%time, override = drydep_md_overridden)
   call data_override_ug("LND", "om_dry_dep", drydep_om, lnd%time, override = drydep_om_overridden)
@@ -1512,7 +1514,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, intent(inout) :: &
        runoff, &   ! total runoff of H2O, kg/m2
        runoff_c(:) ! runoff of tracers (including ice/snow and heat)
-  real, DIMENSION(NTRACERS), intent(in) :: wetdep, drydep ! EZSNOW pass LAI deposition
+  real, DIMENSION(NTRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om 
+  real, DIMENSION(NTRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
 
   ! ---- local vars
   real :: A(3*N+3,3*N+3),B0(3*N+3),B1(3*N+3),B2(3*N+3) ! implicit equation matrix and right-hand side vectors
@@ -2946,6 +2949,16 @@ endif
   call send_tile_data(id_snow_topwheat, tile%snow%sp%topwheat, tile%diag)
   call send_tile_data(id_snow_topsnowdeficit, tile%snow%sp%topsnowdeficit, tile%diag)
   call send_tile_data(id_snow_topsnowheatdeficit, tile%snow%sp%topsnowheatdeficit, tile%diag)
+
+
+  ! note: these diag fields are not quite the same as the wet lap deposited on snowpack because
+  ! laps are note deposited when vegn_fprec or vegn_lprec are very small (< 1E-9 kg/m2/s)
+  call send_tile_data(id_wetdep_bc, wetdep(1)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_md, wetdep(2)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_om, wetdep(3)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_drydep_bc, drydep(1), tile%diag) 
+  call send_tile_data(id_drydep_md, drydep(2), tile%diag)
+  call send_tile_data(id_drydep_om, drydep(3), tile%diag)
    endif
   ! call send_tile_data(id_snow_nlayers, real(tile%snow%nlayers), tile%diag)
   ! ------ end snow additional fields
@@ -4653,6 +4666,20 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Snowpack topwheat', 'J/m2', missing_value=-1.0e+20) 
           id_snow_topsnowheatdeficit = register_tiled_diag_field ( module_name, 'snow_topsnowheatdeficit', (/id_ug/), time, &     
              'Snowpack topsnowheatdeficit', 'J/m2', missing_value=-1.0e+20) 
+
+         ! //TODO maybe it would be best to export these diag fields as kg/m2/s
+          id_wetdep_bc = register_tiled_diag_field ( module_name, 'wetdep_bc', (/id_ug/), time, &     
+             'Wet deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20) 
+          id_wetdep_md = register_tiled_diag_field ( module_name, 'wetdep_md', (/id_ug/), time, &     
+             'Wet deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20) 
+          id_wetdep_om = register_tiled_diag_field ( module_name, 'wetdep_om', (/id_ug/), time, &     
+             'Wet deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20) 
+          id_drydep_bc = register_tiled_diag_field ( module_name, 'drydep_bc', (/id_ug/), time, &     
+             'Dry deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20) 
+          id_drydep_md = register_tiled_diag_field ( module_name, 'drydep_md', (/id_ug/), time, &     
+             'Dry deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20) 
+          id_drydep_om = register_tiled_diag_field ( module_name, 'drydep_om', (/id_ug/), time, &     
+             'Dry deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20) 
  
  
    ! ---------------------------------------- end new snow added fields ---------------------
