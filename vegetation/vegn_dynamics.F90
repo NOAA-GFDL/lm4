@@ -1261,7 +1261,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
   call send_cohort_data(id_resg, diag, c(1:M), resg(1:M), weight=c(1:M)%nindivs, op=OP_SUM)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
-  call send_cohort_data(id_age, diag, c(1:M), c(1:M)%age, weight=c(1:M)%nindivs, op=OP_AVERAGE)
 
   call send_cohort_data(id_mrz_scav_alloc,              diag, c(1:M), scav_C_alloc(1:M)/dt_fast_yr,              weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mrz_mine_alloc,              diag, c(1:M), mine_C_alloc(1:M)/dt_fast_yr,              weight=c(1:M)%nindivs, op=OP_SUM)

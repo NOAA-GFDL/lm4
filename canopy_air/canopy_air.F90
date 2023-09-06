@@ -71,6 +71,8 @@ logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated 
 logical :: save_qco2     = .TRUE.
 ! resistance-related namelist variables
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
+logical :: use_HO2013_over_glac = .TRUE. ! if FALSE, HO2013 is not applied over glacier surfaces
+logical :: use_HO2013_over_lake = .TRUE. ! if FALSE, HO2013 is not applied over lake surfaces
 real :: bare_rah_sca      = 0.01 ! bare-ground resistance between ground and canopy air, s/m
   ! resistances in soil upper layer and viscous sublayer
 real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
@@ -92,8 +94,8 @@ namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
   k_over_B, &
-  ! soil resistance parameters
-  soil_resistance_to_use, &
+  ! soil/laminar resistance parameters
+  soil_resistance_to_use, use_HO2013_over_glac, use_HO2013_over_lake, &
   d_visc_max, &
   rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
   ! fog-related namelists
@@ -548,25 +550,33 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
   endif
 
   theta_sfc = 1.0 ! to avoid sending undefined values to diagnotics
+  ! set up initial (zero) values of resistances
+  r_sv_evap = 0
+  r_bl_evap = 0
+  r_bl_sens = 0
+  d_visc    = 0
   select case(soil_resistance_option)
   case(RESIST_NONE)
-      r_sv_evap = 0
-      r_bl_evap = 0
-      r_bl_sens = 0
-      d_visc    = 0
+      ! do nothing, zero laminar resistances
   case(RESIST_HO2013)
-      d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
-      if (d_visc_max > 0) d_visc = min(d_visc,d_visc_max)
-      diff_air  = thermal_diff_air(T_sfc)
-      r_bl_sens = d_visc/diff_air
+     if      (associated(tile%lake).and..not.use_HO2013_over_lake) then
+        ! do nothing, zero laminar resistances
+     else if (associated(tile%glac).and..not.use_HO2013_over_glac) then
+        ! do nothing, zero laminar resistances
+     else
+        d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
+        if (d_visc_max > 0) d_visc = min(d_visc,d_visc_max)
+        diff_air  = thermal_diff_air(T_sfc)
+        r_bl_sens = d_visc/diff_air
 
-      r_sv_evap = 0.0
-      r_bl_evap = d_visc/diffusivity_h2o(T_sfc,p)
-      if (associated(tile%soil).and..not.snow_active) then
-         r_sv_evap = soil_evap_sv_resistance(tile%soil)
-         theta_sfc = max(0.0, tile%soil%wl(1) / (dens_h2o * dz(1)))/tile%soil%pars%vwc_sat
-         r_bl_evap = soil_evap_bl_resistance(tile%soil, theta_sfc, T_sfc, p, d_visc)
-      endif
+        r_sv_evap = 0.0
+        r_bl_evap = d_visc/diffusivity_h2o(T_sfc,p)
+        if (associated(tile%soil).and..not.snow_active) then
+           r_sv_evap = soil_evap_sv_resistance(tile%soil)
+           theta_sfc = max(0.0, tile%soil%wl(1) / (dens_h2o * dz(1)))/tile%soil%pars%vwc_sat
+           r_bl_evap = soil_evap_bl_resistance(tile%soil, theta_sfc, T_sfc, p, d_visc)
+        endif
+     endif
   case default
      call error_mesg(module_name, 'invalid surface resistance option', FATAL)
   end select
