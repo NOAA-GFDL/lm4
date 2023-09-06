@@ -1,9 +1,9 @@
 module vegn_data_mod
 
 use constants_mod, only : PI, TFREEZE
-use fms_mod, only : &
-     file_exist, input_nml_file, check_nml_error, &
-     close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog, stdout, string, lowercase, &
+                  & error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
@@ -646,8 +646,7 @@ subroutine read_vegn_data_namelist()
   character(256) :: sname, lname ! strings for selector names
   real :: age0, age1 ! shorthands for boundaries of age buckets
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')

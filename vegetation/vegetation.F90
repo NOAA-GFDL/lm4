@@ -2,11 +2,11 @@ module vegetation_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
-     check_nml_error, stdlog, string, lowercase
+use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, check_nml_error, stdlog, &
+                 & string, lowercase
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe, input_nml_file
-use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
-
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
+                     & get_variable_size, file_exists, ascii_read
 use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, &
      days_in_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
@@ -82,8 +82,6 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
-    get_variable_size
 
 implicit none
 private
@@ -268,8 +266,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
+
   read (input_nml_file, nml=vegn_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_nml')
 
@@ -774,29 +772,26 @@ subroutine add_extra_cohorts()
       extra_cohort_myc_scav, extra_cohort_myc_mine, extra_cohort_n_fixer, &
       extra_cohort_nsc_frac, extra_cohort_nsn_frac
 
-  integer :: unit, ierr, io
+  integer :: ierr, io
   integer :: extra_cohort_spp(MAX_INIT_COHORTS)
   type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: i,l,n,n0
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
+  character(:), dimension(:), allocatable :: extra_cohorts_buf
 
   if (.not.do_ppa) return
-  if (.not.file_exist('INPUT/extra_cohorts_nml')) return
+  if (.not.file_exists('INPUT/extra_cohorts_nml')) return
 
   ! read parameters of additional vegetation cohorts
-  call mpp_open(unit,'INPUT/extra_cohorts_nml', action=MPP_RDONLY, form=MPP_ASCII)
-  ierr = 1;
-  do while (ierr /= 0)
-     read (unit, nml=extra_cohorts_nml, iostat=io, end=10)
-     ierr = check_nml_error (io, 'extra_cohorts_nml')
-  enddo
-10 call mpp_close (unit)
+  call ascii_read('INPUT/extra_cohorts_nml', extra_cohorts_buf)
+  read (extra_cohorts_buf, nml=extra_cohorts_nml, iostat=io)
+  ierr = check_nml_error(io, 'extra_cohorts_nml')
+  deallocate(extra_cohorts_buf)
 
-  unit=stdlog()
   if (mpp_pe() == mpp_root_pe()) then
-     write(unit, *) 'Adding extra cohorts to vegetation'
-     write(unit, nml=extra_cohorts_nml)
+     write(stdlog(), *) 'Adding extra cohorts to vegetation'
+     write(stdlog(), nml=extra_cohorts_nml)
   endif
 
   ! create a list of species indices for initialization
