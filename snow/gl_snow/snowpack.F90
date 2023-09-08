@@ -98,6 +98,9 @@ contains
     procedure :: avrg_bceq_im   => snowpack_avrg_bceq_im  !< average conc. of LAIS internally mixed (IM)
     procedure :: avrg_bceq_em   => snowpack_avrg_bceq_em  !< average conc. of LAIS externally mixed (EM)
     procedure :: avrg_bceq_tot   => snowpack_avrg_bceq_tot  !< average conc. of LAIS (IM + EM)
+    procedure :: avrg_bc_tot   => snowpack_avrg_bc_tot  !< average conc. of black carbon (IM + EM)
+    procedure :: avrg_md_tot   => snowpack_avrg_md_tot  !< average conc. of mineral dust (IM + EM)
+    procedure :: avrg_om_tot   => snowpack_avrg_om_tot  !< average conc. of organic carbon (IM + EM)
     procedure :: lai_im   => snowpack_lai_im  !< content of internally mixed LAIs of the snowpack [mg/m2]
     procedure :: lai_em   => snowpack_lai_em  !< content of externally mixed LAIs of the snowpack [mg/m2]
     procedure :: SWE   => snowpack_SWE  !< total water content of the snowpack
@@ -832,11 +835,76 @@ real function snowpack_avrg_dendr(s) result(dendr)
 end function snowpack_avrg_dendr
 
 
+!> \brief average concentration of black carbon (IM + EM) in the snowpack [ppm]
+real function snowpack_avrg_bc_tot(s) result(res)
+  class(snowpack_t), intent(in) :: s
+  integer :: k
+  real sum,sum_wsl
+  sum = 0.0
+  sum_wsl = 0.0
+  if (s%nlayers>0) then
+    do k = 1,s%nlayers
+      sum = sum + s%snow(k)%wc_im(1) + s%snow(k)%wc_em(1) 
+      sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
+    enddo
+  endif
+  if (sum_wsl>0) then
+    res = sum/sum_wsl
+  else
+    res = 0.0
+  endif
+end function snowpack_avrg_bc_tot
+
+
+!> \brief average concentration of mineral dust (IM + EM) in the snowpack [ppm]
+real function snowpack_avrg_md_tot(s) result(res)
+  class(snowpack_t), intent(in) :: s
+  integer :: k
+  real sum,sum_wsl
+  sum = 0.0
+  sum_wsl = 0.0
+  if (s%nlayers>0) then
+    do k = 1,s%nlayers
+      sum = sum + s%snow(k)%wc_im(2) + s%snow(k)%wc_em(2) 
+      sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
+    enddo
+  endif
+  if (sum_wsl>0) then
+    res = sum/sum_wsl
+  else
+    res = 0.0
+  endif
+end function snowpack_avrg_md_tot
+
+
+!> \brief average concentration of organic carbon (IM + EM) in the snowpack [ppm]
+real function snowpack_avrg_om_tot(s) result(res)
+  class(snowpack_t), intent(in) :: s
+  integer :: k
+  real sum,sum_wsl
+  sum = 0.0
+  sum_wsl = 0.0
+  if (s%nlayers>0) then
+    do k = 1,s%nlayers
+      sum = sum + s%snow(k)%wc_im(3) + s%snow(k)%wc_em(3) 
+      sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
+    enddo
+  endif
+  if (sum_wsl>0) then
+    res = sum/sum_wsl
+  else
+    res = 0.0
+  endif
+end function snowpack_avrg_om_tot
+
+
 !> \brief average concentration of LAIs (IM + EM) in the snowpack [ppm, equivalent black carbon]
 real function snowpack_avrg_bceq_tot(s) result(res)
   class(snowpack_t), intent(in) :: s
   res = s%avrg_bceq_em() + s%avrg_bceq_im()
 end function snowpack_avrg_bceq_tot
+
+
 
 
 !> \brief average concentration of LAIs internally mixed (IM) in the snowpack [ppm, equivalent black carbon]
@@ -850,8 +918,8 @@ real function snowpack_avrg_bceq_im(s) result(res)
     do k = 1,s%nlayers
       sum = sum + s%snow(k)%wc_im(1) + s%snow(k)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + & 
                                        s%snow(k)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
-      ! sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
-      sum_wsl = sum_wsl + s%snow(k)%ws
+      sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
+      ! sum_wsl = sum_wsl + s%snow(k)%ws
     enddo
   endif
   if (sum_wsl>0) then
@@ -873,8 +941,8 @@ real function snowpack_avrg_bceq_em(s) result(res)
     do k = 1,s%nlayers
       sum = sum + s%snow(k)%wc_em(1) + s%snow(k)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + & 
                                        s%snow(k)%wc_em(3)*(LAI_abs(3)/LAI_abs(1)) 
-      ! sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
-      sum_wsl = sum_wsl + s%snow(k)%ws
+      sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
+      ! sum_wsl = sum_wsl + s%snow(k)%ws
     enddo
   endif
   if (sum_wsl>0) then
@@ -1400,6 +1468,7 @@ subroutine snowpack_nearsurf_properties(s)
   integer il, it, il_final
   real cumz ! cumulative depth
   real cumm ! cumulative mass
+  real cuml ! cumulative mass liquid + soild
   real cumden ! cumulative snow dendricity (multiplied - weighted by mass) 
   real cumd ! cumulative optical diameter (multiplied - weighted by mass)
   real cumc_im ! cumulative mass black carbon equivalent impurities - im
@@ -1443,8 +1512,10 @@ subroutine snowpack_nearsurf_properties(s)
       bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1))
     endif
 
-    bceq_im(il) = bceq_im(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
-    bceq_em(il) = bceq_em(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
+    ! bceq_im(il) = bceq_im(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
+    ! bceq_em(il) = bceq_em(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
+    bceq_im(il) = bceq_im(il) / (s%snow(il)%ws + s%snow(il)%wl ) ! concentration in ppm = mg/kg 
+    bceq_em(il) = bceq_em(il) / (s%snow(il)%ws + s%snow(il)%wl ) ! concentration in ppm = mg/kg 
 
   enddo
 
@@ -1452,6 +1523,7 @@ subroutine snowpack_nearsurf_properties(s)
   thickn = thickness_for_surface_optical_props
   cumz = 0.0
   cumm = 0.0
+  cuml = 0.0
   cumd = 0.0
   cumden = 0.0
   cumc_im = 0.0
@@ -1476,20 +1548,21 @@ subroutine snowpack_nearsurf_properties(s)
     do il=1,s%nlayers
       cumz = cumz + s%snow(il)%dz 
       cumm = cumm + s%snow(il)%ws
+      cuml = cuml + s%snow(il)%ws + s%snow(il)%wl
       cumhc = cumhc + s%snow(il)%hCap() ! sum layers heat capacity
       cumden = cumden + s%snow(il)%dendr * s%snow(il)%ws 
       cumd = cumd + s%snow(il)%optd * s%snow(il)%ws 
       cuma = cuma + s%snow(il)%age * s%snow(il)%ws 
       cums = cums + s%snow(il)%sph * s%snow(il)%ws 
-      cumc_im = cumc_im + bceq_im(il) * s%snow(il)%ws
-      cumc_em = cumc_em + bceq_em(il) * s%snow(il)%ws
+      cumc_im = cumc_im + bceq_im(il) * ( s%snow(il)%ws + s%snow(il)%wl )
+      cumc_em = cumc_em + bceq_em(il) * ( s%snow(il)%ws + s%snow(il)%wl )
       cum_T = cum_T + s%snow(il)%T * s%snow(il)%hCap() ! T weighted by hCap
       ! cumc = cumc + bceq(il)
     enddo
     ! now average properties over entire snowpack
     ! s%nearsurf_bceq = cumc/cumm ! concentration     [ppm]
-    s%nearsurf_bceq_im = cumc_im/cumm ! concentration [ppm]
-    s%nearsurf_bceq_em = cumc_em/cumm ! concentration [ppm]
+    s%nearsurf_bceq_im = cumc_im/cuml ! concentration [ppm]
+    s%nearsurf_bceq_em = cumc_em/cuml ! concentration [ppm]
     s%nearsurf_rho = cumm/cumz ! density [total mass / total depth] [kg m^-3]
     s%nearsurf_optd = cumd/cumm ! mass weighted average optical diameter [m]
     s%nearsurf_dendr = cumden/cumm ! mass weighted average snow dendricity [number in [0,1]]
@@ -1506,12 +1579,13 @@ subroutine snowpack_nearsurf_properties(s)
       cuma = cuma + s%snow(il)%age * s%snow(il)%ws 
       cumz = cumz + s%snow(il)%dz 
       cumm = cumm + s%snow(il)%ws
+      cuml = cuml + s%snow(il)%ws + s%snow(il)%wl
       cumden = cumden + s%snow(il)%dendr * s%snow(il)%ws 
       cumd = cumd + s%snow(il)%optd * s%snow(il)%ws 
       cums = cums + s%snow(il)%sph * s%snow(il)%ws 
       ! cumc = cumc + bceq(il)
-      cumc_im = cumc_im + bceq_im(il) * s%snow(il)%ws
-      cumc_em = cumc_em + bceq_em(il) * s%snow(il)%ws
+      cumc_im = cumc_im + bceq_im(il) * ( s%snow(il)%ws + s%snow(il)%wl  )
+      cumc_em = cumc_em + bceq_em(il) * ( s%snow(il)%ws + s%snow(il)%wl  )
       cum_T = cum_T + s%snow(il)%T * s%snow(il)%hCap() ! T weighted by hCap
       il = il + 1
     enddo
@@ -1525,12 +1599,13 @@ subroutine snowpack_nearsurf_properties(s)
     cuma = cuma + layer_frac_in * s%snow(il)%age * s%snow(il)%ws
     cumz = cumz + layer_frac_in * s%snow(il)%dz
     cumm = cumm + layer_frac_in * s%snow(il)%ws
+    cuml = cuml + layer_frac_in * ( s%snow(il)%ws + s%snow(il)%wl  )
     cumd = cumd + layer_frac_in * s%snow(il)%optd * s%snow(il)%ws
     cumden = cumden + layer_frac_in * s%snow(il)%dendr * s%snow(il)%ws
     cums = cums + layer_frac_in * s%snow(il)%sph * s%snow(il)%ws
     ! cumc = cumc + layer_frac_in * bceq(il)
-    cumc_em = cumc_em + layer_frac_in * bceq_em(il) * s%snow(il)%ws
-    cumc_im = cumc_im + layer_frac_in * bceq_im(il) * s%snow(il)%ws
+    cumc_em = cumc_em + layer_frac_in * bceq_em(il) * (s%snow(il)%ws + s%snow(il)%wl )
+    cumc_im = cumc_im + layer_frac_in * bceq_im(il) * (s%snow(il)%ws + s%snow(il)%wl )
     cum_T = cum_T + layer_frac_in * s%snow(il)%T * s%snow(il)%hCap() ! T weighted by hCap
 
     if ((zleft < 0.0) .or. (zleft > s%snow(il)%dz )) then
@@ -1541,8 +1616,8 @@ subroutine snowpack_nearsurf_properties(s)
 
     ! now average properties
     ! s%nearsurf_bceq = cumc/cumm ! concentration     [ppm]
-    s%nearsurf_bceq_im = cumc_im/cumm ! concentration [ppm]
-    s%nearsurf_bceq_em = cumc_em/cumm ! concentration [ppm]
+    s%nearsurf_bceq_im = cumc_im/cuml ! concentration [ppm]
+    s%nearsurf_bceq_em = cumc_em/cuml ! concentration [ppm]
     s%nearsurf_rho = cumm/cumz ! snow density [total mass / total depth] [kg m^-3]
     s%nearsurf_optd = cumd/cumm ! mass weighted average optical diameter [m]
     s%nearsurf_dendr = cumden/cumm ! mass weighted average optical diameter [m]

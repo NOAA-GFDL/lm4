@@ -302,7 +302,8 @@ integer :: &
   id_snow_nearsurf_dendr, id_snow_nearsurf_bceq_tot,id_snow_nearsurf_bceq_im,id_snow_nearsurf_bceq_em,       &
   id_snow_depth, id_snow_liq, id_snow_ice, &
   id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit, &
-  id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om
+  id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om, &
+  id_snow_avrg_bc_tot, id_snow_avrg_md_tot, id_snow_avrg_om_tot
   ! ==================            End of new snowpack diag fields      ===================
 
 
@@ -2928,6 +2929,9 @@ endif
   call send_tile_data(id_snow_density, snow_area * tile%snow%sp%density(), tile%diag)
   call send_tile_data(id_snow_avrg_T, snow_area * snow_avrg_T, tile%diag)
   call send_tile_data(id_snow_avrg_bceq_tot, snow_area * tile%snow%sp%avrg_bceq_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_bc_tot, snow_area * tile%snow%sp%avrg_bc_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_md_tot, snow_area * tile%snow%sp%avrg_md_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_om_tot, snow_area * tile%snow%sp%avrg_om_tot(), tile%diag)
   call send_tile_data(id_snow_avrg_bceq_im, snow_area * tile%snow%sp%avrg_bceq_im(), tile%diag)
   call send_tile_data(id_snow_avrg_bceq_em, snow_area * tile%snow%sp%avrg_bceq_em(), tile%diag)
   call send_tile_data(id_snow_nearsurf_bceq_tot, snow_area * tile%snow%sp%nearsurf_bceq_tot, tile%diag)
@@ -4633,6 +4637,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Snowpack near-surface conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0) 
           id_snow_avrg_bceq_tot = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_tot', (/id_ug/), time, &     
              'Snowpack total (im + em) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0) 
+          id_snow_avrg_bc_tot = register_tiled_diag_field ( module_name, 'snow_avrg_bc_tot', (/id_ug/), time, &     
+             'Snowpack total (im + em) average conc. of black carbon', 'ppm', missing_value=-9999.0) 
+          id_snow_avrg_md_tot = register_tiled_diag_field ( module_name, 'snow_avrg_md_tot', (/id_ug/), time, &     
+             'Snowpack total (im + em) average conc. of mineral dust', 'ppm', missing_value=-9999.0) 
+          id_snow_avrg_om_tot = register_tiled_diag_field ( module_name, 'snow_avrg_om_tot', (/id_ug/), time, &     
+             'Snowpack total (im + em) average conc. of organic carbon', 'ppm', missing_value=-9999.0) 
           id_snow_avrg_bceq_im = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_im', (/id_ug/), time, &     
              'Snowpack average conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
           id_snow_avrg_bceq_em = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_em', (/id_ug/), time, &     
