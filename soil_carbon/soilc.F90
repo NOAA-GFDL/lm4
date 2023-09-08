@@ -8,7 +8,7 @@ use land_debug_mod, only: land_error_message
 use soil_tile_mod, only: soil_tile_type
 use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT, read_soilc_CENT_namelist
 use soil_carbon_mod, only: soil_carbon_option, &
-    SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
+    SOILC_CENTURY, SOILC_CORPSE, SOILC_CORPSE_N, &
     read_soilc_CORPSE_namelist, &
     soilc_t, soilc_CORPSE_t, &
     new_soilc_CORPSE
@@ -57,8 +57,6 @@ subroutine read_soil_carbon_namelist()
   select case (soil_carbon_model_to_use)
   case('CENTURY-like')
     soil_carbon_option = SOILC_CENTURY
-  case('CENTURY-like-by-layer')
-    soil_carbon_option = SOILC_CENTURY_BY_LAYER
   case('CORPSE')
     soil_carbon_option = SOILC_CORPSE
   case('CORPSE-N')
@@ -69,7 +67,7 @@ subroutine read_soil_carbon_namelist()
   end select
 
   select case (soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  case (SOILC_CENTURY)
     call read_soilc_CENT_namelist()
   case (SOILC_CORPSE, SOILC_CORPSE_N)
     call read_soilc_CORPSE_namelist()
@@ -83,7 +81,7 @@ function soilc_ctor(soil) result(ptr)
   type(soil_tile_type), intent(in) :: soil
 
   select case (soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  case (SOILC_CENTURY)
     ptr => new_soilc_CENT(soil)
   case (SOILC_CORPSE, SOILC_CORPSE_N)
     ptr => new_soilc_CORPSE(soil)

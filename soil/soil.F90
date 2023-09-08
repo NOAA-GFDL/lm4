@@ -40,7 +40,6 @@ use soil_accessors_mod ! use everything
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soil_carbon_mod, only : soilc_CORPSE_t, &
-     soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      debug_pool, ammonium_solubility, nitrate_solubility
 use soilc_util_mod, only : register_soilc_diag_fields, &
     register_litter_diag_fields, register_litter_soilc_diag_fields
@@ -360,7 +359,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   i_river_NO3  = river_tracer_index('no3')
   i_river_NH4  = river_tracer_index('nh4')
 
-  if (i_river_DOC == NO_TRACER .and. (soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N)) &
+  if (i_river_DOC == NO_TRACER ) &
       call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', NOTE)
 
   ! -------- initialize soil model diagnostic fields

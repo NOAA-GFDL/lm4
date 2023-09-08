@@ -1,7 +1,7 @@
 module soilc_restart_mod
 
 use soil_carbon_mod,  only : soil_carbon_option, &
-    SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
+    SOILC_CENTURY, &
     SOILC_CORPSE, SOILC_CORPSE_N
 use soilc_CENT_mod,   only : soilc_init_CENT, save_soilc_CENT_restart
 use soilc_CORPSE_mod, only : soilc_init_CORPSE, save_soilc_CORPSE_restart
@@ -20,7 +20,7 @@ subroutine soilc_init( id_ug, id_zfull )
   integer,intent(in) :: id_zfull !< Vertical (depth) axis id
 
   select case (soil_carbon_option)
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  case(SOILC_CENTURY)
     call soilc_init_CENT( id_ug, id_zfull )
   case(SOILC_CORPSE, SOILC_CORPSE_N)
     call soilc_init_CORPSE( id_ug, id_zfull )
@@ -33,7 +33,7 @@ subroutine save_soilc_restart(tile_dim_length, timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
   select case (soil_carbon_option)
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+  case(SOILC_CENTURY)
     call save_soilc_CENT_restart(tile_dim_length, timestamp)
   case(SOILC_CORPSE, SOILC_CORPSE_N)
     call save_soilc_CORPSE_restart(tile_dim_length, timestamp)

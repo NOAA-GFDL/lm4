@@ -74,7 +74,7 @@ public :: cull_cohorts
 
 public :: debug_pool
 
-public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
+public :: soil_carbon_option, SOILC_CENTURY, &
     SOILC_CORPSE, SOILC_CORPSE_N
 
 ! public :: soil_NO3_deposition!x2z
@@ -99,7 +99,6 @@ character(len=*), parameter :: module_name = 'soil_carbon_mod'
 ! soil carbon options
 integer, parameter :: &
     SOILC_CENTURY          = 1, & ! CENTURY-like decomposition
-    SOILC_CENTURY_BY_LAYER = 2, & ! CENTURY-like decomposition with rates different in soil layers
     SOILC_CORPSE           = 3, & ! CORPSE model
     SOILC_CORPSE_N         = 4    ! This option enables all nitrogen code
 
@@ -299,7 +298,7 @@ namelist /soilc_CORPSE_nml/ &
 !---- end-of-namelist --------------------------------------------------------
 ! integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
 integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
-        ! one of SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
+        ! one of SOILC_CENTURY, SOILC_CORPSE, SOILC_CORPSE_N
 
 ! normalization factors for soil moisture aerobic respiration depencence
 real :: aerobic_max, theta_resp_max
