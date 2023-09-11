@@ -10,8 +10,8 @@ use land_tile_io_mod, only: land_restart_type, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
 use soil_tile_mod, only: num_l, zfull
-use soil_carbon_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, soil_carbon_option, &
-     SOILC_CORPSE_N, soilMaxCohorts, soilc_diag_init_CORPSE
+use soil_carbon_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
+     soilMaxCohorts, soilc_diag_init_CORPSE
 use soilc_mod, only: save_soilc_equilibration_data
 
 use soil_accessors_mod, only: soil_gross_nitrogen_flux_into_tile_ptr, soil_gross_nitrogen_flux_out_of_tile_ptr
@@ -80,7 +80,7 @@ subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
 
   call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
 
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (do_nitrogen) then
      do i = 1, N_C_TYPES
         call add_tile_data(restart,trim(c_shortname(i))//'_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr,i,trim(c_longname(i))//' soil nitrogen','kg/m2')
         call add_tile_data(restart,trim(c_shortname(i))//'ProtectedN', 'zfull','soilCCohort', sc_protected_N_ptr,i,'Protected '//trim(c_longname(i))//' soil nitrogen','kg/m2')

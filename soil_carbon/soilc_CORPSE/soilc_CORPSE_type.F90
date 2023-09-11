@@ -41,7 +41,7 @@ private
 
 
 ! ==== public interfaces =====================================================
-public :: soilc_t, soilc_CORPSE_t, new_soilc_CORPSE
+public :: soilc_CORPSE_t, new_soilc_CORPSE
 ! public :: merge_soilc
 ! public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 ! public :: soil_tile_carbon, soil_tile_nitrogen
@@ -74,8 +74,7 @@ public :: cull_cohorts
 
 public :: debug_pool
 
-public :: soil_carbon_option, SOILC_CENTURY, &
-    SOILC_CORPSE, SOILC_CORPSE_N
+public :: do_nitrogen
 
 ! public :: soil_NO3_deposition!x2z
 ! public :: soil_NH4_deposition!x2z
@@ -95,12 +94,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../../shared/version_variable.inc"
-
-! soil carbon options
-integer, parameter :: &
-    SOILC_CENTURY          = 1, & ! CENTURY-like decomposition
-    SOILC_CORPSE           = 3, & ! CORPSE model
-    SOILC_CORPSE_N         = 4    ! This option enables all nitrogen code
 
 integer, parameter :: init_n_cohorts = 3 ! initial number of cohorts in a litter pool
 
@@ -202,6 +195,7 @@ end type soilc_CORPSE_t
 !==== module variables =======================================================
 
 !---- namelist ---------------------------------------------------------------
+logical, protected :: do_nitrogen = .FALSE. ! if TRUE, nitrogen in soil is simulated
 logical                   :: use_rhizosphere_cohort=.FALSE.  ! Use 2 fixed cohorts for rhizosphere and bulk soil if true
 real :: r_rhiz = 0.001                 ! Radius of rhizosphere around root (m)
 logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
@@ -277,7 +271,7 @@ real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets
 
 
 namelist /soilc_CORPSE_nml/ &
-    use_rhizosphere_cohort, r_rhiz, &
+    do_nitrogen, use_rhizosphere_cohort, r_rhiz, &
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
     tLongest,&
@@ -292,13 +286,7 @@ namelist /soilc_CORPSE_nml/ &
     Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,mup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
     vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor,nitrate_solubility,ammonium_solubility,&
     max_soil_C_density, max_litter_thickness
-
-
-
 !---- end-of-namelist --------------------------------------------------------
-! integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
-integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
-        ! one of SOILC_CENTURY, SOILC_CORPSE, SOILC_CORPSE_N
 
 ! normalization factors for soil moisture aerobic respiration depencence
 real :: aerobic_max, theta_resp_max
@@ -734,7 +722,7 @@ end function
 
 !> @brief Given soil carbon state, return total soil nitrogen
 !! @return total soil nitrogen, kgN/m2
-! this should return zero if soil_carbon_option is not SOILC_CORPSE_N
+! this should return zero if soil nitrogen is not simulated
 real function total_N_CORPSE (soilc) result(soil_tile_nitrogen)
   class(soilc_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
 
@@ -1036,7 +1024,7 @@ subroutine tracer_leaching_CORPSE(soilc, diag, &
   del_woodlitter_NH4 = 0.0 ;  del_woodlitter_NO3 = 0.0
   div_NH4_loss=0.0         ;  div_NO3_loss       = 0.0
 
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (do_nitrogen) then
      !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
      ! Probably should include wood litter in this too
      ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
@@ -1184,7 +1172,7 @@ subroutine tracer_leaching_CORPSE(soilc, diag, &
      div_DOC_loss(i,:)=div_loss(i,2:num_l+1)
 
      !!!!!xz Nitrogen
-     if (soil_carbon_option == SOILC_CORPSE_N) then
+     if (do_nitrogen) then
         DON(i,1)=leaflitter%dissolved_nitrogen(i)+woodlitter%dissolved_nitrogen(i)!xz
         if(DON(i,1)>0) then
             leaf_DON_frac=leaflitter%dissolved_nitrogen(i)/DON(i,1)
@@ -1685,7 +1673,7 @@ subroutine update_soil_pools_CORPSE(soilc, vegn)
   vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
   delta_C = vegn%litter_rate_C*dt_fast_yr
 
-  if(soil_carbon_option == SOILC_CORPSE_N) then
+  if(do_nitrogen) then
      vegn%litter_rate_N = MAX(0.0, MIN(vegn%litter_rate_N, vegn%litter_buff_N/dt_fast_yr))
   else
      vegn%litter_rate_N = 0.0
@@ -1703,7 +1691,7 @@ subroutine update_soil_pools_CORPSE(soilc, vegn)
   deltafast = 0.0; call deplete_pool(vegn%fsc_pool_bg, vegn%fsc_rate_bg, deltafast)
   deltaslow = 0.0; call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, deltaslow)
 
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (do_nitrogen) then
      deltafast_N = 0.0 ; call deplete_pool(vegn%fsn_pool_bg, vegn%fsn_rate_bg, deltafast_N)
      deltaslow_N = 0.0 ; call deplete_pool(vegn%ssn_pool_bg, vegn%ssn_rate_bg, deltaslow_N)
   else
@@ -2153,7 +2141,7 @@ subroutine dissolve_carbon(pool,theta)
   if (C_protected_solubility<0.0) C_protected_solubility=0.0
   if (C_protected_solubility>1.0) C_protected_solubility=1.0
 
-  if(soil_carbon_option == SOILC_CORPSE_N) then
+  if(do_nitrogen) then
       N_dissolution_rate=N_leaching_solubility*theta
 
       N_protected_solubility=theta**gas_diffusion_exp*N_protected_relative_solubility
@@ -2196,7 +2184,7 @@ subroutine deposit_dissolved_C(pool)
      __DEBUG1__(deposited_C)
   endif
 
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (do_nitrogen) then
      deposited_N(:)=min(pool%dissolved_nitrogen(:),max(DOC_deposition_rate*pool%dissolved_nitrogen(:),0.0))
   else
      deposited_N=0.0
@@ -2282,7 +2270,7 @@ subroutine update_pool(pool, T, theta, air_filled_porosity, dt, layerThickness, 
   enddo
 
   ! Xin had N uptake here.  I am moving it to somewhere in vegetation
-  if (soil_carbon_option == SOILC_CORPSE_N) then
+  if (do_nitrogen) then
      !!Nitrification and denitrification after updating all cohorts
      !!!!!!!!!!!!!!xz Check to add N2O emission, change the gamma_nitr to account nitrogen lost during the nitrification and denitrification processes
      nitrif=min(pool%ammonium,Knitrif(T)*(max(theta,0.0)**3)*max((max(air_filled_porosity,0.0))**gas_diffusion_exp,min_anaerobic_resp_factor)*pool%ammonium*dt)   !xz CHECK with Gerber paper(or LM3 code)   kg/m2
@@ -2423,7 +2411,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     end where
 
     ! This needs to be changed if Vmax can be different for C vs nitrogen
-    if(soil_carbon_option == SOILC_CORPSE_N) then
+    if(do_nitrogen) then
         where(cohort%litterC>0)
             pot_tempN_decomposed=potential_tempResp*cohort%litterN/cohort%litterC ! kgC/m2/yr
             pot_tempN_decomposed_denitrif=denitrif_Resp*cohort%litterN/cohort%litterC
@@ -2446,7 +2434,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     maintenance_resp=microbeTurnover*(1.0-et)
 
     ! Update microbial biomass
-    IF(soil_carbon_option == SOILC_CORPSE_N) THEN
+    IF(do_nitrogen) THEN
 
         carbon_supply = carbon_supply+carbon_supply_denitrif
         nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
@@ -2694,7 +2682,7 @@ subroutine update_cohort(cohort, nitrate, ammonium, cohortVolume, T, theta, air_
     cohort%litterC    = cohort%litterC    - newProtectedC + dt*prot_C_turnover
 
     ! Update protected nitrogen
-    if (soil_carbon_option == SOILC_CORPSE_N) then
+    if (do_nitrogen) then
         if (sum(cohort%litterN).gt.0.0 .and. cohortVolume.gt.0.0) then
             ! Change: divide by volume instead of litter C. Keeps it linear with size, but allows dependence on unprotected C
             if (microbe_driven_protection) then
@@ -3127,12 +3115,12 @@ subroutine add_litter(pool,litterC,litterN,rhizosphere_frac,&
 
   real :: newLitterC(N_C_TYPES), newLitterN(N_C_TYPES)
 
-  select case (soil_carbon_option)
-  case (SOILC_CORPSE,SOILC_CORPSE_N)
-     ! do nothing
-  case default
-     call error_mesg('add_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
-  end select
+!   select case (soil_carbon_option)
+!   case (SOILC_CORPSE)
+!      ! do nothing
+!   case default
+!      call error_mesg('add_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
+!   end select
 
   if (present(negativeInputC)) then
      negativeInputC(:) = negativeInputC(:) + min(litterC,0.0)
@@ -3142,7 +3130,7 @@ subroutine add_litter(pool,litterC,litterN,rhizosphere_frac,&
   endif
   newLitterC = max(litterC, 0.0)
 
-  if (soil_carbon_option==SOILC_CORPSE_N) then
+  if (do_nitrogen) then
      if (present(negativeInputN)) then
         negativeInputN(:) = negativeInputN + min(litterN,0.0)
      else
@@ -3177,7 +3165,7 @@ subroutine add_litter(pool,litterC,litterN,rhizosphere_frac,&
   ! More important to conserve N, or to make sure there is some initial microbial biomass?
   ! We could just assume enough fixers to ensure some minimal initial biomass?
   ! Currently limiting by N: could suppress decomposition for low-N litter, especially with rhizosphere_cohort OFF
-  if(soil_carbon_option == SOILC_CORPSE_N) then
+  if(do_nitrogen) then
       initialMicrobeN=min(sum(newLitterN),initialMicrobeC/CN_microb)
       if (initialMicrobeN<initialMicrobeC/CN_microb) initialMicrobeC=initialMicrobeN*CN_microb
   else
@@ -3264,7 +3252,7 @@ subroutine add_C_N_to_cohorts(pool,litterC,protectedC,livingMicrobeC,CO2,litterN
      pool%litterCohorts(k)%livingMicrobeC=pool%litterCohorts(k)%livingMicrobeC+livingMicrobeCval*weight
      pool%litterCohorts(k)%CO2=pool%litterCohorts(k)%CO2+CO2val*weight
 
-     if (soil_carbon_option == SOILC_CORPSE_N) then  ! May be unnecessary to "if" this if these are always zero?
+     if (do_nitrogen) then  ! May be unnecessary to "if" this if these are always zero?
         pool%litterCohorts(k)%litterN=pool%litterCohorts(k)%litterN+litterNval*weight! xz
         pool%litterCohorts(k)%protectedN=pool%litterCohorts(k)%protectedN+protectedNval*weight! xz
         pool%litterCohorts(k)%livingMicrobeN=pool%litterCohorts(k)%livingMicrobeN+livingMicrobeNval*weight! xz
@@ -3366,7 +3354,7 @@ subroutine remove_C_N_fraction_from_pool(pool, fractionC, fractionN, &
         call move(cc(i)%protectedC(:),  protectedC_removed(:), cc(i)%protectedC(:)  * fractionC*C_prot_f)
         call move(cc(i)%livingMicrobeC, liveMicrobeC_removed,  cc(i)%livingMicrobeC * fractionC*lmic_f)
          ! Nitrogen
-        if (soil_carbon_option == SOILC_CORPSE_N) then
+        if (do_nitrogen) then
            call move(cc(i)%litterN(:),     litterN_removed(:),    cc(i)%litterN(:)     * fractionN*N_litt_f)
            call move(cc(i)%protectedN(:),  protectedN_removed(:), cc(i)%protectedN(:)  * fractionN*N_prot_f)
            call move(cc(i)%livingMicrobeN, liveMicrobeN_removed,  cc(i)%livingMicrobeN * fractionN*lmic_f)
@@ -3756,7 +3744,7 @@ subroutine retrieve_DON(soilc, values)
     real,                  intent(out) :: values(:,:)   ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic nitrogen
     integer :: l
 
-    if(soil_carbon_option == SOILC_CORPSE_N) then
+    if(do_nitrogen) then
         do l=1,num_l
             values(1:N_C_TYPES,l)=soilc%org_matter(l)%dissolved_nitrogen(1:N_C_TYPES)
         end do
@@ -3771,7 +3759,7 @@ subroutine retrieve_nitrate(soilc, values)
 
     integer :: l
 
-    if(soil_carbon_option == SOILC_CORPSE_N) then
+    if(do_nitrogen) then
         do l=1,num_l
             values(l)  = soilc%org_matter(l)%nitrate
         end do
@@ -3787,7 +3775,7 @@ subroutine retrieve_ammonium(soilc, values)
 
     integer :: l
 
-    if(soil_carbon_option == SOILC_CORPSE_N) then
+    if(do_nitrogen) then
         do l=1,num_l
             values(l) = soilc%org_matter(l)%ammonium
         end do

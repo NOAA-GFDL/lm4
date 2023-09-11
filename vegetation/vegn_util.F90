@@ -7,7 +7,7 @@ use fms_mod, only : string, WARNING, FATAL
 
 use land_constants_mod, only: N_C_TYPES, C_FAST
 use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, carbon_cons_tol
-use soil_carbon_mod, only : soilc_t
+use soilc_type_mod, only : soilc_t
 use soil_tile_mod, only : soil_tile_type, num_l, dz
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
       min_cohort_nindivs, seedling_relayer_bug, deadmic_slow_frac

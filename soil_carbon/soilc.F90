@@ -6,12 +6,9 @@ use land_data_mod, only: log_version
 use land_debug_mod, only: land_error_message
 
 use soil_tile_mod, only: soil_tile_type
+use soilc_type_mod, only: soilc_t
 use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT, read_soilc_CENT_namelist
-use soil_carbon_mod, only: soil_carbon_option, &
-    SOILC_CENTURY, SOILC_CORPSE, SOILC_CORPSE_N, &
-    read_soilc_CORPSE_namelist, &
-    soilc_t, soilc_CORPSE_t, &
-    new_soilc_CORPSE
+use soil_carbon_mod, only:soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CORPSE_namelist
 
 implicit none; private
 
@@ -19,6 +16,8 @@ public :: read_soil_carbon_namelist
 public :: new_soilc, delete_soilc
 
 public :: save_soilc_equilibration_data
+
+public :: soil_carbon_option
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soilc_mod'
@@ -35,6 +34,12 @@ character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by
 logical, protected :: save_soilc_equilibration_data = .FALSE. ! indicates whether to write
                         ! information for soil carbon acceleration
 namelist /soil_carbon_nml/ soil_carbon_model_to_use, save_soilc_equilibration_data
+
+! soil carbon options
+integer, protected :: soil_carbon_option
+integer, public, parameter :: &
+    SOILC_CENTURY          = 1, & ! CENTURY-like decomposition
+    SOILC_CORPSE           = 3    ! CORPSE model
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -59,8 +64,6 @@ subroutine read_soil_carbon_namelist()
     soil_carbon_option = SOILC_CENTURY
   case('CORPSE')
     soil_carbon_option = SOILC_CORPSE
-  case('CORPSE-N')
-    soil_carbon_option = SOILC_CORPSE_N
   case default
     call error_mesg('read_soil_carbon_namelist', &
         '"'//trim(soil_carbon_model_to_use)//'" is an invalid option for soil_carbon_model_to_use', FATAL)
@@ -69,7 +72,7 @@ subroutine read_soil_carbon_namelist()
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
     call read_soilc_CENT_namelist()
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
+  case (SOILC_CORPSE)
     call read_soilc_CORPSE_namelist()
   end select
 end subroutine read_soil_carbon_namelist
@@ -83,7 +86,7 @@ function soilc_ctor(soil) result(ptr)
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
     ptr => new_soilc_CENT(soil)
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
+  case (SOILC_CORPSE)
     ptr => new_soilc_CORPSE(soil)
   case default
     call land_error_message('soilc_ctor: The value of soil_carbon_option is invalid. This should never happen. See developer', FATAL)

@@ -28,8 +28,7 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soilc_CENT_type_mod, only: soilc_CENT_t
-use soil_carbon_mod, only: soilc_CORPSE_t, soil_carbon_option, add_litter, &
-     SOILC_CORPSE_N
+use soil_carbon_mod, only: soilc_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
@@ -453,7 +452,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
         ! We are not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
         vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
 
-        if(soil_carbon_option == SOILC_CORPSE_N) then
+        if(do_CORPSE_nitrogen) then
            leaflitter_N=leaflitter_C/sp%leaf_live_c2n
            woodlitter_N=woodlitter_C/sp%leaf_live_c2n
            do k = 1,num_l
@@ -550,7 +549,7 @@ subroutine vegn_harvest_crop_lm3(tile)
                (1-sp%fsc_froot)*cc%bliving*cc%Pr + &
                (1-agf_bs)*(1-sp%fsc_wood)*(cc%bwood + cc%bliving*cc%Psw))
 
-        if (soil_carbon_option == SOILC_CORPSE_N) then
+        if (do_CORPSE_nitrogen) then
            vegn%litter_buff_N(:,LITT_CWOOD) = vegn%litter_buff_N(:,LITT_CWOOD) + &
                [sp%fsc_wood, 1-sp%fsc_wood, 0.0] * fraction_harvested*agf_bs*cc%wood_N
 
@@ -709,7 +708,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
           vegn%fsc_pool_bg = vegn%fsc_pool_bg + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*sp%fsc_wood
         endif
 
-        if (soil_carbon_option == SOILC_CORPSE_N) then
+        if (do_CORPSE_nitrogen) then
             vegn%litter_buff_N(:,LITT_CWOOD) = vegn%litter_buff_N(:,LITT_CWOOD) + (&
                   [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*cc%wood_N +&
                   [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%sapwood_N+cc%stored_N)&
