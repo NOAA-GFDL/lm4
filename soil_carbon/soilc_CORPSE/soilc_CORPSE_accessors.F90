@@ -1,7 +1,7 @@
 module soilc_CORPSE_accessors_mod
 
 use land_tile_mod, only: land_tile_type
-use soil_carbon_mod, only: soilc_CORPSE_t
+use soilc_CORPSE_type_mod, only: soilc_CORPSE_t
 
 implicit none
 public

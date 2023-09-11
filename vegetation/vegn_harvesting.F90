@@ -28,7 +28,7 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soilc_CENT_type_mod, only: soilc_CENT_t
-use soil_carbon_mod, only: soilc_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
+use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none

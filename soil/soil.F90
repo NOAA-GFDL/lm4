@@ -39,7 +39,7 @@ use soil_accessors_mod ! use everything
 
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
-use soil_carbon_mod, only : soilc_CORPSE_t, &
+use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, &
      debug_pool, ammonium_solubility, nitrate_solubility
 use soilc_util_mod, only : register_soilc_diag_fields, &
     register_litter_diag_fields, register_litter_soilc_diag_fields

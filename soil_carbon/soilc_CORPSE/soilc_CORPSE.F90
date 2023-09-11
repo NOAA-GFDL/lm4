@@ -10,7 +10,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
 use soil_tile_mod, only: num_l, zfull
-use soil_carbon_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
+use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
      soilMaxCohorts, soilc_diag_init_CORPSE
 use soilc_mod, only: save_soilc_equilibration_data
 

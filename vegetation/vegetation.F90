@@ -79,7 +79,7 @@ use vegn_harvesting_mod, only : &
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soilc_type_mod, only : soilc_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
-use soil_carbon_mod, only : soilc_CORPSE_t, cull_cohorts
+use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
     get_variable_size

@@ -8,7 +8,7 @@ use land_debug_mod, only: land_error_message
 use soil_tile_mod, only: soil_tile_type
 use soilc_type_mod, only: soilc_t
 use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT, read_soilc_CENT_namelist
-use soil_carbon_mod, only:soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CORPSE_namelist
+use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CORPSE_namelist
 
 implicit none; private
 

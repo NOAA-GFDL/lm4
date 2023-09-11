@@ -1,4 +1,4 @@
-module soil_carbon_mod
+module soilc_CORPSE_type_mod
 
 ! Do not use external model stuff if compiling standalone version
 #ifndef STANDALONE_SOIL_CARBON
@@ -92,7 +92,7 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'soil_carbon_mod'
+character(len=*), parameter :: module_name = 'soilc_CORPSE_type_mod'
 #include "../../shared/version_variable.inc"
 
 integer, parameter :: init_n_cohorts = 3 ! initial number of cohorts in a litter pool
@@ -158,7 +158,7 @@ end type soil_pool
 ! soil carbon container type
 type, extends(soilc_t) :: soilc_CORPSE_t
   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
-  type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
+  type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soilc_CORPSE_type_mod soil carbon pool type
   integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
 
   real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
@@ -3867,4 +3867,4 @@ logical elemental function is_nan(x)
    is_nan = (x/=x)
 end function is_nan
 
-end module soil_carbon_mod
+end module soilc_CORPSE_type_mod
