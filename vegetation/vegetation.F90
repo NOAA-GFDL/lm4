@@ -77,7 +77,7 @@ use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, 
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
@@ -2118,7 +2118,7 @@ end subroutine vegn_step_2
 subroutine vegn_step_3(vegn, soil, soilc, cana_T, precip, ndep_nit, ndep_amm, ndep_org, vegn_fco2, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
   real, intent(in) :: cana_T ! canopy temperature, deg K
   real, intent(in) :: precip ! total (rain+snow) precipitation, kg/(m2 s)
   real, intent(in) :: ndep_nit, ndep_amm, ndep_org ! total nitrate, ammonium,

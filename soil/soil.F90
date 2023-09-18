@@ -37,7 +37,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 use soil_accessors_mod ! use everything
 
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, &
      debug_pool, ammonium_solubility, nitrate_solubility
@@ -1487,7 +1487,7 @@ end subroutine soil_step_1
                            soil_frunf, soil_hfrunf, soil_tr_runf, &
                            DOC_to_atmos)
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
   real, intent(in) :: & ! ZMS assign tentative annotations below with "??"

@@ -22,7 +22,7 @@ use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
-use soilc_type_mod, only : soilc_t, deplete_pool
+use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
 use soilc_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
 use soil_tile_mod, only : soil_tile_type, gw_option, GW_TILED, initval, &
@@ -156,7 +156,7 @@ type soil_pool
 end type soil_pool
 
 ! soil carbon container type
-type, extends(soilc_t) :: soilc_CORPSE_t
+type, extends(soil_BGC_t) :: soilc_CORPSE_t
   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
   type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soilc_CORPSE_type_mod soil carbon pool type
   integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
@@ -767,7 +767,7 @@ end subroutine
 !> @brief merge s1 into current soil carbon type s2, with given weights
 subroutine merge_CORPSE(s2,w2,s1,w1)
   class(soilc_CORPSE_t), intent(inout) :: s2    !< current soil carbon state
-  class(soilc_t)       , intent(in)    :: s1    !< soil carbon state to be merged into current
+  class(soil_BGC_t)    , intent(in)    :: s1    !< soil carbon state to be merged into current
   real                 , intent(in)    :: w2,w1 !< merging weights
 
   integer :: k, i

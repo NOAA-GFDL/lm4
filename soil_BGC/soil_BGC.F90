@@ -6,7 +6,7 @@ use land_data_mod, only: log_version
 use land_debug_mod, only: land_error_message
 
 use soil_tile_mod, only: soil_tile_type
-use soilc_type_mod, only: soilc_t
+use soil_BGC_type_mod, only: soil_BGC_t
 use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT, read_soilc_CENT_namelist
 use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CORPSE_namelist
 
@@ -80,7 +80,7 @@ end subroutine read_soil_carbon_namelist
 !> @brief Create new empty soil carbon container
 !! @return Pointer to new allocated and initialized soil carbon container
 function soilc_ctor(soil) result(ptr)
-  class(soilc_t), pointer :: ptr
+  class(soil_BGC_t), pointer :: ptr
   type(soil_tile_type), intent(in) :: soil
 
   select case (soil_carbon_option)
@@ -96,8 +96,8 @@ end function soilc_ctor
 !> @brief Create a copy of soil carbon container
 !! @return Pointer to a copy of given soil carbon container
 function soilc_copy(soilc) result(ptr)
-  class(soilc_t), pointer :: ptr
-  class(soilc_t), intent(in) :: soilc
+  class(soil_BGC_t), pointer :: ptr
+  class(soil_BGC_t), intent(in) :: soilc
 
   allocate(ptr, source=soilc)
   ! copy all non-pointer members
@@ -113,7 +113,7 @@ end function soilc_copy
 
 !> @brief Deallocate soil carbon contaner
 subroutine delete_soilc(ptr)
-  class(soilc_t), pointer :: ptr
+  class(soil_BGC_t), pointer :: ptr
 
   ! no need to deallocate components of soil_tile, because F2003 takes care of
   ! allocatable components deallocation when soil_tile is deallocated

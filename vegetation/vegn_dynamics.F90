@@ -40,7 +40,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_speci
      plant_C, plant_N, cohort_can_reproduce, cohort_makes_seeds
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use soilc_CENT_type_mod, only : soilc_CENT_t
 
 implicit none
@@ -667,7 +667,7 @@ end subroutine update_mycorrhizae
 subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
   real, intent(in) :: soilt ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
@@ -970,7 +970,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
   ! TODO: possibly get rid of tsoil, theta, since they can be calculated here
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
   real, intent(in) :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
@@ -1397,7 +1397,7 @@ end subroutine vegn_growth
 ! Starvation due to low NSC
 subroutine vegn_starvation_ppa (vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
-  class(soilc_t),       intent(inout) :: soil
+  class(soil_BGC_t),    intent(inout) :: soil
 
   ! ---- local vars
   real :: deathrate ! mortality rate, 1/year
@@ -1971,7 +1971,7 @@ end subroutine plant_respiration
 subroutine vegn_phenology_lm3(vegn, soil, soilc)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
 
   ! ---- local vars
   real :: leaf_litter_C,root_litter_C,leaf_litter_N,root_litter_N

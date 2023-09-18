@@ -7,7 +7,7 @@ use fms_mod, only : string, WARNING, FATAL
 
 use land_constants_mod, only: N_C_TYPES, C_FAST
 use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, carbon_cons_tol
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use soil_tile_mod, only : soil_tile_type, num_l, dz
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
       min_cohort_nindivs, seedling_relayer_bug, deadmic_slow_frac
@@ -151,7 +151,7 @@ end subroutine kill_plants_ppa
 ! ============================================================================
 subroutine kill_small_cohorts_ppa(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
-  class(soilc_t), intent(inout) :: soil
+  class(soil_BGC_t), intent(inout) :: soil
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
@@ -230,7 +230,7 @@ end subroutine kill_small_cohorts_ppa
 subroutine add_seedlings_ppa(vegn, soil, soilc, seed_C, seed_N, germination_factor, prob_est, prob_ger)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
   real, intent(in) :: seed_C(0:nspecies-1), seed_N(0:nspecies-1)
   real, intent(in), optional :: germination_factor ! additional multiplier for
       ! seed germination, use 0.0 to kill weed seeds on cropland

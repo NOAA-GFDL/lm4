@@ -1,4 +1,4 @@
-module soilc_type_mod
+module soil_BGC_type_mod
 
 use land_data_mod, only : lnd ! only for deplete_pool
 use tile_diag_buff_mod, only : diag_buff_type
@@ -7,11 +7,11 @@ use vegn_tile_mod, only: vegn_tile_type
 
 implicit none; private
 
-public :: soilc_t
+public :: soil_BGC_t
 public :: deplete_pool
 
 ! abstract type representing soil carbon model
-type, abstract :: soilc_t
+type, abstract :: soil_BGC_t
 contains
   procedure (merge),         deferred, pass :: merge   ! merge another soil carbon tile into current one
   procedure (get_real_func), deferred, pass :: total_C ! returns total C [kgC/m2]
@@ -45,22 +45,22 @@ end type
 abstract interface
    ! merge sc1 into sc2 with given weights
    subroutine merge(s2,w2,s1,w1)
-      import :: soilc_t
-      class(soilc_t), intent(inout) :: s2
-      class(soilc_t), intent(in)    :: s1
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(inout) :: s2
+      class(soil_BGC_t), intent(in)    :: s1
       real          , intent(in)    :: w2,w1 ! merging weights
    end subroutine merge
 
    ! given soil carbon data, returns real number
    function get_real_func(soilC)
-      import :: soilc_t ! soil carbon data structure
-      class(soilc_t), intent(in) :: soilC
+      import :: soil_BGC_t ! soil carbon data structure
+      class(soil_BGC_t), intent(in) :: soilC
    end function
 
    ! given soil carbon data, returns three kinds of carbon
    subroutine get_real_3(soilC, fast_C, slow_C, dmic_C)
-      import :: soilc_t
-      class(soilc_t), intent(in)  :: soilC ! soil carbon data structure
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(in)  :: soilC ! soil carbon data structure
       real, intent(out) :: &
          fast_C,    & ! fast litter carbon, [kgC/m2]
          slow_C,    & ! slow litter carbon, [kgC/m2]
@@ -69,24 +69,24 @@ abstract interface
 
    ! given soil carbon data, returns 2D data
    subroutine get_real_2D(soilC, values)
-      import :: soilc_t ! soil carbon data structure
-      class(soilc_t), intent(in) :: soilC
+      import :: soil_BGC_t ! soil carbon data structure
+      class(soil_BGC_t), intent(in) :: soilC
       real,           intent(out):: values(:,:) ! in many cases (N_C_TYPES, num_l)
    end subroutine
 
    ! given soil carbon data, returns 2D data
    subroutine get_real_1D(soilC, values)
-      import :: soilc_t ! soil carbon data structure
-      class(soilc_t), intent(in) :: soilC
+      import :: soil_BGC_t ! soil carbon data structure
+      class(soil_BGC_t), intent(in) :: soilC
       real,           intent(out):: values(:) ! (num_l)
    end subroutine
 
    subroutine add_soil_carbon(soilC, vegn, &
           leaf_litter_C, wood_litter_C, root_litter_C, &
           leaf_litter_N, wood_litter_N, root_litter_N  )
-      import :: soilc_t,vegn_tile_type
+      import :: soil_BGC_t,vegn_tile_type
 
-      class(soilc_t),       intent(inout) :: soilC
+      class(soil_BGC_t),       intent(inout) :: soilC
       type(vegn_tile_type), intent(inout) :: vegn
 
       real, intent(in), optional :: leaf_litter_C(:)   ! (N_C_TYPES)
@@ -98,8 +98,8 @@ abstract interface
    end subroutine
 
    subroutine add_root_litter(soilC, vegn, litterC, litterN)
-      import :: soilc_t,vegn_tile_type
-      class(soilc_t),       intent(inout)  :: soilC ! soil carbon data structure
+      import :: soil_BGC_t,vegn_tile_type
+      class(soil_BGC_t),       intent(inout)  :: soilC ! soil carbon data structure
       type(vegn_tile_type), intent(in)     :: vegn ! vegetation data structure, for rhizosphere caculations
       real, intent(in) :: litterC(:, :) ! (num_l, N_C_TYPES) kgC/m2 of soil layer
       real, intent(in) :: litterN(:, :) ! (num_l, N_C_TYPES) kgN/m2 of soil layer
@@ -107,8 +107,8 @@ abstract interface
 
    ! add root exudates to soil carbon
    subroutine add_root_exudates(soilC, exudateC, exudateN, ammonium, nitrate)
-      import :: soilc_t
-      class(soilc_t), intent(inout)  :: soilC ! soil carbon data structure
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(inout)  :: soilC ! soil carbon data structure
       real,intent(in)           :: exudateC(:) ! (num_l) amount of C in exudate, kgC/m2 per layer
       real,intent(in), optional :: exudateN(:) ! (num_l) amount of N in exudate, kgN/m2 per layer
       real,intent(in), optional :: ammonium(:) ! (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
@@ -116,8 +116,8 @@ abstract interface
    end subroutine
 
    subroutine burn_litter_frac(soilc, frac, burned_C, burned_N)
-      import :: soilc_t
-      class(soilc_t), intent(inout) :: soilc
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(inout) :: soilc
       real, intent(in)  :: frac(:) ! (N_LITTER_POOLS) fraction of litter to burn [0,1], per litter pool
       real, intent(out) :: burned_C, burned_N ! amounts of burned carbon and nitrogen
    end subroutine
@@ -127,9 +127,9 @@ abstract interface
          div_hlsp_DOC, div_hlsp_DON, div_hlsp_NO3, div_hlsp_NH4, &
          ! output
          total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div )
-      import :: soilc_t, diag_buff_type
+      import :: soil_BGC_t, diag_buff_type
       type(diag_buff_type), intent(inout) :: diag
-      class(soilc_t), intent(inout) :: soilC
+      class(soil_BGC_t), intent(inout) :: soilC
       real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
       real, intent(in) :: div_hlsp_DOC(:,:) ! (N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
       real, intent(in) :: div_hlsp_DON(:,:) ! (N_C_TYPES, num_l) [kg N/m^2/s] net divergence
@@ -138,14 +138,14 @@ abstract interface
    end subroutine tracer_leaching
 
    subroutine deposit_N(soilc, NH4, NO3, N_org)
-      import :: soilc_t
-      class(soilc_t), intent(inout) :: soilc
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(inout) :: soilc
       real, intent(in) :: NH4, NO3, N_org ! amounts of NH4, NO3, and organic nitrogen to deposit, kg N/m2
    end subroutine deposit_N
 
    subroutine active_root_N_uptake(soilc, vegn, N_uptake, dt, update_pools)
-      import :: soilc_t, vegn_tile_type
-      class(soilc_t), intent(inout) :: soilc
+      import :: soil_BGC_t, vegn_tile_type
+      class(soil_BGC_t), intent(inout) :: soilc
       type(vegn_tile_type), intent(in)    :: vegn
       real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
       real,    intent(in)  :: dt ! in years
@@ -153,8 +153,8 @@ abstract interface
    end subroutine active_root_N_uptake
 
    subroutine myc_scavenger_N_uptake(soilc, vegn, N_uptake_cohorts, myc_efficiency, dt, update_pools)
-      import :: soilc_t, vegn_tile_type
-      class(soilc_t),  intent(inout) :: soilc
+      import :: soil_BGC_t, vegn_tile_type
+      class(soil_BGC_t),  intent(inout) :: soilc
       type(vegn_tile_type), intent(in) :: vegn
       real,intent(out) :: N_uptake_cohorts(:) ! Units: kgN/m2 per individual
       real, intent(in) :: dt  ! dt in years
@@ -163,8 +163,8 @@ abstract interface
    end subroutine
 
    subroutine myc_miner_N_uptake(soilc,soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
-      import :: soilc_t, vegn_tile_type, soil_tile_type
-      class(soilc_t),       intent(inout) :: soilc
+      import :: soil_BGC_t, vegn_tile_type, soil_tile_type
+      class(soil_BGC_t),       intent(inout) :: soilc
       type(soil_tile_type), intent(in)    :: soil
       type(vegn_tile_type), intent(in)    :: vegn
       real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
@@ -175,14 +175,14 @@ abstract interface
    end subroutine
 
    subroutine update_soil_pools(soilc, vegn)
-      import :: soilc_t, vegn_tile_type
-      class(soilc_t),       intent(inout) :: soilc
+      import :: soil_BGC_t, vegn_tile_type
+      class(soil_BGC_t),       intent(inout) :: soilc
       type(vegn_tile_type), intent(inout) :: vegn
    end subroutine
 
    subroutine dsdt(soilc, soil, vegn, diag, soilt, theta)
-      import soilc_t, soil_tile_type, vegn_tile_type, diag_buff_type
-      class(soilc_t), intent(inout)       :: soilc
+      import soil_BGC_t, soil_tile_type, vegn_tile_type, diag_buff_type
+      class(soil_BGC_t), intent(inout)       :: soilc
       type(soil_tile_type), intent(inout) :: soil
       type(vegn_tile_type), intent(inout) :: vegn
       type(diag_buff_type), intent(inout) :: diag
@@ -191,14 +191,14 @@ abstract interface
    end subroutine
 
    subroutine step3(soilc, diag)
-      import soilc_t, diag_buff_type
-      class(soilc_t),       intent(inout) :: soilc
+      import soil_BGC_t, diag_buff_type
+      class(soil_BGC_t),       intent(inout) :: soilc
       type(diag_buff_type), intent(inout) :: diag
    end subroutine
 
    subroutine redistribute_peat_carbon(soilc)
-      import :: soilc_t, vegn_tile_type, soil_tile_type
-      class(soilc_t), intent(inout) :: soilc
+      import :: soil_BGC_t, vegn_tile_type, soil_tile_type
+      class(soil_BGC_t), intent(inout) :: soilc
    end subroutine
 
 end interface

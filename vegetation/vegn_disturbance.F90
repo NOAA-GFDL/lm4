@@ -27,7 +27,7 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_util_mod, only : kill_plants_ppa
@@ -72,7 +72,7 @@ end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
   type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
-  class(soilc_t),       intent(inout) :: soil ! soil carbon data
+  class(soil_BGC_t),    intent(inout) :: soil ! soil carbon data
   real, intent(in) :: dt ! time since last disturbance calculations, s
 
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
@@ -277,7 +277,7 @@ end subroutine update_fuel
 ! ============================================================================
 subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
-  class(soilc_t),       intent(inout) :: soil ! soil carbon data
+  class(soil_BGC_t),    intent(inout) :: soil ! soil carbon data
   real, intent(in) :: deltat ! time since last mortality calculations, s
 
   ! ---- local vars

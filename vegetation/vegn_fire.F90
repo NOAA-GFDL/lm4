@@ -39,7 +39,7 @@ use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use vegn_util_mod, only : kill_plants_ppa
 
 implicit none
@@ -1108,7 +1108,7 @@ subroutine update_fire_ntrl(vegn,soil,soilc,diag, &
                             latitude)
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(in) :: soil
-    class(soilc_t),       intent(in) :: soilc
+    class(soil_BGC_t),    intent(in) :: soilc
     type(diag_buff_type), intent(inout) :: diag
     real, intent(in) :: q
     real, intent(in) :: Tca   ! Kelvin
@@ -2128,7 +2128,7 @@ end subroutine vegn_fire_ROS
 !!! dsward_crownfires
 subroutine vegn_fire_intensity(vegn,soilc,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
     type(vegn_tile_type), intent(inout) :: vegn
-    class(soilc_t),       intent(in)    :: soilc
+    class(soil_BGC_t),    intent(in)    :: soilc
     real, intent(in)    :: theta,theta_extinction
     real, intent(in)    :: ROS_surface
 
@@ -2576,7 +2576,7 @@ end subroutine vegn_burn_ppa
 ! =======================================================================================
 subroutine vegn_burn_lm3(vegn,soilc,tile_area_m2)
   type(vegn_tile_type), intent(inout) :: vegn
-  class(soilc_t),       intent(inout) :: soilc
+  class(soil_BGC_t),    intent(inout) :: soilc
   real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
 
   integer :: i, l
@@ -3378,7 +3378,7 @@ end subroutine calc_fire_derivs
 
 subroutine update_fire_agb(vegn,soilc)
    type(vegn_tile_type), intent(inout) :: vegn
-   class(soilc_t),       intent(in)    :: soilc
+   class(soil_BGC_t),    intent(in)    :: soilc
 
    real    :: litt_C(N_LITTER_POOLS)
    integer :: i

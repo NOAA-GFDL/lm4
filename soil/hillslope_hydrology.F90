@@ -23,7 +23,7 @@ use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
 use land_tile_diag_mod, only : diag_buff_type, register_tiled_diag_field, &
      send_tile_data, set_default_diag_filter
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 
 
 implicit none
@@ -194,7 +194,7 @@ subroutine hlsp_hydrology_1(num_species)
    type(land_tile_type), pointer :: tile, tile2 ! pointers to tile list elements
    type(land_tile_enum_type)     :: ce, ce2     ! current tile list elements
    type(soil_tile_type), pointer :: soil, soil2 ! pointers to soil tiles
-   class(soilc_t),       pointer :: soilc, soilc2 ! pointers to soil carbon structure
+   class(soil_BGC_t),    pointer :: soilc, soilc2 ! pointers to soil carbon structure
 
    ! Tile fractional area sums, needed for normalizing flux into tile.
    real    ::     area_above  ! running sum of contributing tile area (fraction)

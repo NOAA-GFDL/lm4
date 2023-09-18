@@ -14,7 +14,7 @@ use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
-use soilc_type_mod, only : soilc_t, deplete_pool
+use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
 use soilc_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
@@ -39,7 +39,7 @@ character(len=*), parameter :: module_name = 'soilc_CENT_type_mod'
 
 ! ----  types
 !> @brief soil carbon data container for simplified CENTURY-like soil carbon model
-type, extends(soilc_t) :: soilc_CENT_t
+type, extends(soil_BGC_t) :: soilc_CENT_t
   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C !< surface litter (kgC/m2)
   real, allocatable :: &
       fast_soil_C(:), & !< fast soil carbon pool, (kg C/m2), per layer
@@ -247,7 +247,7 @@ end function
 !> @brief merge s1 into current soil carbon type s2, with given weights
 subroutine merge_CENT(s2,w2,s1,w1)
   class(soilc_CENT_t), intent(inout) :: s2    !< current soil carbon state
-  class(soilc_t)     , intent(in)    :: s1    !< soil carbon state to be merged into current
+  class(soil_BGC_t)  , intent(in)    :: s1    !< soil carbon state to be merged into current
   real               , intent(in)    :: w2,w1 !< merging weights
 
   real    :: x1, x2 ! normalized relative weights

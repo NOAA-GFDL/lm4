@@ -32,7 +32,7 @@ use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
      snow_tile_stock_pe, snow_tile_heat, snow_active
-use soilc_type_mod, only : soilc_t
+use soil_BGC_type_mod, only : soil_BGC_t
 use soilc_mod, only : new_soilc, delete_soilc
 
 use land_tile_selectors_mod, only : tile_selector_type, &
@@ -143,7 +143,7 @@ type :: land_tile_type
    type(snow_tile_type), pointer :: snow  => NULL() ! snow data
    type(cana_tile_type), pointer :: cana  => NULL() ! canopy air data
    type(vegn_tile_type), pointer :: vegn  => NULL() ! vegetation model data
-   class(soilc_t),       pointer :: soilc => NULL() ! soil carbon data
+   class(soil_BGC_t),    pointer :: soilc => NULL() ! soil carbon data
 
    type(diag_buff_type) :: diag ! diagnostic data storage
 
