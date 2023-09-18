@@ -1,4 +1,4 @@
-module soilc_CENT_mod
+module soil_BGC_SIMPLE_mod
 
 use fms_mod, only: error_mesg, NOTE
 
@@ -8,19 +8,19 @@ use land_tile_mod, only : land_tile_type
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, add_restart_axis
-use soilc_CENT_type_mod, only : soilc_CENT_t, soilc_diag_init_CENT
+use soil_BGC_simple_type_mod, only : soil_BGC_SIMPLE_t, soil_BGC_diag_init_SIMPLE
 use soil_tile_mod, only: num_l, zfull
 use soilc_mod, only : save_soilc_equilibration_data
 
 implicit none; private
 
-public :: save_soilc_CENT_restart
-public :: soilc_init_CENT
+public :: soil_BGC_save_restart_SIMPLE
+public :: soil_BGC_init_SIMPLE
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine save_soilc_CENT_restart(tile_dim_length, timestamp)
+subroutine soil_BGC_save_restart_SIMPLE(tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
@@ -58,7 +58,7 @@ subroutine save_soilc_CENT_restart(tile_dim_length, timestamp)
 end subroutine
 
 ! ============================================================================
-subroutine soilc_init_CENT( id_ug, id_zfull )
+subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
   integer,intent(in)  :: id_ug    !< Unstructured axis id
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
@@ -68,7 +68,7 @@ subroutine soilc_init_CENT( id_ug, id_zfull )
   integer :: i,k
 
   ! initialize diagnostics
-  call soilc_diag_init_CENT( id_ug, id_zfull )
+  call soil_BGC_diag_init_SIMPLE( id_ug, id_zfull )
 
   call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
@@ -114,7 +114,7 @@ subroutine soil_fast_soil_C_ptr(t,i,p)
   if(.not.associated(t))       return
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
-  class is (soilc_CENT_t)
+  class is (soil_BGC_SIMPLE_t)
     p=>s%fast_soil_C(i)
   end select
 end subroutine
@@ -127,7 +127,7 @@ subroutine soil_slow_soil_C_ptr(t,i,p)
   if(.not.associated(t))       return
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
-  class is (soilc_CENT_t)
+  class is (soil_BGC_SIMPLE_t)
     p=>s%slow_soil_C(i)
   end select
 end subroutine
@@ -140,7 +140,7 @@ subroutine litter_century_C_ptr(t,i,k,p)
   if(.not.associated(t))       return
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
-  class is (soilc_CENT_t)
+  class is (soil_BGC_SIMPLE_t)
       p=>s%litter_century_C(i,k)
   end select
 end subroutine
@@ -153,7 +153,7 @@ subroutine soil_asoil_in_ptr(t,i,p)
   if(.not.associated(t))       return
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
-  class is (soilc_CENT_t)
+  class is (soil_BGC_SIMPLE_t)
       p=>s%asoil_in(i)
   end select
 end subroutine
@@ -166,7 +166,7 @@ subroutine soil_fsc_in_ptr(t,i,p)
   if(.not.associated(t))       return
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
-  class is (soilc_CENT_t)
+  class is (soil_BGC_SIMPLE_t)
       p=>s%fsc_in(i)
   end select
 end subroutine
@@ -179,7 +179,7 @@ subroutine soil_ssc_in_ptr(t,i,p)
   if(.not.associated(t))       return
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
-  class is (soilc_CENT_t)
+  class is (soil_BGC_SIMPLE_t)
       p=>s%ssc_in(i)
   end select
 end subroutine

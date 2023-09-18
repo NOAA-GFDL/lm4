@@ -27,7 +27,7 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_type
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
-use soilc_CENT_type_mod, only: soilc_CENT_t
+use soil_BGC_SIMPLE_type_mod, only: soil_BGC_SIMPLE_t
 use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
@@ -424,7 +424,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
 
      ! update intermediate soil carbon pools
      select type(soilc=>tile%soilc)
-     class is (soilc_CENT_t)
+     class is (soil_BGC_SIMPLE_t)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + grazing_residue*( &
              sp%fsc_liv*(balive0-balive1)+sp%fsc_wood*(bdead0-bdead1))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*( &
@@ -533,7 +533,7 @@ subroutine vegn_harvest_crop_lm3(tile)
      vegn%harv_pool_C(HARV_POOL_CROP) = vegn%harv_pool_C(HARV_POOL_CROP) + &
           cc%bliving*(cc%Pl + cc%Psw*agf_bs)*fraction_harvested
      select type(soilc => tile%soilc)
-     class is (soilc_CENT_t)
+     class is (soil_BGC_SIMPLE_t)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + fraction_harvested*(sp%fsc_liv*cc%bliving*cc%Pr + &
              sp%fsc_wood*(cc%bwood + cc%bliving*cc%Psw*(1-agf_bs)))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + fraction_harvested*((1-sp%fsc_liv)*cc%bliving*cc%Pr + &
@@ -677,7 +677,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
           FATAL)
 
      select type (soilc => tile%soilc)
-     class is (soilc_CENT_t)
+     class is (soil_BGC_SIMPLE_t)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_wood)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_wood
 
@@ -819,7 +819,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      ! move local pools to litter right away; in case of grazing_daily_litter_bug buffC
      ! and buffN are zero, so nothing happens
      select type (soilc => tile%soilc)
-     class is (soilc_CENT_t)
+     class is (soil_BGC_SIMPLE_t)
         soilc%litter_century_C(:,LITT_LEAF) = soilc%litter_century_C(:,LITT_LEAF) + buffC(:)
      class is (soilc_CORPSE_t)
         call add_litter(soilc%litter_corpse(LITT_LEAF),buffC,buffN)

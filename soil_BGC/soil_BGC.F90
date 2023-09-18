@@ -7,7 +7,7 @@ use land_debug_mod, only: land_error_message
 
 use soil_tile_mod, only: soil_tile_type
 use soil_BGC_type_mod, only: soil_BGC_t
-use soilc_CENT_type_mod, only: soilc_CENT_t, new_soilc_CENT, read_soilc_CENT_namelist
+use soil_BGC_SIMPLE_type_mod, only: soil_BGC_SIMPLE_t, new_soilc_SIMPLE, read_soil_BGC_SIMPLE_namelist
 use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CORPSE_namelist
 
 implicit none; private
@@ -30,7 +30,7 @@ interface new_soilc
 end interface
 
 !---- namelist ---------------------------------------------------------------
-character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by-layer', or 'CORPSE', or 'CORPSE-N'
+character(32) :: soil_carbon_model_to_use = 'SIMPLE' ! or 'CORPSE'
 logical, protected :: save_soilc_equilibration_data = .FALSE. ! indicates whether to write
                         ! information for soil carbon acceleration
 namelist /soil_carbon_nml/ soil_carbon_model_to_use, save_soilc_equilibration_data
@@ -38,7 +38,7 @@ namelist /soil_carbon_nml/ soil_carbon_model_to_use, save_soilc_equilibration_da
 ! soil carbon options
 integer, protected :: soil_carbon_option
 integer, public, parameter :: &
-    SOILC_CENTURY          = 1, & ! CENTURY-like decomposition
+    SOILC_CENTURY          = 1, & ! SIMPLE decomposition
     SOILC_CORPSE           = 3    ! CORPSE model
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -60,7 +60,7 @@ subroutine read_soil_carbon_namelist()
 
   ! parse soil carbon option
   select case (soil_carbon_model_to_use)
-  case('CENTURY-like')
+  case('SIMPLE')
     soil_carbon_option = SOILC_CENTURY
   case('CORPSE')
     soil_carbon_option = SOILC_CORPSE
@@ -71,7 +71,7 @@ subroutine read_soil_carbon_namelist()
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
-    call read_soilc_CENT_namelist()
+    call read_soil_BGC_SIMPLE_namelist()
   case (SOILC_CORPSE)
     call read_soilc_CORPSE_namelist()
   end select
@@ -85,7 +85,7 @@ function soilc_ctor(soil) result(ptr)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
-    ptr => new_soilc_CENT(soil)
+    ptr => new_soilc_SIMPLE(soil)
   case (SOILC_CORPSE)
     ptr => new_soilc_CORPSE(soil)
   case default
@@ -102,8 +102,8 @@ function soilc_copy(soilc) result(ptr)
   allocate(ptr, source=soilc)
   ! copy all non-pointer members
   select type(soilc)
-  type is (soilc_CENT_t)
-     ptr => new_soilc_CENT(soilc)
+  type is (soil_BGC_SIMPLE_t)
+     ptr => new_soilc_SIMPLE(soilc)
   type is (soilc_CORPSE_t)
      ptr => new_soilc_CORPSE(soilc)
   class default

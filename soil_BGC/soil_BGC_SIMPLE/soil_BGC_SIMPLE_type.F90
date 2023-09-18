@@ -1,4 +1,4 @@
-module soilc_CENT_type_mod
+module soil_BGC_SIMPLE_type_mod
 
 use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
         stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
@@ -23,23 +23,23 @@ use vegn_tile_mod, only: vegn_tile_type
 implicit none; private
 
 ! ---- public items
-public :: soilc_CENT_t
-public :: new_soilc_CENT
-public :: read_soilc_CENT_namelist, soilc_diag_init_CENT
+public :: soil_BGC_SIMPLE_t
+public :: new_soilc_SIMPLE
+public :: read_soil_BGC_SIMPLE_namelist, soil_BGC_diag_init_SIMPLE
 
 ! ---- interfces
-interface new_soilc_CENT
-   module procedure soilc_CENT_ctor
-   module procedure soilc_CENT_copy
+interface new_soilc_SIMPLE
+   module procedure soilc_SIMPLE_ctor
+   module procedure soilc_SIMPLE_copy
 end interface
 
 ! ---- constants
-character(len=*), parameter :: module_name = 'soilc_CENT_type_mod'
+character(len=*), parameter :: module_name = 'soil_BCG_SIMPLE_type_mod'
 #include "../../shared/version_variable.inc"
 
 ! ----  types
-!> @brief soil carbon data container for simplified CENTURY-like soil carbon model
-type, extends(soil_BGC_t) :: soilc_CENT_t
+!> @brief soil carbon data container for simple soil carbon model
+type, extends(soil_BGC_t) :: soil_BGC_SIMPLE_t
   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C !< surface litter (kgC/m2)
   real, allocatable :: &
       fast_soil_C(:), & !< fast soil carbon pool, (kg C/m2), per layer
@@ -49,33 +49,33 @@ type, extends(soil_BGC_t) :: soilc_CENT_t
       fsc_in(:),      & !< input of fast soil C
       ssc_in(:)         !< input of slow soil C
 contains
-  procedure :: merge   => merge_CENT   ! merge this soil carbon with another
-  procedure :: total_C => total_C_CENT ! returns total C [kgC/m2]
-  procedure :: total_N => total_N_CENT ! returns total N [kgN/m2]
-  procedure :: rav_C   => rav_C_CENT   ! returns amounts of fast, slow, and (dead) microbial C [kgC/m2]
+  procedure :: merge   => merge_SIMPLE   ! merge this soil carbon with another
+  procedure :: total_C => total_C_SIMPLE ! returns total C [kgC/m2]
+  procedure :: total_N => total_N_SIMPLE ! returns total N [kgN/m2]
+  procedure :: rav_C   => rav_C_SIMPLE   ! returns amounts of fast, slow, and (dead) microbial C [kgC/m2]
                                        ! for litter evaporation resistance calculations
   procedure :: get_DOC => get_zero_2D
   procedure :: get_DON => get_zero_2D
   procedure :: get_nit => get_zero_1D
   procedure :: get_amm => get_zero_1D
-  procedure :: get_littC => get_littC_CENT
+  procedure :: get_littC => get_littC_SIMPLE
 
-  procedure :: add_soil_carbon   => add_soil_carbon_CENT
-  procedure :: add_root_litter   => add_root_litter_CENT
-  procedure :: add_root_exudates => add_root_exudates_CENT
-  procedure :: burn_litter_frac  => burn_litter_frac_CENT
-  procedure :: tracer_leaching   => tracer_leaching_CENT
+  procedure :: add_soil_carbon   => add_soil_carbon_SIMPLE
+  procedure :: add_root_litter   => add_root_litter_SIMPLE
+  procedure :: add_root_exudates => add_root_exudates_SIMPLE
+  procedure :: burn_litter_frac  => burn_litter_frac_SIMPLE
+  procedure :: tracer_leaching   => tracer_leaching_SIMPLE
 
-  procedure :: deposit_N              => deposit_N_CENT
-  procedure :: active_root_N_uptake   => active_root_N_uptake_CENT
-  procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake_CENT
-  procedure :: myc_miner_N_uptake     => myc_miner_N_uptake_CENT
+  procedure :: deposit_N              => deposit_N_SIMPLE
+  procedure :: active_root_N_uptake   => active_root_N_uptake_SIMPLE
+  procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake_SIMPLE
+  procedure :: myc_miner_N_uptake     => myc_miner_N_uptake_SIMPLE
 
-  procedure :: update_soil_pools => update_soil_pools_CENT
-  procedure :: dsdt              => dsdt_CENT
-  procedure :: step3             => step3_CENT
-  procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CENT
-end type soilc_CENT_t
+  procedure :: update_soil_pools => update_soil_pools_SIMPLE
+  procedure :: dsdt              => dsdt_SIMPLE
+  procedure :: step3             => step3_SIMPLE
+  procedure :: redistribute_peat_carbon => redistribute_peat_carbon_SIMPLE
+end type soil_BGC_SIMPLE_t
 
 ! ---- module data
 
@@ -83,10 +83,10 @@ end type soilc_CENT_t
 logical :: bulk = .TRUE. !< if True, bulk soil treatment carbon is used, otherwise
                          !! it is treated separately for each layer
 real, protected :: K1 = 10.0, K2 = 0.05 !< soil carbon decomposition parameters
-real, protected :: tau_lflitt_transfer = 0.0 !< e-folding time scale of leaf litter transfer to soil pools in CENTURY mode, yr; 0 means instant transfer
-real, protected :: tau_cwlitt_transfer = 0.0 !< e-folding time scale of coarse wood litter transfer to soil pools in CENTURY mode, yr; 0 means instant transfer
+real, protected :: tau_lflitt_transfer = 0.0 !< e-folding time scale of leaf litter transfer to soil pools in SIMPLE mode, yr; 0 means instant transfer
+real, protected :: tau_cwlitt_transfer = 0.0 !< e-folding time scale of coarse wood litter transfer to soil pools in SIMPLE mode, yr; 0 means instant transfer
 
-namelist /soil_carbon_CENT_nml/ bulk, K1, K2, tau_lflitt_transfer, tau_cwlitt_transfer
+namelist /soil_carbon_SIMPLE_nml/ bulk, K1, K2, tau_lflitt_transfer, tau_cwlitt_transfer
 
 real :: delta_time ! fast (physical) time step, s
 real :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
@@ -105,18 +105,18 @@ integer :: id_csoil, id_nSoil, id_rh, &
 contains
 
 !> read namelist
-subroutine read_soilc_CENT_namelist()
+subroutine read_soil_BGC_SIMPLE_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=soil_carbon_CENT_nml, iostat=io)
-  ierr = check_nml_error(io, 'soil_carbon_CENT_nml')
+  read (input_nml_file, nml=soil_carbon_SIMPLE_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_carbon_SIMPLE_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
-     write(unit, nml=soil_carbon_CENT_nml)
+     write(unit, nml=soil_carbon_SIMPLE_nml)
   endif
 
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -124,7 +124,7 @@ subroutine read_soilc_CENT_namelist()
 end subroutine
 
 !> @brief Register diagnostic fields
-subroutine soilc_diag_init_CENT(id_ug, id_zfull)
+subroutine soil_BGC_diag_init_SIMPLE(id_ug, id_zfull)
   integer,intent(in)  :: id_ug    !< Unstructured axis id
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
@@ -214,8 +214,8 @@ end subroutine
 ! constructors
 !> @brief Create new (empty) soil carbon representation
 !! @return Pointer to new soil carbon data structure
-function soilc_CENT_ctor(soil) result(ptr)
-  class(soilc_CENT_t), pointer :: ptr
+function soilc_SIMPLE_ctor(soil) result(ptr)
+  class(soil_BGC_SIMPLE_t), pointer :: ptr
   type(soil_tile_type), intent(in) :: soil !< soil tile data
 
   allocate(ptr)
@@ -236,17 +236,17 @@ end function
 
 !> @brief Create a copy of existing soil carbon representation
 !! @return Pointer to new soil carbon data structure
-function soilc_CENT_copy(soilc) result(ptr)
-  type(soilc_CENT_t), pointer :: ptr
-  type(soilc_CENT_t), intent(in) :: soilc !< soil carbon data to copy
+function soilc_SIMPLE_copy(soilc) result(ptr)
+  type(soil_BGC_SIMPLE_t), pointer :: ptr
+  type(soil_BGC_SIMPLE_t), intent(in) :: soilc !< soil carbon data to copy
 
   allocate(ptr)
   ptr = soilc
 end function
 
 !> @brief merge s1 into current soil carbon type s2, with given weights
-subroutine merge_CENT(s2,w2,s1,w1)
-  class(soilc_CENT_t), intent(inout) :: s2    !< current soil carbon state
+subroutine merge_SIMPLE(s2,w2,s1,w1)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: s2    !< current soil carbon state
   class(soil_BGC_t)  , intent(in)    :: s1    !< soil carbon state to be merged into current
   real               , intent(in)    :: w2,w1 !< merging weights
 
@@ -257,7 +257,7 @@ subroutine merge_CENT(s2,w2,s1,w1)
   x2 = 1.0 - x1
 
   select type(s1)
-  type is (soilc_CENT_t)
+  type is (soil_BGC_SIMPLE_t)
      ! merge soil carbon
      s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
      s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
@@ -267,30 +267,30 @@ subroutine merge_CENT(s2,w2,s1,w1)
      s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
      s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
   class default
-     call land_error_message('merge_CENT: attempt to merge incompatible soil carbon types', FATAL)
+     call land_error_message('merge_SIMPLE: attempt to merge incompatible soil carbon types', FATAL)
   end select
 end subroutine
 
 
 !> @brief Given soil carbon state, return total soil C
 !! @return total soil carbon, kgC/m2
-real function total_C_CENT(soilc) result(tot_C)
-  class(soilc_CENT_t), intent(in)  :: soilc !< soil carbon data structure
+real function total_C_SIMPLE(soilc) result(tot_C)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure
   tot_C = sum(soilc%fast_soil_C(:))+sum(soilc%slow_soil_C(:)) &
         + sum(soilc%litter_century_C(:,:))
 end function
 
 !> @brief Given soil carbon state, return total soil nitrogen
 !! @return total soil nitrogen, kgN/m2
-real function total_N_CENT(soilc) result(tot_N)
-  class(soilc_CENT_t), intent(in)  :: soilc ! soil carbon data structure
+real function total_N_SIMPLE(soilc) result(tot_N)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc ! soil carbon data structure
   tot_N = 0.0
 end function
 
 !> @brief Given soil carbon state, return carbon amount of litter relevant for surface
 !! resistance calculations in legacy treatment of soil surface resistance
-subroutine rav_C_CENT(soilc,fast_C,slow_C,dmic_C)
-  class(soilc_CENT_t), intent(in)  :: soilc !< soil carbon data structure
+subroutine rav_C_SIMPLE(soilc,fast_C,slow_C,dmic_C)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure
   real, intent(out) :: &
      fast_C,    & !< fast litter carbon, [kgC/m2]
      slow_C,    & !< slow litter carbon, [kgC/m2]
@@ -304,8 +304,8 @@ subroutine rav_C_CENT(soilc,fast_C,slow_C,dmic_C)
 end subroutine
 
 !> @brief Given soil carbon state, returns total litter C per litter pool
-subroutine get_littC_CENT(soilc, values)
-  class(soilc_CENT_t), intent(in)  :: soilc     !< soil carbon data structure
+subroutine get_littC_SIMPLE(soilc, values)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc     !< soil carbon data structure
   real,                intent(out) :: values(:) !< total C in litter, by litter pool, kgC/m2
 
   integer :: i
@@ -320,7 +320,7 @@ end subroutine
 !! This subroutine is used to retrieve substances and values that are not present in
 !! soil carbon models, e.g. DOC when the dissolved carbon is not implemented
 subroutine get_zero_2D(soilC, values)
-  class(soilc_CENT_t), intent(in)  :: soilc ! soil carbon data structure
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc ! soil carbon data structure
   real,                intent(out) :: values(:,:) ! (N_C_TYPES, num_l) ! [kg C/m^2] dissolved organic carbon
 
   values(:,:) = 0.0
@@ -331,15 +331,15 @@ end subroutine
 !! soil carbon models, e.g. nitrate or ammonium when the nitrogen dynamics is not
 !! implemented
 subroutine get_zero_1D(soilC, values)
-  class(soilc_CENT_t), intent(in)  :: soilc !< soil carbon data structure (unused)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure (unused)
   real,                intent(out) :: values(:) !< returned values
   values(:) = 0.0
 end subroutine
 
-subroutine add_soil_carbon_CENT(soilc, vegn, &
+subroutine add_soil_carbon_SIMPLE(soilc, vegn, &
         leaf_litter_C, wood_litter_C, root_litter_C, &
         leaf_litter_N, wood_litter_N, root_litter_N  )
-  class(soilc_CENT_t),   intent(inout) :: soilc
+  class(soil_BGC_SIMPLE_t),   intent(inout) :: soilc
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in), optional :: leaf_litter_C(:)   ! (N_C_TYPES)
   real, intent(in), optional :: wood_litter_C(:)   ! (N_C_TYPES)
@@ -423,22 +423,22 @@ subroutine add_soil_carbon_CENT(soilc, vegn, &
   vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
   vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
 
-end subroutine add_soil_carbon_CENT
+end subroutine add_soil_carbon_SIMPLE
 
 !> @brief Add new root litter to soil carbon and nitrogen
-!! For CENTURY-like soil carbon model model, it prints error message and stops with FATAL error
-subroutine add_root_litter_CENT(soilC, vegn, litterC, litterN)
-  class(soilc_CENT_t)  , intent(inout) :: soilC !< soil carbon state
+!! For SIMPLE soil carbon model model, it prints error message and stops with FATAL error
+subroutine add_root_litter_SIMPLE(soilC, vegn, litterC, litterN)
+  class(soil_BGC_SIMPLE_t)  , intent(inout) :: soilC !< soil carbon state
   type(vegn_tile_type) , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
   real                 , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
   real                 , intent(in)    :: litterN(:,:) !< new litter nitrogen content kgN/m2 of soil layer
 
-  call land_error_message('add_root_litter_CENT called -- this should never happen', FATAL)
+  call land_error_message('add_root_litter_SIMPLE called -- this should never happen', FATAL)
 end subroutine
 
 !> @brief Add root exudates to vertical profile
-subroutine add_root_exudates_CENT(soilc, exudateC, exudateN, ammonium, nitrate)
-  class(soilc_CENT_t), intent(inout) :: soilc !< soil carbon data
+subroutine add_root_exudates_SIMPLE(soilc, exudateC, exudateN, ammonium, nitrate)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc !< soil carbon data
   real, intent(in)           :: exudateC(:) !< (num_l) amount of C in exudate, kgC/m2 per layer
   real, intent(in), optional :: exudateN(:) !< (num_l) amount of N in exudate, kgN/m2 per layer
   real, intent(in), optional :: ammonium(:) !< (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
@@ -462,8 +462,8 @@ subroutine add_root_exudates_CENT(soilc, exudateC, exudateN, ammonium, nitrate)
 end subroutine
 
 !> @brief Burn given fraction of litter and return amounts of burned C and N
-subroutine burn_litter_frac_CENT(soilc, frac, burned_C, burned_N)
-  class(soilc_CENT_t), intent(inout) :: soilc !< soil carbon data structure
+subroutine burn_litter_frac_SIMPLE(soilc, frac, burned_C, burned_N)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc !< soil carbon data structure
   real, intent(in)  :: frac(:)            !< fraction of litter to burn [0,1]
   real, intent(out) :: burned_C, burned_N !< amounts of burned carbon and nitrogen
 
@@ -476,12 +476,12 @@ subroutine burn_litter_frac_CENT(soilc, frac, burned_C, burned_N)
   enddo
 end subroutine
 
-subroutine tracer_leaching_CENT(soilC, diag, &
+subroutine tracer_leaching_SIMPLE(soilC, diag, &
      wl, flow, div, &
      div_hlsp_DOC, div_hlsp_DON, div_hlsp_NO3, div_hlsp_NH4, &
      ! output
      total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div )
-  class(soilc_CENT_t),  intent(inout) :: soilC
+  class(soil_BGC_SIMPLE_t),  intent(inout) :: soilC
   type(diag_buff_type), intent(inout) :: diag
 
   real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
@@ -496,16 +496,16 @@ end subroutine
 
 ! ============================================================================
 ! Deposition of nitrogen
-subroutine deposit_N_CENT(soilc, NH4, NO3, N_org)
-  class(soilc_CENT_t), intent(inout) :: soilc
+subroutine deposit_N_SIMPLE(soilc, NH4, NO3, N_org)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc
   real, intent(in) :: NH4, NO3, N_org ! amounts of NH4, NO3, and organic nitrogen to deposit, kg N/m2
   ! do nothing now: nitrogen deposition is ignored
 end subroutine
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
-subroutine active_root_N_uptake_CENT(soilc, vegn, N_uptake, dt, update_pools)
-  class(soilc_CENT_t), intent(inout) :: soilc
+subroutine active_root_N_uptake_SIMPLE(soilc, vegn, N_uptake, dt, update_pools)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc
   type(vegn_tile_type), intent(in)    :: vegn
   real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
   real,    intent(in)  :: dt ! in years
@@ -516,8 +516,8 @@ end subroutine
 
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
-subroutine myc_scavenger_N_uptake_CENT(soilc,vegn,N_uptake_cohorts,myc_efficiency,dt,update_pools)
-  class(soilc_CENT_t),  intent(inout) :: soilc
+subroutine myc_scavenger_N_uptake_SIMPLE(soilc,vegn,N_uptake_cohorts,myc_efficiency,dt,update_pools)
+  class(soil_BGC_SIMPLE_t),  intent(inout) :: soilc
   type(vegn_tile_type), intent(in) :: vegn
   real,intent(out) :: N_uptake_cohorts(:) ! Units: kgN/m2 per individual
   real, intent(in) :: dt  ! dt in years
@@ -530,8 +530,8 @@ end subroutine
 
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
-subroutine myc_miner_N_uptake_CENT(soilc,soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
-  class(soilc_CENT_t), intent(inout) :: soilc
+subroutine myc_miner_N_uptake_SIMPLE(soilc,soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc
   type(soil_tile_type), intent(in) :: soil
   type(vegn_tile_type), intent(in) :: vegn
   real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
@@ -541,8 +541,8 @@ subroutine myc_miner_N_uptake_CENT(soilc,soil,vegn,N_uptake_cohorts,C_uptake_coh
   real,    intent(out) :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 end subroutine
 
-subroutine update_soil_pools_CENT(soilc, vegn)
-  class(soilc_CENT_t), intent(inout) :: soilc
+subroutine update_soil_pools_SIMPLE(soilc, vegn)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc
   type(vegn_tile_type) , intent(inout) :: vegn
 
   integer :: i,k
@@ -590,8 +590,8 @@ subroutine deplete_pool1(pool, tau, dest, accum)
    call deplete_pool(pool, rate, dest, accum)
 end subroutine deplete_pool1
 
-subroutine dsdt_CENT(soilc, soil, vegn, diag, soilt, theta)
-  class(soilc_CENT_t)  , intent(inout) :: soilc
+subroutine dsdt_SIMPLE(soilc, soil, vegn, diag, soilt, theta)
+  class(soil_BGC_SIMPLE_t)  , intent(inout) :: soilc
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
@@ -633,11 +633,11 @@ subroutine dsdt_CENT(soilc, soil, vegn, diag, soilt, theta)
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
-end subroutine dsdt_CENT
+end subroutine dsdt_SIMPLE
 
 ! ============================================================================
-subroutine step3_CENT(soilc, diag)
-  class(soilc_CENT_t),   intent(inout) :: soilc
+subroutine step3_SIMPLE(soilc, diag)
+  class(soil_BGC_SIMPLE_t),   intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
 
   integer :: i, k
@@ -719,10 +719,10 @@ elemental function A_function(soilt, theta) result(A)
 end function A_function
 
 ! ============================================================================
-subroutine redistribute_peat_carbon_CENT(soilc)
-  class(soilc_CENT_t), intent(inout) :: soilc
+subroutine redistribute_peat_carbon_SIMPLE(soilc)
+  class(soil_BGC_SIMPLE_t), intent(inout) :: soilc
 
-  call error_mesg('redistribute_peat_carbon_CENT','not implemented; should it be?', FATAL)
+  call error_mesg('redistribute_peat_carbon_SIMPLE','not implemented; should it be?', FATAL)
 end subroutine
 
 

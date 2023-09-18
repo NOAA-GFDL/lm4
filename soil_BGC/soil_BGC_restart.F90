@@ -1,7 +1,7 @@
 module soilc_restart_mod
 
 use soilc_mod,        only : soil_carbon_option, SOILC_CENTURY, SOILC_CORPSE
-use soilc_CENT_mod,   only : soilc_init_CENT, save_soilc_CENT_restart
+use soil_BGC_SIMPLE_mod, only : soil_BGC_init_SIMPLE, soil_BGC_save_restart_SIMPLE
 use soilc_CORPSE_mod, only : soilc_init_CORPSE, save_soilc_CORPSE_restart
 
 implicit none; private
@@ -19,7 +19,7 @@ subroutine soilc_init( id_ug, id_zfull )
 
   select case (soil_carbon_option)
   case(SOILC_CENTURY)
-    call soilc_init_CENT( id_ug, id_zfull )
+    call soil_BGC_init_SIMPLE( id_ug, id_zfull )
   case(SOILC_CORPSE)
     call soilc_init_CORPSE( id_ug, id_zfull )
   end select
@@ -32,7 +32,7 @@ subroutine save_soilc_restart(tile_dim_length, timestamp)
 
   select case (soil_carbon_option)
   case(SOILC_CENTURY)
-    call save_soilc_CENT_restart(tile_dim_length, timestamp)
+    call soil_BGC_save_restart_SIMPLE(tile_dim_length, timestamp)
   case(SOILC_CORPSE)
     call save_soilc_CORPSE_restart(tile_dim_length, timestamp)
   end select

@@ -41,7 +41,6 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, update_speci
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_BGC_type_mod, only : soil_BGC_t
-use soilc_CENT_type_mod, only : soilc_CENT_t
 
 implicit none
 private

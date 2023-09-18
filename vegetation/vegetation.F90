@@ -78,7 +78,7 @@ use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_BGC_type_mod, only : soil_BGC_t
-use soilc_CENT_type_mod, only : soilc_CENT_t
+use soil_BGC_SIMPLE_type_mod, only : soil_BGC_SIMPLE_t
 use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
@@ -2882,7 +2882,7 @@ subroutine update_vegn_slow( )
 
      ! carbon budget tracking
      select type (sc=>tile%soilc)
-     class is (soilc_CENT_t)
+     class is (soil_BGC_SIMPLE_t)
         call send_tile_data(id_fsc_in,  sum(sc%fsc_in(:)),  tile%diag)
         call send_tile_data(id_ssc_in,  sum(sc%ssc_in(:)),  tile%diag)
      end select
