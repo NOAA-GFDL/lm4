@@ -72,7 +72,7 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
 
   call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
-     call error_mesg('read_soilc_CENT_restart', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+     call error_mesg('soil_BGC_init_SIMPLE', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
      call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
      call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
      ! name is deliberately different from similar CORPSE fields so that we can start
@@ -83,12 +83,12 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
         enddo
      enddo
   else
-     call error_mesg('read_soilc_CENT_restart', 'cold-starting soilc_CENT', NOTE)
+     call error_mesg('soil_BGC_init_SIMPLE', 'cold-starting soilc_CENT', NOTE)
   endif
 
   call open_land_restart(restart,'INPUT/soilc_CENT_eq.res.nc',restart_exists)
   if (restart_exists) then
-     call error_mesg('soil_init', 'reading NetCDF restart "soilc_CENT_eq.nc"', NOTE)
+     call error_mesg('soil_BGC_init_SIMPLE', 'reading NetCDF restart "soilc_CENT_eq.nc"', NOTE)
      call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
      call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
      call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
