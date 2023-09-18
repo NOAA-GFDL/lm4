@@ -38,8 +38,8 @@ namelist /soil_carbon_nml/ soil_carbon_model_to_use, save_soilc_equilibration_da
 ! soil carbon options
 integer, protected :: soil_carbon_option
 integer, public, parameter :: &
-    SOILC_CENTURY          = 1, & ! SIMPLE decomposition
-    SOILC_CORPSE           = 3    ! CORPSE model
+    SOIL_BGC_SIMPLE        = 1, & ! SIMPLE decomposition
+    SOIL_BGC_CORPSE        = 2    ! CORPSE model
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -61,18 +61,18 @@ subroutine read_soil_carbon_namelist()
   ! parse soil carbon option
   select case (soil_carbon_model_to_use)
   case('SIMPLE')
-    soil_carbon_option = SOILC_CENTURY
+    soil_carbon_option = SOIL_BGC_SIMPLE
   case('CORPSE')
-    soil_carbon_option = SOILC_CORPSE
+    soil_carbon_option = SOIL_BGC_CORPSE
   case default
     call error_mesg('read_soil_carbon_namelist', &
         '"'//trim(soil_carbon_model_to_use)//'" is an invalid option for soil_carbon_model_to_use', FATAL)
   end select
 
   select case (soil_carbon_option)
-  case (SOILC_CENTURY)
+  case (SOIL_BGC_SIMPLE)
     call read_soil_BGC_SIMPLE_namelist()
-  case (SOILC_CORPSE)
+  case (SOIL_BGC_CORPSE)
     call read_soilc_CORPSE_namelist()
   end select
 end subroutine read_soil_carbon_namelist
@@ -84,9 +84,9 @@ function soilc_ctor(soil) result(ptr)
   type(soil_tile_type), intent(in) :: soil
 
   select case (soil_carbon_option)
-  case (SOILC_CENTURY)
+  case (SOIL_BGC_SIMPLE)
     ptr => new_soilc_SIMPLE(soil)
-  case (SOILC_CORPSE)
+  case (SOIL_BGC_CORPSE)
     ptr => new_soilc_CORPSE(soil)
   case default
     call land_error_message('soilc_ctor: The value of soil_carbon_option is invalid. This should never happen. See developer', FATAL)
