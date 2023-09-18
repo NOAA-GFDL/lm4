@@ -12,7 +12,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use soil_tile_mod, only: num_l, zfull
 use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
      soilMaxCohorts, soilc_diag_init_CORPSE
-use soilc_mod, only: save_soilc_equilibration_data
+use soil_BGC_mod, only: save_equilibration_data
 
 use soil_accessors_mod, only: soil_gross_nitrogen_flux_into_tile_ptr, soil_gross_nitrogen_flux_out_of_tile_ptr
 use soilc_CORPSE_accessors_mod ! use everything
@@ -115,7 +115,7 @@ subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
   call save_land_restart(restart)
   call free_land_restart(restart)
 
-  if (save_soilc_equilibration_data) then
+  if (save_equilibration_data) then
      filename = 'RESTART/'//trim(timestamp)//'soilc_CORPSE_eq.nc'
      call init_land_restart(restart, filename, soilc_tile_exists, tile_dim_length)
      call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)

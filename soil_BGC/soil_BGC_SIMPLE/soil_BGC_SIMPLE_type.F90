@@ -86,7 +86,7 @@ real, protected :: K1 = 10.0, K2 = 0.05 !< soil carbon decomposition parameters
 real, protected :: tau_lflitt_transfer = 0.0 !< e-folding time scale of leaf litter transfer to soil pools in SIMPLE mode, yr; 0 means instant transfer
 real, protected :: tau_cwlitt_transfer = 0.0 !< e-folding time scale of coarse wood litter transfer to soil pools in SIMPLE mode, yr; 0 means instant transfer
 
-namelist /soil_carbon_SIMPLE_nml/ bulk, K1, K2, tau_lflitt_transfer, tau_cwlitt_transfer
+namelist /soil_BGC_SIMPLE_nml/ bulk, K1, K2, tau_lflitt_transfer, tau_cwlitt_transfer
 
 real :: delta_time ! fast (physical) time step, s
 real :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
@@ -112,11 +112,11 @@ subroutine read_soil_BGC_SIMPLE_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=soil_carbon_SIMPLE_nml, iostat=io)
-  ierr = check_nml_error(io, 'soil_carbon_SIMPLE_nml')
+  read (input_nml_file, nml=soil_BGC_SIMPLE_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_BGC_SIMPLE_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
-     write(unit, nml=soil_carbon_SIMPLE_nml)
+     write(unit, nml=soil_BGC_SIMPLE_nml)
   endif
 
   delta_time = time_type_to_real(lnd%dt_fast)

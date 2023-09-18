@@ -33,7 +33,7 @@ use snow_tile_mod, only : &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
      snow_tile_stock_pe, snow_tile_heat, snow_active
 use soil_BGC_type_mod, only : soil_BGC_t
-use soilc_mod, only : new_soilc, delete_soilc
+use soil_BGC_mod, only : new_soilc, delete_soilc
 
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP

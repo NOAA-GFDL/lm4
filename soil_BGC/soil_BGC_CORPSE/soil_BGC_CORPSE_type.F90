@@ -3115,11 +3115,11 @@ subroutine add_litter(pool,litterC,litterN,rhizosphere_frac,&
 
   real :: newLitterC(N_C_TYPES), newLitterN(N_C_TYPES)
 
-!   select case (soil_carbon_option)
+!   select case (soil_BGC_option)
 !   case (SOIL_BGC_CORPSE)
 !      ! do nothing
 !   case default
-!      call error_mesg('add_litter','called for incorrect soil_carbon_option -- this should never happen', FATAL)
+!      call error_mesg('add_litter','called for incorrect soil_BGC_option -- this should never happen', FATAL)
 !   end select
 
   if (present(negativeInputC)) then

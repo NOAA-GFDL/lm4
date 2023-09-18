@@ -1,4 +1,4 @@
-module soilc_mod
+module soil_BGC_mod
 
 use fms_mod, only: check_nml_error, input_nml_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL
@@ -12,15 +12,15 @@ use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CO
 
 implicit none; private
 
-public :: read_soil_carbon_namelist
+public :: read_soil_BGC_namelist
 public :: new_soilc, delete_soilc
 
-public :: save_soilc_equilibration_data
+public :: save_equilibration_data
 
-public :: soil_carbon_option
+public :: soil_BGC_option
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'soilc_mod'
+character(len=*), parameter :: module_name = 'soil_BGC_mod'
 #include "../shared/version_variable.inc"
 
 ! ==== module interfaces ======================================================
@@ -30,13 +30,13 @@ interface new_soilc
 end interface
 
 !---- namelist ---------------------------------------------------------------
-character(32) :: soil_carbon_model_to_use = 'SIMPLE' ! or 'CORPSE'
-logical, protected :: save_soilc_equilibration_data = .FALSE. ! indicates whether to write
+character(32) :: model_to_use = 'SIMPLE' ! or 'CORPSE'
+logical, protected :: save_equilibration_data = .FALSE. ! indicates whether to write
                         ! information for soil carbon acceleration
-namelist /soil_carbon_nml/ soil_carbon_model_to_use, save_soilc_equilibration_data
+namelist /soil_BGC_nml/ model_to_use, save_equilibration_data
 
 ! soil carbon options
-integer, protected :: soil_carbon_option
+integer, protected :: soil_BGC_option
 integer, public, parameter :: &
     SOIL_BGC_SIMPLE        = 1, & ! SIMPLE decomposition
     SOIL_BGC_CORPSE        = 2    ! CORPSE model
@@ -44,38 +44,38 @@ integer, public, parameter :: &
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine read_soil_carbon_namelist()
+subroutine read_soil_BGC_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=soil_carbon_nml, iostat=io)
-  ierr = check_nml_error(io, 'soil_carbon_nml')
+  read (input_nml_file, nml=soil_BGC_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_BGC_nml')
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
-     write(unit, nml=soil_carbon_nml)
+     write(unit, nml=soil_BGC_nml)
   endif
 
   ! parse soil carbon option
-  select case (soil_carbon_model_to_use)
+  select case (model_to_use)
   case('SIMPLE')
-    soil_carbon_option = SOIL_BGC_SIMPLE
+    soil_BGC_option = SOIL_BGC_SIMPLE
   case('CORPSE')
-    soil_carbon_option = SOIL_BGC_CORPSE
+    soil_BGC_option = SOIL_BGC_CORPSE
   case default
-    call error_mesg('read_soil_carbon_namelist', &
-        '"'//trim(soil_carbon_model_to_use)//'" is an invalid option for soil_carbon_model_to_use', FATAL)
+    call error_mesg('read_soil_BGC_namelist', &
+        '"'//trim(model_to_use)//'" is an invalid option for model_to_use', FATAL)
   end select
 
-  select case (soil_carbon_option)
+  select case (soil_BGC_option)
   case (SOIL_BGC_SIMPLE)
     call read_soil_BGC_SIMPLE_namelist()
   case (SOIL_BGC_CORPSE)
     call read_soilc_CORPSE_namelist()
   end select
-end subroutine read_soil_carbon_namelist
+end subroutine read_soil_BGC_namelist
 
 !> @brief Create new empty soil carbon container
 !! @return Pointer to new allocated and initialized soil carbon container
@@ -83,13 +83,13 @@ function soilc_ctor(soil) result(ptr)
   class(soil_BGC_t), pointer :: ptr
   type(soil_tile_type), intent(in) :: soil
 
-  select case (soil_carbon_option)
+  select case (soil_BGC_option)
   case (SOIL_BGC_SIMPLE)
     ptr => new_soilc_SIMPLE(soil)
   case (SOIL_BGC_CORPSE)
     ptr => new_soilc_CORPSE(soil)
   case default
-    call land_error_message('soilc_ctor: The value of soil_carbon_option is invalid. This should never happen. See developer', FATAL)
+    call land_error_message('soilc_ctor: The value of soil_BGC_option is invalid. This should never happen. See developer', FATAL)
   end select
 end function soilc_ctor
 

@@ -42,7 +42,7 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_radiation, soil_step_1, soil_step_2, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags
-use soilc_mod, only : read_soil_carbon_namelist
+use soil_BGC_mod, only : read_soil_BGC_namelist
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, sweep_tiny_snow
@@ -111,7 +111,7 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
 
-use soilc_restart_mod, only : soilc_init, save_soilc_restart
+use soil_BGC_restart_mod, only : soil_BGC_init, save_soil_BGC_restart
 
 implicit none
 private
@@ -405,7 +405,7 @@ subroutine land_model_init &
   call read_soil_namelist()
   call read_hlsp_namelist() ! Must be called after read_soil_namelist
   call read_vegn_namelist()
-  call read_soil_carbon_namelist()
+  call read_soil_BGC_namelist()
   call read_lake_namelist()
   call read_glac_namelist()
   call read_snow_namelist()
@@ -457,7 +457,7 @@ subroutine land_model_init &
   call hlsp_init ( id_ug ) ! Must be called before soil_init
   call soil_init ( id_ug, id_band, id_zfull)
   call hlsp_hydro_init (id_ug, id_zfull) ! Must be called after soil_init
-  call soilc_init ( id_ug, id_zfull )
+  call soil_BGC_init ( id_ug, id_zfull )
   call vegn_init ( id_ug, id_band, id_cellarea )
   call lake_init ( id_ug )
   call glac_init ( id_ug )
@@ -713,7 +713,7 @@ subroutine land_model_restart(timestamp)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
-  call save_soilc_restart(tile_dim_length,timestamp_)
+  call save_soil_BGC_restart(tile_dim_length,timestamp_)
   call save_hlsp_restart(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart(tile_dim_length,timestamp_)

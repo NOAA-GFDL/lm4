@@ -10,7 +10,7 @@ use land_tile_io_mod, only : land_restart_type, &
      add_tile_data, get_tile_data, add_restart_axis
 use soil_BGC_simple_type_mod, only : soil_BGC_SIMPLE_t, soil_BGC_diag_init_SIMPLE
 use soil_tile_mod, only: num_l, zfull
-use soilc_mod, only : save_soilc_equilibration_data
+use soil_BGC_mod, only : save_equilibration_data
 
 implicit none; private
 
@@ -43,7 +43,7 @@ subroutine soil_BGC_save_restart_SIMPLE(tile_dim_length, timestamp)
   call save_land_restart(restart)
   call free_land_restart(restart)
 
-  if (save_soilc_equilibration_data) then
+  if (save_equilibration_data) then
      filename = 'RESTART/'//trim(timestamp)//'soilc_CENT_eq.nc'
      call init_land_restart(restart, filename, soilc_tile_exists, tile_dim_length)
      call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
