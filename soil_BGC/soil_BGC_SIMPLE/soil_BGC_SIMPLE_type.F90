@@ -40,7 +40,7 @@ character(len=*), parameter :: module_name = 'soil_BCG_SIMPLE_type_mod'
 ! ----  types
 !> @brief soil carbon data container for simple soil carbon model
 type, extends(soil_BGC_t) :: soil_BGC_SIMPLE_t
-  real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_century_C !< surface litter (kgC/m2)
+  real, dimension(N_C_TYPES, N_LITTER_POOLS) :: litter_SIMPLE_C !< surface litter (kgC/m2)
   real, allocatable :: &
       fast_soil_C(:), & !< fast soil carbon pool, (kg C/m2), per layer
       slow_soil_C(:), & !< slow soil carbon pool, (kg C/m2), per layer
@@ -226,7 +226,7 @@ function soilc_SIMPLE_ctor(soil) result(ptr)
       ptr%fsc_in     (num_l), &
       ptr%ssc_in     (num_l)  )
 
-  ptr%litter_century_C(:,:)  = 0.0
+  ptr%litter_SIMPLE_C(:,:)   = 0.0
   ptr%fast_soil_C(:)         = 0.0
   ptr%slow_soil_C(:)         = 0.0
   ptr%asoil_in(:)            = 0.0
@@ -261,7 +261,7 @@ subroutine merge_SIMPLE(s2,w2,s1,w1)
      ! merge soil carbon
      s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
      s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
-     s2%litter_century_C(:,:) = s1%litter_century_C(:,:)*x1 + s2%litter_century_C(:,:)*x2
+     s2%litter_SIMPLE_C(:,:) = s1%litter_SIMPLE_C(:,:)*x1 + s2%litter_SIMPLE_C(:,:)*x2
 
      s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
      s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
@@ -277,7 +277,7 @@ end subroutine
 real function total_C_SIMPLE(soilc) result(tot_C)
   class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure
   tot_C = sum(soilc%fast_soil_C(:))+sum(soilc%slow_soil_C(:)) &
-        + sum(soilc%litter_century_C(:,:))
+        + sum(soilc%litter_SIMPLE_C(:,:))
 end function
 
 !> @brief Given soil carbon state, return total soil nitrogen
@@ -310,7 +310,7 @@ subroutine get_littC_SIMPLE(soilc, values)
 
   integer :: i
   do i = 1, N_LITTER_POOLS
-     values(i) = sum(soilc%litter_century_C(:,i))
+     values(i) = sum(soilc%litter_SIMPLE_C(:,i))
   enddo
 end subroutine
 
@@ -378,8 +378,8 @@ subroutine add_soil_carbon_SIMPLE(soilc, vegn, &
   if (bulk) then
      if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
         ! put litterfall in litter pools
-        soilc%litter_century_C(:,LITT_LEAF)  = soilc%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
-        soilc%litter_century_C(:,LITT_CWOOD) = soilc%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
+        soilc%litter_SIMPLE_C(:,LITT_LEAF)  = soilc%litter_SIMPLE_C(:,LITT_LEAF)  + leaf_litt_C(:)
+        soilc%litter_SIMPLE_C(:,LITT_CWOOD) = soilc%litter_SIMPLE_C(:,LITT_CWOOD) + wood_litt_C(:)
         fsc = sum(root_litt_C(:,C_FAST))
         ssc = sum(root_litt_C(:,C_SLOW))
      else
@@ -396,8 +396,8 @@ subroutine add_soil_carbon_SIMPLE(soilc, vegn, &
   else ! by-layer soil carbon model
      if (tau_cwlitt_transfer>0.or.tau_lflitt_transfer>0) then
         ! put litterfall in litter pools
-        soilc%litter_century_C(:,LITT_LEAF)  = soilc%litter_century_C(:,LITT_LEAF)  + leaf_litt_C(:)
-        soilc%litter_century_C(:,LITT_CWOOD) = soilc%litter_century_C(:,LITT_CWOOD) + wood_litt_C(:)
+        soilc%litter_SIMPLE_C(:,LITT_LEAF)  = soilc%litter_SIMPLE_C(:,LITT_LEAF)  + leaf_litt_C(:)
+        soilc%litter_SIMPLE_C(:,LITT_CWOOD) = soilc%litter_SIMPLE_C(:,LITT_CWOOD) + wood_litt_C(:)
         fsc = 0.0; ssc = 0.0
      else
         ! add litterfall to soil carbon directly. This is mostly to preserve bitwise
@@ -471,8 +471,8 @@ subroutine burn_litter_frac_SIMPLE(soilc, frac, burned_C, burned_N)
 
   burned_C = 0.0; burned_N = 0.0
   do i = 1,N_LITTER_POOLS
-     burned_C = burned_C + frac(i)*sum(soilc%litter_century_C(:,i))
-     soilc%litter_century_C(:,i) = (1-frac(i))*soilc%litter_century_C(:,i)
+     burned_C = burned_C + frac(i)*sum(soilc%litter_SIMPLE_C(:,i))
+     soilc%litter_SIMPLE_C(:,i) = (1-frac(i))*soilc%litter_SIMPLE_C(:,i)
   enddo
 end subroutine
 
@@ -549,7 +549,7 @@ subroutine update_soil_pools_SIMPLE(soilc, vegn)
   ! move carbon from intermediate spike-process buffers to litter
   do i = 1,N_C_TYPES
      do k = 1, N_LITTER_POOLS
-        call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soilc%litter_century_C(i,k),vegn%litterfall_C(i,k))
+        call deplete_pool(vegn%litter_buff_C(i,k), vegn%litter_rate_C(i,k), soilc%litter_SIMPLE_C(i,k),vegn%litterfall_C(i,k))
      enddo
   enddo
 
@@ -557,13 +557,13 @@ subroutine update_soil_pools_SIMPLE(soilc, vegn)
   call deplete_pool(vegn%ssc_pool_bg, vegn%ssc_rate_bg, soilc%slow_soil_C(1), soilc%ssc_in(1))
 
   ! transfer litter to soilc pools, with constant time scales
-  call deplete_pool1(soilc%litter_century_C(C_FAST, LITT_LEAF),  tau_lflitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
-  call deplete_pool1(soilc%litter_century_C(C_MIC,  LITT_LEAF),  tau_lflitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
-  call deplete_pool1(soilc%litter_century_C(C_SLOW, LITT_LEAF),  tau_lflitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
+  call deplete_pool1(soilc%litter_SIMPLE_C(C_FAST, LITT_LEAF),  tau_lflitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_SIMPLE_C(C_MIC,  LITT_LEAF),  tau_lflitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_SIMPLE_C(C_SLOW, LITT_LEAF),  tau_lflitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
 
-  call deplete_pool1(soilc%litter_century_C(C_FAST, LITT_CWOOD), tau_cwlitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
-  call deplete_pool1(soilc%litter_century_C(C_MIC,  LITT_CWOOD), tau_cwlitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
-  call deplete_pool1(soilc%litter_century_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
+  call deplete_pool1(soilc%litter_SIMPLE_C(C_FAST, LITT_CWOOD), tau_cwlitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_SIMPLE_C(C_MIC,  LITT_CWOOD), tau_cwlitt_transfer, soilc%fast_soil_C(1), soilc%fsc_in(1))
+  call deplete_pool1(soilc%litter_SIMPLE_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
 end subroutine
 
 !> @brief Move substance from one pool to another
@@ -643,15 +643,15 @@ subroutine step3_SIMPLE(soilc, diag)
   integer :: i, k
 
   associate (soil=>soilc) ! to avoid renaming
-  call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_century_C(C_FAST,:)), diag)
-  call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(C_SLOW,:)), diag)
+  call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_SIMPLE_C(C_FAST,:)), diag)
+  call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
   call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
   call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
-  call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_century_C(:,:)), diag)
+  call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(:,:)), diag)
   do k = 1, N_LITTER_POOLS
-     if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_century_C(:,k)), diag)
+     if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_SIMPLE_C(:,k)), diag)
      do i = 1, N_C_TYPES
-        call send_tile_data(id_litter_C(k,i), soil%litter_century_C(i,k), diag)
+        call send_tile_data(id_litter_C(k,i), soil%litter_SIMPLE_C(i,k), diag)
      enddo
   enddo
 
@@ -661,9 +661,9 @@ subroutine step3_SIMPLE(soilc, diag)
   call send_tile_data(id_csoilslow, 0.0, diag)
   if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
   if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
-  if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_century_C(:,:)), diag)
-  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_century_C(:,LITT_CWOOD)), diag)
-  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_century_C(:,LITT_LEAF)), diag)
+  if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_SIMPLE_C(:,:)), diag)
+  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_SIMPLE_C(:,LITT_CWOOD)), diag)
+  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_SIMPLE_C(:,LITT_LEAF)), diag)
   ! --- end of CMOR vars
   end associate
 

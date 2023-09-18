@@ -37,7 +37,7 @@ subroutine soil_BGC_save_restart_SIMPLE(tile_dim_length, timestamp)
   do i = 1, N_C_TYPES
      do k = 1,N_LITTER_POOLS
         call add_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',&
-           litter_century_C_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
+           litter_C_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
      enddo
   enddo
   call save_land_restart(restart)
@@ -79,7 +79,7 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
      ! with CORPSE restarts with zero litter
      do i = 1, N_C_TYPES
         do k = 1, N_LITTER_POOLS
-           call get_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_century_C_ptr,i,k)
+           call get_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_C_ptr,i,k)
         enddo
      enddo
   else
@@ -132,7 +132,7 @@ subroutine soil_slow_soil_C_ptr(t,i,p)
   end select
 end subroutine
 
-subroutine litter_century_C_ptr(t,i,k,p)
+subroutine litter_C_ptr(t,i,k,p)
   type(land_tile_type),pointer::t
   integer,intent(in)::i,k
   real,pointer::p
@@ -141,7 +141,7 @@ subroutine litter_century_C_ptr(t,i,k,p)
   if(.not.associated(t%soilc)) return
   select type(s=>t%soilc)
   class is (soil_BGC_SIMPLE_t)
-      p=>s%litter_century_C(i,k)
+      p=>s%litter_SIMPLE_C(i,k)
   end select
 end subroutine
 

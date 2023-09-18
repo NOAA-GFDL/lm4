@@ -820,7 +820,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      ! and buffN are zero, so nothing happens
      select type (soilc => tile%soilc)
      class is (soil_BGC_SIMPLE_t)
-        soilc%litter_century_C(:,LITT_LEAF) = soilc%litter_century_C(:,LITT_LEAF) + buffC(:)
+        soilc%litter_SIMPLE_C(:,LITT_LEAF) = soilc%litter_SIMPLE_C(:,LITT_LEAF) + buffC(:)
      class is (soilc_CORPSE_t)
         call add_litter(soilc%litter_corpse(LITT_LEAF),buffC,buffN)
      class default
