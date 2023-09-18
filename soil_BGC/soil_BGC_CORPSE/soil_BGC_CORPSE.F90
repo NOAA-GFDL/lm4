@@ -10,8 +10,8 @@ use land_tile_io_mod, only: land_restart_type, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
 use soil_tile_mod, only: num_l, zfull
-use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
-     soilMaxCohorts, soilc_diag_init_CORPSE
+use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
+     soilMaxCohorts, soil_BGC_diag_init_CORPSE
 use soil_BGC_mod, only: save_equilibration_data
 
 use soil_accessors_mod, only: soil_gross_nitrogen_flux_into_tile_ptr, soil_gross_nitrogen_flux_out_of_tile_ptr
@@ -46,7 +46,7 @@ subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
   do while (loop_over_tiles(ce,tile))
       if (.not.associated(tile%soilc)) cycle
       select type (sc=>tile%soilc)
-      class is (soilc_CORPSE_t)
+      class is (soil_BGC_CORPSE_t)
          do i = 1,N_LITTER_POOLS
             call adjust_pool_ncohorts(sc%litter_corpse(i))
          enddo
@@ -167,7 +167,7 @@ subroutine soilc_init_CORPSE( id_ug, id_zfull )
   integer :: i,k
 
   ! initialize diagnostics
-  call soilc_diag_init_CORPSE( id_ug, id_zfull )
+  call soil_BGC_diag_init_CORPSE( id_ug, id_zfull )
 
   call open_land_restart(restart,'INPUT/soilc_CORPSE.nc',restart_exists)
   if (restart_exists) then
@@ -177,7 +177,7 @@ subroutine soilc_init_CORPSE( id_ug, id_zfull )
      do while(loop_over_tiles(ce,tile))
          if (.not.associated(tile%soil)) cycle
          select type (sc=>tile%soilc)
-         class is (soilc_CORPSE_t)
+         class is (soil_BGC_CORPSE_t)
             do i = 1,N_LITTER_POOLS
                call adjust_pool_ncohorts(sc%litter_corpse(i))
             enddo

@@ -28,7 +28,7 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_BGC_SIMPLE_type_mod, only: soil_BGC_SIMPLE_t
-use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
+use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
@@ -429,7 +429,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
              sp%fsc_liv*(balive0-balive1)+sp%fsc_wood*(bdead0-bdead1))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*( &
              (1-sp%fsc_liv)*(balive0-balive1)+ (1-sp%fsc_wood)*(bdead0-bdead1))
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         if(blv0 < blv1) then ! Some biomass was re-absorbed due to N limitation. Reduce litter.
            delta_leaf=bleaf0-bleaf1   - (blv1-blv0)*(bleaf0-bleaf1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
            delta_root=bfroot0-bfroot1 - (blv1-blv0)*(bfroot0-bfroot1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
@@ -538,7 +538,7 @@ subroutine vegn_harvest_crop_lm3(tile)
              sp%fsc_wood*(cc%bwood + cc%bliving*cc%Psw*(1-agf_bs)))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + fraction_harvested*((1-sp%fsc_liv)*cc%bliving*cc%Pr + &
              (1-sp%fsc_wood)*(cc%bwood + cc%bliving*cc%Psw*(1-agf_bs)))
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         vegn%litter_buff_C(:,LITT_CWOOD) = vegn%litter_buff_C(:,LITT_CWOOD) + &
                [sp%fsc_wood, 1-sp%fsc_wood, 0.0] * fraction_harvested*agf_bs*cc%bwood
 
@@ -687,7 +687,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
              FATAL)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_liv)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_liv
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         delta = (cc%bwood+cc%bsw)*frac_harvested*agf_bs*frac_wood_wasted_ag
         vegn%litter_buff_C(:,LITT_CWOOD) = vegn%litter_buff_C(:,LITT_CWOOD) + &
             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta
@@ -821,7 +821,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      select type (soilc => tile%soilc)
      class is (soil_BGC_SIMPLE_t)
         soilc%litter_SIMPLE_C(:,LITT_LEAF) = soilc%litter_SIMPLE_C(:,LITT_LEAF) + buffC(:)
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         call add_litter(soilc%litter_corpse(LITT_LEAF),buffC,buffN)
      class default
         call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)

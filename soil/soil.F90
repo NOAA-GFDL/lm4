@@ -39,7 +39,7 @@ use soil_accessors_mod ! use everything
 
 use soil_BGC_type_mod, only : soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only : soil_BGC_SIMPLE_t
-use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, &
+use soil_BGC_CORPSE_type_mod, only : soil_BGC_CORPSE_t, &
      debug_pool, ammonium_solubility, nitrate_solubility
 use soilc_util_mod, only : register_soilc_diag_fields, &
     register_litter_diag_fields, register_litter_soilc_diag_fields
@@ -1733,7 +1733,7 @@ end subroutine soil_step_1
      ! units of delta_time: s
      ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
      select type (soilc)
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         where(soil%wl(1:num_l)>1.0e-4)
            passive_ammonium_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%ammonium*ammonium_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
            passive_nitrate_uptake(1:num_l) = min(soilc%org_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soilc%org_matter(1:num_l)%nitrate*nitrate_solubility/soil%wl(1:num_l)*cc%nindivs*delta_time))
@@ -2449,7 +2449,7 @@ end subroutine soil_step_1
         write(*,*)
      enddo
      select type (soilc)
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         call debug_pool(soilc%litter_corpse(LITT_LEAF), 'leaf_litter')
      end select
   endif
@@ -2487,7 +2487,7 @@ end subroutine soil_step_1
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
       select type(soilc)
-      class is (soilc_CORPSE_t)
+      class is (soil_BGC_CORPSE_t)
          do l = 1,N_LITTER_POOLS
             call debug_pool(soilc%litter_corpse(l), trim(l_shortname(l))//'_litter')
          enddo

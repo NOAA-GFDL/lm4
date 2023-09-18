@@ -79,7 +79,7 @@ use vegn_harvesting_mod, only : &
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_BGC_type_mod, only : soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only : soil_BGC_SIMPLE_t
-use soilc_CORPSE_type_mod, only : soilc_CORPSE_t, cull_cohorts
+use soil_BGC_CORPSE_type_mod, only : soil_BGC_CORPSE_t, cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data, &
     get_variable_size
@@ -3020,7 +3020,7 @@ subroutine update_vegn_slow( )
      call set_current_point(l,k) ! this is for debug output only
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
      select type (sc=>tile%soilc)
-     class is (soilc_CORPSE_t)
+     class is (soil_BGC_CORPSE_t)
         do ii = 1,N_LITTER_POOLS
            call cull_cohorts(sc%litter_corpse(ii))
         enddo

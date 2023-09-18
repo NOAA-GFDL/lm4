@@ -8,7 +8,7 @@ use land_debug_mod, only: land_error_message
 use soil_tile_mod, only: soil_tile_type
 use soil_BGC_type_mod, only: soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only: soil_BGC_SIMPLE_t, new_soilc_SIMPLE, read_soil_BGC_SIMPLE_namelist
-use soilc_CORPSE_type_mod, only: soilc_CORPSE_t, new_soilc_CORPSE, read_soilc_CORPSE_namelist
+use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, new_soilc_CORPSE, read_soil_BGC_CORPSE_namelist
 
 implicit none; private
 
@@ -73,7 +73,7 @@ subroutine read_soil_BGC_namelist()
   case (SOIL_BGC_SIMPLE)
     call read_soil_BGC_SIMPLE_namelist()
   case (SOIL_BGC_CORPSE)
-    call read_soilc_CORPSE_namelist()
+    call read_soil_BGC_CORPSE_namelist()
   end select
 end subroutine read_soil_BGC_namelist
 
@@ -104,7 +104,7 @@ function soilc_copy(soilc) result(ptr)
   select type(soilc)
   type is (soil_BGC_SIMPLE_t)
      ptr => new_soilc_SIMPLE(soilc)
-  type is (soilc_CORPSE_t)
+  type is (soil_BGC_CORPSE_t)
      ptr => new_soilc_CORPSE(soilc)
   class default
     call land_error_message('soilc_copy: The type of soilc is invalid. This should never happen. See developer', FATAL)

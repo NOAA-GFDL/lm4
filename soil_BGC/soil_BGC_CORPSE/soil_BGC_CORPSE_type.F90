@@ -1,4 +1,4 @@
-module soilc_CORPSE_type_mod
+module soil_BGC_CORPSE_type_mod
 
 ! Do not use external model stuff if compiling standalone version
 #ifndef STANDALONE_SOIL_CARBON
@@ -41,7 +41,7 @@ private
 
 
 ! ==== public interfaces =====================================================
-public :: soilc_CORPSE_t, new_soilc_CORPSE
+public :: soil_BGC_CORPSE_t, new_soilc_CORPSE
 ! public :: merge_soilc
 ! public :: get_rav_C      ! returns carbon pools used in resistance calculations (if litter resistance is used)
 ! public :: soil_tile_carbon, soil_tile_nitrogen
@@ -57,7 +57,7 @@ public :: add_litter
 ! public :: combine_pools
 ! public :: poolTotals, poolTotals1
 ! public :: init_soil_pool
-public :: read_soilc_CORPSE_namelist, soilc_diag_init_CORPSE
+public :: read_soil_BGC_CORPSE_namelist, soil_BGC_diag_init_CORPSE
 
 ! public :: deposit_dissolved_C
 ! public :: dissolve_carbon
@@ -92,7 +92,7 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'soilc_CORPSE_type_mod'
+character(len=*), parameter :: module_name = 'soil_BGC_CORPSE_type_mod'
 #include "../../shared/version_variable.inc"
 
 integer, parameter :: init_n_cohorts = 3 ! initial number of cohorts in a litter pool
@@ -156,9 +156,9 @@ type soil_pool
 end type soil_pool
 
 ! soil carbon container type
-type, extends(soil_BGC_t) :: soilc_CORPSE_t
+type, extends(soil_BGC_t) :: soil_BGC_CORPSE_t
   type(soil_pool) :: litter_corpse(N_LITTER_POOLS) ! Surface litter pools, just one layer
-  type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soilc_CORPSE_type_mod soil carbon pool type
+  type(soil_pool), allocatable :: org_matter(:) ! Soil carbon in soil layers, using soil_BGC_CORPSE_type_mod soil carbon pool type
   integer, allocatable :: is_peat(:) ! Keeps track of whether soil layer is peat, for redistribution
 
   real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
@@ -190,7 +190,7 @@ contains
   procedure :: step3             => step3_CORPSE
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CORPSE
 
-end type soilc_CORPSE_t
+end type soil_BGC_CORPSE_t
 
 !==== module variables =======================================================
 
@@ -270,7 +270,7 @@ real :: max_soil_C_density   = 50.0 !(kgC/m3) -- for redistribution of peat
 real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
 
 
-namelist /soilc_CORPSE_nml/ &
+namelist /soil_BGC_CORPSE_nml/ &
     do_nitrogen, use_rhizosphere_cohort, r_rhiz, &
     Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
@@ -351,7 +351,7 @@ real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! =============================================================================
-subroutine read_soilc_CORPSE_namelist
+subroutine read_soil_BGC_CORPSE_namelist
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
@@ -359,12 +359,12 @@ subroutine read_soilc_CORPSE_namelist
   call log_version(version, module_name, &
   __FILE__)
 
-  read (input_nml_file, nml=soilc_CORPSE_nml, iostat=io)
-  ierr = check_nml_error(io, 'soilc_CORPSE_nml')
+  read (input_nml_file, nml=soil_BGC_CORPSE_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_BGC_CORPSE_nml')
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
-     write(unit, nml=soilc_CORPSE_nml)
+     write(unit, nml=soil_BGC_CORPSE_nml)
   endif
 
 ! initialize normalization factor for aerobic respiration soil moisture function
@@ -376,7 +376,7 @@ subroutine read_soilc_CORPSE_namelist
   dt_fast_yr = delta_time/seconds_per_year
 end subroutine
 
-subroutine soilc_diag_init_CORPSE ( id_ug, id_zfull )
+subroutine soil_BGC_diag_init_CORPSE ( id_ug, id_zfull )
   integer,intent(in)  :: id_ug    !< Unstructured axis id
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
@@ -664,7 +664,7 @@ end subroutine
 !> @brief Create new (empty) soil carbon representation
 !! @return Pointer to new soil carbon data structure
 function soilc_CORPSE_ctor(soil) result(ptr)
-  class(soilc_CORPSE_t), pointer :: ptr
+  class(soil_BGC_CORPSE_t), pointer :: ptr
   type(soil_tile_type), intent(in) :: soil !< soil tile data
 
   integer :: k
@@ -693,8 +693,8 @@ end function
 !> @brief Create a copy of existing soil carbon representation
 !! @return Pointer to new soil carbon data structure
 function soilc_CORPSE_copy(soilc) result(ptr)
-  type(soilc_CORPSE_t), pointer :: ptr
-  type(soilc_CORPSE_t), intent(in) :: soilc !< soil carbon data to copy
+  type(soil_BGC_CORPSE_t), pointer :: ptr
+  type(soil_BGC_CORPSE_t), intent(in) :: soilc !< soil carbon data to copy
 
   allocate(ptr)
   ptr = soilc
@@ -704,7 +704,7 @@ end function
 !> @brief Given soil carbon state, return total soil C
 !! @return total soil carbon, kgC/m2
 real function total_C_CORPSE (soilc) result(soil_tile_carbon)
-  class(soilc_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
+  class(soil_BGC_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
 
   real    :: temp
   integer :: i
@@ -724,7 +724,7 @@ end function
 !! @return total soil nitrogen, kgN/m2
 ! this should return zero if soil nitrogen is not simulated
 real function total_N_CORPSE (soilc) result(soil_tile_nitrogen)
-  class(soilc_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
+  class(soil_BGC_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
 
   real    :: temp
   integer :: i
@@ -743,7 +743,7 @@ end function
 !> @brief Given soil carbon state, return carbon amount of litter relevant for surface
 !! resistance calculations in legacy treatment of soil surface resistance
 subroutine rav_C_CORPSE(soilc, fast_C,slow_C,dmic_C)
-  class(soilc_CORPSE_t), intent(in)  :: soilc !< soil carbon data structure
+  class(soil_BGC_CORPSE_t), intent(in)  :: soilc !< soil carbon data structure
   real, intent(out) :: &
      fast_C,    & !< fast litter carbon, [kgC/m2]
      slow_C,    & !< slow litter carbon, [kgC/m2]
@@ -755,7 +755,7 @@ end subroutine
 
 !> @brief Given soil carbon state, returns total litter C per litter pool
 subroutine get_littC_CORPSE(soilc, values)
-  class(soilc_CORPSE_t), intent(in)  :: soilc     !< soil carbon data structure
+  class(soil_BGC_CORPSE_t), intent(in)  :: soilc     !< soil carbon data structure
   real, intent(out)                  :: values(:) !< total C in litter, by litter pool, kgC/m2
 
   integer :: i
@@ -766,7 +766,7 @@ end subroutine
 
 !> @brief merge s1 into current soil carbon type s2, with given weights
 subroutine merge_CORPSE(s2,w2,s1,w1)
-  class(soilc_CORPSE_t), intent(inout) :: s2    !< current soil carbon state
+  class(soil_BGC_CORPSE_t), intent(inout) :: s2    !< current soil carbon state
   class(soil_BGC_t)    , intent(in)    :: s1    !< soil carbon state to be merged into current
   real                 , intent(in)    :: w2,w1 !< merging weights
 
@@ -778,7 +778,7 @@ subroutine merge_CORPSE(s2,w2,s1,w1)
   x2 = 1.0 - x1
 
   select type(s1)
-  type is (soilc_CORPSE_t)
+  type is (soil_BGC_CORPSE_t)
      do i=1,num_l
        call combine_pools(s1%org_matter(i),s2%org_matter(i),w1,w2)
      enddo
@@ -796,7 +796,7 @@ end subroutine
 
 !> @brief Add new root litter to soil carbon and nitrogen
 subroutine add_root_litter_CORPSE(soilC, vegn, litterC, litterN)
-  class(soilc_CORPSE_t) , intent(inout) :: soilC !< soil carbon state
+  class(soil_BGC_CORPSE_t) , intent(inout) :: soilC !< soil carbon state
   type(vegn_tile_type)  , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
   real                  , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
   real                  , intent(in)    :: litterN(:,:) !< new litter nitrogen content kgN/m2 of soil layer
@@ -813,7 +813,7 @@ end subroutine
 subroutine add_soil_carbon_CORPSE(soilc, vegn, &
         leaf_litter_C, wood_litter_C, root_litter_C, &
         leaf_litter_N, wood_litter_N, root_litter_N  )
-  class(soilc_CORPSE_t), intent(inout) :: soilc
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   type(vegn_tile_type),  intent(inout) :: vegn
   real, intent(in), optional :: leaf_litter_C(:)   ! (N_C_TYPES)
   real, intent(in), optional :: wood_litter_C(:)   ! (N_C_TYPES)
@@ -916,7 +916,7 @@ end subroutine rhizosphere_frac
 
 !> @brief Add exudates to the soil
 subroutine add_root_exudates_CORPSE(soilc, exudateC, exudateN, ammonium, nitrate)
-  class(soilc_CORPSE_t), intent(inout)  :: soilC !< soil carbon data structure
+  class(soil_BGC_CORPSE_t), intent(inout)  :: soilC !< soil carbon data structure
   real,intent(in)           :: exudateC(:) !< (num_l) amount of C in exudate, kgC/m2 per layer
   real,intent(in), optional :: exudateN(:) !< (num_l) amount of N in exudate, kgN/m2 per layer
   real,intent(in), optional :: ammonium(:) !< (num_l) amount of ammonium in exudate, kgN/m2(?) per layer
@@ -947,7 +947,7 @@ subroutine tracer_leaching_CORPSE(soilc, diag, &
          ! output
          total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div)
 
-  class(soilc_CORPSE_t), intent(inout) :: soilC
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilC
   type(diag_buff_type), intent(inout) :: diag
   !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time unit.!!! I assume here the unit is mm/yr
   real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
@@ -1389,7 +1389,7 @@ end subroutine tracer_advection
 ! ============================================================================
 ! Deposition of nitrogen
 subroutine deposit_N_CORPSE(soilc, NH4, NO3, N_org)
-  class(soilc_CORPSE_t), intent(inout) :: soilc
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   real, intent(in) :: NH4, NO3, N_org ! amounts of NH4, NO3, and organic nitrogen to deposit, kg N/m2
 
   ! Do N deposition first. For now, it all goes to leaf litter
@@ -1404,7 +1404,7 @@ end subroutine
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
 subroutine active_root_N_uptake(soilC,vegn,N_uptake,dt,update_pools)
-  class(soilc_CORPSE_t), intent(inout) :: soilC
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilC
   type(vegn_tile_type), intent(in)    :: vegn
   real,    intent(out) :: N_uptake(:) ! Nitrogen uptake, kg N per individual
   real,    intent(in)  :: dt ! in years
@@ -1452,7 +1452,7 @@ end subroutine active_root_N_uptake
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
 subroutine myc_scavenger_N_uptake(soilC,vegn,N_uptake_cohorts,myc_efficiency,dt,update_pools)
-  class(soilc_CORPSE_t), intent(inout) :: soilC
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilC
   type(vegn_tile_type),  intent(in)    ::  vegn
   real, intent(out) :: N_uptake_cohorts(:) ! Units: kgN/m2 per individual
   real, intent(in)  :: dt  ! time step [years]
@@ -1561,7 +1561,7 @@ end subroutine myc_scavenger_N_uptake
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
 subroutine myc_miner_N_uptake(soilc, soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
-  class(soilc_CORPSE_t), intent(inout) :: soilc
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   type(soil_tile_type),  intent(in) :: soil
   type(vegn_tile_type),  intent(in) :: vegn
   real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
@@ -1660,7 +1660,7 @@ subroutine myc_miner_N_uptake(soilc, soil,vegn,N_uptake_cohorts,C_uptake_cohorts
 end subroutine myc_miner_N_uptake
 
 subroutine update_soil_pools_CORPSE(soilc, vegn)
-  class(soilc_CORPSE_t), intent(inout) :: soilc
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   type(vegn_tile_type),  intent(inout) :: vegn
 
   integer :: i,k
@@ -1731,7 +1731,7 @@ end subroutine
 
 ! ============================================================================
 subroutine dsdt_CORPSE(soilc, soil, vegn, diag, soilt, theta)
-  class(soilc_CORPSE_t), intent(inout) :: soilc
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
@@ -1827,7 +1827,7 @@ end subroutine Dsdt_CORPSE
 
 ! ============================================================================
 subroutine step3_CORPSE(soilc, diag)
-  class(soilc_CORPSE_t), intent(inout) :: soilc
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
 
   real :: soil_C(N_C_TYPES, num_l),      soil_N(N_C_TYPES, num_l), &
@@ -1966,7 +1966,7 @@ end subroutine step3_CORPSE
 
 ! ============================================================================
 subroutine redistribute_peat_carbon_CORPSE(soilC)
-    class(soilc_CORPSE_t), intent(inout) :: soilC
+    class(soil_BGC_CORPSE_t), intent(inout) :: soilC
 
     integer :: nn
     real :: layer_total_C,layer_total_C_2,layer_max_C,layer_extra_C,fraction_to_remove
@@ -2029,7 +2029,7 @@ end subroutine
 
 !> @brief Burn given fraction of litter and return amounts of burned C and N
 subroutine burn_litter_frac_CORPSE(soilc, frac, burned_C, burned_N)
-  class(soilc_CORPSE_t), intent(inout) :: soilc !< soil carbon data structure
+  class(soil_BGC_CORPSE_t), intent(inout) :: soilc !< soil carbon data structure
   real, intent(in)  :: frac(:)            !< fraction of litter to burn [0,1]
   real, intent(out) :: burned_C, burned_N !< amounts of burned carbon and nitrogen
 
@@ -2089,7 +2089,7 @@ OPEN(unit=namelistunit,file=file)
 else
 OPEN(unit=namelistunit,file='soilparams.nml')
 endif
-READ(unit=namelistunit,NML=soilc_CORPSE_nml)
+READ(unit=namelistunit,NML=soil_BGC_CORPSE_nml)
 CLOSE(unit=namelistunit)
 
 ! initialize normalization factor for aerobic respiration soil moisture function
@@ -3730,7 +3730,7 @@ real function Cpoolcomp(pool1,sum1,pool2,sum2,norm) result(compval)
 end function
 
 subroutine retrieve_DOC(soilc, values)
-   class(soilc_CORPSE_t), intent(in) :: soilc  ! soil carbon data structure
+   class(soil_BGC_CORPSE_t), intent(in) :: soilc  ! soil carbon data structure
    real,                 intent(out) :: values(:,:) ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic carbon
    integer :: l
 
@@ -3740,7 +3740,7 @@ subroutine retrieve_DOC(soilc, values)
 end subroutine retrieve_DOC
 
 subroutine retrieve_DON(soilc, values)
-    class(soilc_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
+    class(soil_BGC_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
     real,                  intent(out) :: values(:,:)   ! (N_C_TYPES, num_l) [kg C/m^2] dissolved organic nitrogen
     integer :: l
 
@@ -3754,7 +3754,7 @@ subroutine retrieve_DON(soilc, values)
 end subroutine retrieve_DON
 
 subroutine retrieve_nitrate(soilc, values)
-    class(soilc_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
+    class(soil_BGC_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
     real,                  intent(out) :: values(:) ! [kg N/m^2] dissolved nitrate
 
     integer :: l
@@ -3770,7 +3770,7 @@ end subroutine
 
 subroutine retrieve_ammonium(soilc, values)
     ! Maybe this should include some solubility parameter that differs between nitrate and ammonium
-    class(soilc_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
+    class(soil_BGC_CORPSE_t), intent(in)  :: soilc ! soil carbon data structure
     real,                  intent(out) :: values(:) ! [kg N/m^2] dissolved ammonium
 
     integer :: l
@@ -3867,4 +3867,4 @@ logical elemental function is_nan(x)
    is_nan = (x/=x)
 end function is_nan
 
-end module soilc_CORPSE_type_mod
+end module soil_BGC_CORPSE_type_mod
