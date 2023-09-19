@@ -339,22 +339,4 @@ subroutine soil_f_geo_sat_ptr(t,i,p)
     endif
 end subroutine
 
-subroutine soil_gross_nitrogen_flux_into_tile_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%gross_nitrogen_flux_into_tile
-    endif
-end subroutine
-
-subroutine soil_gross_nitrogen_flux_out_of_tile_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%gross_nitrogen_flux_out_of_tile
-    endif
-end subroutine
-
 end module soil_accessors_mod

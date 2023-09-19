@@ -8,6 +8,24 @@ public
 
 contains
 
+subroutine soil_gross_nitrogen_flux_into_tile_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%gross_nitrogen_flux_into_tile
+    endif
+end subroutine
+
+subroutine soil_gross_nitrogen_flux_out_of_tile_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%gross_nitrogen_flux_out_of_tile
+    endif
+end subroutine
+
 subroutine soil_is_peat_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; integer,pointer::p
   p=>NULL()
