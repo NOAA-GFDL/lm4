@@ -4,6 +4,7 @@ use fms_mod, only: error_mesg, NOTE
 
 use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, &
      c_shortname, c_longname, l_shortname, l_longname
+use land_data_mod, only : log_version
 use land_tile_mod, only: land_tile_type, land_tile_enum_type, first_elmt, land_tile_map, loop_over_tiles
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -17,6 +18,10 @@ implicit none; private
 
 public :: soil_BGC_init_CORPSE
 public :: soil_BGC_save_restart_CORPSE
+
+! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'soil_BGC_CORPSE_mod'
+#include "../../shared/version_variable.inc"
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -161,6 +166,8 @@ subroutine soil_BGC_init_CORPSE( id_ug, id_zfull )
   type(land_tile_enum_type)     :: ce   ! tile list enumerator
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   integer :: i,k
+
+  call log_version(version, module_name, __FILE__)
 
   ! initialize diagnostics
   call soil_BGC_diag_init_CORPSE( id_ug, id_zfull )
