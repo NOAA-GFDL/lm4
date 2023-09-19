@@ -105,7 +105,8 @@ logical function soilc_tile_exists(tile)
   soilc_tile_exists = associated(tile%soilc)
 end function
 
-! accessor functions for CENTURY-like soil carbon data
+! ============================================================================
+! accessor functions for SIMPLE model soil BGC data
 subroutine soil_fast_soil_C_ptr(t,i,p)
   type(land_tile_type), pointer :: t
   integer, intent(in) :: i
