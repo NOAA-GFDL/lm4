@@ -1,4 +1,4 @@
-module soilc_CORPSE_mod
+module soil_BGC_CORPSE_mod
 
 use fms_mod, only: error_mesg, NOTE
 
@@ -18,13 +18,13 @@ use soilc_CORPSE_accessors_mod ! use everything
 
 implicit none; private
 
-public :: soilc_init_CORPSE
-public :: save_soilc_CORPSE_restart
+public :: soil_BGC_init_CORPSE
+public :: soil_BGC_save_restart_CORPSE
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
+subroutine soil_BGC_save_restart_CORPSE(tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
@@ -155,7 +155,7 @@ subroutine save_soilc_CORPSE_restart(tile_dim_length, timestamp)
   endif
 end subroutine
 
-subroutine soilc_init_CORPSE( id_ug, id_zfull )
+subroutine soil_BGC_init_CORPSE( id_ug, id_zfull )
   integer,intent(in) :: id_ug    !< Unstructured axis id
   integer,intent(in) :: id_zfull !< Vertical (depth) axis id
 
