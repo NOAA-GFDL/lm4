@@ -75,6 +75,7 @@ public :: cull_cohorts
 public :: debug_pool
 
 public :: do_nitrogen
+public :: save_equilibration_data
 
 ! public :: soil_NO3_deposition!x2z
 ! public :: soil_NH4_deposition!x2z
@@ -196,6 +197,7 @@ end type soil_BGC_CORPSE_t
 
 !---- namelist ---------------------------------------------------------------
 logical, protected :: do_nitrogen = .FALSE. ! if TRUE, nitrogen in soil is simulated
+
 logical                   :: use_rhizosphere_cohort=.FALSE.  ! Use 2 fixed cohorts for rhizosphere and bulk soil if true
 real :: r_rhiz = 0.001                 ! Radius of rhizosphere around root (m)
 logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
@@ -269,6 +271,9 @@ integer :: N_limit_scheme = NLIM_OVERFLOW  ! N limitation scheme to use: See def
 real :: max_soil_C_density   = 50.0 !(kgC/m3) -- for redistribution of peat
 real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
 
+logical, protected :: save_equilibration_data = .FALSE. !< if TRUE, information for
+                         !! soil BGC equilibration acceleration is saved to disk
+
 
 namelist /soil_BGC_CORPSE_nml/ &
     do_nitrogen, use_rhizosphere_cohort, r_rhiz, &
@@ -285,10 +290,11 @@ namelist /soil_BGC_CORPSE_nml/ &
     N_limit_scheme,&
     Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,mup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
     vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor,nitrate_solubility,ammonium_solubility,&
-    max_soil_C_density, max_litter_thickness
+    max_soil_C_density, max_litter_thickness, &
+    save_equilibration_data
 !---- end-of-namelist --------------------------------------------------------
 
-! normalization factors for soil moisture aerobic respiration depencence
+! normalization factors for soil moisture aerobic respiration dependence
 real :: aerobic_max, theta_resp_max
 
 ! diag fields ID

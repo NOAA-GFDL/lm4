@@ -11,8 +11,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, field_exists
 use soil_tile_mod, only: num_l, zfull
 use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, adjust_pool_ncohorts, do_nitrogen, &
-     soilMaxCohorts, soil_BGC_diag_init_CORPSE
-use soil_BGC_mod, only: save_equilibration_data
+     soilMaxCohorts, soil_BGC_diag_init_CORPSE, save_equilibration_data
 
 use soil_accessors_mod, only: soil_gross_nitrogen_flux_into_tile_ptr, soil_gross_nitrogen_flux_out_of_tile_ptr
 use soilc_CORPSE_accessors_mod ! use everything

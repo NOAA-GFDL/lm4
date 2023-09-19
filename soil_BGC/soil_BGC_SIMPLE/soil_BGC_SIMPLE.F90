@@ -8,9 +8,9 @@ use land_tile_mod, only : land_tile_type
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, add_restart_axis
-use soil_BGC_simple_type_mod, only : soil_BGC_SIMPLE_t, soil_BGC_diag_init_SIMPLE
+use soil_BGC_simple_type_mod, only : soil_BGC_SIMPLE_t, soil_BGC_diag_init_SIMPLE, &
+     save_equilibration_data
 use soil_tile_mod, only: num_l, zfull
-use soil_BGC_mod, only : save_equilibration_data
 
 implicit none; private
 

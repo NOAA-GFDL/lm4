@@ -15,8 +15,6 @@ implicit none; private
 public :: read_soil_BGC_namelist
 public :: new_soilc, delete_soilc
 
-public :: save_equilibration_data
-
 public :: soil_BGC_option
 
 ! ==== module constants ======================================================
@@ -31,9 +29,7 @@ end interface
 
 !---- namelist ---------------------------------------------------------------
 character(32) :: model_to_use = 'SIMPLE' ! or 'CORPSE'
-logical, protected :: save_equilibration_data = .FALSE. ! indicates whether to write
-                        ! information for soil carbon acceleration
-namelist /soil_BGC_nml/ model_to_use, save_equilibration_data
+namelist /soil_BGC_nml/ model_to_use
 
 ! soil carbon options
 integer, protected :: soil_BGC_option
