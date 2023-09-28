@@ -41,8 +41,8 @@ use soil_BGC_type_mod, only : soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only : soil_BGC_SIMPLE_t
 use soil_BGC_CORPSE_type_mod, only : soil_BGC_CORPSE_t, &
      debug_pool, ammonium_solubility, nitrate_solubility
-use soilc_util_mod, only : register_soilc_diag_fields, &
-    register_litter_diag_fields, register_litter_soilc_diag_fields
+! use soilc_util_mod, only : register_soilc_diag_fields, &
+!     register_litter_diag_fields, register_litter_soilc_diag_fields
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -101,7 +101,7 @@ public :: soil_step_2
 public :: soil_data_beta
 
 ! helper functions that may be better moved elsewhere:
-public :: register_litter_soilc_diag_fields
+! public :: register_litter_soilc_diag_fields
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil'

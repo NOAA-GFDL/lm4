@@ -1,4 +1,4 @@
-module soilc_util_mod
+module soil_BGC_util_mod
 
 use time_manager_mod, only : time_type
 use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, &
@@ -28,6 +28,7 @@ end do
 end function replace_text
 
 ! ============================================================================
+!> @brief register an array of diag fields, one per carbon type
 function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -56,7 +57,7 @@ function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
 end function register_soilc_diag_fields
 
 ! ============================================================================
-! registered an array of diag fields, one per litter pool
+!> @brief register an array of diag fields, one per litter pool
 function register_litter_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -85,7 +86,7 @@ function register_litter_diag_fields(module_name, field_name, axes, init_time, &
 end function register_litter_diag_fields
 
 ! ============================================================================
-! registered a 2D array of diag fields, one per litter pool per carbon type
+!> @brief register a 2D array of diag fields, one per litter pool per carbon type
 function register_litter_soilc_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -117,6 +118,5 @@ function register_litter_soilc_diag_fields(module_name, field_name, axes, init_t
      enddo
   enddo
 end function register_litter_soilc_diag_fields
-
 
 end module

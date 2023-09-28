@@ -15,7 +15,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
 use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
-use soilc_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
+use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
 use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
 use vegn_tile_mod, only: vegn_tile_type
@@ -318,8 +318,6 @@ subroutine get_littC_SIMPLE(soilc, values)
      values(i) = sum(soilc%litter_SIMPLE_C(:,i))
   enddo
 end subroutine
-
-! --- the stuff below should go to soilc_utils_mod
 
 !> @brief return zeros in 1D array
 !! This subroutine is used to retrieve substances and values that are not present in

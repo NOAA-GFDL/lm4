@@ -55,8 +55,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass
-use soil_mod, only : soil_data_beta, &
-     register_litter_soilc_diag_fields
+use soil_mod, only : soil_data_beta
+use soil_BGC_util_mod, only : register_litter_soilc_diag_fields
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data

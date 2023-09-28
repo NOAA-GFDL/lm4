@@ -23,7 +23,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
 
 use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
-use soilc_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
+use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
 use soil_tile_mod, only : soil_tile_type, gw_option, GW_TILED, initval, &
         num_l, dz, zhalf, clay, dat_w_sat, &
