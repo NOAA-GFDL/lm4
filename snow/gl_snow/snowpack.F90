@@ -400,21 +400,21 @@ subroutine read_snowpack_namelist()
 ! ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 
-  ! if(is_watch_point()) then
-    write(*,*) "EZNML CHECK - READ_SNOWPACK_NAMELIST"
-    __DEBUG1__(opt_layer_N)
-    __DEBUG1__(opt_layer_max)
-    __DEBUG1__(opt_layer_R)
-    __DEBUG1__(lap_albedo_include_bc)
-    __DEBUG1__(lap_albedo_include_md)
-    __DEBUG1__(lap_albedo_include_om)
-    __DEBUG1__(cpw)
-    __DEBUG1__(clw)
-    __DEBUG1__(csw)
-    __DEBUG1__(use_mcm_masking)
-    __DEBUG1__(depth_crit)
-    __DEBUG1__(heat_cond_to_use)
-  ! endif
+  ! ! if(is_watch_point()) then
+  !   write(*,*) "EZNML CHECK - READ_SNOWPACK_NAMELIST"
+  !   __DEBUG1__(opt_layer_N)
+  !   __DEBUG1__(opt_layer_max)
+  !   __DEBUG1__(opt_layer_R)
+  !   __DEBUG1__(lap_albedo_include_bc)
+  !   __DEBUG1__(lap_albedo_include_md)
+  !   __DEBUG1__(lap_albedo_include_om)
+  !   __DEBUG1__(cpw)
+  !   __DEBUG1__(clw)
+  !   __DEBUG1__(csw)
+  !   __DEBUG1__(use_mcm_masking)
+  !   __DEBUG1__(depth_crit)
+  !   __DEBUG1__(heat_cond_to_use)
+  ! ! endif
 
 end subroutine read_snowpack_namelist
 

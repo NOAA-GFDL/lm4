@@ -173,15 +173,15 @@ subroutine read_snow_snicar_namelist()
   ! read optical properties now
   call read_snicar_optics_data()
 
-!   if(is_watch_point()) then
-   write(*,*) "EZNML CHECK - READ_SNICAR_NAMELIST"
-      __DEBUG1__(snow_shape_defined)
-      __DEBUG1__(use_snicar_ad)
-      __DEBUG1__(is_dust_internal_mixing)
-      __DEBUG1__(is_BC_internal_mixing)
-      __DEBUG1__(snicar_atm_type)
-      __DEBUG1__(ncid)
-!   endif
+! !   if(is_watch_point()) then
+!    write(*,*) "EZNML CHECK - READ_SNICAR_NAMELIST"
+!       __DEBUG1__(snow_shape_defined)
+!       __DEBUG1__(use_snicar_ad)
+!       __DEBUG1__(is_dust_internal_mixing)
+!       __DEBUG1__(is_BC_internal_mixing)
+!       __DEBUG1__(snicar_atm_type)
+!       __DEBUG1__(ncid)
+! !   endif
 
 end subroutine read_snow_snicar_namelist
 
@@ -241,20 +241,20 @@ end subroutine read_snow_snicar_namelist
          ! cap concentration to 1000 ppm [for Mineral Dust MD] -> 1E-3 kg/kg
          ! 1 = BLACK CARBON (1=PHI, 2=PHO)
          if (lap_albedo_include_bc) then
-            trmat(1, il, 1) = min(0.5 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-6)
-            trmat(1, il, 2) = min(0.5 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-6)
+            trmat(1, il, 1) = 0.05 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 2) = 0.95 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
             endif
             ! ! 3 = ORGANIC CARBON (1=PHI, 2=PHO)
             if (lap_albedo_include_om) then
-            trmat(1, il, 3) = min( 0.5 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-6)
-            trmat(1, il, 4) = min( 0.5 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-6)
+            trmat(1, il, 3) =  0.05 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 4) =  0.95 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
             endif
             ! ! 2 = MINERAL DUST for various size bins
             if (lap_albedo_include_md) then
-            trmat(1, il, 5) = min( 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-3*0.25)
-            trmat(1, il, 6) = min( 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-3*0.25)
-            trmat(1, il, 7) = min( 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-3*0.25)
-            trmat(1, il, 8) = min( 0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl), 1E-3*0.25)
+            trmat(1, il, 5) =  0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 6) =  0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 7) =  0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 8) =  0.25 * 1E-6 * (s%snow(il)%wc_em(2) + s%snow(il)%wc_im(2) )/(s%snow(il)%ws+s%snow(il)%wl)
             endif
 
 
