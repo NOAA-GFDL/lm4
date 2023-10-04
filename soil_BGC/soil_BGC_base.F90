@@ -9,6 +9,7 @@ use soil_tile_mod, only: soil_tile_type
 use soil_BGC_type_mod, only: soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only: soil_BGC_SIMPLE_t, new_soilc_SIMPLE, read_soil_BGC_SIMPLE_namelist
 use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, new_soilc_CORPSE, read_soil_BGC_CORPSE_namelist
+use soil_BGC_GIMICS_type_mod, only: soil_BGC_GIMICS_t, new_soilc_GIMICS, read_soil_BGC_GIMICS_namelist
 
 implicit none; private
 
@@ -35,7 +36,8 @@ namelist /soil_BGC_nml/ model_to_use
 integer, protected :: soil_BGC_option
 integer, public, parameter :: &
     SOIL_BGC_SIMPLE        = 1, & ! SIMPLE decomposition
-    SOIL_BGC_CORPSE        = 2    ! CORPSE model
+    SOIL_BGC_CORPSE        = 2, & ! CORPSE model
+    SOIL_BGC_GIMICS        = 3    ! GIMICS model
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -45,8 +47,7 @@ subroutine read_soil_BGC_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
   read (input_nml_file, nml=soil_BGC_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_BGC_nml')
   if (mpp_pe() == mpp_root_pe()) then
@@ -60,6 +61,8 @@ subroutine read_soil_BGC_namelist()
     soil_BGC_option = SOIL_BGC_SIMPLE
   case('CORPSE')
     soil_BGC_option = SOIL_BGC_CORPSE
+  case('GIMICS')
+    soil_BGC_option = SOIL_BGC_GIMICS
   case default
     call error_mesg('read_soil_BGC_namelist', &
         '"'//trim(model_to_use)//'" is an invalid option for model_to_use', FATAL)
@@ -70,6 +73,8 @@ subroutine read_soil_BGC_namelist()
     call read_soil_BGC_SIMPLE_namelist()
   case (SOIL_BGC_CORPSE)
     call read_soil_BGC_CORPSE_namelist()
+  case (SOIL_BGC_GIMICS)
+    call read_soil_BGC_GIMICS_namelist()
   end select
 end subroutine read_soil_BGC_namelist
 
@@ -84,6 +89,8 @@ function soilc_ctor(soil) result(ptr)
     ptr => new_soilc_SIMPLE(soil)
   case (SOIL_BGC_CORPSE)
     ptr => new_soilc_CORPSE(soil)
+  case (SOIL_BGC_GIMICS)
+    ptr => new_soilc_GIMICS(soil)
   case default
     call land_error_message('soilc_ctor: The value of soil_BGC_option is invalid. This should never happen. See developer', FATAL)
   end select
@@ -102,6 +109,8 @@ function soilc_copy(soilc) result(ptr)
      ptr => new_soilc_SIMPLE(soilc)
   type is (soil_BGC_CORPSE_t)
      ptr => new_soilc_CORPSE(soilc)
+  type is (soil_BGC_GIMICS_t)
+     ptr => new_soilc_GIMICS(soilc)
   class default
     call land_error_message('soilc_copy: The type of soilc is invalid. This should never happen. See developer', FATAL)
   end select
