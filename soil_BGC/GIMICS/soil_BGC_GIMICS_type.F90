@@ -101,7 +101,7 @@ contains
   procedure :: myc_miner_N_uptake => myc_miner_N_uptake_GIMICS
   procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake_GIMICS
 
-  procedure :: update_soil_pools => update_soil_pools_GIMICS
+  procedure :: spend_intermediate_pools => spend_intermediate_pools_GIMICS
   procedure :: dsdt => dsdt_GIMICS
   procedure :: step3 => step3_GIMICS
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_GIMICS
@@ -645,9 +645,10 @@ subroutine add_soil_carbon_GIMICS(soilc, vegn, &
 end subroutine
 
 ! ============================================================================
-! Transfer intermediate pools (that smooth spiky processes) to surface litter
-! and soil
-subroutine update_soil_pools_GIMICS(soilc, vegn)
+! transfer fraction of intermediate pools (used for smoothing out contributions
+! of spiky processes, e.g. harvesting) defined in vegetation tile data structure
+! to soil BGC pools.
+subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
   class(soil_BGC_GIMICS_t), intent(inout) :: soilc
   type(vegn_tile_type),     intent(inout) :: vegn
 

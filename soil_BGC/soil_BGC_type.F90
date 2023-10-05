@@ -35,7 +35,7 @@ contains
   procedure (myc_miner_N_uptake),     deferred, pass :: myc_miner_N_uptake
   procedure (myc_scavenger_N_uptake), deferred, pass :: myc_scavenger_N_uptake
 
-  procedure (update_soil_pools), deferred, pass :: update_soil_pools
+  procedure (spend_intermediate_pools), deferred, pass :: spend_intermediate_pools
   procedure (dsdt),              deferred, pass :: dsdt
   procedure (step3),             deferred, pass :: step3
   procedure (redistribute_peat_carbon), deferred, pass :: redistribute_peat_carbon
@@ -174,9 +174,12 @@ abstract interface
       real,    intent(out) :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
    end subroutine
 
-   subroutine update_soil_pools(soilc, vegn)
+   ! transfer fraction of intermediate pools (used for smoothing out contributions
+   ! of spiky processes, e.g. harvesting) defined in vegetation tile data structure
+   ! to soil BGC pools.
+   subroutine spend_intermediate_pools(soilc, vegn)
       import :: soil_BGC_t, vegn_tile_type
-      class(soil_BGC_t),       intent(inout) :: soilc
+      class(soil_BGC_t),    intent(inout) :: soilc
       type(vegn_tile_type), intent(inout) :: vegn
    end subroutine
 
@@ -208,12 +211,14 @@ contains
 ! ============================================================================
 !> @brief Move substance from one pool to another
 !!
-!! given an intermediate pool of C or N, and its spending rate, move the amount
-!! of mass corresponding to one fast time step from the pool to the destination.
-!! The spending rate is adjusted so that intermediate pool is never depleted below zero.
+!! This is a utility subroutine that, given an intermediate pool of matte
+!! (e.g. C or N), and its spending rate, move the amount of mass corresponding
+!! to one fast time step from the pool to the destination. The spending rate
+!! is adjusted so that intermediate pool is never depleted below zero.
 !!
 !! @note
-!! Spending rate argument is also updated, to be correctly reported to diagnostics
+!! Spending rate argument is also updated, to be correctly reported to
+!! diagnostics from calling subroutine.
 subroutine deplete_pool(pool, rate, dest, accum)
    real, intent(inout) :: pool !< C or N intermediate pool, kg
    real, intent(inout) :: rate !< C or N spending rate, kg/yr
