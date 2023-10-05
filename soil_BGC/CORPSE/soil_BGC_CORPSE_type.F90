@@ -186,7 +186,7 @@ contains
   procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake
   procedure :: myc_miner_n_uptake     => myc_miner_n_uptake
 
-  procedure :: update_soil_pools => update_soil_pools_CORPSE
+  procedure :: spend_intermediate_pools => spend_intermediate_pools_CORPSE
   procedure :: dsdt              => dsdt_CORPSE
   procedure :: step3             => step3_CORPSE
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CORPSE
@@ -1665,7 +1665,11 @@ subroutine myc_miner_N_uptake(soilc, soil,vegn,N_uptake_cohorts,C_uptake_cohorts
   end associate ! cc
 end subroutine myc_miner_N_uptake
 
-subroutine update_soil_pools_CORPSE(soilc, vegn)
+! ============================================================================
+! transfer fraction of intermediate pools (used for smoothing out contributions
+! of spiky processes, e.g. harvesting) defined in vegetation tile data structure
+! to soil BGC pools.
+subroutine spend_intermediate_pools_CORPSE(soilc, vegn)
   class(soil_BGC_CORPSE_t), intent(inout) :: soilc
   type(vegn_tile_type),  intent(inout) :: vegn
 

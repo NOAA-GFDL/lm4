@@ -906,7 +906,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   ! NEP is equal to NPP minus soil respiration
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
-  call soilc%update_soil_pools(vegn)
+  call soilc%spend_intermediate_pools(vegn)
 
 
   ! ---- diagnostic section
@@ -1229,7 +1229,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
 !  vegn%nep = sum(npp(1:M)*c(1:M)%nindivs) - vegn%rh
   vegn%nep = sum((gpp(1:M)-resp(1:M))*c(1:M)%nindivs) - vegn%rh
 
-  call soilc%update_soil_pools(vegn)
+  call soilc%spend_intermediate_pools(vegn)
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'

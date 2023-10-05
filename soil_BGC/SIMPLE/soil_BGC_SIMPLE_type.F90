@@ -72,7 +72,7 @@ contains
   procedure :: myc_scavenger_N_uptake => myc_scavenger_N_uptake_SIMPLE
   procedure :: myc_miner_N_uptake     => myc_miner_N_uptake_SIMPLE
 
-  procedure :: update_soil_pools => update_soil_pools_SIMPLE
+  procedure :: spend_intermediate_pools => spend_intermediate_pools_SIMPLE
   procedure :: dsdt              => dsdt_SIMPLE
   procedure :: step3             => step3_SIMPLE
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_SIMPLE
@@ -544,7 +544,11 @@ subroutine myc_miner_N_uptake_SIMPLE(soilc,soil,vegn,N_uptake_cohorts,C_uptake_c
   real,    intent(out) :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 end subroutine
 
-subroutine update_soil_pools_SIMPLE(soilc, vegn)
+! ============================================================================
+! transfer fraction of intermediate pools (used for smoothing out contributions
+! of spiky processes, e.g. harvesting) defined in vegetation tile data structure
+! to soil BGC pools.
+subroutine spend_intermediate_pools_SIMPLE(soilc, vegn)
   class(soil_BGC_SIMPLE_t), intent(inout) :: soilc
   type(vegn_tile_type) , intent(inout) :: vegn
 
@@ -569,14 +573,16 @@ subroutine update_soil_pools_SIMPLE(soilc, vegn)
   call deplete_pool1(soilc%litter_SIMPLE_C(C_SLOW, LITT_CWOOD), tau_cwlitt_transfer, soilc%slow_soil_C(1), soilc%ssc_in(1))
 end subroutine
 
+! ============================================================================
 !> @brief Move substance from one pool to another
 !!
-!! Given an intermediate pool of C or N, and its e-folding time scale,
-!! move the amount of mass corresponding to one fats time step from the
+!! Given an intermediate pool of matter (e.g. C or N), and its e-folding time
+!! scale, move the amount of mass corresponding to one fats time step from the
 !! pool to the destination.
 !!
-!! In contrast to "deplete_pool" subroutime it accepts the time scale
-!! tau, instead os pending rate
+!! @note
+!! In contrast to "deplete_pool" subroutime it accepts the time scale tau,
+!! instead of spending rate
 subroutine deplete_pool1(pool, tau, dest, accum)
    real, intent(inout) :: pool !< C or N intermediate pool, kg
    real, intent(in)    :: tau  !< C or N e-folding time scale, years
