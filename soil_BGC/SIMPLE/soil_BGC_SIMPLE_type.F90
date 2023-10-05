@@ -62,7 +62,6 @@ contains
   procedure :: get_littC => get_littC_SIMPLE
 
   procedure :: add_soil_carbon   => add_soil_carbon_SIMPLE
-  procedure :: add_root_litter   => add_root_litter_SIMPLE
   procedure :: add_root_exudates => add_root_exudates_SIMPLE
   procedure :: burn_litter_frac  => burn_litter_frac_SIMPLE
   procedure :: tracer_leaching   => tracer_leaching_SIMPLE
@@ -427,17 +426,6 @@ subroutine add_soil_carbon_SIMPLE(soilc, vegn, &
   vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
 
 end subroutine add_soil_carbon_SIMPLE
-
-!> @brief Add new root litter to soil carbon and nitrogen
-!! For SIMPLE soil carbon model model, it prints error message and stops with FATAL error
-subroutine add_root_litter_SIMPLE(soilC, vegn, litterC, litterN)
-  class(soil_BGC_SIMPLE_t)  , intent(inout) :: soilC !< soil carbon state
-  type(vegn_tile_type) , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
-  real                 , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
-  real                 , intent(in)    :: litterN(:,:) !< new litter nitrogen content kgN/m2 of soil layer
-
-  call land_error_message('add_root_litter_SIMPLE called -- this should never happen', FATAL)
-end subroutine
 
 !> @brief Add root exudates to vertical profile
 subroutine add_root_exudates_SIMPLE(soilc, exudateC, exudateN, ammonium, nitrate)

@@ -176,7 +176,6 @@ contains
   procedure :: get_littC => get_littC_CORPSE
 
   procedure :: add_soil_carbon   => add_soil_carbon_CORPSE
-  procedure :: add_root_litter   => add_root_litter_CORPSE
   procedure :: add_root_exudates => add_root_exudates_CORPSE
   procedure :: burn_litter_frac  => burn_litter_frac_CORPSE
   procedure :: tracer_leaching   => tracer_leaching_CORPSE
@@ -191,6 +190,8 @@ contains
   procedure :: step3             => step3_CORPSE
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CORPSE
 
+  ! CORPSE-specific procedures
+  procedure :: add_root_litter   => add_root_litter_CORPSE
 end type soil_BGC_CORPSE_t
 
 !==== module variables =======================================================
