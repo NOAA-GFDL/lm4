@@ -191,7 +191,6 @@ contains
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CORPSE
 
   ! CORPSE-specific procedures
-  procedure :: add_root_litter   => add_root_litter_CORPSE
 end type soil_BGC_CORPSE_t
 
 !==== module variables =======================================================
@@ -802,7 +801,7 @@ subroutine merge_CORPSE(s2,w2,s1,w1)
 end subroutine
 
 !> @brief Add new root litter to soil carbon and nitrogen
-subroutine add_root_litter_CORPSE(soilC, vegn, litterC, litterN)
+subroutine add_root_litter(soilC, vegn, litterC, litterN)
   class(soil_BGC_CORPSE_t) , intent(inout) :: soilC !< soil carbon state
   type(vegn_tile_type)  , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
   real                  , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
@@ -1737,7 +1736,7 @@ subroutine spend_intermediate_pools_CORPSE(soilc, vegn)
      litterC(k,:) = [deltafast,deltaslow,0.0] * profile(k)
      litterN(k,:) = [deltafast_N,deltaslow_N,0.0] * profile(k)
   enddo
-  call add_root_litter_CORPSE(soilc, vegn, litterC, litterN )
+  call add_root_litter(soilc, vegn, litterC, litterN )
 end subroutine
 
 ! ============================================================================
