@@ -208,7 +208,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      vegn%cohorts=>cc
   endif
   ! add litter accumulated over the cohorts
-  call soil%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if (is_watch_point()) then
@@ -370,7 +370,7 @@ subroutine add_seedlings_ppa(vegn, soil, soilc, seed_C, seed_N, germination_fact
   enddo
 
 
-  call soilc%add_soil_carbon( vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
+  call soilc%add_soil_matter( vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
 
   vegn%n_cohorts = k
   if (.not.seedling_relayer_bug) then

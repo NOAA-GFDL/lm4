@@ -191,7 +191,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
      end associate
   enddo
 
-  call soil%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   vegn%csmoke_rate = vegn%csmoke_pool; ! kg C/(m2 yr)
@@ -359,7 +359,7 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      end associate
   enddo
   ! add litter accumulated over the cohorts
-  call soil%add_soil_carbon( vegn, wood_litter_C=wood_litt_C, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+  call soil%add_soil_matter( vegn, wood_litter_C=wood_litt_C, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
                                    wood_litter_N=wood_litt_N, leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 end subroutine vegn_nat_mortality_lm3
 
@@ -716,10 +716,10 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      enddo
   endif
 
-  call t0%soilc%add_soil_carbon( t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+  call t0%soilc%add_soil_matter( t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
                                           leaf_litt0_N, wood_litt0_N, root_litt0_N  )
   if (associated(t1)) &
-     call t1%soilc%add_soil_carbon( t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
+     call t1%soilc%add_soil_matter( t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
                                              leaf_litt1_N, wood_litt1_N, root_litt1_N  )
 
   if (is_watch_point()) then

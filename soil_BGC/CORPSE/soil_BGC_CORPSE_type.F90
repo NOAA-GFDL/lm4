@@ -175,7 +175,7 @@ contains
   procedure :: get_amm => retrieve_ammonium
   procedure :: get_littC => get_littC_CORPSE
 
-  procedure :: add_soil_carbon   => add_soil_carbon_CORPSE
+  procedure :: add_soil_matter   => add_soil_matter_CORPSE
   procedure :: add_root_exudates => add_root_exudates_CORPSE
   procedure :: burn_litter_frac  => burn_litter_frac_CORPSE
   procedure :: tracer_leaching   => tracer_leaching_CORPSE
@@ -817,7 +817,7 @@ subroutine add_root_litter_CORPSE(soilC, vegn, litterC, litterN)
   enddo
 end subroutine
 
-subroutine add_soil_carbon_CORPSE(soilc, vegn, &
+subroutine add_soil_matter_CORPSE(soilc, vegn, &
         leaf_litter_C, wood_litter_C, root_litter_C, &
         leaf_litter_N, wood_litter_N, root_litter_N  )
   class(soil_BGC_CORPSE_t), intent(inout) :: soilc
@@ -898,7 +898,7 @@ contains
     litt      = max(litt,0.0)
   end subroutine borrow_to_negatives
 
-end subroutine add_soil_carbon_CORPSE
+end subroutine
 
 !> @brief Calculate volumetric fraction of rhizosphere in each layer
 subroutine rhizosphere_frac(vegn, rhiz_frac)

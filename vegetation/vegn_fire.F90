@@ -2551,7 +2551,7 @@ subroutine vegn_burn_ppa(tile)
      end associate ! sp
   enddo
   ! add carbon to soil
-  call tile%soilc%add_soil_carbon( tile%vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call tile%soilc%add_soil_matter( tile%vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                               leaf_litt_N, wood_litt_N, root_litt_N  )
 
   ! adjust population density in the untouched portion of the grid
@@ -2714,7 +2714,7 @@ subroutine vegn_burn_lm3(vegn,soilc,tile_area_m2)
      enddo
      end associate
   enddo
-  call soilc%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soilc%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                     leaf_litt_N, wood_litt_N, root_litt_N  )
 
   ! Get total combusted, killed

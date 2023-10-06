@@ -61,7 +61,7 @@ contains
   procedure :: get_amm => get_zero_1D
   procedure :: get_littC => get_littC_SIMPLE
 
-  procedure :: add_soil_carbon   => add_soil_carbon_SIMPLE
+  procedure :: add_soil_matter   => add_soil_matter_SIMPLE
   procedure :: add_root_exudates => add_root_exudates_SIMPLE
   procedure :: burn_litter_frac  => burn_litter_frac_SIMPLE
   procedure :: tracer_leaching   => tracer_leaching_SIMPLE
@@ -338,7 +338,7 @@ subroutine get_zero_1D(soilC, values)
   values(:) = 0.0
 end subroutine
 
-subroutine add_soil_carbon_SIMPLE(soilc, vegn, &
+subroutine add_soil_matter_SIMPLE(soilc, vegn, &
         leaf_litter_C, wood_litter_C, root_litter_C, &
         leaf_litter_N, wood_litter_N, root_litter_N  )
   class(soil_BGC_SIMPLE_t),   intent(inout) :: soilc
@@ -425,7 +425,7 @@ subroutine add_soil_carbon_SIMPLE(soilc, vegn, &
   vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
   vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
 
-end subroutine add_soil_carbon_SIMPLE
+end subroutine
 
 !> @brief Add root exudates to vertical profile
 subroutine add_root_exudates_SIMPLE(soilc, exudateC, exudateN, ammonium, nitrate)

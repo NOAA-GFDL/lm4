@@ -24,7 +24,7 @@ contains
   procedure (get_real_1D),   deferred, pass :: get_amm ! returns ammonium by layer, kgN/m2
   procedure (get_real_1D),   deferred, pass :: get_littC ! returns litter carbon, by litter pool, kgC/m2
 
-  procedure (add_soil_carbon),   deferred, pass :: add_soil_carbon ! add new surface and sub-surface litter to soil carbon and nitrogen
+  procedure (add_soil_matter),   deferred, pass :: add_soil_matter   ! add new surface and sub-surface litter to soil carbon and nitrogen
   procedure (add_root_exudates), deferred, pass :: add_root_exudates ! add root exudates to soil carbon
   procedure (burn_litter_frac),  deferred, pass :: burn_litter_frac  ! burn a fraction of sfc litter and retuen amounts of burned carbon and nitrogen
   procedure (tracer_leaching),   deferred, pass :: tracer_leaching
@@ -80,7 +80,7 @@ abstract interface
       real,           intent(out):: values(:) ! (num_l)
    end subroutine
 
-   subroutine add_soil_carbon(soilC, vegn, &
+   subroutine add_soil_matter(soilC, vegn, &
           leaf_litter_C, wood_litter_C, root_litter_C, &
           leaf_litter_N, wood_litter_N, root_litter_N  )
       import :: soil_BGC_t,vegn_tile_type
