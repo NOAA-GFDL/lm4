@@ -9,7 +9,7 @@ use land_constants_mod, only : N_LITTER_POOLS, seconds_per_year, &
         N_C_TYPES, C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD
 
 use land_data_mod, only : log_version, lnd
-use land_debug_mod, only: land_error_message
+use land_debug_mod, only : land_error_message
 
 use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : set_default_diag_filter, &
@@ -18,9 +18,9 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
 use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
 use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
-use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
+use soil_tile_mod, only : soil_tile_type, num_l, dz, soil_theta, soil_pClay
 use vegn_data_mod, only : spdata
-use vegn_tile_mod, only: vegn_tile_type
+use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : cohort_root_litter_profile
 
 implicit none; private
@@ -46,7 +46,7 @@ real, parameter :: hours_per_year = seconds_per_year/3600.0
 
 ! GIMICS BGC pool
 type GIMICS_BGC_pool
-! slm: from notes in Minjin's code, units are mgC/cm3 same as kgC/m3
+! concentrations of various carbon pools, [kgC/m3]
 ! slm: need initial values
     real :: metabolicLitterC
     real :: structuralLitterC
@@ -57,18 +57,18 @@ type GIMICS_BGC_pool
     real :: microbesK
 
 ! slm: are these prognostic or for diagnostics only?
-    real :: DecompMrLm
-    real :: DecompMrLs
-    real :: DecompMrCa
-    real :: DecompMkLm
-    real :: DecompMkLs
-    real :: DecompMkCa
-    real :: OxidMrCc
-    real :: OxidMkCc
-    real :: Desorb
-    real :: MrTau
-    real :: MkTau
-    real :: Resp
+    real :: DecompMrLm = 0.0
+    real :: DecompMrLs = 0.0
+    real :: DecompMrCa = 0.0
+    real :: DecompMkLm = 0.0
+    real :: DecompMkLs = 0.0
+    real :: DecompMkCa = 0.0
+    real :: OxidMrCc   = 0.0
+    real :: OxidMkCc   = 0.0
+    real :: Desorb     = 0.0
+    real :: MrTau      = 0.0
+    real :: MkTau      = 0.0
+    real :: Resp       = 0.0
 end type
 
 !> @brief soil carbon data container for GIMICS soil carbon model
@@ -78,6 +78,7 @@ type, extends (soil_BGC_t) :: soil_BGC_GIMICS_t
   type(GIMICS_BGC_pool), allocatable :: &
     rhiz(:),    & ! rhizosphere
     bulk(:)       ! bulk soil (i.e. soil that is not rhizosphere)
+  real, allocatable :: fRhiz(:) ! fraction of rhizosphere in each layer, unitless, [0,1]
 contains
   procedure :: merge => merge_GIMICS     ! merge another soil carbon tile into current one
   procedure :: total_C => total_C_GIMICS ! returns total C [kgC/m2]
@@ -138,7 +139,6 @@ real :: Kslope_Ca = 0.017    ! Regression coefficient (ln(mgC/cm3)/Celsius) (Eq 
 real :: Kint      = 3.19     ! Regression intercept (ln(mgC/cm3)) (Eq 2 in Wieder et al., 2015)
 real :: aK        = 10.0     ! Tuning coefficient (unitless) (Eq 2 in Wieder et al., 2015)
 
-real :: Fclay = 0.15         ! Fraction of soil clay content (unitless)
 real :: fI_Lm = 0.38464225   ! Partitioning of litter inputs to Lm (unitless)
 
 real  :: eLm_Mr = 0.55       ! Microbial growth efficiency for fluxes from Lm to Mr (mg/mg)
@@ -165,7 +165,7 @@ logical, protected :: save_equilibration_data = .FALSE. !< if TRUE, information 
 namelist /soil_BGC_GIMICS_nml/ &
     Vmod_Mr_Lm, Vmod_Mr_Ls, Vmod_Mr_Ca, Vmod_Mk_Lm, Vmod_Mk_Ls, Vmod_Mk_Ca, Vslope, Vint, aV, &
     Kmod_Mr_Lm, Kmod_Mr_Ls, Kmod_Mr_Ca, Kmod_Mk_Lm, Kmod_Mk_Ls, Kmod_Mk_Ca, Kslope_Lm, Kslope_Ls, Kslope_Ca, Kint, aK, &
-    Fclay, fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
+    fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, &
 ! -----
     rhiz_frac, & ! slm: remove from namelist later: it is a variable that depends on time and z
@@ -174,7 +174,7 @@ namelist /soil_BGC_GIMICS_nml/ &
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-!> read namelist and set up few constants
+!> @brief read namelist and set up few constants
 subroutine read_soil_BGC_GIMICS_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
@@ -212,7 +212,6 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 end subroutine
 
 ! ============================================================================
-! constructors
 !> @brief Create new (empty) soil carbon representation
 !! @return Pointer to new soil carbon data structure
 function soilc_GIMICS_ctor(soil) result(ptr)
@@ -221,8 +220,10 @@ function soilc_GIMICS_ctor(soil) result(ptr)
 
   allocate(ptr)
   allocate( &
-      ptr%rhiz   (num_l), &
-      ptr%bulk   (num_l)  )
+      ptr%rhiz  (num_l), &
+      ptr%bulk  (num_l), &
+      ptr%fRhiz (num_l)  )
+  ptr%fRhiz(:) = 0.0 ! is this reasonable?
 end function
 
 ! ============================================================================
@@ -240,58 +241,134 @@ end function
 !> @brief merge s1 into current soil carbon type s2, with given weights
 subroutine merge_GIMICS(s2,w2,s1,w1)
   class(soil_BGC_GIMICS_t), intent(inout) :: s2    !< current soil carbon state
-  class(soil_BGC_t)  , intent(in)    :: s1    !< soil carbon state to be merged into current
-  real               , intent(in)    :: w2,w1 !< merging weights
+  class(soil_BGC_t)       , intent(in)    :: s1    !< soil carbon state to be merged into current
+  real                    , intent(in)    :: w2,w1 !< merging weights
 
-  real    :: x1, x2 ! normalized relative weights
+  real :: x1, x2 ! normalized relative weights
+  real :: f1, f2 ! fractions of rhizosphere or bulk pools, for weight calculations
+  real :: y1, y2 ! normalized relative weights for rhizosphere or bulk merges
+  integer :: k
 
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
 
-  call land_error_message('merge_GIMICS: not implemented', FATAL)
+  select type(s1)
+  type is (soil_BGC_GIMICS_t)
+     ! merge surface litter pools
+     ! slm: this is incorrect, we must take into account difference in surface litter thickness in pools
+     do k = 1, N_LITTER_POOLS
+        call merge_pools_GIMICS(s2%litt(k),x2,s1%litt(k),x1)
+     enddo
+     ! merge soil pools, layer by layer
+     do k = 1,size(s2%rhiz)
+        ! rhizosphere pools
+        f1 = s1%fRhiz(k)         ; f2 = s2%fRhiz(k)
+        y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+        call merge_pools_GIMICS(s2%rhiz(k),y2,s1%rhiz(k),y1)
+        ! bulk pools
+        f1 = 1.0 - s1%fRhiz(k)   ; f2 = 1.0 - s2%fRhiz(k)
+        y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+        call merge_pools_GIMICS(s2%bulk(k),y2,s1%bulk(k),y1)
+        ! update the rhizosphere fraction
+        s2%fRhiz(k) = x1*s1%fRhiz(k) + x2*s2%fRhiz(k)
+     enddo
 
-!   select type(s1)
-!   type is (soil_BGC_SIMPLE_t)
-!      ! merge soil carbon
-!      s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
-!      s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
-!      s2%litter_SIMPLE_C(:,:) = s1%litter_SIMPLE_C(:,:)*x1 + s2%litter_SIMPLE_C(:,:)*x2
-!
-!      s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
-!      s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
-!      s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
-!   class default
-!      call land_error_message('merge_GIMICS: attempt to merge incompatible soil carbon types', FATAL)
-!   end select
+  class default
+     call land_error_message('merge_GIMICS: attempt to merge incompatible soil carbon types', FATAL)
+  end select
+end subroutine
+
+! ============================================================================
+!> @brief Merge GIMICS pool p1 into pool p2, with given weights
+subroutine merge_pools_GIMICS(p2,w2,p1,w1)
+  type(GIMICS_BGC_pool), intent(inout) :: p2
+  type(GIMICS_BGC_pool), intent(in)    :: p1
+  real,                  intent(in)    :: w2, w1
+
+  real :: x1,x2 ! normalized weights for merging
+
+  ! normalize wights
+  x1 = w1/(w1+w2); x2 = 1.0-x1
+
+#define __MERGE__(var) p2%var = x2*p2%var + x1*p1%var
+  __MERGE__(metabolicLitterC)
+  __MERGE__(structuralLitterC)
+  __MERGE__(protectedC)
+  __MERGE__(chemResistantC)
+  __MERGE__(availableC)
+  __MERGE__(microbesR)
+  __MERGE__(microbesK)
+
+  __MERGE__(DecompMrLm)
+  __MERGE__(DecompMrLs)
+  __MERGE__(DecompMrCa)
+  __MERGE__(DecompMkLm)
+  __MERGE__(DecompMkLs)
+  __MERGE__(DecompMkCa)
+  __MERGE__(OxidMrCc)
+  __MERGE__(OxidMkCc)
+  __MERGE__(Desorb)
+  __MERGE__(MrTau)
+  __MERGE__(MkTau)
+  __MERGE__(Resp)
+#undef __MERGE__
+end subroutine
+
+
+! ============================================================================
+!> @brief Change the rhizosphere fraction in the soil
+subroutine set_fRhiz(soilc,fRhiz)
+  class(soil_BGC_GIMICS_t), intent(inout) :: soilc !< soil carbon data structure
+  real, intent(in) :: fRhiz(:) !< new fractions of rhizosphere, by layer. Unitless, [0,1]
+
+  integer :: k
+  real :: wr,wb ! weights for rhizosphere and bulk
+
+  do k = 1, size(soilc%fRhiz)
+     if (fRhiz(k) < soilc%fRhiz(k)) then
+        ! part of rhizosphere becomes bulk soil
+        wr = soilc%fRhiz(k) - fRhiz(k)
+        wb = 1.0 - soilc%fRhiz(k)
+        call merge_pools_GIMICS(soilc%bulk(k),wb,soilc%rhiz(k),wr)
+        soilc%fRhiz(k) = fRhiz(k)
+     else if (fRhiz(k) > soilc%fRhiz(k)) then
+        ! part of bulk soil becomes rhizosphere
+        wb = fRhiz(k) - soilc%fRhiz(k)
+        wr = soilc%fRhiz(k)
+        call merge_pools_GIMICS(soilc%rhiz(k),wr,soilc%bulk(k),wb)
+        soilc%fRhiz(k) = fRhiz(k)
+     else
+        ! do nothing, rhizosphere fraction did not change (or one of fRhiz is a NaN)
+     endif
+  enddo
 end subroutine
 
 ! ============================================================================
 !> @brief Given soil carbon state, return total soil C
-!! @return total soil carbon, kgC/m2
+!! @return Total soil carbon, kgC/m2
 real function total_C_GIMICS(soilc) result(tot_C)
   class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
 
   integer :: k
-!   real :: rhiz_frac(num_l)
 
   ! slm: what is dz associated with the surface litter?
   tot_C = 0.0
   do k = 1, N_LITTER_POOLS
      tot_C = tot_C + tot_pool_C(soilc%litt(k)) * dz_litt
   enddo
-  ! slm: what happens to carbon conservation when rhiz_frac changes?
-!   call rhizosphere_frac(vegn, rhiz_frac) -- cannot do that because vegn is not available here
+
   do k = 1,num_l
      tot_C = tot_C + &
-           ( tot_pool_C(soilc%rhiz(k))*rhiz_frac &
-           + tot_pool_C(soilc%bulk(k))*(1-rhiz_frac) &
+           ( tot_pool_C(soilc%rhiz(k)) * soilc%fRhiz(k)     &
+           + tot_pool_C(soilc%bulk(k)) * (1-soilc%fRhiz(k)) &
            ) * dz(k)
   enddo
 end function
 
 ! ============================================================================
-!> Given soil BGC pool, returns total volumetric density of carbon, kgC/m3
+!> @brief Given soil BGC pool, calculate total volumetric density of carbon, kgC/m3
+!! @return Total soil carbon in the pool, kgC/m3
 real function tot_pool_C(pool)
   type(GIMICS_BGC_pool), intent(in) :: pool
   tot_pool_C = pool%metabolicLitterC + pool%structuralLitterC &
@@ -318,9 +395,9 @@ subroutine rav_C_GIMICS(soilc, fast_C,slow_C,dmic_C)
      dmic_C       !< mass of microbes in litter, [kgC/m2]
 ! following CORPSE example, we only report the leaf litter pool values
   associate (pool=>soilc%litt(LITT_LEAF))
-  fast_C = pool%metabolicLitterC  * dz_litt
-  slow_C = pool%structuralLitterC * dz_litt
-  dmic_C = (pool%microbesR + pool%microbesR) * dz_litt
+     fast_C = pool%metabolicLitterC  * dz_litt
+     slow_C = pool%structuralLitterC * dz_litt
+     dmic_C = (pool%microbesR + pool%microbesR) * dz_litt
   end associate
 end subroutine
 
@@ -349,6 +426,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 
   real, dimension(num_l) :: decomp_T, decomp_theta
   real, dimension(num_l) :: rhiz_frac
+  real :: clay_frac ! fraction of clay, unitless in interval [0,1]. Should it be by-layer?
   integer :: k
 
   decomp_theta = soil_theta(soil)
@@ -356,7 +434,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
-     call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), Fclay=0.0, is_litter=.TRUE.)
+     call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh=vegn%rh + soilc%litt(k)%Resp*dz_litt*hours_per_year
 !      do i = 1, N_C_TYPES
@@ -371,12 +449,14 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 
   ! Next we have to go through layers and decompose the soil carbon pools
   call rhizosphere_frac(vegn, rhiz_frac)
+  call set_fRhiz(soilc,rhiz_frac)
+  clay_frac = soil_pClay(soil)/100.0
   do k=1,num_l
-     call update_pool_GIMICS(soilc%rhiz(k), decomp_T(k), decomp_theta(k), Fclay, is_litter=.FALSE.)
-     call update_pool_GIMICS(soilc%bulk(k), decomp_T(k), decomp_theta(k), Fclay, is_litter=.FALSE.)
+     call update_pool_GIMICS(soilc%rhiz(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
+     call update_pool_GIMICS(soilc%bulk(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
-     vegn%rh = vegn%rh + soilc%rhiz(k)%Resp*dz(k)*hours_per_year*rhiz_frac(k)      &
-                       + soilc%bulk(k)%Resp*dz(k)*hours_per_year*(1-rhiz_frac(k))
+     vegn%rh = vegn%rh + soilc%rhiz(k)%Resp*dz(k)*hours_per_year*soilc%fRhiz(k)      &
+                       + soilc%bulk(k)%Resp*dz(k)*hours_per_year*(1-soilc%fRhiz(k))
   enddo
 !   do i = 1, N_C_TYPES
 !      if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
@@ -430,12 +510,12 @@ end subroutine
 
 ! ============================================================================
 !> @brief Update soil carbon pool
-subroutine update_pool_GIMICS(pool, T, theta, Fclay, is_litter)
+subroutine update_pool_GIMICS(pool, T, theta, fClay, is_sfc_litter)
   type(GIMICS_BGC_pool),intent(inout) :: pool
   real,    intent(in) :: T         !< Temperature [degC]
   real,    intent(in) :: theta     !< volumetric water content slm: [per unit soil volume, or per unit pore volume?]
-  real,    intent(in) :: Fclay     !< clay fraction, [slm: units?]
-  logical, intent(in) :: is_litter !< TRUE is the pool is surface litter: protected C is always zero in this case
+  real,    intent(in) :: fClay     !< clay fraction, unitless, within [0,1] interval
+  logical, intent(in) :: is_sfc_litter !< TRUE is the pool is surface litter: protected C is always zero in this case
 
   real:: Vmax_Mr_Lm, Vmax_Mr_Ls, Vmax_Mr_Ca, Vmax_Mk_Lm, Vmax_Mk_Ls, Vmax_Mk_Ca, &
          Km_Mr_Lm,   Km_Mr_Ls,   Km_Mr_Ca,   Km_Mk_Lm,   Km_Mk_Ls,   Km_Mk_Ca,   &
@@ -451,11 +531,11 @@ subroutine update_pool_GIMICS(pool, T, theta, Fclay, is_litter)
 
   Km_Mr_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mr_Lm ! kgC/m3
   Km_Mr_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mr_Ls
-  Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(Fclay)))
+  Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
   Km_Mk_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mk_Lm
   Km_Mk_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mk_Ls
-  Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(Fclay)))
+  Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
 
 
@@ -482,12 +562,12 @@ subroutine update_pool_GIMICS(pool, T, theta, Fclay, is_litter)
   pool%MkTau = 2.4e-4 * exp(0.1*fI_Lm) * pool%microbesK
 
 
-  if (is_litter) then
+  if (is_sfc_litter) then
      fMrTau_Cp = 0.0
      fMkTau_Cp = 0.0
   else
-     fMrTau_Cp = 0.3*exp(1.3*Fclay) ! 0.3646 unitless
-     fMkTau_Cp = 0.2*exp(0.8*Fclay) ! 0.2255
+     fMrTau_Cp = 0.3*exp(1.3*fClay) ! 0.3646 unitless
+     fMkTau_Cp = 0.2*exp(0.8*fClay) ! 0.2255
   endif
   fMrTau_Cc = 0.1*exp(-3*fI_Lm)  ! 0.0315
   fMkTau_Cc = 0.3*exp(-3*fI_Lm)  ! 0.0946
@@ -500,19 +580,19 @@ subroutine update_pool_GIMICS(pool, T, theta, Fclay, is_litter)
   !Km_Mk_Ca=(2.4e-4 * exp(0.1*fI_Lm) * sqrt(NPP_bulk/100.0))
   !print *, Km_Mk_Ca
 
-  !Km_Mk_Ca=(1.5e-5*exp(-1.5*Fclay))
+  !Km_Mk_Ca=(1.5e-5*exp(-1.5*fClay))
   !print *, Km_Mk_Ca
-  !Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(Fclay)))
+  !Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
 
   pool%metabolicLitterC  = pool%metabolicLitterC  - (pool%DecompMrLm+pool%DecompMkLm)*dt_fast_hr ! kgC/m3
   pool%structuralLitterC = pool%structuralLitterC - (pool%DecompMrLs+pool%DecompMkLs)*dt_fast_hr
 
-  if (is_litter) then
+  if (is_sfc_litter) then
      pool%Desorb = 0.0
      pool%protectedC = 0.0
   else
-     pool%Desorb = (1.5e-5*exp(-1.5*Fclay))*pool%protectedC ! kgC/m3/h
+     pool%Desorb = (1.5e-5*exp(-1.5*fClay))*pool%protectedC ! kgC/m3/h
      pool%protectedC = pool%protectedC + (fMrTau_Cp*pool%MrTau + fMkTau_Cp*pool%MkTau - pool%Desorb)*dt_fast_hr ! kgC/m3
   endif
 
@@ -564,7 +644,7 @@ subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate
 !   if(present(nitrate))  NO3=nitrate
 
   do k=1,num_l
-     soilC%rhiz(k)%metabolicLitterC = soilc%rhiz(k)%metabolicLitterC + exudateC(k)/dz(k) ! kgC/m3
+     soilC%rhiz(k)%metabolicLitterC = soilc%rhiz(k)%metabolicLitterC + exudateC(k)/dz(k) ! kgC/m3 slm: need factor in rhizosphere fraction
   enddo
 end subroutine
 
@@ -598,7 +678,6 @@ subroutine add_soil_matter_GIMICS(soilc, vegn, &
   real :: wood_litt_C(N_C_TYPES), wood_litt_N(N_C_TYPES)
   real :: root_litt_C(size(soilc%bulk),N_C_TYPES), &
           root_litt_N(size(soilc%bulk),N_C_TYPES)
-  real :: rhiz_frac(size(soilc%bulk))
 
   ! define values for optional arguments that may not be present
   if (present(leaf_litter_C)) then
@@ -634,9 +713,8 @@ subroutine add_soil_matter_GIMICS(soilc, vegn, &
 
   call add_matter_GIMICS1(soilc%litt(LITT_LEAF),  dz_litt, leaf_litt_C, leaf_litt_N)
   call add_matter_GIMICS1(soilc%litt(LITT_CWOOD), dz_litt, wood_litt_C, wood_litt_N)
-  call rhizosphere_frac(vegn, rhiz_frac)
   do k = 1,size(soilc%bulk)
-     call add_matter_GIMICS2(soilc%bulk(k), soilc%rhiz(k), dz(k), rhiz_frac(k), root_litt_C(k,:), root_litt_N(k,:))
+     call add_matter_GIMICS2(soilc%bulk(k), soilc%rhiz(k), dz(k), soilc%fRhiz(k), root_litt_C(k,:), root_litt_N(k,:))
   enddo
 
   ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
@@ -655,7 +733,6 @@ subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
   integer :: i,k
   real :: deltafast, deltaslow
   real :: profile(num_l), profile1(num_l), psum ! for deposition profile calculation
-  real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
   real :: delta_C(N_C_TYPES,N_LITTER_POOLS)
 
@@ -692,9 +769,8 @@ subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
      profile(:) = 0.0
      profile(1) = 1.0
   endif
-  call rhizosphere_frac(vegn, rhiz_frac)
   do k = 1,num_l
-     call add_matter_GIMICS2(soilc%bulk(k), soilc%rhiz(k), dz(k), rhiz_frac(k), C=[deltafast,deltaslow,0.0] * profile(k))
+     call add_matter_GIMICS2(soilc%bulk(k), soilc%rhiz(k), dz(k), soilc%fRhiz(k), C=[deltafast,deltaslow,0.0] * profile(k))
   enddo
 end subroutine
 

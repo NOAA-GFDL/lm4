@@ -46,6 +46,7 @@ public :: soil_data_init_derive_subsurf_pars_ar5
 public :: soil_data_init_derive_subsurf_pars_tiled
 public :: finalize_soil_data_init
 
+public :: soil_pClay     ! return percentage of clay in soil
 public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
@@ -1163,7 +1164,14 @@ function get_soil_tile_tag(soil) result(tag)
   tag = soil%tag
 end function
 
+! ============================================================================
+! return percentage of clay in soil, for soil BGC calculations.
+! in future update, use this function in soil_BGC_CORPSE instead of clay array
+real function soil_pClay(soil)
+  type(soil_tile_type), intent(in) :: soil
 
+  soil_pClay = max(0.0, min(100.0, clay(soil%tag)))
+end function
 
 ! ============================================================================
 ! compute average soil temperature with a given depth scale
