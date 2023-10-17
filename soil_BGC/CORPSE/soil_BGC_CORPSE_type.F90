@@ -175,8 +175,7 @@ contains
   procedure :: get_amm => retrieve_ammonium
   procedure :: get_littC => get_littC_CORPSE
 
-  procedure :: add_soil_carbon   => add_soil_carbon_CORPSE
-  procedure :: add_root_litter   => add_root_litter_CORPSE
+  procedure :: add_soil_matter   => add_soil_matter_CORPSE
   procedure :: add_root_exudates => add_root_exudates_CORPSE
   procedure :: burn_litter_frac  => burn_litter_frac_CORPSE
   procedure :: tracer_leaching   => tracer_leaching_CORPSE
@@ -191,6 +190,7 @@ contains
   procedure :: step3             => step3_CORPSE
   procedure :: redistribute_peat_carbon => redistribute_peat_carbon_CORPSE
 
+  ! CORPSE-specific procedures
 end type soil_BGC_CORPSE_t
 
 !==== module variables =======================================================
@@ -801,7 +801,7 @@ subroutine merge_CORPSE(s2,w2,s1,w1)
 end subroutine
 
 !> @brief Add new root litter to soil carbon and nitrogen
-subroutine add_root_litter_CORPSE(soilC, vegn, litterC, litterN)
+subroutine add_root_litter(soilC, vegn, litterC, litterN)
   class(soil_BGC_CORPSE_t) , intent(inout) :: soilC !< soil carbon state
   type(vegn_tile_type)  , intent(in)    :: vegn !< vegetation state (for rhizosphere fraction calculation)
   real                  , intent(in)    :: litterC(:,:) !< new litter carbon content (num_l,N_C_TYPES), kgC/m2 of soil layer
@@ -816,7 +816,7 @@ subroutine add_root_litter_CORPSE(soilC, vegn, litterC, litterN)
   enddo
 end subroutine
 
-subroutine add_soil_carbon_CORPSE(soilc, vegn, &
+subroutine add_soil_matter_CORPSE(soilc, vegn, &
         leaf_litter_C, wood_litter_C, root_litter_C, &
         leaf_litter_N, wood_litter_N, root_litter_N  )
   class(soil_BGC_CORPSE_t), intent(inout) :: soilc
@@ -897,7 +897,7 @@ contains
     litt      = max(litt,0.0)
   end subroutine borrow_to_negatives
 
-end subroutine add_soil_carbon_CORPSE
+end subroutine
 
 !> @brief Calculate volumetric fraction of rhizosphere in each layer
 subroutine rhizosphere_frac(vegn, rhiz_frac)
@@ -1736,7 +1736,7 @@ subroutine spend_intermediate_pools_CORPSE(soilc, vegn)
      litterC(k,:) = [deltafast,deltaslow,0.0] * profile(k)
      litterN(k,:) = [deltafast_N,deltaslow_N,0.0] * profile(k)
   enddo
-  call add_root_litter_CORPSE(soilc, vegn, litterC, litterN )
+  call add_root_litter(soilc, vegn, litterC, litterN )
 end subroutine
 
 ! ============================================================================

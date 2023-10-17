@@ -8,7 +8,7 @@ use land_data_mod, only : log_version
 use land_tile_mod, only : land_tile_type
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_tile_data, get_tile_data, add_restart_axis
+     add_tile_data, get_tile_data, add_restart_axis, field_exists
 use soil_BGC_simple_type_mod, only : soil_BGC_SIMPLE_t, soil_BGC_diag_init_SIMPLE, &
      save_equilibration_data
 use soil_tile_mod, only: num_l, zfull
@@ -30,6 +30,7 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
   character(267)          :: filename ! restart file name
+  character(267)          :: fieldname ! field name in restart file
   type(land_restart_type) :: restart  ! restart file i/o object
   logical                 :: restart_exists
   integer :: i,k
@@ -47,7 +48,9 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
      call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
      do i = 1, N_C_TYPES
         do k = 1, N_LITTER_POOLS
-           call get_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_C_ptr,i,k)
+           fieldname=trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C'
+           if (field_exists(restart,trim(fieldname))) &
+                  call get_tile_data(restart,trim(fieldname),litter_C_ptr,i,k)
         enddo
      enddo
   else

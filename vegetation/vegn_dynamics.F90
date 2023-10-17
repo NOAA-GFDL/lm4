@@ -865,7 +865,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilc, soilt, theta, diag)
   call soilc%add_root_exudates(total_root_exudate_C,total_root_exudate_N,total_myc_Nmin,total_N_leakage*dt_fast_yr)
 
   ! add litter accumulated over the cohorts
-  call soilc%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soilc%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                     leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if(is_watch_point()) then
@@ -1218,7 +1218,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
   ! add litter and exudates accumulated over the cohorts
   ! 20170617: revisit exudates for allocation to different kind of N startegies
   call soilc%add_root_exudates( total_root_exudate_C, total_root_exudate_N, total_myc_Nmin, total_N_leakage)
-  call soilc%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soilc%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                     leaf_litt_N, wood_litt_N, root_litt_N  )
   ! update soil carbon
   call soilc%dsdt(soil, vegn, diag, tsoil, theta)
@@ -1472,7 +1472,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
   endif
 
   ! add litter accumulated over the cohorts
-  call soil%add_soil_carbon( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
 !  write(*,*)'vegn_starvation_ppa n_cohorts after: ', vegn%n_cohorts
@@ -2052,7 +2052,7 @@ subroutine vegn_phenology_lm3(vegn, soil, soilc)
   enddo
 
   ! add litter accumulated over the cohorts
-  call soilc%add_soil_carbon( vegn, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+  call soilc%add_soil_matter( vegn, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
                                     leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 
 end subroutine vegn_phenology_lm3
@@ -2218,7 +2218,7 @@ subroutine vegn_phenology_ppa(tile)
      end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
-  call tile%soilc%add_soil_carbon( vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N, &
+  call tile%soilc%add_soil_matter( vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N, &
                                          root_litter_C=root_litt_C, root_litter_N=root_litt_N  )
   ! phenology can change cohort heights if the grass dies, and therefore change
   ! layers -- therefore we need to relayer, lest cohorts remain in a wrong order
