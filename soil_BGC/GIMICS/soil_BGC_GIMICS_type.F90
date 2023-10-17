@@ -90,7 +90,7 @@ contains
   procedure :: get_amm => get_zero_1D ! returns ammonium by layer, kgN/m2
   procedure :: get_littC => get_littC_GIMICS ! returns litter carbon, by litter pool, kgC/m2
 
-  procedure :: add_soil_carbon => add_soil_carbon_GIMICS ! add new surface and sub-surface litter to soil carbon and nitrogen
+  procedure :: add_soil_matter => add_soil_matter_GIMICS ! add new surface and sub-surface litter to soil carbon and nitrogen
   procedure :: add_root_litter => add_root_litter_GIMICS ! add new root litter to soil carbon and nitrogen
   procedure :: add_root_exudates => add_root_exudates_GIMICS ! add root exudates to soil carbon
   procedure :: burn_litter_frac => burn_litter_frac_GIMICS  ! burn a fraction of sfc litter and retuen amounts of burned carbon and nitrogen
@@ -581,7 +581,7 @@ subroutine add_root_litter_GIMICS(soilC, vegn, litterC, litterN)
 end subroutine
 
 ! ============================================================================
-subroutine add_soil_carbon_GIMICS(soilc, vegn, &
+subroutine add_soil_matter_GIMICS(soilc, vegn, &
         leaf_litter_C, wood_litter_C, root_litter_C, &
         leaf_litter_N, wood_litter_N, root_litter_N  )
   class(soil_BGC_GIMICS_t), intent(inout) :: soilc
