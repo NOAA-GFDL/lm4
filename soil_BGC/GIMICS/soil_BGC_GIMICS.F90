@@ -4,13 +4,14 @@ use fms_mod, only: error_mesg, NOTE
 
 use land_constants_mod, only : N_C_TYPES, N_LITTER_POOLS, &
      c_shortname, c_longname, l_shortname, l_longname
-use land_data_mod, only : log_version
-use land_tile_mod, only : land_tile_type
+use land_data_mod, only : log_version, lnd
+use land_tile_mod, only : land_tile_type, land_tile_map, land_tile_enum_type, &
+     first_elmt, loop_over_tiles
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, add_restart_axis
-use soil_BGC_GIMICS_type_mod, only : soil_BGC_GIMICS_t, soil_BGC_diag_init_GIMICS, &
-     save_equilibration_data
+use soil_BGC_GIMICS_type_mod, only : soil_BGC_GIMICS_t, init_GIMICS_state, &
+     soil_BGC_diag_init_GIMICS, save_equilibration_data
 use soil_tile_mod, only: num_l, zfull
 
 implicit none; private
@@ -32,7 +33,9 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
   character(267)          :: filename ! restart file name
   type(land_restart_type) :: restart  ! restart file i/o object
   logical                 :: restart_exists
-  integer :: i,k
+  integer :: i,k,l
+  type(land_tile_enum_type)     :: ce    ! current tile list element
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
 
   call log_version(version, module_name, __FILE__)
 
@@ -52,6 +55,15 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
 !      enddo
   else
      call error_mesg('soil_BGC_init_GIMICS', 'cold-starting soil_BGC_GIMICS', NOTE)
+     ! Go through all tiles and initialize GIMICS soil carbon state.
+     ce = first_elmt(land_tile_map, ls=lnd%ls)
+     do while(loop_over_tiles(ce,tile,l))
+        if (.not.associated(tile%soilc)) cycle
+        select type(s=>tile%soilc)
+        class is (soil_BGC_GIMICS_t)
+           call init_GIMICS_state(s)
+        end select
+     enddo
   endif
 
   filename = 'INPUT/'//trim(filename_base)//'_eq.nc'

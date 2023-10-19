@@ -28,6 +28,7 @@ implicit none; private
 ! ---- public items
 public :: soil_BGC_GIMICS_t
 public :: new_soilc_GIMICS
+public :: init_GIMICS_state
 public :: read_soil_BGC_GIMICS_namelist, soil_BGC_diag_init_GIMICS
 public :: save_equilibration_data ! logical flag triggering writing the data needed for equilibration of soil carbon
 
@@ -48,27 +49,27 @@ real, parameter :: hours_per_year = seconds_per_year/3600.0
 type GIMICS_BGC_pool
 ! concentrations of various carbon pools, [kgC/m3]
 ! slm: need initial values
-    real :: metabolicLitterC
-    real :: structuralLitterC
-    real :: protectedC
-    real :: chemResistantC
-    real :: availableC
-    real :: microbesR
-    real :: microbesK
+    real :: metabolicLitterC  = 0.0
+    real :: structuralLitterC = 0.0
+    real :: protectedC        = 0.0
+    real :: chemResistantC    = 0.0
+    real :: availableC        = 0.0
+    real :: microbesR         = 0.0
+    real :: microbesK         = 0.0
 
 ! slm: are these prognostic or for diagnostics only?
-    real :: DecompMrLm = 0.0
-    real :: DecompMrLs = 0.0
-    real :: DecompMrCa = 0.0
-    real :: DecompMkLm = 0.0
-    real :: DecompMkLs = 0.0
-    real :: DecompMkCa = 0.0
-    real :: OxidMrCc   = 0.0
-    real :: OxidMkCc   = 0.0
-    real :: Desorb     = 0.0
-    real :: MrTau      = 0.0
-    real :: MkTau      = 0.0
-    real :: Resp       = 0.0
+    real :: DecompMrLm        = 0.0
+    real :: DecompMrLs        = 0.0
+    real :: DecompMrCa        = 0.0
+    real :: DecompMkLm        = 0.0
+    real :: DecompMkLs        = 0.0
+    real :: DecompMkCa        = 0.0
+    real :: OxidMrCc          = 0.0
+    real :: OxidMkCc          = 0.0
+    real :: Desorb            = 0.0
+    real :: MrTau             = 0.0
+    real :: MkTau             = 0.0
+    real :: Resp              = 0.0
 end type
 
 !> @brief soil carbon data container for GIMICS soil carbon model
@@ -158,7 +159,11 @@ real  :: gas_diffusion_exp = 2.5 ! Exponent for gas diffusion power law dependen
 real  :: substrate_diffusion_exp = 3.0  ! Exponent for theta dependence at low theta.
                              ! See Davison et al DAMM model paper
 
-real :: rhiz_frac = 0.3 ! rhizosphere fraction; slm: remove from namelist later: it is a variable that depends on time and z    !
+real  :: r_rhiz = 0.001      ! Radius of rhizosphere around fine root (m)
+
+real  :: init_Mr = 1e-15 ! initial (cold-start) value of microbesR, kg/m3
+real  :: init_Mk = 1e-15 ! initial (cold-start) value of microbesR, kg/m3
+
 logical, protected :: save_equilibration_data = .FALSE. !< if TRUE, information for
                          !! soil BGC equilibration acceleration is saved to disk
 
@@ -168,7 +173,7 @@ namelist /soil_BGC_GIMICS_nml/ &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, &
 ! -----
-    rhiz_frac, & ! slm: remove from namelist later: it is a variable that depends on time and z
+    init_Mr, init_Mk, r_rhiz, &
     save_equilibration_data
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -236,6 +241,29 @@ function soilc_GIMICS_copy(soilc) result(ptr)
   allocate(ptr)
   ptr = soilc
 end function
+
+! ============================================================================
+!> @brief Set initial (cold-start) values to the variables in GIMICS soil BGC data
+! perhaps this can be done in constructor? not if the state depends on some other
+! state variables not available in constructor, e.g. soil type or soil moisture
+subroutine init_GIMICS_state(soilc)
+  type(soil_BGC_GIMICS_t), intent(inout) :: soilc !< soil BGC data to initialize
+
+  integer :: k
+
+  do k = 1, num_l
+     soilc%fRhiz(k) = 0.0
+     soilc%bulk(k)%microbesR = init_Mr
+     soilc%bulk(k)%microbesK = init_Mk
+     ! the rest of the fields remain at their initial values of zero
+  enddo
+  do k = 1, N_LITTER_POOLS
+     soilc%litt(k)%microbesR = init_Mr
+     soilc%litt(k)%microbesK = init_Mk
+     ! slm: set litter thickness here
+     ! the rest of the fields remain at their initial values of zero
+  enddo
+end subroutine
 
 ! ============================================================================
 !> @brief merge s1 into current soil carbon type s2, with given weights
@@ -940,22 +968,20 @@ subroutine rhizosphere_frac(vegn, rFrac)
   type(vegn_tile_type), intent(in)  :: vegn !< vegetation state
   real                , intent(out) :: rFrac(:)!< volumentric fraction of rhizosphere
 
-  rFrac = rhiz_frac
+!   rFrac = rhiz_frac
+! slm: perhaps we should have a possibility to use constant rhizosphere fraction?
+  real :: rhiz_vol(num_l)  ! volume of rhizosphere in each layer, m3/m3
+  integer :: i
 
-!   real :: rhiz_vol(num_l)  ! volume of rhizosphere in each layer, m3/m2
-!   integer :: i
-!
-!   ! first calculate the volume of rhizosphere
-!   rhiz_vol(:) = 0.0
-!   do i = 1,vegn%n_cohorts
-!      associate(cc=>vegn%cohorts(i),sp=>spdata(vegn%cohorts(i)%species))
-!      rhiz_vol(:) = rhiz_vol(:) + &
-!          PI*((r_rhiz+sp%root_r)**2-sp%root_r**2)*cc%root_length(1:num_l)*cc%nindivs
-!      end associate
-!   enddo
-!   ! rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:)/dz(1:num_l))
-!   ! If root_length is m/m3, then we should not divide by dz here
-!   rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:))
+  ! first calculate the volume of rhizosphere
+  rhiz_vol(:) = 0.0
+  do i = 1,vegn%n_cohorts
+     associate(cc=>vegn%cohorts(i),sp=>spdata(vegn%cohorts(i)%species))
+     rhiz_vol(:) = rhiz_vol(:) + &
+         PI*((r_rhiz+sp%root_r)**2-sp%root_r**2)*cc%root_length(1:num_l)*cc%nindivs
+     end associate
+  enddo
+  rFrac(1:num_l) = max(0.0, min(1.0,rhiz_vol(:)))
 end subroutine rhizosphere_frac
 
 end module
