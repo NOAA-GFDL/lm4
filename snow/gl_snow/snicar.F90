@@ -20,8 +20,6 @@ use snowpack_mod
 implicit none
 private
 
-public :: SNICAR_RT           
-public :: SNICAR_AD_RT        
 public :: read_snicar_optics_data 
 public :: compute_snicar_albedo 
 public :: read_snow_snicar_namelist
