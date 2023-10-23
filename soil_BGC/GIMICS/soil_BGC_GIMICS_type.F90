@@ -1,5 +1,8 @@
 module soil_BGC_GIMICS_type_mod
 
+#include "../../shared/debug.inc"
+
+
 use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
         stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
@@ -899,19 +902,21 @@ subroutine burn_litter_frac_GIMICS(soilc, frac, burned_C, burned_N)
   real, intent(in)  :: frac(:)            !< (N_LITTER_POOLS) fraction of litter to burn [0,1]
   real, intent(out) :: burned_C, burned_N !< amounts of burned carbon and nitrogen
 
-  integer :: i
+  integer :: k
+  real :: f
 
   burned_C = 0.0; burned_N = 0.0
-  do i = 1,N_LITTER_POOLS
-     associate (pool=>soilc%litt(i))
-     burned_C = burned_C + tot_pool_C(pool)*frac(i)
-     pool%metabolicLitterC  = frac(i) * pool%metabolicLitterC
-     pool%structuralLitterC = frac(i) * pool%structuralLitterC
-     pool%protectedC        = frac(i) * pool%protectedC
-     pool%chemResistantC    = frac(i) * pool%chemResistantC
-     pool%availableC        = frac(i) * pool%availableC
-     pool%microbesR         = frac(i) * pool%microbesR
-     pool%microbesK         = frac(i) * pool%microbesK
+  do k = 1,N_LITTER_POOLS
+     associate (pool=>soilc%litt(k))
+     burned_C = burned_C + tot_pool_C(pool)*frac(k)*dz_litt
+     f = 1.0-frac(k)
+     pool%metabolicLitterC  = f * pool%metabolicLitterC
+     pool%structuralLitterC = f * pool%structuralLitterC
+     pool%protectedC        = f * pool%protectedC
+     pool%chemResistantC    = f * pool%chemResistantC
+     pool%availableC        = f * pool%availableC
+     pool%microbesR         = f * pool%microbesR
+     pool%microbesK         = f * pool%microbesK
      end associate
   enddo
 end subroutine
