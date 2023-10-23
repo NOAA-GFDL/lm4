@@ -678,7 +678,13 @@ subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate
 !   if(present(nitrate))  NO3=nitrate
 
   do k=1,num_l
-     soilC%rhiz(k)%metabolicLitterC = soilc%rhiz(k)%metabolicLitterC + exudateC(k)/dz(k) ! kgC/m3 slm: need factor in rhizosphere fraction
+     if (soilc%fRhiz(k)>0) then
+         soilC%rhiz(k)%metabolicLitterC = soilc%rhiz(k)%metabolicLitterC + exudateC(k)/(dz(k)*soilc%fRhiz(k)) ! kgC/m3 of rhizosphere
+         ! slm: should we add some protection from very small rhizosphere fractions that may
+         !      result in huge per-volume input?
+     else ! rhizosphere does not exist, add exudates to bulk
+         soilC%bulk(k)%metabolicLitterC = soilc%bulk(k)%metabolicLitterC + exudateC(k)/dz(k) ! kgC/m3
+     endif
   enddo
 end subroutine
 
