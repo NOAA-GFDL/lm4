@@ -196,9 +196,10 @@ subroutine read_soil_BGC_GIMICS_namelist()
      write(unit, nml=soil_BGC_GIMICS_nml)
   endif
 
-  delta_time = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
-  dt_fast_yr = delta_time/seconds_per_year
-  dt_fast_hr = delta_time/3600.0
+  ! store time step in different units in module variables, for convenience
+  delta_time = time_type_to_real(lnd%dt_fast) ! [s]
+  dt_fast_yr = delta_time/seconds_per_year    ! [yr]
+  dt_fast_hr = delta_time/3600.0              ! [hr]
 end subroutine
 
 ! ============================================================================
@@ -460,6 +461,8 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   real :: clay_frac ! fraction of clay, unitless in interval [0,1]. Should it be by-layer?
   integer :: k
 
+  vegn%rh = 0.0 ! reset rate of heterotrophic respiration
+
   decomp_theta = soil_theta(soil)
   decomp_T     = soil%T(1:num_l) - tfreeze
 
@@ -627,12 +630,12 @@ subroutine update_pool_GIMICS(pool, T, theta, fClay, is_sfc_litter)
      pool%protectedC = pool%protectedC + (fMrTau_Cp*pool%MrTau + fMkTau_Cp*pool%MkTau - pool%Desorb)*dt_fast_hr ! kgC/m3
   endif
 
-  pool%chemResistantC = pool%chemResistantC + (fMrTau_Cc*pool%MrTau + fMkTau_Cc*pool%MkTau - pool%OxidMrCc - pool%OxidMkCc)*dt_fast_hr ! gC/m3
+  pool%chemResistantC = pool%chemResistantC + (fMrTau_Cc*pool%MrTau + fMkTau_Cc*pool%MkTau - pool%OxidMrCc - pool%OxidMkCc)*dt_fast_hr ! kgC/m3
 
   pool%availableC = pool%availableC + ((1-fMrTau_Cp-fMrTau_Cc)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*pool%MkTau +& ! kgC/m3
                     pool%Desorb + pool%OxidMrCc + pool%OxidMkCc - pool%DecompMrCa - pool%DecompMkCa)*dt_fast_hr
 
-  pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm + eLs_Mr*pool%DecompMrLs + eCa_Mr*pool%DecompMrCa - pool%MrTau)*dt_fast_hr ! gC/m3
+  pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm + eLs_Mr*pool%DecompMrLs + eCa_Mr*pool%DecompMrCa - pool%MrTau)*dt_fast_hr ! kgC/m3
 
   pool%microbesK = pool%microbesK + (eLm_Mk*pool%DecompMkLm + eLs_Mk*pool%DecompMkLs + eCa_Mk*pool%DecompMkCa - pool%MkTau)*dt_fast_hr
 end subroutine
@@ -813,7 +816,7 @@ subroutine add_matter_GIMICS1(pool, dz, C, N)
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
   if (present(C)) then
-     pool%metabolicLitterC  = pool%metabolicLitterC  + C(C_FAST)/dz + C(C_MIC)/dz ! kgC/m3
+     pool%metabolicLitterC  = pool%metabolicLitterC  + (C(C_FAST) + C(C_MIC))/dz ! kgC/m3
      pool%structuralLitterC = pool%structuralLitterC + C(C_SLOW)/dz
   endif
 !   if (present(N)) then
@@ -825,16 +828,17 @@ end subroutine
 subroutine add_matter_GIMICS2(bulk, rhiz, dz, rhiz_frac, C, N)
   type(GIMICS_BGC_pool), intent(inout) :: bulk, rhiz ! bulk soil and rhizosphere BGC pools, respectively
   real, intent(in) :: dz        ! layer thickness, m
-  real, intent(in) :: rhiz_frac ! fraction of soil in rhizosphere
+  real, intent(in) :: rhiz_frac ! fraction of soil in rhizosphere, currently unused because
+                                ! we add the same concentrations to bulk soil and rhizosphere
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
   if (present(C)) then
-     bulk%metabolicLitterC  = bulk%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))*(1-rhiz_frac)/dz ! kgC/m3
-     bulk%structuralLitterC = bulk%structuralLitterC + C(C_SLOW)*(1-rhiz_frac)/dz
+     bulk%metabolicLitterC  = bulk%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
+     bulk%structuralLitterC = bulk%structuralLitterC + C(C_SLOW)/dz
 
-     rhiz%metabolicLitterC  = rhiz%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))*(1-rhiz_frac)/dz ! kgC/m3
-     rhiz%structuralLitterC = rhiz%structuralLitterC + C(C_SLOW)*(1-rhiz_frac)/dz
+     rhiz%metabolicLitterC  = rhiz%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
+     rhiz%structuralLitterC = rhiz%structuralLitterC + C(C_SLOW)/dz
   endif
 !   if (present(N)) then
 !      ....
