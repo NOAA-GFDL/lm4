@@ -41,6 +41,7 @@ use soil_BGC_type_mod, only : soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only : soil_BGC_SIMPLE_t
 use soil_BGC_CORPSE_type_mod, only : soil_BGC_CORPSE_t, &
      debug_pool, ammonium_solubility, nitrate_solubility
+use soil_BGC_GIMICS_type_mod, only : soil_BGC_GIMICS_t
 ! use soilc_util_mod, only : register_soilc_diag_fields, &
 !     register_litter_diag_fields, register_litter_soilc_diag_fields
 
@@ -1747,6 +1748,8 @@ end subroutine soil_step_1
         if (cc%nindivs>0) &
            cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
      class is (soil_BGC_SIMPLE_t)
+        passive_N_uptake(ic) = 0.0
+     class is (soil_BGC_GIMICS_t)
         passive_N_uptake(ic) = 0.0
      class default
         call land_error_message('soil_step_2: unrecognized soil carbon type', FATAL)
