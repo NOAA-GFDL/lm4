@@ -179,6 +179,11 @@ namelist /soil_BGC_GIMICS_nml/ &
     init_Mr, init_Mk, r_rhiz, &
     save_equilibration_data
 
+! diag field IDs
+integer :: id_total_soil_C
+
+integer :: id_csoil
+
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
@@ -218,6 +223,17 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   call set_default_diag_filter('soil')
 
   ! diag field registration goes here
+  id_total_soil_C = register_tiled_diag_field ( diag_mod_name, 'tot_soil_C', axes(1:1),  &
+       lnd%time, 'total carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
+
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+
+  id_csoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
+       lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
+
 end subroutine
 
 ! ============================================================================
@@ -377,8 +393,9 @@ subroutine set_fRhiz(soilc,fRhiz)
 end subroutine
 
 ! ============================================================================
-!> @brief Given soil carbon state, return total soil C
-!! @return Total soil carbon, kgC/m2
+!> @brief Given soil carbon state, return total C, including carbon in soil and
+!! surface litter pools
+!! @return Total carbon in soil and surface litter, kgC/m2
 real function total_C_GIMICS(soilc) result(tot_C)
   class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
 
@@ -389,6 +406,17 @@ real function total_C_GIMICS(soilc) result(tot_C)
   do k = 1, N_LITTER_POOLS
      tot_C = tot_C + tot_pool_C(soilc%litt(k)) * dz_litt
   enddo
+
+  tot_C = tot_C + total_soil_C(soilc)
+end function
+
+! ============================================================================
+!> @brief Given soil carbon state, return total soil C
+!! @return Total carbon in soil (not including surface litter), kgC/m2
+real function total_soil_C(soilc) result(tot_C)
+  class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
+
+  integer :: k
 
   do k = 1,num_l
      tot_C = tot_C + &
@@ -513,6 +541,10 @@ subroutine step3_GIMICS(soilc, diag)
   class(soil_BGC_GIMICS_t),   intent(inout) :: soilc
   type(diag_buff_type), intent(inout) :: diag
 
+  if (id_total_soil_C>0) call send_tile_data(id_total_soil_C, soilc%total_C(), diag)
+
+  if (id_csoil>0) call send_tile_data(id_csoil, total_soil_C(soilc), diag)
+
 !   integer :: i, k
 !
 !   associate (soil=>soilc) ! to avoid renaming
@@ -520,7 +552,6 @@ subroutine step3_GIMICS(soilc, diag)
 !   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
 !   call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
 !   call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
-!   call send_tile_data(id_total_soil_C, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(:,:)), diag)
 !   do k = 1, N_LITTER_POOLS
 !      if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_SIMPLE_C(:,k)), diag)
 !      do i = 1, N_C_TYPES
