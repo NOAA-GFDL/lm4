@@ -180,7 +180,7 @@ namelist /soil_BGC_GIMICS_nml/ &
     save_equilibration_data
 
 ! diag field IDs
-integer :: id_total_soil_C
+integer :: id_total_soil_C, id_total_C_layered
 integer :: id_metabolicC, id_structuralC, id_protectedC, id_chemResistantC, id_availableC, &
            id_microbesR, id_microbesK
 
@@ -226,23 +226,26 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   ! diag field registration goes here
   id_total_soil_C = register_tiled_diag_field ( diag_mod_name, 'tot_soil_C', axes(1:1),  &
        lnd%time, 'total carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
+  id_total_C_layered = register_tiled_diag_field ( diag_mod_name, 'soil_C', &
+       axes, lnd%time, 'Volumetric density of total soil carbon', 'kg C/m3', missing_value=-100.0 )
 
   id_metabolicC = register_tiled_diag_field ( diag_mod_name, 'metabolicC', axes(:),  &
-       lnd%time, 'Metabolic C', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of metabolic C', 'kg C/m3', missing_value=-100.0 )
   id_structuralC = register_tiled_diag_field ( diag_mod_name, 'structuralC', axes(:),  &
-       lnd%time, 'Structural C', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of structural C', 'kg C/m3', missing_value=-100.0 )
   id_protectedC = register_tiled_diag_field ( diag_mod_name, 'protectedC', axes(:),  &
-       lnd%time, 'Protected C', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of protected C', 'kg C/m3', missing_value=-100.0 )
   id_chemResistantC = register_tiled_diag_field ( diag_mod_name, 'chemResistantC', axes(:),  &
-       lnd%time, 'Chemically Resistant C', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of chemically resistant C', 'kg C/m3', missing_value=-100.0 )
   id_availableC = register_tiled_diag_field ( diag_mod_name, 'availableC', axes(:),  &
-       lnd%time, 'Available C', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of available C', 'kg C/m3', missing_value=-100.0 )
   id_microbesR = register_tiled_diag_field ( diag_mod_name, 'microbesR', axes(:),  &
-       lnd%time, 'Microbes R Carbon', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of copiotrophic (R) microbes', 'kg C/m3', missing_value=-100.0 )
   id_microbesK = register_tiled_diag_field ( diag_mod_name, 'microbesK', axes(:),  &
-       lnd%time, 'Microbes K Carbon', 'kg m-3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of oligotrophic (K) microbes', 'kg C/m3', missing_value=-100.0 )
 
-  ! set the default sub-sampling filter for the fields below
+  ! CMOR fields
+  ! set the default sub-sampling filter for the CMOR fields below
   call set_default_diag_filter('land')
 
   id_csoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
@@ -583,6 +586,13 @@ subroutine step3_GIMICS(soilc, diag)
   real :: s, a(num_l)
 
   if (id_total_soil_C>0) call send_tile_data(id_total_soil_C, soilc%total_C(), diag)
+  if (id_total_C_layered>0) then
+     do k = 1,num_l
+        a(k) = (tot_pool_C(soilc%rhiz(k))*soilc%fRhiz(k)    &
+               +tot_pool_C(soilc%bulk(k))*(1-soilc%fRhiz(k)) )
+     enddo
+     call send_tile_data(id_total_C_layered, a, diag)
+  endif
   if (id_metabolicC>0) call send_tile_data(id_metabolicC, &
           soilc%rhiz(:)%metabolicLitterC*soilc%fRhiz(:) &
          +soilc%bulk(:)%metabolicLitterC*(1-soilc%fRhiz(:)), diag)
