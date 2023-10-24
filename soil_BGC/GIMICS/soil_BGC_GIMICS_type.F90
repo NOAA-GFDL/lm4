@@ -181,9 +181,10 @@ namelist /soil_BGC_GIMICS_nml/ &
 
 ! diag field IDs
 integer :: id_total_soil_C
+integer :: id_metabolicC, id_structuralC, id_protectedC, id_chemResistantC, id_availableC, &
+           id_microbesR, id_microbesK
 
 integer :: id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
-
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
@@ -226,6 +227,20 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_total_soil_C = register_tiled_diag_field ( diag_mod_name, 'tot_soil_C', axes(1:1),  &
        lnd%time, 'total carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
 
+  id_metabolicC = register_tiled_diag_field ( diag_mod_name, 'metabolicC', axes(:),  &
+       lnd%time, 'Metabolic C', 'kg m-3', missing_value=-100.0 )
+  id_structuralC = register_tiled_diag_field ( diag_mod_name, 'structuralC', axes(:),  &
+       lnd%time, 'Structural C', 'kg m-3', missing_value=-100.0 )
+  id_protectedC = register_tiled_diag_field ( diag_mod_name, 'protectedC', axes(:),  &
+       lnd%time, 'Protected C', 'kg m-3', missing_value=-100.0 )
+  id_chemResistantC = register_tiled_diag_field ( diag_mod_name, 'chemResistantC', axes(:),  &
+       lnd%time, 'Chemically Resistant C', 'kg m-3', missing_value=-100.0 )
+  id_availableC = register_tiled_diag_field ( diag_mod_name, 'availableC', axes(:),  &
+       lnd%time, 'Available C', 'kg m-3', missing_value=-100.0 )
+  id_microbesR = register_tiled_diag_field ( diag_mod_name, 'microbesR', axes(:),  &
+       lnd%time, 'Microbes R Carbon', 'kg m-3', missing_value=-100.0 )
+  id_microbesK = register_tiled_diag_field ( diag_mod_name, 'microbesK', axes(:),  &
+       lnd%time, 'Microbes K Carbon', 'kg m-3', missing_value=-100.0 )
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
@@ -568,6 +583,27 @@ subroutine step3_GIMICS(soilc, diag)
   real :: s, a(num_l)
 
   if (id_total_soil_C>0) call send_tile_data(id_total_soil_C, soilc%total_C(), diag)
+  if (id_metabolicC>0) call send_tile_data(id_metabolicC, &
+          soilc%rhiz(:)%metabolicLitterC*soilc%fRhiz(:) &
+         +soilc%bulk(:)%metabolicLitterC*(1-soilc%fRhiz(:)), diag)
+  if (id_structuralC>0) call send_tile_data(id_structuralC, &
+          soilc%rhiz(:)%structuralLitterC*soilc%fRhiz(:) &
+         +soilc%bulk(:)%structuralLitterC*(1-soilc%fRhiz(:)), diag)
+  if (id_protectedC>0) call send_tile_data(id_protectedC, &
+          soilc%rhiz(:)%protectedC*soilc%fRhiz(:) &
+         +soilc%bulk(:)%protectedC*(1-soilc%fRhiz(:)), diag)
+  if (id_chemResistantC>0) call send_tile_data(id_chemResistantC, &
+          soilc%rhiz(:)%chemResistantC*soilc%fRhiz(:) &
+         +soilc%bulk(:)%chemResistantC*(1-soilc%fRhiz(:)), diag)
+  if (id_availableC>0) call send_tile_data(id_availableC, &
+          soilc%rhiz(:)%availableC*soilc%fRhiz(:) &
+         +soilc%bulk(:)%availableC*(1-soilc%fRhiz(:)), diag)
+  if (id_microbesR>0) call send_tile_data(id_microbesR, &
+          soilc%rhiz(:)%microbesR*soilc%fRhiz(:) &
+         +soilc%bulk(:)%microbesR*(1-soilc%fRhiz(:)), diag)
+  if (id_microbesK>0) call send_tile_data(id_microbesK, &
+          soilc%rhiz(:)%microbesK*soilc%fRhiz(:) &
+         +soilc%bulk(:)%microbesK*(1-soilc%fRhiz(:)), diag)
 
 !   call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_SIMPLE_C(C_FAST,:)), diag)
 !   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
