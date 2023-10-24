@@ -182,7 +182,7 @@ namelist /soil_BGC_GIMICS_nml/ &
 ! diag field IDs
 integer :: id_total_soil_C
 
-integer :: id_csoil
+integer :: id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -233,6 +233,29 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_csoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_csoil, CMOR_NAME, 'cSoilLut', axes(1:1),  &
+       lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_carbon', fill_missing=.FALSE.)
+  id_cSoilLevels = register_tiled_diag_field ( CMOR_NAME, 'cSoilLevels', axes(:),  lnd%time, &
+       'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
+       'kg m-2', missing_value=-100.0, standard_name='soil_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
+  id_cLitter = register_tiled_diag_field ( CMOR_NAME, 'cLitter', axes(1:1), &
+       lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
+       missing_value=-100.0, standard_name='litter_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_cLitter, CMOR_NAME, 'cLitterLut', axes(1:1),  &
+       lnd%time, 'carbon in above and belowground litter pools on land use tiles', &
+       'kg m-2', missing_value=-100.0, &
+       standard_name='litter_mass_content_of_carbon', fill_missing=.FALSE.)
+  id_cLitterCwd = register_tiled_diag_field ( CMOR_NAME, 'cLitterCwd', axes(1:1), &
+       lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
+  id_cLitterLeaf = register_tiled_diag_field ( CMOR_NAME, 'cLitterLeaf', axes(1:1), &
+       lnd%time, 'Carbon Mass in Leaf Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='leaf_debris_mass_content_of_carbon', &
+       fill_missing=.TRUE.)
 
 end subroutine
 
@@ -539,15 +562,13 @@ end subroutine
 ! ============================================================================
 subroutine step3_GIMICS(soilc, diag)
   class(soil_BGC_GIMICS_t),   intent(inout) :: soilc
-  type(diag_buff_type), intent(inout) :: diag
+  type(diag_buff_type),       intent(inout) :: diag
+
+  integer :: k
+  real :: s, a(num_l)
 
   if (id_total_soil_C>0) call send_tile_data(id_total_soil_C, soilc%total_C(), diag)
 
-  if (id_csoil>0) call send_tile_data(id_csoil, total_soil_C(soilc), diag)
-
-!   integer :: i, k
-!
-!   associate (soil=>soilc) ! to avoid renaming
 !   call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_SIMPLE_C(C_FAST,:)), diag)
 !   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
 !   call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
@@ -559,17 +580,29 @@ subroutine step3_GIMICS(soilc, diag)
 !      enddo
 !   enddo
 !
-!   ! --- CMOR vars
+  ! --- CMOR vars
+  if (id_csoil>0) call send_tile_data(id_csoil, total_soil_C(soilc), diag)
+! slm: in GIMICS, what is fast, medium, and slow carbon?
 !   if (id_csoilfast>0)   call send_tile_data(id_csoilfast,   sum(soil%fast_soil_C(:)), diag)
 !   if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
 !   call send_tile_data(id_csoilslow, 0.0, diag)
-!   if (id_csoil>0)       call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
-!   if (id_cSoilLevels>0) call send_tile_data(id_cSoilLevels, soil%fast_soil_C(:)+soil%slow_soil_C(:), diag)
-!   if (id_cLitter>0)     call send_tile_data(id_cLitter, sum(soil%litter_SIMPLE_C(:,:)), diag)
-!   if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd, sum(soil%litter_SIMPLE_C(:,LITT_CWOOD)), diag)
-!   if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, sum(soil%litter_SIMPLE_C(:,LITT_LEAF)), diag)
-!   ! --- end of CMOR vars
-!   end associate
+  if (id_cSoilLevels>0) then
+     do k = 1,num_l
+        a(k) = (tot_pool_C(soilc%rhiz(k))*soilc%fRhiz(k)    &
+               +tot_pool_C(soilc%bulk(k))*(1-soilc%fRhiz(k)) ) * dz(k)
+     enddo
+     call send_tile_data(id_cSoilLevels, a, diag)
+  endif
+  if (id_cLitter>0) then
+     s = 0
+     do k = 1, N_LITTER_POOLS
+        s = s+tot_pool_C(soilc%litt(k))*dz_litt
+     enddo
+     call send_tile_data(id_cLitter, s, diag)
+  endif
+  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd,  tot_pool_C(soilc%litt(LITT_CWOOD))*dz_litt, diag)
+  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, tot_pool_C(soilc%litt(LITT_LEAF)) *dz_litt, diag)
+  ! --- end of CMOR vars
 
 end subroutine
 
