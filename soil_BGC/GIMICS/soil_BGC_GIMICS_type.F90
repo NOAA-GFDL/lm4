@@ -51,7 +51,6 @@ real, parameter :: hours_per_year = seconds_per_year/3600.0
 ! GIMICS BGC pool
 type GIMICS_BGC_pool
 ! concentrations of various carbon pools, [kgC/m3]
-! slm: need initial values
     real :: metabolicLitterC  = 0.0
     real :: structuralLitterC = 0.0
     real :: protectedC        = 0.0
@@ -60,7 +59,7 @@ type GIMICS_BGC_pool
     real :: microbesR         = 0.0
     real :: microbesK         = 0.0
 
-! slm: are these prognostic or for diagnostics only?
+! tendencies, for diagnostics, [kgC/m3/hr]
     real :: DecompMrLm        = 0.0
     real :: DecompMrLs        = 0.0
     real :: DecompMrCa        = 0.0
@@ -326,7 +325,9 @@ subroutine init_GIMICS_state(soilc)
   do k = 1, N_LITTER_POOLS
      soilc%litt(k)%microbesR = init_Mr
      soilc%litt(k)%microbesK = init_Mk
-     ! slm: set litter thickness here
+     ! slm: set initial surface litter thickness
+!      soilc%litt(k)%dz = (init_Mr+init_Mk)/litter_density
+     soilc%litt(k)%dz = dz_litt
      ! the rest of the fields remain at their initial values of zero
   enddo
 end subroutine
@@ -450,7 +451,7 @@ real function total_C_GIMICS(soilc) result(answer)
   ! slm: what is dz associated with the surface litter?
   answer = 0.0
   do k = 1, N_LITTER_POOLS
-     answer = answer + C_density(soilc%litt(k)) * dz_litt
+     answer = answer + C_amount(soilc%litt(k))
   enddo
 
   answer = answer + total_soil_C(soilc)
@@ -474,8 +475,8 @@ real function total_soil_C(soilc) result(answer)
 end function
 
 ! ============================================================================
-!> @brief Given soil BGC pool, calculate total volumetric density of carbon, kgC/m3
-!! @return Total soil carbon in the pool, kgC/m3
+!> @brief Given a BGC pool, calculate total volumetric density of carbon, kgC/m3
+!! @return Volumetric density of carbon in the pool, kgC/m3
 real function C_density(pool) result(answer)
   class(GIMICS_BGC_pool), intent(in) :: pool
   answer = pool%metabolicLitterC + pool%structuralLitterC &
@@ -484,11 +485,20 @@ real function C_density(pool) result(answer)
 end function
 
 ! ============================================================================
+!> @brief Given surface litter BGC pool, calculate total amount of carbon, kgC/m2
+!! @return Total carbon in the pool, kgC/m2
+real function C_amount(pool) result(answer)
+  class(GIMICS_BGC_litt), intent(in) :: pool
+
+  answer = C_density(pool) * pool%dz
+end function
+
+! ============================================================================
 !> @brief Given soil carbon state, return total soil nitrogen
 !! @return total soil nitrogen, kgN/m2
-real function total_N_GIMICS(soilc) result(tot_N)
+real function total_N_GIMICS(soilc) result(answer)
   class(soil_BGC_GIMICS_t), intent(in)  :: soilc ! soil carbon data structure
-  tot_N = 0.0
+  answer = 0.0
 end function
 
 ! ============================================================================
@@ -502,9 +512,9 @@ subroutine rav_C_GIMICS(soilc, fast_C,slow_C,dmic_C)
      dmic_C       !< mass of microbes in litter, [kgC/m2]
 ! following CORPSE example, we only report the leaf litter pool values
   associate (pool=>soilc%litt(LITT_LEAF))
-     fast_C = pool%metabolicLitterC  * dz_litt
-     slow_C = pool%structuralLitterC * dz_litt
-     dmic_C = (pool%microbesR + pool%microbesR) * dz_litt
+     fast_C = pool%metabolicLitterC  * pool%dz ! slm: check the definition of fast/slow pools
+     slow_C = pool%structuralLitterC * pool%dz
+     dmic_C = (pool%microbesR + pool%microbesR) * pool%dz
   end associate
 end subroutine
 
@@ -516,7 +526,7 @@ subroutine get_littC_GIMICS(soilc, values)
 
   integer :: i
   do i = 1, N_LITTER_POOLS
-     values(i) = C_density(soilc%litt(i))*dz_litt
+     values(i) = C_amount(soilc%litt(i))
   enddo
 end subroutine
 
@@ -545,7 +555,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   do k = 1,N_LITTER_POOLS
      call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
-     vegn%rh=vegn%rh + soilc%litt(k)%Resp*dz_litt*hours_per_year
+     vegn%rh=vegn%rh + soilc%litt(k)%Resp*soilc%litt(k)%dz*hours_per_year
 !      do i = 1, N_C_TYPES
 !         call send_tile_data(id_litter_rsoil_C(k,i), litter_C_loss_rate(i), diag)
 !         call send_tile_data(id_litter_rsoil_N(k,i), litter_N_loss_rate(i), diag)
@@ -649,12 +659,12 @@ subroutine step3_GIMICS(soilc, diag)
   if (id_cLitter>0) then
      s = 0
      do k = 1, N_LITTER_POOLS
-        s = s+C_density(soilc%litt(k))*dz_litt
+        s = s+C_amount(soilc%litt(k))
      enddo
      call send_tile_data(id_cLitter, s, diag)
   endif
-  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd,  C_density(soilc%litt(LITT_CWOOD))*dz_litt, diag)
-  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, C_density(soilc%litt(LITT_LEAF)) *dz_litt, diag)
+  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd,  C_amount(soilc%litt(LITT_CWOOD)), diag)
+  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, C_amount(soilc%litt(LITT_LEAF)),  diag)
   ! --- end of CMOR vars
 
 end subroutine
@@ -868,8 +878,8 @@ subroutine add_soil_matter_GIMICS(soilc, vegn, &
      root_litt_N(:,:) = 0.0
   endif
 
-  call add_matter_GIMICS1(soilc%litt(LITT_LEAF),  dz_litt, leaf_litt_C, leaf_litt_N)
-  call add_matter_GIMICS1(soilc%litt(LITT_CWOOD), dz_litt, wood_litt_C, wood_litt_N)
+  call add_matter_GIMICS1(soilc%litt(LITT_LEAF),  leaf_litt_C, leaf_litt_N)
+  call add_matter_GIMICS1(soilc%litt(LITT_CWOOD), wood_litt_C, wood_litt_N)
   do k = 1,size(soilc%bulk)
      call add_matter_GIMICS2(soilc%bulk(k), soilc%rhiz(k), dz(k), soilc%fRhiz(k), root_litt_C(k,:), root_litt_N(k,:))
   enddo
@@ -898,7 +908,7 @@ subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
   delta_C = vegn%litter_rate_C*dt_fast_yr
 
   do i = 1,N_LITTER_POOLS
-     call add_matter_GIMICS1(soilc%litt(i), dz_litt, C=delta_C(:,i))
+     call add_matter_GIMICS1(soilc%litt(i), C=delta_C(:,i))
   enddo
   vegn%litter_buff_C = vegn%litter_buff_C - delta_C
   ! for litterfall diagnostics
@@ -932,15 +942,14 @@ subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
 end subroutine
 
 ! add carbon (and later nitrogen) to GIMICS soil BGC pool
-subroutine add_matter_GIMICS1(pool, dz, C, N)
+subroutine add_matter_GIMICS1(pool, C, N)
   type(GIMICS_BGC_litt), intent(inout) :: pool ! BGC pool to update
-  real, intent(in)  :: dz                      ! layer thickness, m
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
   if (present(C)) then
-     pool%metabolicLitterC  = pool%metabolicLitterC  + (C(C_FAST) + C(C_MIC))/dz ! kgC/m3
-     pool%structuralLitterC = pool%structuralLitterC + C(C_SLOW)/dz
+     pool%metabolicLitterC  = pool%metabolicLitterC  + (C(C_FAST) + C(C_MIC))/pool%dz ! kgC/m3
+     pool%structuralLitterC = pool%structuralLitterC + C(C_SLOW)/pool%dz
   endif
 !   if (present(N)) then
 !      ....
@@ -1035,7 +1044,7 @@ subroutine burn_litter_frac_GIMICS(soilc, frac, burned_C, burned_N)
   burned_C = 0.0; burned_N = 0.0
   do k = 1,N_LITTER_POOLS
      associate (pool=>soilc%litt(k))
-     burned_C = burned_C + C_density(pool)*frac(k)*dz_litt
+     burned_C = burned_C + C_amount(pool)*frac(k)
      f = 1.0-frac(k)
      pool%metabolicLitterC  = f * pool%metabolicLitterC
      pool%structuralLitterC = f * pool%structuralLitterC
