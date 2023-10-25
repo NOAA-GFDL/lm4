@@ -75,10 +75,13 @@ type GIMICS_BGC_pool
     real :: Resp              = 0.0
 end type
 
+type, extends(GIMICS_BGC_pool) :: GIMICS_BGC_litt ! surface litter pool
+    real :: dz = 0.0 ! litter thickness
+end type
+
 !> @brief soil carbon data container for GIMICS soil carbon model
 type, extends (soil_BGC_t) :: soil_BGC_GIMICS_t
-  type(GIMICS_BGC_pool) :: litt (N_LITTER_POOLS) ! surface litter (leaf,coarse wood)
-  ! slm: what is the dz that is associated with the surface litter? to get the total carbon, etc.
+  type(GIMICS_BGC_litt) :: litt (N_LITTER_POOLS) ! surface litter (leaf,coarse wood)
   type(GIMICS_BGC_pool), allocatable :: &
     rhiz(:),    & ! rhizosphere
     bulk(:)       ! bulk soil (i.e. soil that is not rhizosphere)
@@ -373,9 +376,9 @@ end subroutine
 ! ============================================================================
 !> @brief Merge GIMICS pool p1 into pool p2, with given weights
 subroutine merge_pools_GIMICS(p2,w2,p1,w1)
-  type(GIMICS_BGC_pool), intent(inout) :: p2
-  type(GIMICS_BGC_pool), intent(in)    :: p1
-  real,                  intent(in)    :: w2, w1
+  class(GIMICS_BGC_pool), intent(inout) :: p2
+  class(GIMICS_BGC_pool), intent(in)    :: p1
+  real,                   intent(in)    :: w2, w1
 
   real :: x1,x2 ! normalized weights for merging
 
@@ -473,7 +476,7 @@ end function
 !> @brief Given soil BGC pool, calculate total volumetric density of carbon, kgC/m3
 !! @return Total soil carbon in the pool, kgC/m3
 real function tot_pool_C(pool)
-  type(GIMICS_BGC_pool), intent(in) :: pool
+  class(GIMICS_BGC_pool), intent(in) :: pool
   tot_pool_C = pool%metabolicLitterC + pool%structuralLitterC &
              + pool%protectedC + pool%chemResistantC &
              + pool%availableC + pool%microbesR + pool%microbesK
@@ -658,7 +661,7 @@ end subroutine
 ! ============================================================================
 !> @brief Update soil carbon pool
 subroutine update_pool_GIMICS(pool, T, theta, fClay, is_sfc_litter)
-  type(GIMICS_BGC_pool),intent(inout) :: pool
+  class(GIMICS_BGC_pool), intent(inout) :: pool
   real,    intent(in) :: T         !< Temperature [degC]
   real,    intent(in) :: theta     !< volumetric water content slm: [per unit soil volume, or per unit pore volume?]
   real,    intent(in) :: fClay     !< clay fraction, unitless, within [0,1] interval
@@ -929,7 +932,7 @@ end subroutine
 
 ! add carbon (and later nitrogen) to GIMICS soil BGC pool
 subroutine add_matter_GIMICS1(pool, dz, C, N)
-  type(GIMICS_BGC_pool), intent(inout) :: pool ! BGC pool to update
+  type(GIMICS_BGC_litt), intent(inout) :: pool ! BGC pool to update
   real, intent(in)  :: dz                      ! layer thickness, m
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
