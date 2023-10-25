@@ -442,32 +442,33 @@ end subroutine
 !> @brief Given soil carbon state, return total C, including carbon in soil and
 !! surface litter pools
 !! @return Total carbon in soil and surface litter, kgC/m2
-real function total_C_GIMICS(soilc) result(tot_C)
+real function total_C_GIMICS(soilc) result(answer)
   class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
 
   integer :: k
 
   ! slm: what is dz associated with the surface litter?
-  tot_C = 0.0
+  answer = 0.0
   do k = 1, N_LITTER_POOLS
-     tot_C = tot_C + tot_pool_C(soilc%litt(k)) * dz_litt
+     answer = answer + C_density(soilc%litt(k)) * dz_litt
   enddo
 
-  tot_C = tot_C + total_soil_C(soilc)
+  answer = answer + total_soil_C(soilc)
 end function
 
 ! ============================================================================
 !> @brief Given soil carbon state, return total soil C
 !! @return Total carbon in soil (not including surface litter), kgC/m2
-real function total_soil_C(soilc) result(tot_C)
+real function total_soil_C(soilc) result(answer)
   class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
 
   integer :: k
 
+  answer = 0.0
   do k = 1,num_l
-     tot_C = tot_C + &
-           ( tot_pool_C(soilc%rhiz(k)) * soilc%fRhiz(k)     &
-           + tot_pool_C(soilc%bulk(k)) * (1-soilc%fRhiz(k)) &
+     answer = answer + &
+           ( C_density(soilc%rhiz(k)) * soilc%fRhiz(k)     &
+           + C_density(soilc%bulk(k)) * (1-soilc%fRhiz(k)) &
            ) * dz(k)
   enddo
 end function
@@ -475,11 +476,11 @@ end function
 ! ============================================================================
 !> @brief Given soil BGC pool, calculate total volumetric density of carbon, kgC/m3
 !! @return Total soil carbon in the pool, kgC/m3
-real function tot_pool_C(pool)
+real function C_density(pool) result(answer)
   class(GIMICS_BGC_pool), intent(in) :: pool
-  tot_pool_C = pool%metabolicLitterC + pool%structuralLitterC &
-             + pool%protectedC + pool%chemResistantC &
-             + pool%availableC + pool%microbesR + pool%microbesK
+  answer = pool%metabolicLitterC + pool%structuralLitterC &
+         + pool%protectedC + pool%chemResistantC &
+         + pool%availableC + pool%microbesR + pool%microbesK
 end function
 
 ! ============================================================================
@@ -515,7 +516,7 @@ subroutine get_littC_GIMICS(soilc, values)
 
   integer :: i
   do i = 1, N_LITTER_POOLS
-     values(i) = tot_pool_C(soilc%litt(i))*dz_litt
+     values(i) = C_density(soilc%litt(i))*dz_litt
   enddo
 end subroutine
 
@@ -593,8 +594,8 @@ subroutine step3_GIMICS(soilc, diag)
   if (id_total_soil_C>0) call send_tile_data(id_total_soil_C, soilc%total_C(), diag)
   if (id_total_C_layered>0) then
      do k = 1,num_l
-        a(k) = (tot_pool_C(soilc%rhiz(k))*soilc%fRhiz(k)    &
-               +tot_pool_C(soilc%bulk(k))*(1-soilc%fRhiz(k)) )
+        a(k) = (C_density(soilc%rhiz(k))*soilc%fRhiz(k)    &
+               +C_density(soilc%bulk(k))*(1-soilc%fRhiz(k)) )
      enddo
      call send_tile_data(id_total_C_layered, a, diag)
   endif
@@ -640,20 +641,20 @@ subroutine step3_GIMICS(soilc, diag)
 !   call send_tile_data(id_csoilslow, 0.0, diag)
   if (id_cSoilLevels>0) then
      do k = 1,num_l
-        a(k) = (tot_pool_C(soilc%rhiz(k))*soilc%fRhiz(k)    &
-               +tot_pool_C(soilc%bulk(k))*(1-soilc%fRhiz(k)) ) * dz(k)
+        a(k) = (C_density(soilc%rhiz(k))*soilc%fRhiz(k)    &
+               +C_density(soilc%bulk(k))*(1-soilc%fRhiz(k)) ) * dz(k)
      enddo
      call send_tile_data(id_cSoilLevels, a, diag)
   endif
   if (id_cLitter>0) then
      s = 0
      do k = 1, N_LITTER_POOLS
-        s = s+tot_pool_C(soilc%litt(k))*dz_litt
+        s = s+C_density(soilc%litt(k))*dz_litt
      enddo
      call send_tile_data(id_cLitter, s, diag)
   endif
-  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd,  tot_pool_C(soilc%litt(LITT_CWOOD))*dz_litt, diag)
-  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, tot_pool_C(soilc%litt(LITT_LEAF)) *dz_litt, diag)
+  if (id_cLitterCwd>0)  call send_tile_data(id_cLitterCwd,  C_density(soilc%litt(LITT_CWOOD))*dz_litt, diag)
+  if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, C_density(soilc%litt(LITT_LEAF)) *dz_litt, diag)
   ! --- end of CMOR vars
 
 end subroutine
@@ -1034,7 +1035,7 @@ subroutine burn_litter_frac_GIMICS(soilc, frac, burned_C, burned_N)
   burned_C = 0.0; burned_N = 0.0
   do k = 1,N_LITTER_POOLS
      associate (pool=>soilc%litt(k))
-     burned_C = burned_C + tot_pool_C(pool)*frac(k)*dz_litt
+     burned_C = burned_C + C_density(pool)*frac(k)*dz_litt
      f = 1.0-frac(k)
      pool%metabolicLitterC  = f * pool%metabolicLitterC
      pool%structuralLitterC = f * pool%structuralLitterC
