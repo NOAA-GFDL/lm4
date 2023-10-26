@@ -121,7 +121,6 @@ end type
 real :: delta_time ! fast (physical) time step [s]
 real :: dt_fast_yr ! fast (physical) time step [yr] (year is defined as 365 days)
 real :: dt_fast_hr ! fast (physical) time step [hr]
-real :: dz_litt=0.1  ! slm: temporary, surface litter thickness [m]. To be replaced with dynamic thickness, based ol litter density
 
 
 ! namelist
@@ -149,27 +148,33 @@ real :: aK        = 10.0     ! Tuning coefficient (unitless) (Eq 2 in Wieder et 
 
 real :: fI_Lm = 0.38464225   ! Partitioning of litter inputs to Lm (unitless)
 
-real  :: eLm_Mr = 0.55       ! Microbial growth efficiency for fluxes from Lm to Mr (mg/mg)
-real  :: eLs_Mr = 0.25       ! Microbial growth efficiency for fluxes from Ls to Mr (mg/mg)
-real  :: eCa_Mr = 0.55       ! Microbial growth efficiency for fluxes from Ca to Mr (mg/mg)
-real  :: eLm_Mk = 0.75       ! Microbial growth efficiency for fluxes from Lm to Mk (mg/mg)
-real  :: eLs_Mk = 0.35       ! Microbial growth efficiency for fluxes from Ls to Mk (mg/mg)
-real  :: eCa_Mk = 0.75       ! Microbial growth efficiency for fluxes from Ca to Mk (mg/mg)
+real :: eLm_Mr = 0.55       ! Microbial growth efficiency for fluxes from Lm to Mr (mg/mg)
+real :: eLs_Mr = 0.25       ! Microbial growth efficiency for fluxes from Ls to Mr (mg/mg)
+real :: eCa_Mr = 0.55       ! Microbial growth efficiency for fluxes from Ca to Mr (mg/mg)
+real :: eLm_Mk = 0.75       ! Microbial growth efficiency for fluxes from Lm to Mk (mg/mg)
+real :: eLs_Mk = 0.35       ! Microbial growth efficiency for fluxes from Ls to Mk (mg/mg)
+real :: eCa_Mk = 0.75       ! Microbial growth efficiency for fluxes from Ca to Mk (mg/mg)
 
-real  :: Kmod_oxid_Mr = 4.0  ! Further modifies Km for oxidation of Cc
-real  :: Kmod_oxid_Mk = 4.0  ! Further modifies Km for oxidation of Cc
+real :: Kmod_oxid_Mr = 4.0  ! Further modifies Km for oxidation of Cc
+real :: Kmod_oxid_Mk = 4.0  ! Further modifies Km for oxidation of Cc
 
-real  :: min_anaerobic_resp_factor = 0.05
-real  :: min_dry_resp_factor = 0.05
-real  :: gas_diffusion_exp = 2.5 ! Exponent for gas diffusion power law dependence on theta
-                             ! See Meslin et al 2010, SSAJ
-real  :: substrate_diffusion_exp = 3.0  ! Exponent for theta dependence at low theta.
-                             ! See Davison et al DAMM model paper
+real :: min_anaerobic_resp_factor = 0.05
+real :: min_dry_resp_factor = 0.05
+real :: gas_diffusion_exp = 2.5 ! Exponent for gas diffusion power law dependence on theta
+                            ! See Meslin et al 2010, SSAJ
+real :: substrate_diffusion_exp = 3.0  ! Exponent for theta dependence at low theta.
+                            ! See Davison et al DAMM model paper
 
-real  :: r_rhiz = 0.001      ! Radius of rhizosphere around fine root (m)
-
-real  :: init_Mr = 1e-15 ! initial (cold-start) value of microbesR, kg/m3
-real  :: init_Mk = 1e-15 ! initial (cold-start) value of microbesR, kg/m3
+real :: r_rhiz = 0.001      ! Radius of rhizosphere around fine root [m]
+real :: litt_density = 22.0 ! C density of surface litter layer [kg/m3]
+                            ! 22.0 roughly from Gaudinsky et al 2000, like in CORPSE
+real :: const_litt_dz = -9999.0 ! constant litter thickness, [m]
+                            ! if set to value above zero, litter thickness is not updated
+                            ! based on density and carbon mass; this specified constant
+                            ! value is used instead.
+real :: init_Mr = 1e-15 ! initial (cold-start) value of microbesR, [kg/m3]
+real :: init_Mk = 1e-15 ! initial (cold-start) value of microbesR, [kg/m3]
+real :: init_litt_dz = 1e-4 ! initial (cold-start) surface litter thickness, [m]
 
 logical, protected :: save_equilibration_data = .FALSE. !< if TRUE, information for
                          !! soil BGC equilibration acceleration is saved to disk
@@ -180,7 +185,7 @@ namelist /soil_BGC_GIMICS_nml/ &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, &
 ! -----
-    init_Mr, init_Mk, r_rhiz, &
+    init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density, const_litt_dz, &
     save_equilibration_data
 
 ! diag field IDs
@@ -327,10 +332,14 @@ subroutine init_GIMICS_state(soilc)
   do k = 1, N_LITTER_POOLS
      soilc%litt(k)%microbesR = init_Mr
      soilc%litt(k)%microbesK = init_Mk
-     ! slm: set initial surface litter thickness
-!      soilc%litt(k)%dz = (init_Mr+init_Mk)/litter_density
-     soilc%litt(k)%dz = dz_litt
-     ! the rest of the fields remain at their initial values of zero
+     ! the rest of the BGC pool fields remain at their initial values of zero.
+     ! set initial surface litter thickness
+     if (const_litt_dz > 0) then
+        soilc%litt(k)%dz = const_litt_dz
+     else
+        soilc%litt(k)%dz = init_litt_dz
+     endif
+
   enddo
 end subroutine
 
@@ -375,7 +384,9 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
            ! BGC component in litter is also zero.
         endif
      enddo
-     ! merge soil pools, layer by layer
+     ! Merge soil pools, layer by layer
+     ! For soil layers thickness is the same in both BGC pools that are merged,
+     ! so the averaging weights do not include thickness
      do k = 1,size(s2%rhiz)
         ! rhizosphere pools
         f1 = s1%fRhiz(k)         ; f2 = s2%fRhiz(k)
@@ -435,16 +446,21 @@ end subroutine
 subroutine update_thickness(pool)
   type(GIMICS_BGC_litt), intent(inout) :: pool
 
-!   real :: dz_new
+  real :: dz_new
 
-!   dz_new = C_amount(pool)/litter_density
-!   if (dz_new > 0) then
-!      call scale_pool(pool,pool%dz/dz_new)
-!      pool%dz = dz_new
-!   else
-!      call scale_pool(pool, 0.0)
-!      pool%dz = 0.0
-!   endif
+  if (const_litt_dz > 0) then
+     ! use constant litter thickness
+     dz_new = const_litt_dz
+  else
+     dz_new = C_amount(pool)/litt_density
+  endif
+  if (dz_new > 0) then
+     call scale_pool(pool,pool%dz/dz_new)
+     pool%dz = dz_new
+  else
+     call scale_pool(pool, 0.0)
+     pool%dz = 0.0
+  endif
 end subroutine
 
 
@@ -1022,8 +1038,10 @@ subroutine add_matter_GIMICS1(pool, C, N)
 !   if (present(N)) then
 !      ....
 !   endif
+  call update_thickness(pool)
 end subroutine
 
+! ============================================================================
 ! add carbon (and later nitrogen) to GIMICS soil BGC pool, distributing it between bulk soil and rhizosphere
 subroutine add_matter_GIMICS2(bulk, rhiz, dz, rhiz_frac, C, N)
   type(GIMICS_BGC_pool), intent(inout) :: bulk, rhiz ! bulk soil and rhizosphere BGC pools, respectively
@@ -1121,6 +1139,8 @@ subroutine burn_litter_frac_GIMICS(soilc, frac, burned_C, burned_N)
      pool%availableC        = f * pool%availableC
      pool%microbesR         = f * pool%microbesR
      pool%microbesK         = f * pool%microbesK
+
+     call update_thickness(pool)
      end associate
   enddo
 end subroutine
