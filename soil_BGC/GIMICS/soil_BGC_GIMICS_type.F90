@@ -48,7 +48,7 @@ real, parameter :: hours_per_year = seconds_per_year/3600.0
 
 ! ----  types
 
-! GIMICS BGC pool
+! GIMICS soil BGC pool
 type GIMICS_BGC_pool
 ! concentrations of various carbon pools, [kgC/m3]
     real :: metabolicLitterC  = 0.0
@@ -74,8 +74,10 @@ type GIMICS_BGC_pool
     real :: Resp              = 0.0
 end type
 
-type, extends(GIMICS_BGC_pool) :: GIMICS_BGC_litt ! surface litter pool
-    real :: dz = 0.0 ! litter thickness
+! GIMICS BGC surface litter pool: it is the same as the soil pool data structure,
+! except adds variable "dz" to track the evolution of surface litter thickness.
+type, extends(GIMICS_BGC_pool) :: GIMICS_BGC_litt
+    real :: dz = 0.0 ! litter thickness, [m]
 end type
 
 !> @brief soil carbon data container for GIMICS soil carbon model
@@ -343,6 +345,7 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
   real :: f1, f2 ! fractions of rhizosphere or bulk pools, for weight calculations
   real :: y1, y2 ! normalized relative weights for rhizosphere or bulk merges
   integer :: k
+  real :: dz2
 
   ! calculate normalized weights
   x1 = w1/(w1+w2)
@@ -351,9 +354,26 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
   select type(s1)
   type is (soil_BGC_GIMICS_t)
      ! merge surface litter pools
-     ! slm: this is incorrect, we must take into account difference in surface litter thickness in pools
+     ! for each state variable C of the pools, we must conserve mass, so that
+     ! after merge
+     ! C2'*dz2' = x1*C1*dz1 + x2*C2*dz2
+     ! therefore
+     ! C2' = x1*dz1/dz2'*C1 + x2*dz2/dz2'*C2
+     ! dz2' can be set to dz2, or to any convenient value and then updated based on
+     ! resulting BGC mass and density
      do k = 1, N_LITTER_POOLS
-        call merge_pools_GIMICS(s2%litt(k),x2,s1%litt(k),x1)
+        ! set dz2' to the max of two litter thicknesses to avoid dividing by zero
+        dz2 = max(s1%litt(k)%dz,s2%litt(k)%dz)
+        if (dz2 > 0) then
+           call merge_pools_GIMICS(s2%litt(k), x2*s2%litt(k)%dz/dz2, &
+                                   s1%litt(k), x1*s1%litt(k)%dz/dz2  )
+           s2%litt(k)%dz = dz2
+           call update_thickness(s2%litt(k))
+        else
+           ! Do nothing, since the mass is zero in both of the input pools.
+           ! This assumes that if litter thickness is zero then the mass of every
+           ! BGC component in litter is also zero.
+        endif
      enddo
      ! merge soil pools, layer by layer
      do k = 1,size(s2%rhiz)
@@ -410,6 +430,55 @@ subroutine merge_pools_GIMICS(p2,w2,p1,w1)
 #undef __MERGE__
 end subroutine
 
+! ============================================================================
+!> @brief Update thickness of the given surface litter pool
+subroutine update_thickness(pool)
+  type(GIMICS_BGC_litt), intent(inout) :: pool
+
+!   real :: dz_new
+
+!   dz_new = C_amount(pool)/litter_density
+!   if (dz_new > 0) then
+!      call scale_pool(pool,pool%dz/dz_new)
+!      pool%dz = dz_new
+!   else
+!      call scale_pool(pool, 0.0)
+!      pool%dz = 0.0
+!   endif
+end subroutine
+
+
+! ============================================================================
+!> @brief scale all the values in the pool with specified factor
+subroutine scale_pool(pool,f)
+  class(GIMICS_BGC_litt), intent(inout) :: pool !< pool to update
+  real, intent(in) :: f !< scaling factor
+
+#define __SCALE__(var) pool%var = pool%var*f
+! concentrations of various carbon pools, [kgC/m3]
+  __SCALE__(metabolicLitterC)
+  __SCALE__(structuralLitterC)
+  __SCALE__(protectedC)
+  __SCALE__(chemResistantC)
+  __SCALE__(availableC)
+  __SCALE__(microbesR)
+  __SCALE__(microbesK)
+
+! tendencies, for diagnostics, [kgC/m3/hr]
+  __SCALE__(DecompMrLm)
+  __SCALE__(DecompMrLs)
+  __SCALE__(DecompMrCa)
+  __SCALE__(DecompMkLm)
+  __SCALE__(DecompMkLs)
+  __SCALE__(DecompMkCa)
+  __SCALE__(OxidMrCc)
+  __SCALE__(OxidMkCc)
+  __SCALE__(Desorb)
+  __SCALE__(MrTau)
+  __SCALE__(MkTau)
+  __SCALE__(Resp)
+#undef __SCALE__
+end subroutine
 
 ! ============================================================================
 !> @brief Change the rhizosphere fraction in the soil
@@ -448,7 +517,6 @@ real function total_C_GIMICS(soilc) result(answer)
 
   integer :: k
 
-  ! slm: what is dz associated with the surface litter?
   answer = 0.0
   do k = 1, N_LITTER_POOLS
      answer = answer + C_amount(soilc%litt(k))
