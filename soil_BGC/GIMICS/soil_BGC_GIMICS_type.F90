@@ -191,7 +191,7 @@ namelist /soil_BGC_GIMICS_nml/ &
 ! diag field IDs
 integer :: id_total_soil_C, id_total_C_layered
 integer :: id_metabolicC, id_structuralC, id_protectedC, id_chemResistantC, id_availableC, &
-           id_microbesR, id_microbesK, id_fRhiz
+           id_microbesR, id_microbesK, id_fRhiz, id_dzLitterCwd, id_dzLitterLeaf
 
 integer :: id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -255,6 +255,11 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 
   id_fRhiz = register_tiled_diag_field ( diag_mod_name, 'fRhiz', axes(:),  &
        lnd%time, 'Volumetric fraction of rhizosphere', 'm3/m3', missing_value=-100.0 )
+  id_dzLitterCwd = register_tiled_diag_field ( diag_mod_name, 'dzLitterCwd', axes(1:1),  &
+       lnd%time, 'Thickness of coarse wood litter', 'm', missing_value=-100.0 )
+  id_dzLitterLeaf = register_tiled_diag_field ( diag_mod_name, 'dzLitterLeaf', axes(1:1),  &
+       lnd%time, 'Thickness of leaf litter', 'm', missing_value=-100.0 )
+
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
   call set_default_diag_filter('land')
@@ -716,6 +721,9 @@ subroutine step3_GIMICS(soilc, diag)
          +soilc%bulk(:)%microbesK*(1-soilc%fRhiz(:)), diag)
 
   if (id_fRhiz > 0) call send_tile_data(id_fRhiz, soilc%fRhiz, diag)
+  if (id_dzLitterLeaf > 0) call send_tile_data(id_dzLitterCwd,  soilc%litt(LITT_CWOOD)%dz, diag)
+  if (id_dzLitterCwd > 0)  call send_tile_data(id_dzLitterLeaf, soilc%litt(LITT_LEAF)%dz,  diag)
+
 !   call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_SIMPLE_C(C_FAST,:)), diag)
 !   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
 !   call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
