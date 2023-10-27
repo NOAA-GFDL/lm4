@@ -53,6 +53,7 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
                   call get_tile_data(restart,trim(fieldname),litter_C_ptr,i,k)
         enddo
      enddo
+     call free_land_restart(restart)
   else
      call error_mesg('soil_BGC_init_SIMPLE', 'cold-starting soil_BGC_SIMPLE', NOTE)
   endif

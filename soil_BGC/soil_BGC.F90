@@ -45,7 +45,7 @@ subroutine save_soil_BGC_restart(tile_dim_length, timestamp)
   case(SOIL_BGC_CORPSE)
     call soil_BGC_save_restart_CORPSE(tile_dim_length, timestamp)
   case(SOIL_BGC_GIMICS)
-    call soil_BGC_save_restart_CORPSE(tile_dim_length, timestamp)
+    call soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
   end select
 end subroutine
 

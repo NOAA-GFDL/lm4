@@ -645,6 +645,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
      call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh=vegn%rh + soilc%litt(k)%Resp*soilc%litt(k)%dz*hours_per_year
+     call update_thickness(soilc%litt(k))
 !      do i = 1, N_C_TYPES
 !         call send_tile_data(id_litter_rsoil_C(k,i), litter_C_loss_rate(i), diag)
 !         call send_tile_data(id_litter_rsoil_N(k,i), litter_N_loss_rate(i), diag)
@@ -1033,6 +1034,7 @@ subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
   enddo
 end subroutine
 
+! ============================================================================
 ! add carbon (and later nitrogen) to GIMICS soil BGC pool
 subroutine add_matter_GIMICS1(pool, C, N)
   type(GIMICS_BGC_litt), intent(inout) :: pool ! BGC pool to update

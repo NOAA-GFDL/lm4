@@ -124,6 +124,7 @@ subroutine soil_BGC_init_CORPSE( id_ug, id_zfull )
            call get_tile_data(restart,'negative_litter_N_'//trim(c_shortname(i)),sc_negative_litter_N_ptr,i)
         endif
      enddo
+     call free_land_restart(restart)
   else
      call error_mesg('soil_init', 'cold-starting soilc_CORPSE', NOTE)
   endif

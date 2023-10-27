@@ -53,6 +53,7 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
 !            call get_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_C_ptr,i,k)
 !         enddo
 !      enddo
+     call free_land_restart(restart)
   else
      call error_mesg('soil_BGC_init_GIMICS', 'cold-starting soil_BGC_GIMICS', NOTE)
      ! Go through all tiles and initialize GIMICS soil carbon state.
