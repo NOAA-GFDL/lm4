@@ -53,13 +53,30 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
   call open_land_restart(restart,filename,restart_exists)
   if (restart_exists) then
      call error_mesg('soil_BGC_init_GIMICS', 'reading NetCDF restart "'//trim(filename)//'"', NOTE)
-!      call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
-!      call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
-!      do i = 1, N_C_TYPES
-!         do k = 1, N_LITTER_POOLS
-!            call get_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',litter_C_ptr,i,k)
-!         enddo
-!      enddo
+
+     ! surface litter data
+     do k = 1,N_LITTER_POOLS
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_dz',litt_dz_ptr,k)
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_metabolicLitterC',litt_metabolicLitterC_ptr,k)
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_structuralLitterC',litt_structuralLitterC_ptr,k)
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_chemResistantC',litt_chemResistantC_ptr,k)
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_availableC',litt_availableC_ptr,k)
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesR',litt_microbesR_ptr,k)
+        call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesK',litt_microbesK_ptr,k)
+     enddo
+
+     ! soi data
+     call get_tile_data(restart,'fRhiz','zfull',soil_fRhiz_ptr)
+     do k = 1, N_S_PARTS
+        call get_tile_data(restart, trim(s_part_name(k))//'_metabolicLitterC','zfull', soil_metabolicLitterC_ptr, k)
+        call get_tile_data(restart, trim(s_part_name(k))//'_structuralLitterC','zfull', soil_structuralLitterC_ptr, k)
+        call get_tile_data(restart, trim(s_part_name(k))//'_protectedC','zfull', soil_protectedC_ptr, k)
+        call get_tile_data(restart, trim(s_part_name(k))//'_chemResistantC','zfull', soil_chemResistantC_ptr, k)
+        call get_tile_data(restart, trim(s_part_name(k))//'_availableC','zfull', soil_availableC_ptr, k)
+        call get_tile_data(restart, trim(s_part_name(k))//'_microbesR','zfull', soil_microbesR_ptr, k)
+        call get_tile_data(restart, trim(s_part_name(k))//'_microbesK','zfull', soil_microbesK_ptr, k)
+     enddo
+
      call free_land_restart(restart)
   else
      call error_mesg('soil_BGC_init_GIMICS', 'cold-starting soil_BGC_GIMICS', NOTE)
@@ -99,7 +116,7 @@ subroutine soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
   call init_land_restart(restart, filename, soilc_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
-  ! surface litter
+  ! surface litter data
   do k = 1,N_LITTER_POOLS
      call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_dz',&
         litt_dz_ptr,k,'Thickness of '//trim(l_longname(k))//' surface litter','m')
@@ -118,8 +135,8 @@ subroutine soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
         litt_microbesK_ptr,k,'K microbes carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
   enddo
 
+  ! soil data
   call add_tile_data(restart,'fRhiz', 'zfull', soil_fRhiz_ptr ,'fraction of rhizosphere in soil', 'm3/m3')
-
   do k = 1, N_S_PARTS
      call add_tile_data(restart, trim(s_part_name(k))//'_metabolicLitterC', 'zfull', &
          soil_metabolicLitterC_ptr, k, 'Metabolic carbon density in '//trim(s_part_name(k)), 'kg/m3')
