@@ -19,10 +19,17 @@ implicit none; private
 public :: soil_BGC_save_restart_GIMICS
 public :: soil_BGC_init_GIMICS
 
+! ---- module constants
 character(len=*), parameter :: module_name = 'soil_BGC_GIMICS_mod'
 #include "../../shared/version_variable.inc"
 
 character(len=*), parameter :: filename_base = 'soil_BGC_GIMICS'
+
+! to simplify the restart i/o, in restart i/o we treat two different parts of the soil
+! (rhizosphere and bulk) as a two-element array,  wth indices and names defined below
+integer, parameter :: N_S_PARTS    = 2 ! number of separate soil partitions (i.e. rhizosphere, bulk)
+integer, parameter :: S_PART_RHIZ = 1, S_PART_BULK = 2 ! indices of soi partitions
+character(16) :: s_part_name(N_S_PARTS) = [ 'rhiz', 'bulk' ] ! corresponding names of soil partitions
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
@@ -86,20 +93,50 @@ subroutine soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
 
   character(267) :: filename
   type(land_restart_type) :: restart ! restart file i/o object
-  integer :: i,k
+  integer :: k
 
   filename = 'RESTART/'//trim(timestamp)//trim(filename_base)//'.nc'
   call init_land_restart(restart, filename, soilc_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),.false.,"Z",'m','full level',sense=-1)
 
-!   call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
-!   call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
-!   do i = 1, N_C_TYPES
-!      do k = 1,N_LITTER_POOLS
-!         call add_tile_data(restart,trim(l_shortname(k))//'_litt_'//trim(c_shortname(i))//'_C',&
-!            litter_C_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
-!      enddo
-!   enddo
+  ! surface litter
+  do k = 1,N_LITTER_POOLS
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_dz',&
+        litt_dz_ptr,k,'Thickness of '//trim(l_longname(k))//' surface litter','m')
+
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_metabolicLitterC',&
+        litt_metabolicLitterC_ptr,k,'Metabolic carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_structuralLitterC',&
+        litt_structuralLitterC_ptr,k,'Structural carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_chemResistantC',&
+        litt_chemResistantC_ptr,k,'Chemically resistant carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_availableC',&
+        litt_availableC_ptr,k,'Available carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesR',&
+        litt_microbesR_ptr,k,'R microbes carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesK',&
+        litt_microbesK_ptr,k,'K microbes carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+  enddo
+
+  call add_tile_data(restart,'fRhiz', 'zfull', soil_fRhiz_ptr ,'fraction of rhizosphere in soil', 'm3/m3')
+
+  do k = 1, N_S_PARTS
+     call add_tile_data(restart, trim(s_part_name(k))//'_metabolicLitterC', 'zfull', &
+         soil_metabolicLitterC_ptr, k, 'Metabolic carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_structuralLitterC', 'zfull', &
+         soil_structuralLitterC_ptr, k, 'Structural carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_protectedC', 'zfull', &
+         soil_protectedC_ptr, k, 'Protected carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_chemResistantC', 'zfull', &
+         soil_chemResistantC_ptr, k, 'Chemically resistant carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_availableC', 'zfull', &
+         soil_availableC_ptr, k, 'Available carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_microbesR', 'zfull', &
+         soil_microbesR_ptr, k, 'R microbes carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_microbesK', 'zfull', &
+         soil_microbesK_ptr, k, 'K microbes carbon density in '//trim(s_part_name(k)), 'kg/m3')
+  enddo
+
   call save_land_restart(restart)
   call free_land_restart(restart)
 
@@ -127,18 +164,234 @@ end function
 
 ! ============================================================================
 ! accessor functions for GIMICS model soil BGC data
-! subroutine soil_fast_soil_C_ptr(t,i,p)
-!   type(land_tile_type), pointer :: t
-!   integer, intent(in) :: i
-!   real, pointer :: p
-!   p=>NULL()
-!   if(.not.associated(t))       return
-!   if(.not.associated(t%soilc)) return
-!   select type(s=>t%soilc)
-!   class is (soil_BGC_SIMPLE_t)
-!     p=>s%fast_soil_C(i)
-!   end select
-! end subroutine
+
+! surface litter properties
+
+subroutine litt_dz_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%dz
+  end select
+end subroutine
+
+subroutine litt_metabolicLitterC_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%metabolicLitterC
+  end select
+end subroutine
+
+subroutine litt_structuralLitterC_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%structuralLitterC
+  end select
+end subroutine
+
+subroutine litt_chemResistantC_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%chemResistantC
+  end select
+end subroutine
+
+subroutine litt_availableC_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%availableC
+  end select
+end subroutine
+
+subroutine litt_microbesR_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%microbesR
+  end select
+end subroutine
+
+subroutine litt_microbesK_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%microbesK
+  end select
+end subroutine
+
+! ---- soil properties
+
+subroutine soil_fRhiz_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%fRhiz(i)
+  end select
+end subroutine
+
+subroutine soil_metabolicLitterC_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%metabolicLitterC
+      case (S_PART_BULK); p=>s%bulk(i)%metabolicLitterC
+    end select
+  end select
+end subroutine
+
+subroutine soil_structuralLitterC_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%structuralLitterC
+      case (S_PART_BULK); p=>s%bulk(i)%structuralLitterC
+    end select
+  end select
+end subroutine
+
+subroutine soil_protectedC_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%protectedC
+      case (S_PART_BULK); p=>s%bulk(i)%protectedC
+    end select
+  end select
+end subroutine
+
+subroutine soil_chemResistantC_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%chemResistantC
+      case (S_PART_BULK); p=>s%bulk(i)%chemResistantC
+    end select
+  end select
+end subroutine
+
+subroutine soil_availableC_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%availableC
+      case (S_PART_BULK); p=>s%bulk(i)%availableC
+    end select
+  end select
+end subroutine
+
+subroutine soil_microbesR_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%microbesR
+      case (S_PART_BULK); p=>s%bulk(i)%microbesR
+    end select
+  end select
+end subroutine
+
+subroutine soil_microbesK_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%microbesK
+      case (S_PART_BULK); p=>s%bulk(i)%microbesK
+    end select
+  end select
+end subroutine
+
 !
 ! subroutine soil_slow_soil_C_ptr(t,i,p)
 !   type(land_tile_type), pointer :: t
