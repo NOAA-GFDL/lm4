@@ -191,8 +191,13 @@ namelist /soil_BGC_GIMICS_nml/ &
 ! diag field IDs
 integer :: id_total_soil_C, id_total_C_layered
 integer :: id_metabolicC, id_structuralC, id_protectedC, id_chemResistantC, id_availableC, &
-           id_microbesR, id_microbesK, id_fRhiz, id_dzLitterCwd, id_dzLitterLeaf
+           id_microbesR, id_microbesK, id_fRhiz
 
+integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
+   id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
+   id_litt_microbesR, id_litt_microbesK
+
+! CMIP/CMOR diag fields
 integer :: id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -223,7 +228,7 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   integer,intent(in)  :: id_ug    !< Unstructured axis id
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
-  character(*), parameter :: diag_mod_name = 'soil'
+  character(*), parameter :: diag_mod_name = 'gimics'
   integer :: axes(2)
 
   ! define array of axis indices
@@ -255,10 +260,25 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 
   id_fRhiz = register_tiled_diag_field ( diag_mod_name, 'fRhiz', axes(:),  &
        lnd%time, 'Volumetric fraction of rhizosphere', 'm3/m3', missing_value=-100.0 )
-  id_dzLitterCwd = register_tiled_diag_field ( diag_mod_name, 'dzLitterCwd', axes(1:1),  &
-       lnd%time, 'Thickness of coarse wood litter', 'm', missing_value=-100.0 )
-  id_dzLitterLeaf = register_tiled_diag_field ( diag_mod_name, 'dzLitterLeaf', axes(1:1),  &
-       lnd%time, 'Thickness of leaf litter', 'm', missing_value=-100.0 )
+
+  ! litter fields
+  id_litt_total_C(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_C', &
+       axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litt_dz(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_dz', &
+       axes(1:1),  lnd%time, '<ltype> litter thickness', 'm', missing_value=-100.0 )
+
+  id_litt_metabolicC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_metabolicC', axes(1:1),  &
+       lnd%time, 'Volumetric density of metabolic C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+  id_litt_structuralC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_structuralC', axes(1:1),  &
+       lnd%time, 'Volumetric density of structural C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+  id_litt_chemResistantC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_chemResistantC', axes(1:1),  &
+       lnd%time, 'Volumetric density of chemResistant C  in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+  id_litt_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC', axes(1:1),  &
+       lnd%time, 'Volumetric density of available C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+  id_litt_microbesR(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesR', axes(1:1),  &
+       lnd%time, 'Volumetric density of copiotrophic (R) microbes in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+  id_litt_microbesK(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesK', axes(1:1),  &
+       lnd%time, 'Volumetric density of oligotrophic (K) microbes in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
 
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
@@ -722,20 +742,23 @@ subroutine step3_GIMICS(soilc, diag)
          +soilc%bulk(:)%microbesK*(1-soilc%fRhiz(:)), diag)
 
   if (id_fRhiz > 0) call send_tile_data(id_fRhiz, soilc%fRhiz, diag)
-  if (id_dzLitterLeaf > 0) call send_tile_data(id_dzLitterCwd,  soilc%litt(LITT_CWOOD)%dz, diag)
-  if (id_dzLitterCwd > 0)  call send_tile_data(id_dzLitterLeaf, soilc%litt(LITT_LEAF)%dz,  diag)
+
+  do k = 1, N_LITTER_POOLS
+     if (id_litt_total_C(k)>0) call send_tile_data(id_litt_total_C(k), C_amount(soilc%litt(k)), diag)
+     if (id_litt_dz(k)>0)      call send_tile_data(id_litt_dz(k),      soilc%litt(k)%dz,        diag)
+     if (id_litt_metabolicC(k)>0)     call send_tile_data(id_litt_metabolicC(k),     soilc%litt(k)%metabolicLitterC,  diag)
+     if (id_litt_structuralC(k)>0)    call send_tile_data(id_litt_structuralC(k),    soilc%litt(k)%structuralLitterC, diag)
+     if (id_litt_chemResistantC(k)>0) call send_tile_data(id_litt_chemResistantC(k), soilc%litt(k)%chemResistantC, diag)
+     if (id_litt_availableC(k)>0)     call send_tile_data(id_litt_availableC(k),     soilc%litt(k)%availableC,     diag)
+     if (id_litt_microbesR(k)>0)      call send_tile_data(id_litt_microbesR(k),      soilc%litt(k)%microbesR,      diag)
+     if (id_litt_microbesK(k)>0)      call send_tile_data(id_litt_microbesK(k),      soilc%litt(k)%microbesK,      diag)
+  enddo
 
 !   call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_SIMPLE_C(C_FAST,:)), diag)
 !   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
 !   call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
 !   call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
-!   do k = 1, N_LITTER_POOLS
-!      if (id_litter_total_C(k)>0) call send_tile_data(id_litter_total_C(k), sum(soil%litter_SIMPLE_C(:,k)), diag)
-!      do i = 1, N_C_TYPES
-!         call send_tile_data(id_litter_C(k,i), soil%litter_SIMPLE_C(i,k), diag)
-!      enddo
-!   enddo
-!
+
   ! --- CMOR vars
   if (id_csoil>0) call send_tile_data(id_csoil, total_soil_C(soilc), diag)
 ! slm: in GIMICS, what is fast, medium, and slow carbon?
