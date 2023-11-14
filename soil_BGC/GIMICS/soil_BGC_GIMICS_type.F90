@@ -805,6 +805,7 @@ subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag)
   real, dimension(size(rhiz)) :: &
      c,     & ! average concentration in layer, [kg/m3]
      tend     ! tendency due to turbation, [kg/(m3 yr)]
+  real :: f   ! proportionality factor for negative tendency application, unitless
   integer :: k
 
   do k = 1,size(rhiz)
@@ -812,17 +813,33 @@ subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag)
   enddo
   call diffusion(c,K_turb,tend)
   do k = 1, size(rhiz)
-     rhiz(k) = rhiz(k) + tend(k)*dt_fast_yr
-     bulk(k) = bulk(k) + tend(k)*dt_fast_yr
+     ! We apply turbation tendency differently depending on its sign: if a bug
+     ! goes through the soil and consumed matter (negative tendency), it
+     ! presumably does so proportionally to the concentrations in each of the soil
+     ! pieces it encounters (rhiz or bulk). On the other hand, when it deposits
+     ! carbon (positive tendency), it presumably drops the same concentration in
+     ! rhiz or bulk.
+     !
+     ! The true mechanism of the exchange is probably much more complicated, as
+     ! the consumption/dropping happens simultaneously; it also could be very
+     ! different for crioturbation
+     if (tend(k).ge.0) then
+        ! positive tendency: apply the same concentration increase to rhizosphere and
+        ! bulk soil
+        rhiz(k) = rhiz(k) + tend(k)*dt_fast_yr
+        bulk(k) = bulk(k) + tend(k)*dt_fast_yr
+     else
+        ! negative tendency: reduce rhizosphere and bulk soil concentration proportionally
+        f = (c(k)+tend(k)*dt_fast_yr)/c(k)
+        rhiz(k) = rhiz(k)*f
+        bulk(k) = bulk(k)*f
+     endif
   enddo
-  ! slm: send tendency to diagnostics
+  ! send tendency to diagnostics
   call send_tile_data(id_turb_tend, tend, diag)
   ! slm: possibly accumulate tendency for equilibrium concentrations
 
-  ! here we protect from the situation when diffusion tendency can lead to negative
-  ! concentrations. This can happen when, say, concentration in the rhizosphere
-  ! is much higher and dominates the diffusion, but the bulk soil concentration is
-  ! much lower and the same tendency would
+  ! Detect the situation when diffusion tendency leads to negative concentrations.
   call check_var_range(rhiz, 0.0, HUGE(1.0), 'turbation', 'rhiz', FATAL)
   call check_var_range(bulk, 0.0, HUGE(1.0), 'turbation', 'bulk', FATAL)
 end subroutine
