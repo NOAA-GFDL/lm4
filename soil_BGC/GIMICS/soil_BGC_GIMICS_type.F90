@@ -743,11 +743,11 @@ end subroutine
 ! processes, and accumulate heterotrophic respiration
 subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   class(soil_BGC_GIMICS_t)  , intent(inout) :: soilc
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  type(diag_buff_type), intent(inout) :: diag
-  real                , intent(in)    :: soilt ! average soil temperature, deg K, [unused]
-  real                , intent(in)    :: theta ! average soil moisture [unused]
+  type(vegn_tile_type), intent(inout) :: vegn  !< vegetation data structure
+  type(soil_tile_type), intent(inout) :: soil  !< soil data structure
+  type(diag_buff_type), intent(inout) :: diag  !< diagnostic buffer
+  real                , intent(in)    :: soilt !< average soil temperature, deg K, [unused]
+  real                , intent(in)    :: theta !< average soil moisture [unused]
 
   real, dimension(num_l) :: decomp_T, decomp_theta
   real, dimension(num_l) :: rhiz_frac
@@ -764,7 +764,6 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
      call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh=vegn%rh + soilc%litt(k)%Resp*soilc%litt(k)%dz*hours_per_year
-     call update_litter_thickness(soilc%litt(k))
 !      do i = 1, N_C_TYPES
 !         call send_tile_data(id_litter_rsoil_C(k,i), litter_C_loss_rate(i), diag)
 !         call send_tile_data(id_litter_rsoil_N(k,i), litter_N_loss_rate(i), diag)
@@ -773,6 +772,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 !      vegn%fsc_out     = vegn%fsc_out     + litter_C_loss_rate(C_FAST)*dt_fast_yr
 !      vegn%ssc_out     = vegn%ssc_out     + litter_C_loss_rate(C_SLOW)*dt_fast_yr
 !      vegn%deadmic_out = vegn%deadmic_out + litter_C_loss_rate(C_MIC) *dt_fast_yr
+     call update_litter_thickness(soilc%litt(k))
   enddo
 
   ! Next we have to go through layers and decompose the soil carbon pools
@@ -801,7 +801,10 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 
   ! slm: TODO: calculate horizontal exchange between rhizosphere and soil
 
-end subroutine
+  do k = 1,N_LITTER_POOLS
+     call update_litter_thickness(soilc%litt(k))
+  enddo
+end subroutine dsdt_GIMICS
 
 ! ============================================================================
 !> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
@@ -889,10 +892,10 @@ end subroutine
 ! ============================================================================
 !> @brief Calculate tendency due to vertical diffusion
 subroutine diffusion(C,D,F0,tend)
-  real, intent(in)  :: C(:) ! transported quantity, by layer, [kg/m3]
-  real, intent(in)  :: D(:) ! coefficients of diffusion (at the layer's bottom), [m2/yr]
-  real, intent(in)  :: F0   ! flux into the soil at the soil surface, [kg/(m2 yr)]
-  real, intent(out) :: tend(:) ! tendencies due to diffusion [kg/(m3 yr)]
+  real, intent(in)  :: C(:) !< transported quantity, by layer, [kg/m3]
+  real, intent(in)  :: D(:) !< coefficients of diffusion (at the layer's bottom), [m2/yr]
+  real, intent(in)  :: F0   !< flux into the soil at the soil surface, [kg/(m2 yr)]
+  real, intent(out) :: tend(:) !< tendencies due to diffusion [kg/(m3 yr)]
 
   integer :: k
   real    :: flux(0:num_l) ! flux at the lower boundary of the soil layer [kg/(m2 yr)],
