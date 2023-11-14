@@ -204,7 +204,7 @@ namelist /soil_BGC_GIMICS_nml/ &
 ! diag field IDs
 integer :: id_total_soil_C
 integer :: id_fRhiz, &
-   id_bturb_metabolicC, id_bturb_structuralC, id_bturb_chemResistantC, id_bturb_availableC
+   id_sturb_metabolicC, id_sturb_structuralC, id_sturb_chemResistantC, id_sturb_availableC
 ! diag fields for rhizosphere, bulk soil, and total
 integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC, &
    id_chemResistantC, id_availableC, id_microbesR, id_microbesK
@@ -288,7 +288,7 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_litt_structuralC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_structuralC', axes(1:1),  &
        lnd%time, 'Volumetric density of structural C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
   id_litt_chemResistantC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_chemResistantC', axes(1:1),  &
-       lnd%time, 'Volumetric density of chemResistant C  in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'Volumetric density of chemically resistant C  in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
   id_litt_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC', axes(1:1),  &
        lnd%time, 'Volumetric density of available C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
   id_litt_microbesR(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesR', axes(1:1),  &
@@ -298,14 +298,16 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_litt_allC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_allC', axes(1:1),  &
        lnd%time, 'Volumetric density of all C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
 
-  id_bturb_metabolicC = register_tiled_diag_field( diag_mod_name, 'metabolicC_bturb', axes(:), &
-       lnd%time, 'Tendency of metabolic C due to bioturbation', 'kg C/(m3 yr)', missing_value = -1e20)
-  id_bturb_structuralC = register_tiled_diag_field( diag_mod_name, 'structuralC_bturb', axes(:), &
-       lnd%time, 'Tendency of structural C due to bioturbation', 'kg C/(m3 yr)', missing_value = -1e20)
-  id_bturb_chemResistantC = register_tiled_diag_field( diag_mod_name, 'chemResistantC_bturb', axes(:), &
-       lnd%time, 'Tendency of chemResistant C due to bioturbation', 'kg C/(m3 yr)', missing_value = -1e20)
-  id_bturb_availableC = register_tiled_diag_field( diag_mod_name, 'availableC_bturb', axes(:), &
-       lnd%time, 'Tendency of available C due to bioturbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  ! tendencies due to turbation in soil
+  id_sturb_metabolicC = register_tiled_diag_field( diag_mod_name, 'metabolicC_turb', axes(:), &
+       lnd%time, 'Tendency of metabolic C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  id_sturb_structuralC = register_tiled_diag_field( diag_mod_name, 'structuralC_turb', axes(:), &
+       lnd%time, 'Tendency of structural C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  id_sturb_chemResistantC = register_tiled_diag_field( diag_mod_name, 'chemResistantC_turb', axes(:), &
+       lnd%time, 'Tendency of chemically resistant C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  id_sturb_availableC = register_tiled_diag_field( diag_mod_name, 'availableC_turb', axes(:), &
+       lnd%time, 'Tendency of available C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
   call set_default_diag_filter('land')
@@ -769,10 +771,10 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   ! calculate tendencies due to turbation
   ! slm: Minjin seems to apply turbation only to the four components of the soil carbon.
   !      For some reason, protectedC and microbes are not included?
-  call turbation(soilc%rhiz(:)%metabolicLitterC,  soilc%bulk(:)%metabolicLitterC,  soilc%fRhiz, id_bturb_metabolicC,     diag)
-  call turbation(soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, soilc%fRhiz, id_bturb_structuralC,    diag)
-  call turbation(soilc%rhiz(:)%chemResistantC,    soilc%bulk(:)%chemResistantC,    soilc%fRhiz, id_bturb_chemResistantC, diag)
-  call turbation(soilc%rhiz(:)%availableC,        soilc%bulk(:)%availableC,        soilc%fRhiz, id_bturb_availableC,     diag)
+  call turbation(soilc%rhiz(:)%metabolicLitterC,  soilc%bulk(:)%metabolicLitterC,  soilc%fRhiz, id_sturb_metabolicC,     diag, 'metabolicC')
+  call turbation(soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, soilc%fRhiz, id_sturb_structuralC,    diag, 'structuralC')
+  call turbation(soilc%rhiz(:)%chemResistantC,    soilc%bulk(:)%chemResistantC,    soilc%fRhiz, id_sturb_chemResistantC, diag, 'chemResistantC')
+  call turbation(soilc%rhiz(:)%availableC,        soilc%bulk(:)%availableC,        soilc%fRhiz, id_sturb_availableC,     diag, 'availableC')
 
   ! slm: TODO: calculate exchange with surface litter
   ! slm: TODO: calculate horizontal exchange between rhizosphere and soil
@@ -795,12 +797,13 @@ end subroutine
 
 ! ============================================================================
 !> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
-subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag)
+subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag, tag)
   real, intent(inout) :: rhiz(:)  !< concentration in rhizosphere, [kg/m3]
   real, intent(inout) :: bulk(:)  !< concentration in bulk soil, [kg/m3]
   real, intent(inout) :: fRhiz(:) !< fraction of rhizosphere, [m3/m3]
   integer, intent(in) :: id_turb_tend !> diagnostic id for turbation tendency field
   type(diag_buff_type), intent(inout) :: diag !> diagnostic buffer
+  character(*), intent(in) :: tag ! textual tag for error messages
 
   real, dimension(size(rhiz)) :: &
      c,     & ! average concentration in layer, [kg/m3]
@@ -840,8 +843,8 @@ subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag)
   ! slm: possibly accumulate tendency for equilibrium concentrations
 
   ! Detect the situation when diffusion tendency leads to negative concentrations.
-  call check_var_range(rhiz, 0.0, HUGE(1.0), 'turbation', 'rhiz', FATAL)
-  call check_var_range(bulk, 0.0, HUGE(1.0), 'turbation', 'bulk', FATAL)
+  call check_var_range(rhiz, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'rhiz', FATAL)
+  call check_var_range(bulk, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'bulk', FATAL)
 end subroutine
 
 ! ============================================================================
@@ -1153,7 +1156,7 @@ subroutine add_soil_matter_GIMICS(soilc, vegn, &
   ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
   vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
   vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
-end subroutine
+end subroutine add_soil_matter_GIMICS
 
 ! ============================================================================
 ! transfer fraction of intermediate pools (used for smoothing out contributions
