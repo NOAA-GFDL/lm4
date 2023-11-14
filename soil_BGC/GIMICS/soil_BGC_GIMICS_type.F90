@@ -169,6 +169,7 @@ real :: substrate_diffusion_exp = 3.0  ! Exponent for theta dependence at low th
 real :: r_rhiz = 0.001      ! Radius of rhizosphere around fine root [m]
 real :: litt_density = 22.0 ! C density of surface litter layer [kg/m3]
                             ! 22.0 roughly from Gaudinsky et al 2000, like in CORPSE
+real :: min_litt_dz = 0.001 ! minimum litter thickness, [m]
 real :: const_litt_dz = -9999.0 ! constant litter thickness, [m]
                             ! if set to value above zero, litter thickness is not updated
                             ! based on density and carbon mass; instead, the model uses
@@ -184,6 +185,8 @@ real :: K_turb(MAX_SOIL_LEV) = (/ &
     0.8e-4, 0.6e-4, 0.4e-4, 0.2e-4, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    &
     (0.0,ii=1,80) /)
 
+real :: K_sfc_turb = 38.8e-4 ! coefficient of exchange between surface litter and soil, [m2/yr]
+
 real :: init_Mr = 1e-15 ! initial (cold-start) value of microbesR, [kg/m3]
 real :: init_Mk = 1e-15 ! initial (cold-start) value of microbesR, [kg/m3]
 real :: init_litt_dz = 1e-4 ! initial (cold-start) surface litter thickness, [m]
@@ -197,8 +200,8 @@ namelist /soil_BGC_GIMICS_nml/ &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, &
 ! -----
-    init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density,  const_litt_dz, &
-    K_turb, &
+    init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density, min_litt_dz, const_litt_dz, &
+    K_turb, K_sfc_turb, &
     save_equilibration_data
 
 ! diag field IDs
@@ -210,7 +213,9 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
    id_chemResistantC, id_availableC, id_microbesR, id_microbesK
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
-   id_litt_microbesR, id_litt_microbesK, id_litt_allC
+   id_litt_microbesR, id_litt_microbesK, id_litt_allC, &
+   ! turbation tendencies in surface litter pools
+   id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC
 
 ! CMIP/CMOR diag fields
 integer :: id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
@@ -307,6 +312,16 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Tendency of chemically resistant C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
   id_sturb_availableC = register_tiled_diag_field( diag_mod_name, 'availableC_turb', axes(:), &
        lnd%time, 'Tendency of available C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+
+  ! turbation exchange between surface litter and soil
+  id_lturb_metabolicC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_metabolicC_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of metabolic C due to turbation', 'kg C/m3', missing_value=-100.0 )
+  id_lturb_structuralC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_structuralC_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of structural C due to turbation', 'kg C/m3', missing_value=-100.0 )
+  id_lturb_chemResistantC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_chemResistantC_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of chemically resistant C due to turbation', 'kg C/m3', missing_value=-100.0 )
+  id_lturb_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of available C due to turbation', 'kg C/m3', missing_value=-100.0 )
 
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
@@ -557,12 +572,16 @@ subroutine update_thickness(pool)
      ! use constant litter thickness
      dz_new = const_litt_dz
   else
-     dz_new = C_amount(pool)/litt_density
+     dz_new = max(C_amount(pool)/litt_density, min_litt_dz)
   endif
   if (dz_new > 0) then
+     ! change concentrations to keep the total amounts constant
      call scale_pool(pool,pool%dz/dz_new)
      pool%dz = dz_new
   else
+     ! slm: zero litter thickness will cause issues in the litter-to-soil
+     !      turbation, because it will lead to infinite changes in concentration
+     !      even for finite changes in litter amount
      call scale_pool(pool, 0.0)
      pool%dz = 0.0
   endif
@@ -771,37 +790,29 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   ! calculate tendencies due to turbation
   ! slm: Minjin seems to apply turbation only to the four components of the soil carbon.
   !      For some reason, protectedC and microbes are not included?
-  call turbation(soilc%rhiz(:)%metabolicLitterC,  soilc%bulk(:)%metabolicLitterC,  soilc%fRhiz, id_sturb_metabolicC,     diag, 'metabolicC')
-  call turbation(soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, soilc%fRhiz, id_sturb_structuralC,    diag, 'structuralC')
-  call turbation(soilc%rhiz(:)%chemResistantC,    soilc%bulk(:)%chemResistantC,    soilc%fRhiz, id_sturb_chemResistantC, diag, 'chemResistantC')
-  call turbation(soilc%rhiz(:)%availableC,        soilc%bulk(:)%availableC,        soilc%fRhiz, id_sturb_availableC,     diag, 'availableC')
+  call turbation(soilc%litt(:)%metabolicLitterC, soilc%rhiz(:)%metabolicLitterC, soilc%bulk(:)%metabolicLitterC, &
+                 soilc%fRhiz, soilc%litt(:)%dz, id_sturb_metabolicC, id_lturb_metabolicC, diag, 'metabolicC')
+  call turbation(soilc%litt(:)%structuralLitterC, soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, &
+                 soilc%fRhiz, soilc%litt(:)%dz, id_sturb_structuralC, id_lturb_structuralC, diag, 'structuralC')
+  call turbation(soilc%litt(:)%chemResistantC, soilc%rhiz(:)%chemResistantC, soilc%bulk(:)%chemResistantC, &
+                 soilc%fRhiz, soilc%litt(:)%dz, id_sturb_chemResistantC, id_lturb_chemResistantC, diag, 'chemResistantC')
+  call turbation(soilc%litt(:)%availableC, soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC, &
+                 soilc%fRhiz, soilc%litt(:)%dz, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
 
-  ! slm: TODO: calculate exchange with surface litter
   ! slm: TODO: calculate horizontal exchange between rhizosphere and soil
 
-!   do i = 1, N_C_TYPES
-!      if (id_rsoil_C(i)>0) call send_tile_data(id_rsoil_C(i), C_loss_rate(:,i)/dz(1:num_l), diag)
-!      if (id_rsoil_N(i)>0) call send_tile_data(id_rsoil_N(i), N_loss_rate(:,i)/dz(1:num_l), diag)
-!   enddo
-
-  ! ---- diagnostic section
-!   call send_tile_data(id_rsoil_C(C_FAST), fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
-!   call send_tile_data(id_rsoil_C(C_SLOW), slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
-!   call send_tile_data(id_rsoil, vegn%rh, diag)
-
-  ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
-  !       e.g. weight it with the carbon loss, or something like that
-!   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
-!   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
 end subroutine
 
 ! ============================================================================
 !> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
-subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag, tag)
+subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_tend, diag, tag)
+  real, intent(inout) :: litt(N_LITTER_POOLS)  !< concentration in litter(s), [kg/m3]
   real, intent(inout) :: rhiz(:)  !< concentration in rhizosphere, [kg/m3]
   real, intent(inout) :: bulk(:)  !< concentration in bulk soil, [kg/m3]
-  real, intent(inout) :: fRhiz(:) !< fraction of rhizosphere, [m3/m3]
-  integer, intent(in) :: id_turb_tend !> diagnostic id for turbation tendency field
+  real, intent(in)    :: fRhiz(:) !< fraction of rhizosphere, [m3/m3]
+  real, intent(in)    :: dz_litt(N_LITTER_POOLS) !< litter thickness, [m]
+  integer, intent(in) :: id_turb_tend !< diagnostic id for turbation tendency field
+  integer, intent(in) :: id_litt_tend(N_LITTER_POOLS) !< diagnostic ids for turbation tendencies in litter
   type(diag_buff_type), intent(inout) :: diag !> diagnostic buffer
   character(*), intent(in) :: tag ! textual tag for error messages
 
@@ -810,11 +821,28 @@ subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag, tag)
      tend     ! tendency due to turbation, [kg/(m3 yr)]
   real :: f   ! proportionality factor for negative tendency application, unitless
   integer :: k
+  real :: d   ! distance between centers of litter and soil layers, [m]
+  real :: sfcFlux(N_LITTER_POOLS) ! flux from each litter pool to soil, [kg/(m2 yr)]
 
+  ! calculate average concentration in soil
   do k = 1,size(rhiz)
      c(k) = rhiz(k)*fRhiz(k) + bulk(k)*(1-fRhiz(k))
   enddo
-  call diffusion(c,K_turb,tend)
+  ! calculate fluxes from litter to soil
+  do k = 1,N_LITTER_POOLS
+     ! slm: it is questionable if we should use dz_litt to calculate gradient: presumably
+     !      diffusion between litter and soil should not decrease as the litter gets
+     !      thicker, but this formulation would make it so, because we divide by dz_litt.
+     !      E.g., difusion from 20cm-thick liter would be almost 4 times slower than from
+     !      5cm. Perhaps we should impose some maximum on d?
+     d    = dz_litt(k)/2 + zfull(1) ! distance between centers of litter and top soil layer, [m]
+     sfcFlux(k) = K_sfc_turb*(litt(k)-c(1))/d ! flux from litter to soil, [kg/(m2 yr)]
+     sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+     sfcFlux(k) = min(sfcFlux(k),litt(k)*dz_litt(k)/dt_fast_yr) ! to avoid depleting litter below zero
+  enddo
+  ! diffusion in soil
+  call diffusion(c, K_turb, sum(sfcFlux), tend)
+  ! update soil concentrations
   do k = 1, size(rhiz)
      ! We apply turbation tendency differently depending on its sign: if a bug
      ! goes through the soil and consumed matter (negative tendency), it
@@ -838,33 +866,44 @@ subroutine turbation(rhiz, bulk, fRhiz, id_turb_tend, diag, tag)
         bulk(k) = bulk(k)*f
      endif
   enddo
-  ! send tendency to diagnostics
+  ! update litter concentrations
+  do k = 1, N_LITTER_POOLS
+     litt(k) = litt(k) - sfcFlux(k)/dz_litt(k)*dt_fast_yr
+  enddo
+
+  ! send soil tendencies to diagnostics
   call send_tile_data(id_turb_tend, tend, diag)
+  ! send soil tendencies to diagnostics
+  do k = 1,N_LITTER_POOLS
+     call send_tile_data(id_litt_tend(k), -sfcFlux(k)/dz_litt(k), diag)
+  enddo
   ! slm: possibly accumulate tendency for equilibrium concentrations
 
   ! Detect the situation when diffusion tendency leads to negative concentrations.
   call check_var_range(rhiz, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'rhiz', FATAL)
   call check_var_range(bulk, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'bulk', FATAL)
+  call check_var_range(litt(LITT_CWOOD), 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'cwlitt', FATAL)
+  call check_var_range(litt(LITT_LEAF),  0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'lflitt', FATAL)
 end subroutine
 
 ! ============================================================================
 !> @brief Calculate tendency due to vertical diffusion
-subroutine diffusion(C,D,tend)
+subroutine diffusion(C,D,F0,tend)
   real, intent(in)  :: C(:) ! transported quantity, by layer, [kg/m3]
   real, intent(in)  :: D(:) ! coefficients of diffusion (at the layer's bottom), [m2/yr]
+  real, intent(in)  :: F0   ! flux into the soil at the soil surface, [kg/(m2 yr)]
   real, intent(out) :: tend(:) ! tendencies due to diffusion [kg/(m3 yr)]
 
   integer :: k
-  real    :: F(0:num_l) ! flux at the lower boundary of the soil layer [kg/(m2 yr)],
-      ! positive downward. F(0) is on the top of the soil, F(num_l) -- at the bottom,
-      ! bot assumed zero in this subroutine
+  real    :: flux(0:num_l) ! flux at the lower boundary of the soil layer [kg/(m2 yr)],
+      ! positive downward. flux(0) is on the top of the soil, flux(num_l) -- at the soil bottom
+  flux(0) = F0
   do k = 1, num_l-1
-     F(k) = D(k)*(C(k)-C(k+1))/(zfull(k+1)-zfull(k))
+     flux(k) = D(k)*(C(k)-C(k+1))/(zfull(k+1)-zfull(k))
   enddo
-  F(0)     = 0.0
-  F(num_l) = 0.0
+  flux(num_l) = 0.0
   do k = 1,num_l
-     tend(k) = (F(k-1)-F(k))/dz(k)
+     tend(k) = (flux(k-1)-flux(k))/dz(k)
   enddo
 end subroutine
 
@@ -1226,6 +1265,28 @@ subroutine add_matter_GIMICS1(pool, C, N)
 !   endif
   call update_thickness(pool)
 end subroutine
+
+! ============================================================================
+subroutine debug_pool(pool, tag)
+  class(GIMICS_BGC_pool), intent(in) :: pool
+  character(*),           intent(in) :: tag
+
+  write (*,'(a16,":")',advance='NO') trim(tag)
+  call dpri('metabolicC',pool%metabolicLitterC)
+  call dpri('structuralC',pool%structuralLitterC)
+  call dpri('protectedC',pool%protectedC)
+  call dpri('chemResistC',pool%chemResistantC)
+  call dpri('availableC',pool%availableC)
+  call dpri('microbesR',pool%microbesR)
+  call dpri('microbesK',pool%microbesK)
+  select type(pool)
+  type is (GIMICS_BGC_litt)
+     call dpri('dz',pool%dz)
+  type is (GIMICS_BGC_pool)
+     ! do nothing
+  end select
+  write(*,*)
+end subroutine debug_pool
 
 ! ============================================================================
 ! add carbon (and later nitrogen) to GIMICS soil BGC pool, distributing it between bulk soil and rhizosphere
