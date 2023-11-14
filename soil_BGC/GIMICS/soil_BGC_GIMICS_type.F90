@@ -357,7 +357,7 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 end subroutine
 
 ! ============================================================================
-!> @brief register an array of diag fields, for rhizosphere, bulk, and total
+!> register an array of three diag fields: for rhizosphere, bulk, and average
 function register_3_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -391,22 +391,22 @@ function register_3_diag_fields(module_name, field_name, axes, init_time, &
           axes, init_time, &
           long_name, &
           units, missing_value, range, op, standard_name)
-end function
+end function register_3_diag_fields
 
 ! ============================================================================
-!> @brief Send rhizosphere and bulk soil data to diag, separately and total
+!> @brief Send rhizosphere and bulk soil data to diag, separately and an average
 subroutine send_3_tile_data(id, rhiz, bulk, fRhiz, diag)
   integer, intent(in) :: id(3)
-  real, intent(in) :: rhiz(:)  ! rhizosphere values
-  real, intent(in) :: bulk(:)  ! bulk soil values
-  real, intent(in) :: fRhiz(:) ! fraction of rhizosphere
-  type(diag_buff_type), intent(inout) :: diag ! diagnostic buffer
+  real, intent(in) :: rhiz(:)  !< rhizosphere values
+  real, intent(in) :: bulk(:)  !< bulk soil values
+  real, intent(in) :: fRhiz(:) !< fraction of rhizosphere
+  type(diag_buff_type), intent(inout) :: diag !< diagnostic buffer
 
   if (id(1)>0) call send_tile_data(id(1), rhiz(:), diag)
   if (id(2)>0) call send_tile_data(id(2), bulk(:), diag)
   ! slm: are we creating temp array here? any way to avoid doing it?
   if (id(3)>0) call send_tile_data(id(3), rhiz(:)*fRhiz(:) + bulk(:)*(1-fRhiz(:)), diag)
-end subroutine
+end subroutine send_3_tile_data
 
 ! ============================================================================
 !> @brief Create new (empty) soil carbon representation
@@ -420,7 +420,7 @@ function soilc_GIMICS_ctor(soil) result(ptr)
       ptr%rhiz  (num_l), &
       ptr%bulk  (num_l), &
       ptr%fRhiz (num_l)  )
-  ptr%fRhiz(:) = 0.0 ! is this reasonable?
+  ptr%fRhiz(:) = 0.0 ! slm: is this reasonable for initial rhizosphere fraction?
 end function
 
 ! ============================================================================
@@ -497,7 +497,7 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
            call merge_pools_GIMICS(s2%litt(k), x2*s2%litt(k)%dz/dz2, &
                                    s1%litt(k), x1*s1%litt(k)%dz/dz2  )
            s2%litt(k)%dz = dz2
-           call update_thickness(s2%litt(k))
+           call update_litter_thickness(s2%litt(k))
         else
            ! Do nothing, since the mass is zero in both of the input pools.
            ! This assumes that if litter thickness is zero then the mass of every
@@ -562,9 +562,9 @@ subroutine merge_pools_GIMICS(p2,w2,p1,w1)
 end subroutine
 
 ! ============================================================================
-!> @brief Update thickness of the given surface litter pool
-subroutine update_thickness(pool)
-  type(GIMICS_BGC_litt), intent(inout) :: pool
+!> @brief Update thickness of a surface litter pool
+subroutine update_litter_thickness(pool)
+  type(GIMICS_BGC_litt), intent(inout) :: pool !< litter BGC pool
 
   real :: dz_new
 
@@ -574,18 +574,18 @@ subroutine update_thickness(pool)
   else
      dz_new = max(C_amount(pool)/litt_density, min_litt_dz)
   endif
+
   if (dz_new > 0) then
      ! change concentrations to keep the total amounts constant
      call scale_pool(pool,pool%dz/dz_new)
      pool%dz = dz_new
   else
-     ! slm: zero litter thickness will cause issues in the litter-to-soil
-     !      turbation, because it will lead to infinite changes in concentration
-     !      even for finite changes in litter amount
-     call scale_pool(pool, 0.0)
-     pool%dz = 0.0
+     ! zero litter thickness will cause issues, for example in the litter-to-soil
+     ! turbation, because it will lead to infinite changes in concentration
+     ! even for finite changes in litter amount; most likely in other places too.
+     call land_error_message('litter thickness is not positive', FATAL)
   endif
-end subroutine
+end subroutine update_litter_thickness
 
 
 ! ============================================================================
@@ -764,7 +764,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
      call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh=vegn%rh + soilc%litt(k)%Resp*soilc%litt(k)%dz*hours_per_year
-     call update_thickness(soilc%litt(k))
+     call update_litter_thickness(soilc%litt(k))
 !      do i = 1, N_C_TYPES
 !         call send_tile_data(id_litter_rsoil_C(k,i), litter_C_loss_rate(i), diag)
 !         call send_tile_data(id_litter_rsoil_N(k,i), litter_N_loss_rate(i), diag)
@@ -1263,7 +1263,7 @@ subroutine add_matter_GIMICS1(pool, C, N)
 !   if (present(N)) then
 !      ....
 !   endif
-  call update_thickness(pool)
+  call update_litter_thickness(pool)
 end subroutine
 
 ! ============================================================================
@@ -1387,7 +1387,7 @@ subroutine burn_litter_frac_GIMICS(soilc, frac, burned_C, burned_N)
      pool%microbesR         = f * pool%microbesR
      pool%microbesK         = f * pool%microbesK
 
-     call update_thickness(pool)
+     call update_litter_thickness(pool)
      end associate
   enddo
 end subroutine
@@ -1436,7 +1436,7 @@ subroutine get_zero_1D(soilC, values)
 end subroutine
 
 ! ============================================================================
-! slm: it is the same as in CORPSE. Should we move it to the vegetation modules,
+! slm: it is the same as in CORPSE. Should we move it to one of the vegetation modules,
 ! or keep it here to be able to make changes independent from CORPSE implementation?
 
 !> @brief Calculate volumetric fraction of rhizosphere in each layer
