@@ -989,17 +989,19 @@ subroutine update_pool_GIMICS(pool, T, theta, fClay, is_sfc_litter)
   real,    intent(in) :: fClay     !< clay fraction, unitless, within [0,1] interval
   logical, intent(in) :: is_sfc_litter !< TRUE is the pool is surface litter: protected C is always zero in this case
 
-  real:: Vmax_Mr_Lm, Vmax_Mr_Ls, Vmax_Mr_Ca, Vmax_Mk_Lm, Vmax_Mk_Ls, Vmax_Mk_Ca, &
-         Km_Mr_Lm,   Km_Mr_Ls,   Km_Mr_Ca,   Km_Mk_Lm,   Km_Mk_Ls,   Km_Mk_Ca,   &
-         fMrTau_Cp, fMkTau_Cp, fMrTau_Cc, fMkTau_Cc
+  real :: Vmax_Mr_Lm, Vmax_Mr_Ls, Vmax_Mr_Ca, Vmax_Mk_Lm, Vmax_Mk_Ls, Vmax_Mk_Ca, &
+          Km_Mr_Lm,   Km_Mr_Ls,   Km_Mr_Ca,   Km_Mk_Lm,   Km_Mk_Ls,   Km_Mk_Ca,   &
+          fMrTau_Cp, fMkTau_Cp, fMrTau_Cc, fMkTau_Cc
+  real :: Vmax_base
 
-  Vmax_Mr_Lm = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV * Vmod_Mr_Lm ! mgC/mgM/h
-  Vmax_Mr_Ls = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV * Vmod_Mr_Ls
-  Vmax_Mr_Ca = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV * Vmod_Mr_Ca
+  Vmax_base = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV
+  Vmax_Mr_Lm = Vmax_base * Vmod_Mr_Lm ! mgC/mgM/h
+  Vmax_Mr_Ls = Vmax_base * Vmod_Mr_Ls
+  Vmax_Mr_Ca = Vmax_base * Vmod_Mr_Ca
 
-  Vmax_Mk_Lm = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV * Vmod_Mk_Lm
-  Vmax_Mk_Ls = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV * Vmod_Mk_Ls
-  Vmax_Mk_Ca = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV * Vmod_Mk_Ca
+  Vmax_Mk_Lm = Vmax_base * Vmod_Mk_Lm
+  Vmax_Mk_Ls = Vmax_base * Vmod_Mk_Ls
+  Vmax_Mk_Ca = Vmax_base * Vmod_Mk_Ca
 
   Km_Mr_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mr_Lm ! kgC/m3
   Km_Mr_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mr_Ls
