@@ -35,7 +35,7 @@ public :: read_snow_snicar_namelist
 !!  IN GLASS ordering of layers is from the TOP
 !! //TODO: IN GLASS-SNICAR, add options for clean snow or only-dust snow
 !!
-!! He version obtained from
+!! Snicar code version obtained from
 !! https://github.com/cenlinhe/CTSM/blob/snicar_allupdate/src/biogeophys/SnowSnicarMod.F90
 !!
 
@@ -56,10 +56,11 @@ logical :: use_snicar_ad = .TRUE.
 logical :: is_dust_internal_mixing = .TRUE. ! FOR NOW FORCE IT
 logical :: is_BC_internal_mixing = .TRUE.   ! FOR NOW FORCE IT
 integer :: snicar_atm_type = 0 ! default (midlatitude winter)
+real :: fraction_philic = 0.5 ! fraction of hydrophilic carbon tracers
 CHARACTER(LEN=22) :: ncid = "snicar_optics.nc"
 
 namelist /snow_snicar_nml/ &
-   snow_shape_defined , use_snicar_ad, is_BC_internal_mixing, is_dust_internal_mixing, snicar_atm_type, ncid
+   snow_shape_defined , use_snicar_ad, is_BC_internal_mixing, is_dust_internal_mixing, snicar_atm_type, fraction_philic, ncid
 ! ---- end of namelist
 
 
@@ -239,13 +240,13 @@ end subroutine read_snow_snicar_namelist
          ! cap concentration to 1000 ppm [for Mineral Dust MD] -> 1E-3 kg/kg
          ! 1 = BLACK CARBON (1=PHI, 2=PHO)
          if (lap_albedo_include_bc) then
-            trmat(1, il, 1) = 0.05 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
-            trmat(1, il, 2) = 0.95 * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 1) = fraction_philic * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 2) = (1.0-fraction_philic) * 1E-6 * (s%snow(il)%wc_em(1) + s%snow(il)%wc_im(1) )/(s%snow(il)%ws+s%snow(il)%wl)
             endif
             ! ! 3 = ORGANIC CARBON (1=PHI, 2=PHO)
             if (lap_albedo_include_om) then
-            trmat(1, il, 3) =  0.05 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
-            trmat(1, il, 4) =  0.95 * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 3) =  fraction_philic * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
+            trmat(1, il, 4) =  (1.0-fraction_philic) * 1E-6 * (s%snow(il)%wc_em(3) + s%snow(il)%wc_im(3) )/(s%snow(il)%ws+s%snow(il)%wl)
             endif
             ! ! 2 = MINERAL DUST for various size bins
             if (lap_albedo_include_md) then
