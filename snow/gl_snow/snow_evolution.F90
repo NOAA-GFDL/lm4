@@ -149,13 +149,14 @@ logical :: correct_surface_T = .false.
 real :: depth_surface_T_corr = 0.2
 real :: thresh_snow_depth_swheat = 0.05 ! snow depth threshold [m] above which internal sw heat sources are computed
 logical :: assign_substrate_sw_to_surface = .FALSE.
+real :: min_fresh_density = 50.0 ! [kg/m3] minimum density for newly formed snow layers
 
 namelist /snow_evolution_nml/ &
          do_compaction, do_metamorph, do_wind_drift, do_split, do_merge, &
          use_internal_sources, do_snow_check_cons, &
          min_snow_mass, min_snow_depth, max_snow, prevent_tiny_snow, do_mgimplicit, &
          metamor_model, file_data_F06, wlmax_to_use, albedo_to_use, &
-         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat, assign_substrate_sw_to_surface
+         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
 ! ---- end of namelist
 
 
@@ -550,9 +551,9 @@ subroutine new_snow_density(rho_new, Tatm, Ubar)
    real, PARAMETER :: ar = 109.0 ! [Kg m^-3]
    real, PARAMETER :: br = 6.0 ! [Kg m^-3 K-1]
    real, PARAMETER :: cr = 26.0 ! Kg m^-7/2 s^-1/2
-   real, PARAMETER :: rho_min = 50.0 ! Kg m-3 ! // FIXME was 50 in CROCUS
+!    real, PARAMETER :: rho_min = 50.0 ! Kg m-3 ! // FIXME was 50 in CROCUS
    rho_new = ar + br * (Tatm - TFREEZE) + cr * sqrt(Ubar)
-   rho_new = max(rho_new, rho_min)
+   rho_new = max(rho_new, min_fresh_density)
 end subroutine new_snow_density
 
 
