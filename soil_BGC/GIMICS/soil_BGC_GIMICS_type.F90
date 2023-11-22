@@ -248,7 +248,7 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   integer,intent(in)  :: id_ug    !< Unstructured axis id
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
-  character(*), parameter :: diag_mod_name = 'gimics_BGC'
+  character(*), parameter :: diag_mod_name = 'soil_BGC_GIMICS'
   integer :: axes(2)
 
   ! define array of axis indices
