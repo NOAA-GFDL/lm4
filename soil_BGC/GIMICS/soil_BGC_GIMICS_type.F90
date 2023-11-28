@@ -17,12 +17,13 @@ use land_debug_mod, only : land_error_message, check_var_range
 
 use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : set_default_diag_filter, &
-        register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME
+        register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME, &
+        CMOR_1M_DEPTH
 
 use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
 use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
-use soil_tile_mod, only : soil_tile_type, num_l, dz, zfull, soil_theta, soil_pClay
+use soil_tile_mod, only : soil_tile_type, num_l, dz, zhalf, zfull, soil_theta, soil_pClay
 use vegn_data_mod, only : spdata
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : cohort_root_litter_profile
@@ -218,7 +219,12 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
    id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC
 
 ! CMIP/CMOR diag fields
-integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
+integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
+   id_cSoilAbove1m
+
+! variables for CMOR/CMIP diagnostic calculations
+real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
+
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
@@ -249,9 +255,10 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   integer,intent(in)  :: id_zfull !< Vertical (depth) axis id
 
   character(*), parameter :: diag_mod_name = 'soil_BGC_GIMICS'
-  integer :: axes(2)
+  integer :: axes(2) ! IDs of diagnostic axes
+  integer :: k
 
-  ! define array of axis indices
+  ! define array of axis IDs
   axes = [ id_ug,id_zfull ]
 
   ! set the default sub-sampling filter for the fields below
@@ -327,6 +334,18 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   ! set the default sub-sampling filter for the CMOR fields below
   call set_default_diag_filter('land')
 
+  ! set up weights for vertical averaging
+  allocate(mrs1m_weight(num_l))
+  do k = 1,num_l
+     ! zhalf(k) is the depth of layer k top; 1m - zhalf(k) is therefore the distance
+     ! from layer top to 1m, and (1m - zhalf(k))/dz(k) is the fraction of layer that
+     ! is within [0, 1m] range
+     ! If zhalf(k) > 1m, then the fraction is zero (1m-zhalf(k)<0)
+     ! If zhalf(k) + dz(k) < 1m (layer bottom is above 1m), then the fraction is 1
+     !   because (1m-zhalf(k)>dz(k))
+     mrs1m_weight(k) = min(1.0,max(0.0,(CMOR_1M_DEPTH-zhalf(k))/dz(k)))
+  enddo
+
   id_rh = register_tiled_diag_field ( CMOR_NAME, 'rh', [ id_ug ], &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
@@ -335,16 +354,19 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
        fill_missing=.FALSE., missing_value=-100.0)
-  id_csoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
+  id_cSoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
-  call add_tiled_diag_field_alias ( id_csoil, CMOR_NAME, 'cSoilLut', axes(1:1),  &
+  call add_tiled_diag_field_alias ( id_cSoil, CMOR_NAME, 'cSoilLut', axes(1:1),  &
        lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_mass_content_of_carbon', fill_missing=.FALSE.)
   id_cSoilLevels = register_tiled_diag_field ( CMOR_NAME, 'cSoilLevels', axes(:),  lnd%time, &
        'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
        'kg m-2', missing_value=-100.0, standard_name='soil_mass_content_of_carbon', &
        fill_missing=.TRUE.)
+  id_cSoilAbove1m = register_tiled_diag_field ( CMOR_NAME, 'cSoilAbove1m', axes(1:1),  &
+       lnd%time, 'Carbon mass in soil pool above 1m depth', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
   id_cLitter = register_tiled_diag_field ( CMOR_NAME, 'cLitter', axes(1:1), &
        lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
        missing_value=-100.0, standard_name='litter_mass_content_of_carbon', &
@@ -927,19 +949,14 @@ subroutine step3_GIMICS(soilc, diag)
   type(diag_buff_type),       intent(inout) :: diag
 
   integer :: k
-  real :: s, a(num_l), rhiz(num_l), bulk(num_l)
+  real :: s
+  real :: layer_C(num_l) ! total carbon amount per layer, kgC/m2
+  real :: rhiz(num_l), bulk(num_l) ! total carbon density in bulk soil and rhizosphere, kgC/m3
 
   if (id_total_soil_C>0) call send_tile_data(id_total_soil_C, soilc%total_C(), diag)
 
   if (id_fRhiz > 0) call send_tile_data(id_fRhiz, soilc%fRhiz, diag)
 
-  if (any(id_soilC>0)) then
-     do k = 1,num_l
-        rhiz(k) = C_density(soilc%rhiz(k))
-        bulk(k) = C_density(soilc%bulk(k))
-     enddo
-     call send_3_tile_data(id_soilC, rhiz(:), bulk(:), soilc%fRhiz(:), diag)
-  endif
   call send_3_tile_data(id_metabolicC,     soilc%rhiz(:)%metabolicLitterC,  soilc%bulk(:)%metabolicLitterC,  soilc%fRhiz(:), diag)
   call send_3_tile_data(id_structuralC,    soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, soilc%fRhiz(:), diag)
   call send_3_tile_data(id_protectedC,     soilc%rhiz(:)%protectedC,        soilc%bulk(:)%protectedC,        soilc%fRhiz(:), diag)
@@ -960,24 +977,28 @@ subroutine step3_GIMICS(soilc, diag)
      if (id_litt_microbesK(k)>0)      call send_tile_data(id_litt_microbesK(k),      soilc%litt(k)%microbesK,         diag)
   enddo
 
+  do k = 1,num_l
+     rhiz(k) = C_density(soilc%rhiz(k))
+     bulk(k) = C_density(soilc%bulk(k))
+     layer_C(k) = (rhiz(k)*soilc%fRhiz(k) + bulk(k)*(1-soilc%fRhiz(k))) * dz(k)
+  enddo
+  call send_3_tile_data(id_soilC, rhiz(:), bulk(:), soilc%fRhiz(:), diag)
+
 !   call send_tile_data(id_fsc, sum(soil%fast_soil_C(:))+sum(soil%litter_SIMPLE_C(C_FAST,:)), diag)
 !   call send_tile_data(id_ssc, sum(soil%slow_soil_C(:))+sum(soil%litter_SIMPLE_C(C_SLOW,:)), diag)
 !   call send_tile_data(id_soil_C(C_FAST), soil%fast_soil_C(:)/dz(1:num_l), diag)
 !   call send_tile_data(id_soil_C(C_SLOW), soil%slow_soil_C(:)/dz(1:num_l), diag)
 
   ! --- CMOR vars
-  if (id_csoil>0) call send_tile_data(id_csoil, total_soil_C(soilc), diag)
+  if (id_cSoilLevels  > 0) call send_tile_data(id_cSoilLevels, layer_C, diag)
+  if (id_cSoilAbove1m > 0) call send_tile_data(id_cSoilAbove1m, sum(layer_C(:)*mrs1m_weight(:)), diag)
+
+  if (id_cSoil>0) call send_tile_data(id_cSoil, total_soil_C(soilc), diag)
 ! slm: in GIMICS, what is fast, medium, and slow carbon?
 !   if (id_csoilfast>0)   call send_tile_data(id_csoilfast,   sum(soil%fast_soil_C(:)), diag)
 !   if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
 !   call send_tile_data(id_csoilslow, 0.0, diag)
-  if (id_cSoilLevels>0) then
-     do k = 1,num_l
-        a(k) = (C_density(soilc%rhiz(k))*soilc%fRhiz(k)    &
-               +C_density(soilc%bulk(k))*(1-soilc%fRhiz(k)) ) * dz(k)
-     enddo
-     call send_tile_data(id_cSoilLevels, a, diag)
-  endif
+
   if (id_cLitter>0) then
      s = 0
      do k = 1, N_LITTER_POOLS

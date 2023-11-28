@@ -135,6 +135,8 @@ integer, parameter :: & ! symbolic constants for cohort filter numbers
 character(*), public, parameter :: CMOR_NAME='cmor_land'
 real,         public, parameter :: CMOR_MRSOS_DEPTH=0.1 ! depth of mrsos soil
                                     ! moisture averaging, m
+real,         public, parameter :: CMOR_1M_DEPTH=1.0 ! depth for cSoilAbove1m
+                                   ! averaging, m
 
 type :: cohort_filter_type
   integer       :: tag
