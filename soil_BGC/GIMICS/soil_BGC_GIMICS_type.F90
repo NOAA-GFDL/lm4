@@ -218,7 +218,7 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
    id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC
 
 ! CMIP/CMOR diag fields
-integer :: id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
+integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
@@ -327,6 +327,14 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   ! set the default sub-sampling filter for the CMOR fields below
   call set_default_diag_filter('land')
 
+  id_rh = register_tiled_diag_field ( CMOR_NAME, 'rh', [ id_ug ], &
+       lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_rh, CMOR_NAME, 'rhLut', axes(1:1),  &
+       lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_heterotrophic_respiration', &
+       fill_missing=.FALSE., missing_value=-100.0)
   id_csoil = register_tiled_diag_field ( CMOR_NAME, 'cSoil', axes(1:1),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
@@ -804,6 +812,9 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   do k = 1,N_LITTER_POOLS
      call update_litter_thickness(soilc%litt(k))
   enddo
+
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
+
 end subroutine dsdt_GIMICS
 
 ! ============================================================================
