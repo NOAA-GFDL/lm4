@@ -4,16 +4,17 @@ module soil_BGC_GIMICS_type_mod
 
 
 use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
-        stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
+        stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, string
 use time_manager_mod, only: time_type, time_type_to_real
 use constants_mod, only : PI,tfreeze
 
-use land_constants_mod, only : N_LITTER_POOLS, seconds_per_year, &
+use land_constants_mod, only : N_LITTER_POOLS, l_diagname, seconds_per_year, &
         N_C_TYPES, C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD, &
         MAX_SOIL_LEV
 
 use land_data_mod, only : log_version, lnd
-use land_debug_mod, only : land_error_message, check_var_range
+use land_debug_mod, only : land_error_message, check_var_range, check_conservation, &
+        carbon_cons_tol, is_watch_point, is_watch_cell
 
 use tile_diag_buff_mod, only : diag_buff_type
 use tile_diag_base_mod, only : set_default_diag_filter, &
@@ -554,7 +555,7 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
         ! set dz2' to the max of two litter thicknesses to avoid dividing by zero
         dz2 = max(s1%litt(k)%dz,s2%litt(k)%dz)
         if (dz2 > 0) then
-           call merge_pools_GIMICS(s2%litt(k), x2*s2%litt(k)%dz/dz2, &
+           call combine_GIMICS_pools(s2%litt(k), x2*s2%litt(k)%dz/dz2, &
                                    s1%litt(k), x1*s1%litt(k)%dz/dz2  )
            s2%litt(k)%dz = dz2
            call update_litter_thickness(s2%litt(k))
@@ -571,11 +572,11 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
         ! rhizosphere pools
         f1 = s1%fRhiz(k)         ; f2 = s2%fRhiz(k)
         y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
-        call merge_pools_GIMICS(s2%rhiz(k),y2,s1%rhiz(k),y1)
+        call combine_GIMICS_pools(s2%rhiz(k),y2,s1%rhiz(k),y1)
         ! bulk pools
         f1 = 1.0 - s1%fRhiz(k)   ; f2 = 1.0 - s2%fRhiz(k)
         y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
-        call merge_pools_GIMICS(s2%bulk(k),y2,s1%bulk(k),y1)
+        call combine_GIMICS_pools(s2%bulk(k),y2,s1%bulk(k),y1)
         ! update the rhizosphere fraction
         s2%fRhiz(k) = x1*s1%fRhiz(k) + x2*s2%fRhiz(k)
      enddo
@@ -586,18 +587,18 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
 end subroutine
 
 ! ============================================================================
-!> @brief Merge GIMICS pool p1 into pool p2, with given weights
-subroutine merge_pools_GIMICS(p2,w2,p1,w1)
+!> Combines two GIMICS pools p1 and p2, with given weights, and puts the
+!! result in p2.
+!!
+!! Currently, for each state variable X of the pool representing carbon concentration,
+!! the resulting value is calculated as linear combination
+!!  X_2' = w_1*X_1 + w_2*x_2
+subroutine combine_GIMICS_pools(p2,w2,p1,w1)
   class(GIMICS_BGC_pool), intent(inout) :: p2
   class(GIMICS_BGC_pool), intent(in)    :: p1
   real,                   intent(in)    :: w2, w1
 
-  real :: x1,x2 ! normalized weights for merging
-
-  ! normalize wights
-  x1 = w1/(w1+w2); x2 = 1.0-x1
-
-#define __MERGE__(var) p2%var = x2*p2%var + x1*p1%var
+#define __MERGE__(var) p2%var = w2*p2%var + w1*p1%var
   __MERGE__(metabolicLitterC)
   __MERGE__(structuralLitterC)
   __MERGE__(protectedC)
@@ -688,19 +689,22 @@ subroutine set_fRhiz(soilc,fRhiz)
 
   integer :: k
   real :: wr,wb ! weights for rhizosphere and bulk
+  real :: w     ! sum of the wr and wb, to normalize the weights
 
   do k = 1, size(soilc%fRhiz)
      if (fRhiz(k) < soilc%fRhiz(k)) then
         ! part of rhizosphere becomes bulk soil
         wr = soilc%fRhiz(k) - fRhiz(k)
         wb = 1.0 - soilc%fRhiz(k)
-        call merge_pools_GIMICS(soilc%bulk(k),wb,soilc%rhiz(k),wr)
+        w  = wr+wb
+        call combine_GIMICS_pools(soilc%bulk(k),wb/w,soilc%rhiz(k),wr/w)
         soilc%fRhiz(k) = fRhiz(k)
      else if (fRhiz(k) > soilc%fRhiz(k)) then
         ! part of bulk soil becomes rhizosphere
         wb = fRhiz(k) - soilc%fRhiz(k)
         wr = soilc%fRhiz(k)
-        call merge_pools_GIMICS(soilc%rhiz(k),wr,soilc%bulk(k),wb)
+        w  = wr+wb
+        call combine_GIMICS_pools(soilc%rhiz(k),wr/w,soilc%bulk(k),wb/w)
         soilc%fRhiz(k) = fRhiz(k)
      else
         ! do nothing, rhizosphere fraction did not change (or one of fRhiz is a NaN)
