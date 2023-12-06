@@ -571,12 +571,16 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
      do k = 1,size(s2%rhiz)
         ! rhizosphere pools
         f1 = s1%fRhiz(k)         ; f2 = s2%fRhiz(k)
-        y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
-        call combine_GIMICS_pools(s2%rhiz(k),y2,s1%rhiz(k),y1)
+        if (f1>0.or.f2>0) then
+           y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+           call combine_GIMICS_pools(s2%rhiz(k),y2,s1%rhiz(k),y1)
+        endif
         ! bulk pools
         f1 = 1.0 - s1%fRhiz(k)   ; f2 = 1.0 - s2%fRhiz(k)
-        y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
-        call combine_GIMICS_pools(s2%bulk(k),y2,s1%bulk(k),y1)
+        if (f1>0.or.f2>0) then
+           y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+           call combine_GIMICS_pools(s2%bulk(k),y2,s1%bulk(k),y1)
+        endif
         ! update the rhizosphere fraction
         s2%fRhiz(k) = x1*s1%fRhiz(k) + x2*s2%fRhiz(k)
      enddo
@@ -825,7 +829,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
-     call update_pool_GIMICS(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
+     call update_GIMICS_pool(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh=vegn%rh + soilc%litt(k)%Resp*soilc%litt(k)%dz*hours_per_year
 !      do i = 1, N_C_TYPES
@@ -844,8 +848,8 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   call set_fRhiz(soilc,rhiz_frac)
   clay_frac = soil_pClay(soil)/100.0
   do k=1,num_l
-     call update_pool_GIMICS(soilc%rhiz(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
-     call update_pool_GIMICS(soilc%bulk(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
+     call update_GIMICS_pool(soilc%rhiz(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
+     call update_GIMICS_pool(soilc%bulk(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh = vegn%rh + soilc%rhiz(k)%Resp*dz(k)*hours_per_year*soilc%fRhiz(k)      &
                        + soilc%bulk(k)%Resp*dz(k)*hours_per_year*(1-soilc%fRhiz(k))
@@ -1068,7 +1072,7 @@ end subroutine
 
 ! ============================================================================
 !> @brief Update soil carbon pool
-subroutine update_pool_GIMICS(pool, T, theta, fClay, is_sfc_litter)
+subroutine update_GIMICS_pool(pool, T, theta, fClay, is_sfc_litter)
   class(GIMICS_BGC_pool), intent(inout) :: pool
   real,    intent(in) :: T         !< Temperature [degC]
   real,    intent(in) :: theta     !< volumetric water content slm: [per unit soil volume, or per unit pore volume?]
@@ -1164,7 +1168,7 @@ subroutine update_pool_GIMICS(pool, T, theta, fClay, is_sfc_litter)
   pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm + eLs_Mr*pool%DecompMrLs + eCa_Mr*pool%DecompMrCa - pool%MrTau)*dt_fast_hr ! kgC/m3
 
   pool%microbesK = pool%microbesK + (eLm_Mk*pool%DecompMkLm + eLs_Mk*pool%DecompMkLs + eCa_Mk*pool%DecompMkCa - pool%MkTau)*dt_fast_hr
-end subroutine
+end subroutine update_GIMICS_pool
 
 ! ============================================================================
 ! note that in resp_denitrif the dependence on soil moisture is subtly different
