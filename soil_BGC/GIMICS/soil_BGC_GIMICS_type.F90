@@ -8,8 +8,8 @@ use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
 use time_manager_mod, only: time_type, time_type_to_real
 use constants_mod, only : PI,tfreeze
 
-use land_constants_mod, only : N_LITTER_POOLS, l_diagname, seconds_per_year, &
-        N_C_TYPES, C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD, &
+use land_constants_mod, only : N_LITTER_POOLS, l_diagname, c_diagname, c_longname, &
+        seconds_per_year, N_C_TYPES, C_FAST, C_SLOW, C_MIC, LITT_LEAF, LITT_CWOOD, &
         MAX_SOIL_LEV
 
 use land_data_mod, only : log_version, lnd
@@ -90,6 +90,9 @@ type, extends (soil_BGC_t) :: soil_BGC_GIMICS_t
     rhiz(:),    & ! rhizosphere
     bulk(:)       ! bulk soil (i.e. soil that is not rhizosphere)
   real, allocatable :: fRhiz(:) ! fraction of rhizosphere in each layer, unitless, [0,1]
+
+  real :: neg_litt_C(N_C_TYPES) = 0.0 ! cumulative value of negative C litter input to soil
+
 contains
   procedure :: merge => merge_GIMICS     ! merge another soil carbon tile into current one
   procedure :: total_C => total_C_GIMICS ! returns total C [kgC/m2]
@@ -209,7 +212,8 @@ namelist /soil_BGC_GIMICS_nml/ &
 ! diag field IDs
 integer :: id_total_soil_C
 integer :: id_fRhiz, &
-   id_sturb_metabolicC, id_sturb_structuralC, id_sturb_chemResistantC, id_sturb_availableC
+   id_sturb_metabolicC, id_sturb_structuralC, id_sturb_chemResistantC, id_sturb_availableC, &
+   id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C
 ! diag fields for rhizosphere, bulk soil, and total
 integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC, &
    id_chemResistantC, id_availableC, id_microbesR, id_microbesK, id_DecompMrLm, &
@@ -360,6 +364,14 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, '<ltype> litter tendency of chemically resistant C due to turbation', 'kg C/m3', missing_value=-100.0 )
   id_lturb_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC_turb', axes(1:1), &
        lnd%time, '<ltype> litter tendency of available C due to turbation', 'kg C/m3', missing_value=-100.0 )
+
+  do k = 1, N_C_TYPES
+     id_negative_litter_C(k) = register_tiled_diag_field(diag_mod_name, trim(c_diagname(k))//'_negative_litter_C', &
+             axes(1:1), lnd%time, 'Cumulative negative '//trim(c_longname(k))//' carbon litter input', &
+             'kg C/m2', missing_value=1e20)
+  enddo
+  id_tot_negative_litter_C = register_tiled_diag_field(diag_mod_name, 'total_negative_litter_C', axes(1:1), &
+       lnd%time, 'Total cumulative negative carbon litter input', 'kg C/m2', missing_value = -1e20)
 
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
@@ -585,6 +597,7 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
         s2%fRhiz(k) = x1*s1%fRhiz(k) + x2*s2%fRhiz(k)
      enddo
 
+     s2%neg_litt_C(:)  = s1%neg_litt_C(:)*x1 + s2%neg_litt_C(:)*x2
   class default
      call land_error_message('merge_GIMICS: attempt to merge incompatible soil carbon types', FATAL)
   end select
@@ -725,7 +738,7 @@ real function total_C_GIMICS(soilc) result(answer)
 
   integer :: k
 
-  answer = 0.0
+  answer = sum(soilc%neg_litt_C)
   do k = 1, N_LITTER_POOLS
      answer = answer + C_amount(soilc%litt(k))
   enddo
@@ -829,6 +842,9 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt before update')
+  enddo
+  do k = 1,N_LITTER_POOLS
      call update_GIMICS_pool(soilc%litt(k), decomp_T(1), decomp_theta(1), fClay=0.0, is_sfc_litter=.TRUE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh=vegn%rh + soilc%litt(k)%Resp*soilc%litt(k)%dz*hours_per_year
@@ -842,17 +858,26 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
 !      vegn%deadmic_out = vegn%deadmic_out + litter_C_loss_rate(C_MIC) *dt_fast_yr
      call update_litter_thickness(soilc%litt(k))
   enddo
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt after update')
+  enddo
 
   ! Next we have to go through layers and decompose the soil carbon pools
   call rhizosphere_frac(vegn, rhiz_frac)
   call set_fRhiz(soilc,rhiz_frac)
   clay_frac = soil_pClay(soil)/100.0
   do k=1,num_l
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') before update')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') before update')
+
      call update_GIMICS_pool(soilc%rhiz(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
      call update_GIMICS_pool(soilc%bulk(k), decomp_T(k), decomp_theta(k), clay_frac, is_sfc_litter=.FALSE.)
      ! accumulate loss of C to atmosphere [kgC/m2/year]
      vegn%rh = vegn%rh + soilc%rhiz(k)%Resp*dz(k)*hours_per_year*soilc%fRhiz(k)      &
                        + soilc%bulk(k)%Resp*dz(k)*hours_per_year*(1-soilc%fRhiz(k))
+
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') after update')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') after update')
   enddo
 
   ! calculate tendencies due to turbation
@@ -867,15 +892,76 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   call turbation(soilc%litt(:)%availableC, soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC, &
                  soilc%fRhiz, soilc%litt(:)%dz, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
 
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt after turbation')
+  enddo
+  do k=1,num_l
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') after turbation')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') after turbation')
+  enddo
+
   ! slm: TODO: calculate horizontal exchange between rhizosphere and soil
 
   do k = 1,N_LITTER_POOLS
      call update_litter_thickness(soilc%litt(k))
   enddo
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt after thickness update')
+  enddo
 
   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
 
+  do k = 1, N_C_TYPES
+     if (id_negative_litter_C(k)>0) call send_tile_data(id_negative_litter_C(k),soilc%neg_litt_C(k),diag)
+  enddo
+  if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
+
 end subroutine dsdt_GIMICS
+
+! ============================================================================
+!> checks that values of GIMICS pool state variables are within the reasonable range
+subroutine check_GIMICS_pool(pool, tag)
+  class(GIMICS_BGC_pool), intent(inout) :: pool
+  character(*), intent(in) :: tag
+
+  call check_var_range(pool%metabolicLitterC , 0.0, HUGE(1.0), tag, 'metabolicLitterC',  FATAL)
+  call check_var_range(pool%structuralLitterC, 0.0, HUGE(1.0), tag, 'structuralLitterC', FATAL)
+  call check_var_range(pool%protectedC       , 0.0, HUGE(1.0), tag, 'protectedC',        FATAL)
+  call check_var_range(pool%chemResistantC   , 0.0, HUGE(1.0), tag, 'chemResistantC',    FATAL)
+  call check_var_range(pool%availableC       , 0.0, HUGE(1.0), tag, 'availableC',        FATAL)
+  call check_var_range(pool%microbesR        , 0.0, HUGE(1.0), tag, 'microbesR',         FATAL)
+  call check_var_range(pool%microbesK        , 0.0, HUGE(1.0), tag, 'microbesK',         FATAL)
+  select type(pool)
+  type is (GIMICS_BGC_litt)
+     call check_var_range(pool%dz            , 0.0, HUGE(1.0), tag, 'dz',                FATAL)
+  type is (GIMICS_BGC_pool)
+     ! do nothing
+  end select
+
+end subroutine check_GIMICS_pool
+
+! ============================================================================
+!> prints debug information for GIMICS pool
+subroutine debug_GIMICS_pool(pool, tag)
+  class(GIMICS_BGC_pool), intent(in) :: pool
+  character(*),           intent(in) :: tag
+
+  write (*,'(a16,":")',advance='NO') trim(tag)
+  call dpri('mtbC',pool%metabolicLitterC)
+  call dpri('strC',pool%structuralLitterC)
+  call dpri('protC',pool%protectedC)
+  call dpri('chemRC',pool%chemResistantC)
+  call dpri('avlC',pool%availableC)
+  call dpri('mR',pool%microbesR)
+  call dpri('mK',pool%microbesK)
+  select type(pool)
+  type is (GIMICS_BGC_litt)
+     call dpri('dz',pool%dz)
+  type is (GIMICS_BGC_pool)
+     ! do nothing
+  end select
+  write(*,*)
+end subroutine debug_GIMICS_pool
 
 ! ============================================================================
 !> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
@@ -912,8 +998,13 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_ten
      d    = dz_litt(k)/2 + zfull(1) ! distance between centers of litter and top soil layer, [m]
      sfcFlux(k) = K_sfc_turb*(litt(k)-c(1))/d ! flux from litter to soil, [kg/(m2 yr)]
      sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+     if (is_watch_point()) then
+        write(*,'(a20,"(",a3,"):")',advance='NO') trim(tag),trim(l_diagname(k))
+        __DEBUG5__(litt(k),c(1),dz_litt(k),d,sfcFlux(k)*dt_fast_yr)
+     endif
      sfcFlux(k) = min(sfcFlux(k),litt(k)*dz_litt(k)/dt_fast_yr) ! to avoid depleting litter below zero
   enddo
+
   ! diffusion in soil
   call diffusion(c, K_turb, sum(sfcFlux), tend)
   ! update soil concentrations
@@ -956,8 +1047,9 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_ten
   ! Detect the situation when diffusion tendency leads to negative concentrations.
   call check_var_range(rhiz, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'rhiz', FATAL)
   call check_var_range(bulk, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'bulk', FATAL)
-  call check_var_range(litt(LITT_CWOOD), 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'cwlitt', FATAL)
-  call check_var_range(litt(LITT_LEAF),  0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'lflitt', FATAL)
+  do k = 1,N_LITTER_POOLS
+     call check_var_range(litt(k), 0.0, HUGE(1.0), 'after turbation of '//trim(tag), trim(l_diagname(k))//'litt', FATAL)
+  enddo
 end subroutine
 
 ! ============================================================================
@@ -1069,6 +1161,7 @@ subroutine step3_GIMICS(soilc, diag)
   ! --- end of CMOR vars
 
 end subroutine
+
 
 ! ============================================================================
 !> @brief Update soil carbon pool
@@ -1281,15 +1374,57 @@ subroutine add_soil_matter_GIMICS(soilc, vegn, &
      root_litt_N(:,:) = 0.0
   endif
 
+  if (is_watch_point()) then
+     write(*,'(a25)',advance='NO') 'add_soil_matter_GIMICS:'
+     __DEBUG2__(leaf_litt_C, wood_litt_C)
+  endif
+! + sanity check
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt before add matter')
+  enddo
+  do k=1,num_l
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') before add matter')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') before add matter')
+  enddo
+! - sanity check
+
+  ! sometimes litter input becomes negative (because vegn carbon_gain could be negative)
+  ! To handle this situation an conserve carbon, we store negatives in a pool, and then
+  ! fill it up later with positive inputs
+  call borrow_to_negatives(wood_litt_C,soilc%neg_litt_C) ! borrow from wood litter first
+  call borrow_to_negatives(leaf_litt_C,soilc%neg_litt_C) ! and from leaf litter second
+
   call add_matter_GIMICS1(soilc%litt(LITT_LEAF),  leaf_litt_C, leaf_litt_N)
   call add_matter_GIMICS1(soilc%litt(LITT_CWOOD), wood_litt_C, wood_litt_N)
   do k = 1,size(soilc%bulk)
      call add_matter_GIMICS2(soilc%bulk(k), soilc%rhiz(k), dz(k), soilc%fRhiz(k), root_litt_C(k,:), root_litt_N(k,:))
   enddo
 
+! + sanity check
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt after add matter')
+  enddo
+  do k=1,num_l
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') af add matter')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') before add matter')
+  enddo
+! - sanity check
+
   ! accumulate litterfall diagnostics: it is sent to diag and then reset at every time step
   vegn%litterfall_C(:,LITT_LEAF)  = vegn%litterfall_C(:,LITT_LEAF)  + leaf_litt_C(:)
   vegn%litterfall_C(:,LITT_CWOOD) = vegn%litterfall_C(:,LITT_CWOOD) + wood_litt_C(:)
+
+contains
+  ! given litter and amount of negative litter from previous time step, attempts to borrow
+  ! positive carbon to reduce the amount of negativs
+  subroutine borrow_to_negatives(litt, negatives)
+    real, intent(inout) :: litt(:), negatives(:)
+
+    litt      = litt + negatives
+    negatives = min(litt,0.0)
+    litt      = max(litt,0.0)
+  end subroutine borrow_to_negatives
+
 end subroutine add_soil_matter_GIMICS
 
 ! ============================================================================
