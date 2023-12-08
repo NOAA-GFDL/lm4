@@ -368,10 +368,10 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   do k = 1, N_C_TYPES
      id_negative_litter_C(k) = register_tiled_diag_field(diag_mod_name, trim(c_diagname(k))//'_negative_litter_C', &
              axes(1:1), lnd%time, 'Cumulative negative '//trim(c_longname(k))//' carbon litter input', &
-             'kg C/m2', missing_value=1e20)
+             'kg C/m2', missing_value = +1e20)
   enddo
   id_tot_negative_litter_C = register_tiled_diag_field(diag_mod_name, 'total_negative_litter_C', axes(1:1), &
-       lnd%time, 'Total cumulative negative carbon litter input', 'kg C/m2', missing_value = -1e20)
+       lnd%time, 'Total cumulative negative carbon litter input', 'kg C/m2', missing_value = +1e20)
 
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
