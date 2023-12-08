@@ -496,6 +496,16 @@ subroutine soil_BGC_diag_init_CORPSE ( id_ug, id_zfull )
   id_litter_nitrate(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_NO3', &
        axes(1:1),  lnd%time, '<ltype> litter nitrate', 'kg N/m2', missing_value=-100.0 )
 
+  id_negative_litter_C(:) = register_tiled_diag_field ( diag_mod_name, '<ctype>_negative_litter_C', &
+       axes(1:1), lnd%time, 'Cumulative negative <ctype> carbon litter input', &
+       'kg C/m2', missing_value = +1e20 )
+  id_negative_litter_N(:) = register_tiled_diag_field ( diag_mod_name, '<ctype>_negative_litter_N', &
+       axes(1:1), lnd%time, 'Cumulative negative <ctype> nitrogen litter input', &
+       'kg N/m2', missing_value = +1e20 )
+  id_tot_negative_litter_C = register_tiled_diag_field ( diag_mod_name, 'total_negative_litter_C', axes(1:1), &
+       lnd%time, 'Total cumulative negative carbon litter input', 'kg C/m2', missing_value = +1e20)
+  id_tot_negative_litter_N = register_tiled_diag_field ( diag_mod_name, 'total_negative_litter_N', axes(1:1), &
+       lnd%time, 'Total cumulative negative nitrogen litter input', 'kg N/m2', missing_value = +1e20)
 
   id_total_NH4 = register_tiled_diag_field ( diag_mod_name, 'tot_soil_NH4', axes(1:1),  &
       lnd%time, 'total NH4 including litter', 'kg N/m2', missing_value=-100.0 )
@@ -1823,14 +1833,12 @@ subroutine dsdt_CORPSE(soilc, soil, vegn, diag, soilt, theta)
   if (id_total_nitrification_rate>0) call send_tile_data(id_total_nitrification_rate, &
           (sum(soil_nitrif)+sum(litter_nitrif))/dt_fast_yr,diag)
 
-#ifdef TEMP_SEND_DATA_FROM_SOILC
   do i = 1, N_C_TYPES
      if (id_negative_litter_C(i)>0) call send_tile_data(id_negative_litter_C(i),soilc%neg_litt_C(i),diag)
      if (id_negative_litter_N(i)>0) call send_tile_data(id_negative_litter_N(i),soilc%neg_litt_N(i),diag)
   enddo
   if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
   if (id_tot_negative_litter_N>0) call send_tile_data(id_tot_negative_litter_N,sum(soilc%neg_litt_N),diag)
-#endif
 
   call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
 end subroutine Dsdt_CORPSE
