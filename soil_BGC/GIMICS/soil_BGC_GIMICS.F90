@@ -9,7 +9,7 @@ use land_tile_mod, only : land_tile_type, land_tile_map, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_tile_io_mod, only : land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_tile_data, get_tile_data, add_restart_axis
+     add_tile_data, get_tile_data, add_restart_axis, field_exists
 use soil_BGC_GIMICS_type_mod, only : soil_BGC_GIMICS_t, init_GIMICS_state, &
      soil_BGC_diag_init_GIMICS, save_equilibration_data
 use soil_tile_mod, only: num_l, zfull
@@ -65,7 +65,13 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
         call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesK',litt_microbesK_ptr,k)
      enddo
 
-     ! soi data
+     do k = 1, N_C_TYPES
+        if(field_exists(restart, 'negative_litter_C_'//trim(c_shortname(k)))) then
+           call get_tile_data(restart,'negative_litter_C_'//trim(c_shortname(k)),litt_negative_C_ptr,k)
+        endif
+     enddo
+
+     ! soil data
      call get_tile_data(restart,'fRhiz','zfull',soil_fRhiz_ptr)
      do k = 1, N_S_PARTS
         call get_tile_data(restart, trim(s_part_name(k))//'_metabolicLitterC','zfull', soil_metabolicLitterC_ptr, k)
@@ -152,6 +158,10 @@ subroutine soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
          soil_microbesR_ptr, k, 'R microbes carbon density in '//trim(s_part_name(k)), 'kg/m3')
      call add_tile_data(restart, trim(s_part_name(k))//'_microbesK', 'zfull', &
          soil_microbesK_ptr, k, 'K microbes carbon density in '//trim(s_part_name(k)), 'kg/m3')
+  enddo
+
+  do k = 1, N_C_TYPES
+     call add_tile_data(restart,'negative_litter_C_'//trim(c_shortname(k)),litt_negative_C_ptr,k,'accumulated negative '//trim(c_longname(k))//' C litter input','kg/m2')
   enddo
 
   call save_land_restart(restart)
@@ -272,6 +282,16 @@ subroutine litt_microbesK_ptr(t,i,p)
   select type(s=>t%soilc)
   class is (soil_BGC_GIMICS_t)
      p=>s%litt(i)%microbesK
+  end select
+end subroutine
+
+subroutine litt_negative_C_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc);
+  class is (soil_BGC_GIMICS_t)
+    p=>s%neg_litt_C(i)
   end select
 end subroutine
 
