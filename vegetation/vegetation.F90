@@ -244,7 +244,9 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
    id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
    id_age_since_disturbance, id_age_since_landuse, &
-   id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C
+   id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C, &
+   id_amount_wood_harv_C, id_amount_wood_harv_N, &
+   id_amount_wood_cleared_C, id_amount_wood_cleared_N
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -1106,6 +1108,16 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
            trim(HARV_POOL_NAMES(i))//'_harv_pool_N', (/id_ug/), time, &
            'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
+
+  ! amounts of wood harvested (or cleared) in the last event
+  id_amount_wood_harv_C = register_tiled_diag_field( module_name, 'amount_wood_harv_C', (/id_ug/), &
+       time, 'wood carbon harvested in the last event', 'kg C/m2', missing_value=-999.0)
+  id_amount_wood_harv_N = register_tiled_diag_field( module_name, 'amount_wood_harv_N', (/id_ug/), &
+       time, 'wood nitrogen harvested in the last event', 'kg N/m2', missing_value=-999.0)
+  id_amount_wood_cleared_C = register_tiled_diag_field( module_name, 'amount_wood_cleared_C', (/id_ug/), &
+       time, 'wood carbon cleared in the last event', 'kg C/m2', missing_value=-999.0)
+  id_amount_wood_cleared_N = register_tiled_diag_field( module_name, 'amount_wood_cleared_N', (/id_ug/), &
+       time, 'wood nitrogen cleared in the last event', 'kg N/m2', missing_value=-999.0)
 
   ! intermediate carbon pools for CORPSE soil carbon configurations
   id_litter_buff_C(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_buff_C_<ctype>', (/id_ug/), &
@@ -2859,6 +2871,17 @@ subroutine update_vegn_slow( )
 
      call send_tile_data(id_tile_nitrogen_gain,tile%soil%gross_nitrogen_flux_into_tile, tile%diag)
      call send_tile_data(id_tile_nitrogen_loss,tile%soil%gross_nitrogen_flux_out_of_tile, tile%diag)
+
+     ! send the amounts of wood harvested in last event
+     call send_tile_data(id_amount_wood_harv_C,    tile%vegn%amount_wood_harv_C,    tile%diag)
+     call send_tile_data(id_amount_wood_harv_N,    tile%vegn%amount_wood_harv_N,    tile%diag)
+     call send_tile_data(id_amount_wood_cleared_C, tile%vegn%amount_wood_cleared_C, tile%diag)
+     call send_tile_data(id_amount_wood_cleared_N, tile%vegn%amount_wood_cleared_N, tile%diag)
+     ! reset diagnostic variables for the next period
+     tile%vegn%amount_wood_harv_C    = 0.0
+     tile%vegn%amount_wood_harv_N    = 0.0
+     tile%vegn%amount_wood_cleared_C = 0.0
+     tile%vegn%amount_wood_cleared_N = 0.0
 
 
      ! CMOR/CMIP variables

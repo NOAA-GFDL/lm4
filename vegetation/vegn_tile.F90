@@ -115,6 +115,12 @@ type :: vegn_tile_type
    real :: harv_rate_C(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
    real :: harv_pool_N(N_HARV_POOLS) = 0.0 ! harvested nitrogen pool
 
+   ! the four amount variables below are only for diagnostics
+   real :: amount_wood_harv_C = 0.0 ! amount of wood C harvested in the last event, kg C/m2
+   real :: amount_wood_harv_N = 0.0 ! amount of wood N harvested in the last event, kg N/m2
+   real :: amount_wood_cleared_C = 0.0 ! amount of wood C cleared in the last event, kg C/m2
+   real :: amount_wood_cleared_N = 0.0 ! amount of wood N cleared in the last event, kg N/m2
+
    ! uptake-related variables
    real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
 
@@ -357,6 +363,12 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(harv_pool_C)
   __MERGE__(harv_rate_C)
   __MERGE__(harv_pool_N)
+
+  ! diagnostics of harvested or cleared wood amount
+  __MERGE__(amount_wood_harv_C)
+  __MERGE__(amount_wood_harv_N)
+  __MERGE__(amount_wood_cleared_C)
+  __MERGE__(amount_wood_cleared_N)
 
   ! do we need to merge these?
   __MERGE__(ssc_out)
