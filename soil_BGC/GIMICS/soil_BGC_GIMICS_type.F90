@@ -223,6 +223,9 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
    id_litt_microbesR, id_litt_microbesK, id_litt_allC, &
+   id_litt_DecompMrLm, id_litt_DecompMrLs, id_litt_DecompMrCa, &
+   id_litt_DecompMkLm, id_litt_DecompMkLs, id_litt_DecompMkCa, &
+   id_litt_OxidMrCc, id_litt_OxidMkCc, id_litt_MrTau, id_litt_MkTau, id_litt_Resp, &
    ! turbation tendencies in surface litter pools
    id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC
 
@@ -344,6 +347,31 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Volumetric density of oligotrophic (K) microbes in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
   id_litt_allC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_allC', axes(1:1),  &
        lnd%time, 'Volumetric density of all C in <ltype> litter', 'kg C/m3', missing_value=-100.0 )
+
+  id_litt_DecompMrLm(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DecompMrLm', axes(1:1),  &
+       lnd%time, 'Rate of metabolic C decomposition by R microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_DecompMrLs(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DecompMrLs', axes(1:1),  &
+       lnd%time, 'Rate of structural C decomposition by R microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_DecompMrCa(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DecompMrCa', axes(1:1),  &
+       lnd%time, 'Rate of available C decomposition by R microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_OxidMrCc(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_OxidMrCc', axes(1:1),  &
+       lnd%time, 'Rate of chemically resistant C oxidation by R microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_MrTau(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_MrTau', axes(1:1),  &
+       lnd%time, 'Rate of R microbes overturning in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+
+  id_litt_DecompMkLm(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DecompMkLm', axes(1:1),  &
+       lnd%time, 'Rate of metabolic C decomposition by K microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_DecompMkLs(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DecompMkLs', axes(1:1),  &
+       lnd%time, 'Rate of structural C decomposition by K microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_DecompMkCa(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DecompMkCa', axes(1:1),  &
+       lnd%time, 'Rate of available C decomposition by K microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_OxidMkCc(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_OxidMkCc', axes(1:1),  &
+       lnd%time, 'Rate of chemically resistant C oxidation by K microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_MkTau(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_MkTau', axes(1:1),  &
+       lnd%time, 'Rate of K microbes overturning in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+
+  id_litt_Resp(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_Resp', axes(1:1),  &
+       lnd%time, 'Rate of respiration in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
 
   ! tendencies due to turbation in soil
   id_sturb_metabolicC = register_tiled_diag_field( diag_mod_name, 'metabolicC_turb', axes(:), &
@@ -935,7 +963,7 @@ subroutine check_GIMICS_pool(pool, tag)
   type is (GIMICS_BGC_litt)
      call check_var_range(pool%dz            , 0.0, HUGE(1.0), tag, 'dz',                FATAL)
   type is (GIMICS_BGC_pool)
-     ! do nothing
+     ! do nothing: soil layers dz is fixed
   end select
 
 end subroutine check_GIMICS_pool
@@ -1118,13 +1146,30 @@ subroutine step3_GIMICS(soilc, diag)
   do k = 1, N_LITTER_POOLS
      if (id_litt_total_C(k)>0) call send_tile_data(id_litt_total_C(k), C_amount(soilc%litt(k)),  diag)
      if (id_litt_allC(k)>0)    call send_tile_data(id_litt_allC(k),    C_density(soilc%litt(k)), diag)
-     if (id_litt_dz(k)>0)      call send_tile_data(id_litt_dz(k),      soilc%litt(k)%dz,         diag)
-     if (id_litt_metabolicC(k)>0)     call send_tile_data(id_litt_metabolicC(k),     soilc%litt(k)%metabolicLitterC,  diag)
-     if (id_litt_structuralC(k)>0)    call send_tile_data(id_litt_structuralC(k),    soilc%litt(k)%structuralLitterC, diag)
-     if (id_litt_chemResistantC(k)>0) call send_tile_data(id_litt_chemResistantC(k), soilc%litt(k)%chemResistantC,    diag)
-     if (id_litt_availableC(k)>0)     call send_tile_data(id_litt_availableC(k),     soilc%litt(k)%availableC,        diag)
-     if (id_litt_microbesR(k)>0)      call send_tile_data(id_litt_microbesR(k),      soilc%litt(k)%microbesR,         diag)
-     if (id_litt_microbesK(k)>0)      call send_tile_data(id_litt_microbesK(k),      soilc%litt(k)%microbesK,         diag)
+     call send_tile_data(id_litt_dz(k),             soilc%litt(k)%dz,                diag)
+
+     ! surface litter carbon pools
+     call send_tile_data(id_litt_metabolicC(k),     soilc%litt(k)%metabolicLitterC,  diag)
+     call send_tile_data(id_litt_structuralC(k),    soilc%litt(k)%structuralLitterC, diag)
+     call send_tile_data(id_litt_chemResistantC(k), soilc%litt(k)%chemResistantC,    diag)
+     call send_tile_data(id_litt_availableC(k),     soilc%litt(k)%availableC,        diag)
+     call send_tile_data(id_litt_microbesR(k),      soilc%litt(k)%microbesR,         diag)
+     call send_tile_data(id_litt_microbesK(k),      soilc%litt(k)%microbesK,         diag)
+
+     ! decomposition rates
+     call send_tile_data(id_litt_DecompMrLm(k), soilc%litt(k)%DecompMrLm, diag)
+     call send_tile_data(id_litt_DecompMrLs(k), soilc%litt(k)%DecompMrLs, diag)
+     call send_tile_data(id_litt_DecompMrCa(k), soilc%litt(k)%DecompMrCa, diag)
+     call send_tile_data(id_litt_OxidMrCc(k),   soilc%litt(k)%OxidMrCc,   diag)
+     call send_tile_data(id_litt_MrTau(k),      soilc%litt(k)%MrTau,      diag)
+
+     call send_tile_data(id_litt_DecompMkLm(k), soilc%litt(k)%DecompMkLm, diag)
+     call send_tile_data(id_litt_DecompMkLs(k), soilc%litt(k)%DecompMkLs, diag)
+     call send_tile_data(id_litt_DecompMkCa(k), soilc%litt(k)%DecompMkCa, diag)
+     call send_tile_data(id_litt_OxidMkCc(k),   soilc%litt(k)%OxidMkCc,   diag)
+     call send_tile_data(id_litt_MkTau(k),      soilc%litt(k)%MkTau,      diag)
+
+     call send_tile_data(id_litt_Resp(k),       soilc%litt(k)%Resp,       diag)
   enddo
 
   do k = 1,num_l
