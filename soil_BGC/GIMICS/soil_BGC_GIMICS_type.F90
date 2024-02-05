@@ -75,6 +75,7 @@ type GIMICS_BGC_pool
     real :: MrTau             = 0.0
     real :: MkTau             = 0.0
     real :: Resp              = 0.0
+    real :: thetaF            = 0.0 ! soil moisture factor for decomposition [for diagnostics]
 end type
 
 ! GIMICS BGC surface litter pool: it is the same as the soil pool data structure,
@@ -218,9 +219,9 @@ integer :: id_fRhiz, &
 integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC, &
    id_chemResistantC, id_availableC, id_microbesR, id_microbesK, id_DecompMrLm, &
    id_DecompMrLs, id_DecompMrCa, id_DecompMkLm, id_DecompMkLs, id_DecompMkCa, &
-   id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb
+   id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF
 
-integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
+integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
    id_litt_microbesR, id_litt_microbesK, id_litt_allC, &
    id_litt_DecompMrLm, id_litt_DecompMrLs, id_litt_DecompMrCa, &
@@ -231,7 +232,7 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, &
 
 ! CMIP/CMOR diag fields
 integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
-   id_cSoilAbove1m
+   id_cSoilAbove1m, id_theta
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
@@ -326,6 +327,11 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 
   id_fRhiz = register_tiled_diag_field ( diag_mod_name, 'fRhiz', axes(:),  &
        lnd%time, 'Volumetric fraction of rhizosphere', 'm3/m3', missing_value=-100.0 )
+  id_thetaF = register_3_diag_fields ( diag_mod_name, 'ThetaFunc', axes(:),  &
+       lnd%time, 'Soil moisture related factor for decomposition', '-', missing_value=-100.0 )
+
+  id_theta = register_tiled_diag_field ( diag_mod_name, 'Theta', axes(:),  &
+       lnd%time, 'Water-filled porosity (fraction of pores filled with water)', '-', missing_value=-100.0 )
 
   ! litter fields
   id_litt_total_C(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_C', &
@@ -372,6 +378,8 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 
   id_litt_Resp(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_Resp', axes(1:1),  &
        lnd%time, 'Rate of respiration in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_thetaF(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_ThetaFunc', axes(1:1),  &
+       lnd%time, 'Soil moisture related factor for decomposition of <ltype> litter', '-', missing_value=-100.0 )
 
   ! tendencies due to turbation in soil
   id_sturb_metabolicC = register_tiled_diag_field( diag_mod_name, 'metabolicC_turb', axes(:), &
@@ -944,6 +952,8 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   enddo
   if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
 
+  call send_tile_data(id_theta, decomp_theta, diag)
+
 end subroutine dsdt_GIMICS
 
 ! ============================================================================
@@ -1142,6 +1152,7 @@ subroutine step3_GIMICS(soilc, diag)
 
   call send_3_tile_data(id_Resp,           soilc%rhiz(:)%Resp,              soilc%bulk(:)%Resp,              soilc%fRhiz(:), diag)
   call send_3_tile_data(id_Desorb,         soilc%rhiz(:)%Desorb,            soilc%bulk(:)%Desorb,            soilc%fRhiz(:), diag)
+  call send_3_tile_data(id_thetaF,         soilc%rhiz(:)%thetaF,            soilc%bulk(:)%thetaF,            soilc%fRhiz(:), diag)
 
   do k = 1, N_LITTER_POOLS
      if (id_litt_total_C(k)>0) call send_tile_data(id_litt_total_C(k), C_amount(soilc%litt(k)),  diag)
@@ -1170,6 +1181,7 @@ subroutine step3_GIMICS(soilc, diag)
      call send_tile_data(id_litt_MkTau(k),      soilc%litt(k)%MkTau,      diag)
 
      call send_tile_data(id_litt_Resp(k),       soilc%litt(k)%Resp,       diag)
+     call send_tile_data(id_litt_thetaF(k),     soilc%litt(k)%thetaF,     diag)
   enddo
 
   do k = 1,num_l
@@ -1205,7 +1217,7 @@ subroutine step3_GIMICS(soilc, diag)
   if (id_cLitterLeaf>0) call send_tile_data(id_cLitterLeaf, C_amount(soilc%litt(LITT_LEAF)),  diag)
   ! --- end of CMOR vars
 
-end subroutine
+end subroutine step3_GIMICS
 
 
 ! ============================================================================
@@ -1222,7 +1234,8 @@ subroutine update_GIMICS_pool(pool, T, theta, fClay, is_sfc_litter)
           fMrTau_Cp, fMkTau_Cp, fMrTau_Cc, fMkTau_Cc
   real :: Vmax_base
 
-  Vmax_base = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor) * exp(Vslope*T+Vint) * aV
+  pool%thetaF = theta_func(theta,1-theta,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+  Vmax_base =  pool%thetaF * exp(Vslope*T+Vint) * aV
   Vmax_Mr_Lm = Vmax_base * Vmod_Mr_Lm ! mgC/mgM/h
   Vmax_Mr_Ls = Vmax_base * Vmod_Mr_Ls
   Vmax_Mr_Ca = Vmax_base * Vmod_Mr_Ca
