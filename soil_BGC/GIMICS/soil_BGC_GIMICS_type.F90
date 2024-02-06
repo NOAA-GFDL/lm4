@@ -399,17 +399,17 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
 
   ! turbation exchange between surface litter and soil
   id_lturb_metabolicC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_metabolicC_turb', axes(1:1), &
-       lnd%time, '<ltype> litter tendency of metabolic C due to turbation', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, '<ltype> litter tendency of metabolic C due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_structuralC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_structuralC_turb', axes(1:1), &
-       lnd%time, '<ltype> litter tendency of structural C due to turbation', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, '<ltype> litter tendency of structural C due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_chemResistantC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_chemResistantC_turb', axes(1:1), &
-       lnd%time, '<ltype> litter tendency of chemically resistant C due to turbation', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, '<ltype> litter tendency of chemically resistant C due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC_turb', axes(1:1), &
-       lnd%time, '<ltype> litter tendency of available C due to turbation', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, '<ltype> litter tendency of available C due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_microbesR(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesR_turb', axes(1:1), &
-       lnd%time, '<ltype> litter tendency of R microbes due to turbation', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, '<ltype> litter tendency of R microbes due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_microbesK(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesK_turb', axes(1:1), &
-       lnd%time, '<ltype> litter tendency of K microbes due to turbation', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, '<ltype> litter tendency of K microbes due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
 
   do k = 1, N_C_TYPES
      id_negative_litter_C(k) = register_tiled_diag_field(diag_mod_name, trim(c_diagname(k))//'_negative_litter_C', &
