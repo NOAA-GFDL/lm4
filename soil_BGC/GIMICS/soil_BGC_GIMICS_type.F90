@@ -190,8 +190,8 @@ real :: K_turb(MAX_SOIL_LEV) = (/ &
     1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, 1.0e-4, &
     0.8e-4, 0.6e-4, 0.4e-4, 0.2e-4, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    &
     (0.0,ii=1,80) /)
-
 real :: K_sfc_turb = 38.8e-4 ! coefficient of exchange between surface litter and soil, [m2/yr]
+logical :: do_microbe_turb = .TRUE. ! if true, microbes are transported by turbation
 
 real :: init_Mr = 1e-15 ! initial (cold-start) value of microbesR, [kg/m3]
 real :: init_Mk = 1e-15 ! initial (cold-start) value of microbesR, [kg/m3]
@@ -207,13 +207,14 @@ namelist /soil_BGC_GIMICS_nml/ &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, &
 ! -----
     init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density, min_litt_dz, const_litt_dz, &
-    K_turb, K_sfc_turb, &
+    K_turb, K_sfc_turb, do_microbe_turb, &
     save_equilibration_data
 
 ! diag field IDs
 integer :: id_total_soil_C
 integer :: id_fRhiz, &
    id_sturb_metabolicC, id_sturb_structuralC, id_sturb_chemResistantC, id_sturb_availableC, &
+   id_sturb_microbesR, id_sturb_microbesK, &
    id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C
 ! diag fields for rhizosphere, bulk soil, and total
 integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC, &
@@ -228,7 +229,8 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_theta
    id_litt_DecompMkLm, id_litt_DecompMkLs, id_litt_DecompMkCa, &
    id_litt_OxidMrCc, id_litt_OxidMkCc, id_litt_MrTau, id_litt_MkTau, id_litt_Resp, &
    ! turbation tendencies in surface litter pools
-   id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC
+   id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC, &
+   id_lturb_microbesR, id_lturb_microbesK
 
 ! CMIP/CMOR diag fields
 integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
@@ -390,6 +392,10 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Tendency of chemically resistant C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
   id_sturb_availableC = register_tiled_diag_field( diag_mod_name, 'availableC_turb', axes(:), &
        lnd%time, 'Tendency of available C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  id_sturb_microbesR = register_tiled_diag_field( diag_mod_name, 'microbesR_turb', axes(:), &
+       lnd%time, 'Tendency of R microbes due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  id_sturb_microbesK = register_tiled_diag_field( diag_mod_name, 'microbesK_turb', axes(:), &
+       lnd%time, 'Tendency of K microbes due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
 
   ! turbation exchange between surface litter and soil
   id_lturb_metabolicC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_metabolicC_turb', axes(1:1), &
@@ -400,6 +406,10 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, '<ltype> litter tendency of chemically resistant C due to turbation', 'kg C/m3', missing_value=-100.0 )
   id_lturb_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC_turb', axes(1:1), &
        lnd%time, '<ltype> litter tendency of available C due to turbation', 'kg C/m3', missing_value=-100.0 )
+  id_lturb_microbesR(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesR_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of R microbes due to turbation', 'kg C/m3', missing_value=-100.0 )
+  id_lturb_microbesK(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesK_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of K microbes due to turbation', 'kg C/m3', missing_value=-100.0 )
 
   do k = 1, N_C_TYPES
      id_negative_litter_C(k) = register_tiled_diag_field(diag_mod_name, trim(c_diagname(k))//'_negative_litter_C', &
@@ -927,6 +937,15 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
                  soilc%fRhiz, soilc%litt(:)%dz, id_sturb_chemResistantC, id_lturb_chemResistantC, diag, 'chemResistantC')
   call turbation(soilc%litt(:)%availableC, soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC, &
                  soilc%fRhiz, soilc%litt(:)%dz, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
+  if (do_microbe_turb) then
+     call turbation(soilc%litt(:)%microbesR, soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR, &
+                    soilc%fRhiz, soilc%litt(:)%dz, id_sturb_microbesR, id_lturb_microbesR, diag, 'microbesR')
+     call turbation(soilc%litt(:)%microbesK, soilc%rhiz(:)%microbesK, soilc%bulk(:)%microbesK, &
+                    soilc%fRhiz, soilc%litt(:)%dz, id_sturb_microbesk, id_lturb_microbesK, diag, 'microbesK')
+  ! perhaps it would be useful to have "else" statement here to send zeros to the
+  ! diagnostics of microbe tendencies due to turbation
+  endif
+
 
   do k = 1,N_LITTER_POOLS
      call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt after turbation')
