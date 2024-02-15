@@ -941,9 +941,11 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
                  soilc%fRhiz, soilc%litt(:)%dz, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
   if (do_microbe_turb) then
      call turbation(soilc%litt(:)%microbesR, soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR, &
-                    soilc%fRhiz, soilc%litt(:)%dz, id_sturb_microbesR, id_lturb_microbesR, diag, 'microbesR')
+                    soilc%fRhiz, soilc%litt(:)%dz, id_sturb_microbesR, id_lturb_microbesR, diag, 'microbesR', &
+                    allow_flux_to_sfc_litter=.TRUE.)
      call turbation(soilc%litt(:)%microbesK, soilc%rhiz(:)%microbesK, soilc%bulk(:)%microbesK, &
-                    soilc%fRhiz, soilc%litt(:)%dz, id_sturb_microbesk, id_lturb_microbesK, diag, 'microbesK')
+                    soilc%fRhiz, soilc%litt(:)%dz, id_sturb_microbesk, id_lturb_microbesK, diag, 'microbesK', &
+                    allow_flux_to_sfc_litter=.TRUE.)
   ! perhaps it would be useful to have "else" statement here to send zeros to the
   ! diagnostics of microbe tendencies due to turbation
   endif
@@ -1024,7 +1026,8 @@ end subroutine debug_GIMICS_pool
 
 ! ============================================================================
 !> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
-subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_tend, diag, tag)
+subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_tend, diag, tag, &
+    allow_flux_to_sfc_litter)
   real, intent(inout) :: litt(N_LITTER_POOLS)  !< concentration in litter(s), [kg/m3]
   real, intent(inout) :: rhiz(:)  !< concentration in rhizosphere, [kg/m3]
   real, intent(inout) :: bulk(:)  !< concentration in bulk soil, [kg/m3]
@@ -1032,8 +1035,11 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_ten
   real, intent(in)    :: dz_litt(N_LITTER_POOLS) !< litter thickness, [m]
   integer, intent(in) :: id_turb_tend !< diagnostic id for turbation tendency field
   integer, intent(in) :: id_litt_tend(N_LITTER_POOLS) !< diagnostic ids for turbation tendencies in litter
-  type(diag_buff_type), intent(inout) :: diag !> diagnostic buffer
-  character(*), intent(in) :: tag ! textual tag for error messages
+  type(diag_buff_type), intent(inout) :: diag !< diagnostic buffer
+  character(*), intent(in) :: tag !< textual tag for error messages
+  logical, intent(in), optional :: allow_flux_to_sfc_litter !< if TRUE, turbation flux
+                      !! from soil to surface litter is allowed; otherwise only flux from
+                      !! fitter to soil is allowed. Default if FALSE
 
   real, dimension(size(rhiz)) :: &
      c,     & ! average concentration in layer, [kg/m3]
@@ -1042,6 +1048,10 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_ten
   integer :: k
   real :: d   ! distance between centers of litter and soil layers, [m]
   real :: sfcFlux(N_LITTER_POOLS) ! flux from each litter pool to soil, [kg/(m2 yr)]
+  logical :: allow_flux_to_litt ! allow flux from soil to litter
+
+  allow_flux_to_litt = .FALSE.
+  if (present (allow_flux_to_sfc_litter)) allow_flux_to_litt = allow_flux_to_sfc_litter
 
   ! calculate average concentration in soil
   do k = 1,size(rhiz)
@@ -1056,7 +1066,9 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, id_turb_tend, id_litt_ten
      !      5cm. Perhaps we should impose some maximum on d?
      d    = dz_litt(k)/2 + zfull(1) ! distance between centers of litter and top soil layer, [m]
      sfcFlux(k) = K_sfc_turb*(litt(k)-c(1))/d ! flux from litter to soil, [kg/(m2 yr)]
-     sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+     if (.not.allow_flux_to_litt) then
+        sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+     endif
      if (is_watch_point()) then
         write(*,'(a20,"(",a3,"):")',advance='NO') trim(tag),trim(l_diagname(k))
         __DEBUG5__(litt(k),c(1),dz_litt(k),d,sfcFlux(k)*dt_fast_yr)
