@@ -165,6 +165,7 @@ real :: eCa_Mk = 0.75       ! Microbial growth efficiency for fluxes from Ca to 
 real :: Kmod_oxid_Mr = 4.0  ! Further modifies Km for oxidation of Cc
 real :: Kmod_oxid_Mk = 4.0  ! Further modifies Km for oxidation of Cc
 
+logical :: ignore_theta = .FALSE. ! if TRUE, effect of soil moisture on soil BGC are ignored.
 real :: min_anaerobic_resp_factor = 0.05
 real :: min_dry_resp_factor = 0.05
 real :: gas_diffusion_exp = 2.5 ! Exponent for gas diffusion power law dependence on theta
@@ -204,6 +205,7 @@ namelist /soil_BGC_GIMICS_nml/ &
     Vmod_Mr_Lm, Vmod_Mr_Ls, Vmod_Mr_Ca, Vmod_Mk_Lm, Vmod_Mk_Ls, Vmod_Mk_Ca, Vslope, Vint, aV, &
     Kmod_Mr_Lm, Kmod_Mr_Ls, Kmod_Mr_Ca, Kmod_Mk_Lm, Kmod_Mk_Ls, Kmod_Mk_Ca, Kslope_Lm, Kslope_Ls, Kslope_Ca, Kint, aK, &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
+    ignore_theta, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, &
 ! -----
     init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density, min_litt_dz, const_litt_dz, &
@@ -1342,11 +1344,19 @@ end subroutine update_GIMICS_pool
 
 ! ============================================================================
 ! note that in resp_denitrif the dependence on soil moisture is subtly different
-real function theta_func(water_filled_porosity,air_filled_porosity,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+real function theta_func ( water_filled_porosity, air_filled_porosity, &
+                           substrate_diffusion_exp, gas_diffusion_exp, &
+                           min_anaerobic_resp_factor, min_dry_resp_factor )
   real, intent(in) :: water_filled_porosity ! fraction of pores filled with water
   real, intent(in) :: air_filled_porosity ! fraction of pores filled with water
   real, intent(in) :: substrate_diffusion_exp,gas_diffusion_exp,min_dry_resp_factor,min_anaerobic_resp_factor
-  real::theta_resp_max,aerobic_max
+
+  real :: theta_resp_max, aerobic_max
+
+  if (ignore_theta) then
+     theta_func = 1.0
+     return
+  endif
 
   theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
   aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
