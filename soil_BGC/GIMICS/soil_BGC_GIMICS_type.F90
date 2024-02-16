@@ -851,7 +851,7 @@ subroutine rav_C_GIMICS(soilc, fast_C,slow_C,dmic_C)
   associate (pool=>soilc%litt(LITT_LEAF))
      fast_C = pool%metabolicLitterC  * pool%dz ! slm: check the definition of fast/slow pools
      slow_C = pool%structuralLitterC * pool%dz
-     dmic_C = (pool%microbesR + pool%microbesR) * pool%dz
+     dmic_C = (pool%microbesR + pool%microbesK) * pool%dz
   end associate
 end subroutine
 
