@@ -394,7 +394,7 @@ subroutine dissolve_carbon(pool,theta)
               C_litterMobility=C_flavor_relative_solubility,N_protectedMobility=N_protected_solubility,&
               N_litterMobility=N_flavor_relative_solubility)
 
-  if(is_watch_point()) then
+  if(is_watch_point(2)) then
      __DEBUG2__(C_dissolved,protectedC_dissolved)
      __DEBUG2__(N_dissolved,protectedN_dissolved)
   endif
@@ -411,7 +411,7 @@ subroutine deposit_dissolved_C(pool)
 
   deposited_C(:) = min(pool%dissolved_carbon(:), max(0.0, DOC_deposition_rate*pool%dissolved_carbon(:)))
   pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      __DEBUG1__(pool%dissolved_carbon)
      __DEBUG1__(DOC_deposition_rate)
      __DEBUG1__(deposited_C)
