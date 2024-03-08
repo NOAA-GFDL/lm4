@@ -459,6 +459,7 @@ subroutine cana_v_turb (ustar, &
   ! We need an upper bound for L_c when vegn_idx <0.001, say, or any other very small lai value
   ! Choosing vegn_idx = 0.001 as a threshold, and given that L_c = ztop/(cd_leaf*vegn_idx),
   ! then L_c = ztop/(0.25*0.001) = 4000*ztop. This makes L_m large, and hence wind decay very small
+  ! vegn_idx threshold shoud be consistent with the value in cana_roughness for ROUGH_KMG2022
   if(vegn_idx>0.001) then
     L_c = ztop/(cd_leaf*vegn_idx)
   else
@@ -532,14 +533,13 @@ subroutine cana_v_turb (ustar, &
      !u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
      utop    = ustar/u_ratio
 
-     if (is_watch_point()) then
-        __DEBUG4__(utop,u_ratio,L_c,L_m)
-        __DEBUG3__(vegn_idx,ztop,cd_leaf)
-     endif
-
      ! exponent of wind profile within canopy
-     a       = ztop*u_ratio/L_m
+     a       = max(1.0,(ztop*u_ratio)/L_m)
 
+     if (is_watch_point()) then
+        __DEBUG5__(vegn_idx, ztop, u_ratio, L_c, L_m)
+        __DEBUG4__(ustar, utop, land_d, a)
+     endif
      do i = 1,size(vegn_lai)
         call cohort_gb(ztop, vegn_bottom(i), vegn_height(i), utop, ustar, land_d, a, vegn_d_leaf(i), gb)
 
@@ -551,6 +551,16 @@ subroutine cana_v_turb (ustar, &
            con_v_h(i) = vegn_lai(i)*gb
         endif
         con_v_stem(i) = vegn_sai(i)*gb
+!         if (is_watch_point()) then
+!            write(*,'(i2.2,x)',advance='NO') i
+!            call dpri('Hb',vegn_bottom(i))
+!            call dpri('Ht',vegn_height(i))
+!            call dpri('d_leaf',vegn_d_leaf(i))
+!            call dpri('gb',gb)
+!            call dpri('con_v_h',con_v_h(i))
+!            call dpri('con_v_v',con_v_v(i))
+!            write(*,*)
+!         endif
      enddo
   end select
 
@@ -620,12 +630,6 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
   real :: h1, h2, h3, h4 ! integration boundaries below and above Ha, respectively
   real :: b, u, gb1, gb2
 
-   if (is_watch_point()) then
-      __DEBUG4__(Ha,Hb,Ht,Utop)
-      __DEBUG2__(a,d_leaf)
-   endif
-
-
   if(Ht-Hb > min_thickness) then
      ! canopy of finite thickness
      ! part of the canopy below Ha
@@ -642,9 +646,9 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
                         (func((h4-d)/(Ha-d),b)-func((h3-d)/(Ha-d),b))
      endif
      gb = gb1+gb2
-     if (is_watch_point()) then
-        __DEBUG3__(Ht,gb1,gb2)
-     endif
+!      if (is_watch_point()) then
+!         __DEBUG3__(Ht,gb1,gb2)
+!      endif
   else
      ! thin cohort canopy limit
      if (Ht > Ha) then
@@ -655,9 +659,6 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
         ! exponential profile below aerodynamic canopy height
         gb = leaf_co*sqrt(Utop/d_leaf) * exp(-a/2*(Ha-Ht)/Ha)
      endif
-  endif
-  if (is_watch_point()) then
-     __DEBUG1__(gb)
   endif
   call check_var_range(gb, 0.0, HUGE(1.0), 'cohort_gb', 'gb', WARNING)
 end subroutine
@@ -740,12 +741,13 @@ subroutine cana_g_turb (ustar, a, &
 
   case(TURB_KMG2022)
 
-     ztop = aerodyn_height
+     ztop = max(aerodyn_height,min_height)
 
      ! In pricinple, we have Km (not Kh), and assuming they are equal is essentially invoking
      ! the Reynolds analogy, but one can also use a turbulent Prandtl.Schmidt number
      ! to relate the two. Pr_t = Km/Kh, where Pr_t is typically 0.7
      Kh_top = ustar*L_m
+
      rah_sca = ztop/a/Kh_top * &
           (exp(a*(1-d_visc/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
      ! rah_sca can be very small or even negative depending on the vegetation
@@ -753,7 +755,14 @@ subroutine cana_g_turb (ustar, a, &
      ! and little wind. Therefore we need to impose some minimum value that would
      ! limit conductance to reasonable range
      rah_sca = max(rah_sca,bare_rah_sca)
+     rah_sca = min(rah_sca,1000.0)
      con_g_h = 1.0/rah_sca
+     if(is_watch_point()) then
+        write(*,*)'### TURB_KMG2022 ###'
+        __DEBUG3__(ustar, L_m, Kh_top)
+        __DEBUG5__(ztop,a,d_visc,land_z0m,land_d)
+        __DEBUG2__(rah_sca, con_g_h)
+     endif
 
   end select
 
@@ -887,12 +896,14 @@ subroutine cana_roughness(lm2, &
      ! For now, using u*/Uh from Raupach ()
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
 
-     x = (u_ratio**2)/(cd_leaf*vegn_idx)
-     if (x<1) then
-        land_d = vegn_height*(1-x)
+     if (u_ratio**2<cd_leaf*vegn_idx.and.vegn_idx>0.001) then
+        ! vegn_idx threshold should be consistent with L_c calculations
+        ! in cana_v_turb
+        x = (u_ratio**2)/(cd_leaf*vegn_idx)
+        land_d = vegn_height*max(0.4,(1-x))
      else
         ! quantity x may be larger than 1 so need to make sure d is always positive
-        land_d = 0.1*vegn_height
+        land_d = 0.7*vegn_height
      endif
      land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
      land_z0m = max(land_z0m,grnd_z0m)
