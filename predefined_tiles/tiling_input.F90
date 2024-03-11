@@ -3,7 +3,7 @@ module predefined_tiles_input_mod
 use hdf5
 use, intrinsic :: iso_c_binding
 use constants_mod, only : pi
-use fms_mod, only : error_mesg, FATAL
+use fms_mod, only : string, error_mesg, FATAL
 use land_data_mod, only : land_state_type, atmos_land_boundary_type, log_version
 use land_debug_mod, only : land_error_message
 use land_tile_mod, only : insert, new_land_tile_glac, new_land_tile_lake, new_land_tile_soil
@@ -38,33 +38,44 @@ end interface
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-subroutine check_h5err(status)
-    integer, intent(in) :: status
+subroutine check_h5err(status,message,severity)
+  integer,      intent(in)           :: status   ! HDF5 status
+  character(*), intent(in), optional :: message  ! optional
+  integer,      intent(in), optional :: severity ! error severity
 
-    if (status .lt. 0) then
-        call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
-    end if
+  integer :: severity_
+  integer :: ierr
+
+  if (status .eq. 0) return
+
+  severity_ = FATAL
+  if (present(severity)) severity_ = severity
+
+  call h5eprint_f(ierr)
+  if (present(message)) then
+     call error_mesg('tiling_input', message, severity_)
+  else
+     call error_mesg('tiling_input', 'HDF5 ERROR', severity_)
+  endif
 end subroutine
 
 subroutine open_database_predefined_tiles(h5id,lnd)
   type(land_state_type),intent(in) :: lnd
   integer(hid_t), intent(out) :: h5id
   integer :: status
-  character(100) :: filename,fid
+  character(100) :: filename
 
   !Initialize the fortran library
   call h5open_f(status)
   !call check_h5err(status)
 
-  !Define the file
-  write(fid,'(I10)') lnd%ug_face
-  filename = trim(trim(adjustl('INPUT/ptiles.face')) // trim(adjustl(fid)) // trim(adjustl('.h5')))
-  !print*,filename
+  !Define the file name
+  filename = 'INPUT/ptiles.face'// trim(string(lnd%ug_face)) // '.h5'
 
   !Open access to the model input database
   CALL h5fopen_f(filename,H5F_ACC_RDONLY_F,h5id, status)
+  call check_h5err(status, message='Error opening file "'//trim(filename)//'"')
 
-  !call check_h5err(status)
   !CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
   !CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
 
@@ -93,21 +104,17 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
   character(kind=c_char),intent(inout),allocatable,dimension(:),target :: image_ptr
   integer :: status
   integer(hid_t) :: grpid,cell_grpid,dstid
-  character(100) :: tile_string,is_string,js_string,cellid_string
+  character(100) :: cellid_string
   integer(hid_t) :: fapl
   integer(size_t), parameter :: memory_increment = 1000000
 
  !Open access to the group in the database that contains all the group information
  call h5gopen_f(h5id,"grid_data",grpid,status)
- !call check_h5err(status)
+ call check_h5err(status)
  !Write the cell id to string
  !write(cellid_string,'(I10)') cellid
  !cellid_string = trim('g' // trim(adjustl(cellid_string)))
- write(tile_string,'(I10)') tile
- write(is_string,'(I10)') is
- write(js_string,'(I10)') js
- cellid_string = trim('tile:' // trim(adjustl(tile_string)) // ',is:' // &
-                 trim(adjustl(js_string)) // ',js:' // trim(adjustl(is_string)))
+ cellid_string = 'tile:' // trim(string(tile)) // ',is:' // trim(string(js)) // ',js:' // trim(string(is))
  !The goal here is to load the desired group of the cellid into memory. This buffer
  !will then be sent to the land model core. However, there is no direct way to do this
  !with a group instead we have to:
@@ -116,37 +123,32 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  !3.Use the HDF5 api to then load this new file as a buffer
  !Ensure that we are always working in memory
  call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
- !call check_h5err(status)
+ call check_h5err(status)
  !Setting the third parameter to false ensures that we never write this file to disk
  call h5pset_fapl_core_f(fapl,memory_increment,.False.,status)
- !call check_h5err(status)
+ call check_h5err(status)
  !Although we create this file it is always in memory. It never gets written to disk
  call h5fcreate_f("buffer.hdf5",H5F_ACC_TRUNC_F,dstid,status,access_prp=fapl)
- !call check_h5err(status)
+ call check_h5err(status)
  !Close access to the property list
  call h5pclose_f(fapl,status)
  !call check_h5err(status)
  !Copy the group from the original database to the new file
  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
- !call check_h5err(status)
- !print*,status,cellid_string
- !if (status .eq. -1)then
- ! print*,'This group does not exist in the database',cellid_string
- ! stop
- !endif
+ call check_h5err(status)
  !Flush the file
  call h5fflush_f(dstid,H5F_SCOPE_GLOBAL_F,status)
- !call check_h5err(status)
+ call check_h5err(status)
  !Determine the size of the desired group (which is now a file in memory...)
  buf_len = 0
  buf_ptr = C_NULL_PTR
  call h5fget_file_image_f(dstid,buf_ptr,int(0,size_t),status,buf_len)
- !call check_h5err(status)
+ call check_h5err(status)
  !Load the entire new file (i.e., desired group) into memory
  allocate(image_ptr(1:buf_len))
  buf_ptr = c_loc(image_ptr(1)(1:1))
  call h5fget_file_image_f(dstid,buf_ptr,buf_len,status)
- !call check_h5err(status)
+ call check_h5err(status)
  !Close the copied file (release memory)
  call h5fclose_f(dstid,status)
  !call check_h5err(status)
