@@ -10,8 +10,7 @@ public
 contains
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function vegn_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    vegn_tile_exists = associated(tile%vegn)

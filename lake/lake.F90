@@ -3,13 +3,7 @@
 ! ============================================================================
 module lake_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
+use fms_mod, only : error_mesg, file_exist, read_data, input_nml_file, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
@@ -122,21 +116,10 @@ subroutine read_lake_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
-     read (input_nml_file, nml=lake_nml, iostat=io)
-     ierr = check_nml_error(io, 'lake_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=lake_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'lake_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
+
+  read (input_nml_file, nml=lake_nml, iostat=io)
+  ierr = check_nml_error(io, 'lake_nml')
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=lake_nml)
@@ -1013,8 +996,7 @@ subroutine lake_diag_init(id_ug)
 end subroutine lake_diag_init
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function lake_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    lake_tile_exists = associated(tile%lake)

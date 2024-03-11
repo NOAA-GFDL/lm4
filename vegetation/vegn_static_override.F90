@@ -481,9 +481,9 @@ end subroutine write_static_vegn
 #define F90_TYPE       real
 #define READ_REMAP_SUB read_remap_cohort_data_r0d
 #include "read_remap_cohort_data.inc"
+
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function vegn_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    vegn_tile_exists = associated(tile%vegn)

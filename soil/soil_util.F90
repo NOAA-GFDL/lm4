@@ -43,8 +43,8 @@ end subroutine soil_util_init
 subroutine add_root_litter(soil, vegn, litterC, litterN, negativeInputC, negativeInputN)
   type(soil_tile_type)   , intent(inout) :: soil
   type(vegn_tile_type) , intent(in)    :: vegn
-  real, intent(in) :: litterC(num_l,N_C_TYPES) ! kg C/(m2 of soil)
-  real, intent(in) :: litterN(num_l,N_C_TYPES) ! kg C/(m2 of soil)
+  real, intent(in) :: litterC(:,:)! (num_l,N_C_TYPES) ! kgC/m2 of each soil layer
+  real, intent(in) :: litterN(:,:)! (num_l,N_C_TYPES) ! kgN/m2 of each soil layer
   real, intent(inout), optional :: negativeInputC(N_C_TYPES), negativeInputN(N_C_TYPES)
 
   integer :: k

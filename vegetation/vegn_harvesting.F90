@@ -21,11 +21,11 @@ use vegn_data_mod, only : do_ppa, &
      nspecies, spdata, agf_bs
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
-use soil_tile_mod, only : num_l, LEAF, CWOOD
+use soil_tile_mod, only : num_l, dz, LEAF, CWOOD
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_type
 use soil_util_mod, only : add_root_litter
-use vegn_cohort_mod, only : update_biomass_pools
+use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
@@ -363,10 +363,13 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
   ! ---- local vars
   real ::  bdead0, balive0, bleaf0, blv0, bfroot0 ! initial combined biomass pools
   real ::  bdead1, balive1, bleaf1, blv1, bfroot1 ! updated combined biomass pools
-  integer :: i
+  integer :: i,k
   real :: carbon_lost
   real :: delta_leaf, delta_root, delta_wood
-  real,dimension(N_C_TYPES) :: leaflitter_C,woodlitter_C,bglitter_C,leaflitter_N,woodlitter_N,bglitter_N
+  real,dimension(N_C_TYPES) :: leaflitter_C,woodlitter_C,leaflitter_N,woodlitter_N
+  real :: bglitter_C(num_l,N_C_TYPES) ! below-ground (root) C litter, by layer
+  real :: bglitter_N(num_l,N_C_TYPES) ! below-ground (root) N litter, by layer
+  real :: profile(num_l) ! normalized root litter profile: sum(profile) == 1.0
   real :: wood_n2c
 
   associate(vegn=>tile%vegn,soil=>tile%soil)
@@ -437,21 +440,27 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
            delta_wood=bdead0-bdead1
         endif
 
-        leaflitter_C=(/(delta_leaf)*sp%fsc_liv,(delta_leaf)*(1-sp%fsc_liv),0.0/)*grazing_residue
-        woodlitter_C=(/(delta_wood)*sp%fsc_wood,(delta_wood)*(1-sp%fsc_wood),0.0/)*agf_bs*grazing_residue
-        bglitter_C=(/(sp%fsc_froot*(delta_root) +(1-agf_bs)*sp%fsc_wood*(delta_wood)),&
-                      (1.0-sp%fsc_froot)*(delta_root) +(1-agf_bs)*(1.0-sp%fsc_wood)*(delta_wood),0.0/)*grazing_residue
-
+        leaflitter_C = [ delta_leaf*sp%fsc_liv,  delta_leaf*(1-sp%fsc_liv),  0.0 ] * grazing_residue
+        woodlitter_C = [ delta_wood*sp%fsc_wood, delta_wood*(1-sp%fsc_wood), 0.0 ] * grazing_residue * agf_bs
+        call cohort_root_litter_profile(cc,dz,profile)
+        do k = 1,num_l
+           bglitter_C(k,:) = profile(k) * grazing_residue * &
+               [      sp%fsc_froot *delta_root + (1-agf_bs)*     sp%fsc_wood *delta_wood, &
+                 (1.0-sp%fsc_froot)*delta_root + (1-agf_bs)*(1.0-sp%fsc_wood)*delta_wood, &
+                 0.0  ]
+        enddo
         ! We are not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
         vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
            leaflitter_N=leaflitter_C/sp%leaf_live_c2n
            woodlitter_N=woodlitter_C/sp%leaf_live_c2n
-           bglitter_N=(/grazing_residue*(sp%fsc_froot*(delta_root)/sp%froot_live_c2n +(1-agf_bs)*sp%fsc_wood*(delta_wood)*wood_n2c),&
-                        grazing_residue*((1-sp%fsc_froot)*(delta_root)/sp%froot_live_c2n +  (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood)*wood_n2c),&
-                        0.0/)
-
+           do k = 1,num_l
+              bglitter_N(k,:) = profile(k) * grazing_residue * &
+                   [    sp%fsc_froot *delta_root/sp%froot_live_c2n + (1-agf_bs)*   sp%fsc_wood *delta_wood*wood_n2c, &
+                     (1-sp%fsc_froot)*delta_root/sp%froot_live_c2n + (1-agf_bs)*(1-sp%fsc_wood)*delta_wood*wood_n2c, &
+                     0.0  ]
+           enddo
            cc%stored_N = cc%stored_N - delta_leaf/sp%leaf_live_c2n - delta_wood*wood_n2c - delta_root/sp%froot_live_c2n
            vegn%harv_pool_N(HARV_POOL_PAST) = vegn%harv_pool_N(HARV_POOL_PAST) + &
                 delta_leaf/sp%leaf_live_c2n*(1-grazing_residue) + delta_wood*agf_bs*wood_n2c*(1-grazing_residue)
@@ -472,8 +481,8 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
                [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue
 
-          vegn%fsc_pool_bg=vegn%fsc_pool_bg + bglitter_C(1)
-          vegn%ssc_pool_bg = vegn%ssc_pool_bg + bglitter_C(2)
+          vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(bglitter_C(:,C_FAST))
+          vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(bglitter_C(:,C_SLOW))
 
 
           vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + &
@@ -481,8 +490,8 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue/sp%wood_c2n
 
-          vegn%fsn_pool_bg=vegn%fsn_pool_bg + bglitter_N(1)
-          vegn%ssn_pool_bg = vegn%ssn_pool_bg + bglitter_N(2)
+          vegn%fsn_pool_bg = vegn%fsn_pool_bg + sum(bglitter_N(:,C_FAST))
+          vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(bglitter_N(:,C_SLOW))
        endif
      case default
         call error_mesg('vegn_graze_pasture_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
@@ -654,10 +663,14 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
              + wood_harvested*frac_wood_med
         vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) &
              + wood_harvested*frac_wood_slow
+        ! store harvested wood amount, for diagnostics
+        vegn%amount_wood_harv_C = wood_harvested
      else
         ! this is land clearance: everything goes into "cleared" pool
         vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
              + wood_harvested
+        ! store cleared wood amount, for diagnostics
+        vegn%amount_wood_cleared_C = wood_harvested
      endif
 
      ! distribute wood and living biomass between fast and slow intermediate
@@ -964,12 +977,23 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
           + sum(wood_harv_C)*frac_wood_slow*(1-frac_wood_wasted)
      vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) &
           + sum(wood_harv_N)*frac_wood_slow*(1-frac_wood_wasted)
+     ! store harvested wood amount, for diagnostics. We could send the diagnostics
+     ! from here, but we are currently not merging the diag buffers when merging
+     ! land tiles, and therefore the output would be incorrect if the tiles
+     ! that are just harvested are merged after land use transitions and before
+     ! dumping the diag (which is likely). Same note applies to amount_wood_cleared_*
+     ! below
+     vegn%amount_wood_harv_C = sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%amount_wood_harv_N = sum(wood_harv_N)*(1-frac_wood_wasted)
   else
      ! this is land clearance: everything goes into "cleared" pool
      vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
           + sum(wood_harv_C)*(1-frac_wood_wasted)
      vegn%harv_pool_N(HARV_POOL_CLEARED) = vegn%harv_pool_N(HARV_POOL_CLEARED) &
           + sum(wood_harv_N)*(1-frac_wood_wasted)
+     ! cleared wood amount, for diagnostics
+     vegn%amount_wood_cleared_C = sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%amount_wood_cleared_N = sum(wood_harv_N)*(1-frac_wood_wasted)
   endif
 
   vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &

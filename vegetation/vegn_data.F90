@@ -1,14 +1,8 @@
 module vegn_data_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use constants_mod, only : PI, TFREEZE
 use fms_mod, only : &
-     file_exist, check_nml_error, &
+     file_exist, input_nml_file, check_nml_error, &
      close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
@@ -148,7 +142,7 @@ public :: &
     vegn_to_use,  input_cover_types, &
     mcv_min, mcv_lai, use_bucket, vegn_index_constant, &
     critical_root_density, &
-    spdata, &
+    spdata, splist, &
     min_cosz, &
     agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
@@ -447,6 +441,9 @@ end type
 ! ---- species parameters ----------------------------------------------------
 type(spec_data_type), allocatable, protected :: spdata(:)
 
+! ---- list of species names, for by-species diagnostic axis attribute
+character(len=:), allocatable, protected :: splist ! list of species names
+
 ! ---- namelist --------------------------------------------------------------
 logical, protected :: use_bucket = .false.
 real,    protected :: mcv_min = 5.   * 4218.
@@ -651,21 +648,9 @@ subroutine read_vegn_data_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   unit=stdlog()
   write (unit, nml=vegn_data_nml)
@@ -801,6 +786,13 @@ subroutine read_vegn_data_namelist()
   spdata(:)%fact_crit_fire = max(0.0,spdata(:)%fact_crit_fire)
   where (spdata(:)%cnst_crit_fire/=0) spdata(:)%fact_crit_fire=0.0
   write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
+
+  ! create a list of species names
+  splist = trim(spdata(0)%name)
+  do i = 1,nspecies-1
+    splist = splist//", "//trim(spdata(i)%name)
+  enddo
+!   write(*,*) splist
 
   call print_species_data(stdout(),.TRUE.)
   call print_species_data(stdlog(),.TRUE.)

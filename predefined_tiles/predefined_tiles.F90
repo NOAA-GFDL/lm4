@@ -1,12 +1,7 @@
 module predefined_tiles_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, close_file, check_nml_error, stdlog, error_mesg, FATAL
+use fms_mod, only : input_nml_file, check_nml_error, stdlog, error_mesg, FATAL, &
+      mpp_pe, mpp_root_pe
 use land_data_mod, only : log_version
 
 implicit none
@@ -46,24 +41,14 @@ subroutine read_predefined_tiles_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
+
   read (input_nml_file, nml=predefined_tiles_nml, iostat=io)
   ierr = check_nml_error(io, 'predefined_tiles_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1
-     do while (ierr /= 0)
-        read (unit, nml=predefined_tiles_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'predefined_tiles_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
-  unit=stdlog()
-  write(unit, nml=predefined_tiles_nml)
 
+  if (mpp_pe() == mpp_root_pe()) then
+     unit=stdlog()
+     write(unit, nml=predefined_tiles_nml)
+  endif
 end subroutine read_predefined_tiles_namelist
 
 end module predefined_tiles_mod

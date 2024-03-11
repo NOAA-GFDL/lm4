@@ -938,8 +938,7 @@ subroutine hlsp_config_check()
 end subroutine hlsp_config_check
 
 ! ============================================================================
-! tile existence detector: returns a logical value indicating wether component
-! model tile exists or not
+! tile existence detector: returns TRUE if component model tile exists
 logical function soil_tile_exists(tile)
    type(land_tile_type), pointer :: tile
    soil_tile_exists = associated(tile%soil)
