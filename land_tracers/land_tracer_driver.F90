@@ -88,6 +88,30 @@ module land_tracer_driver_mod
   real :: alpha_aer_desert       = 50.
   real :: alpha_aer_frz          = 50.
 
+  !Note about default resistances (specified in field table)
+  !From Zhang et al. "A size-segregated particle dry deposition scheme for an atmospheric aerosol module" Atmospheric Environment 35 (2001) 549-560. We do not account for seasonal variations in A (use midsummer)
+  !From Zhang et al. "A revised parameterization for gaseous dry deposition in air-quality models" Atmos. Chem. Phys., 3, 2067–2082, 2003
+
+  !LUC refers to the entry in Table 3 of Zhang et al. (2001)
+  
+  !prioria (LUC=2) - Evergreen broadleaf trees
+  !r_cus=2500, r_cuo=6000, r_cuo_wet = 400, A_aer=5.e-3, gamma_aer=0.58, alpha_aer=0.6
+  !
+  !picea (LUC=1) - Evergreen needleleaf trees
+  !r_cus=2000, r_cuo=4000, r_cuo_wet=200, A_aer=2.e-3, gamma_aer=0.56, alpha_aer=1.  
+  !
+  !larix (LUC=3) - Deciduous needleleaf trees
+  !r_cus=2000, r_cuo=4000, r_cuo_wet=200, A_aer=2.e-3, gamma_aer=0.56, alpha_aer=1.1
+  !
+  !acer (LUC=4) - Deciduous broadleaf trees
+  !r_cus=2500, r_cuo=6000, r_cuo_wet=400, A_aer=5.e-3, gamma_aer=0.56, alpha_aer=0.8
+  !
+  !c4grass (LUC=6) - Grass
+  !r_cus=1000, r_cuo=4000, r_cuo_wet=200, A_aer=2.e-3, gamma_aer=0.54, alpha_aer=1.2
+  !
+  !c3grass (LUC=6) - Grass
+  !r_cus=1000, r_cuo=4000, r_cuo_wet=200, A_aer=2.e-3, gamma_aer=0.54, alpha_aer=1.2
+  
   !in LM4p1, the following soil categories are used
   !'clay(heavy)', 'silty clay', 'clay (light)', 'silty clay loam', 'clay loam', 'silt', 'silt loam', 'sandy clay', 'loam', 'sandy clay loam', 'sandy loam', 'loamy sand', 'sand', 'undefined'
 
@@ -205,7 +229,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     character(32)  :: value_str
     character(32)  :: name, units, funits ! name and units of the tracer and flux
     character(128) :: longname ! long name of the tracer
-    character(32)  :: method
+    character(64)  :: method
     character(1024) :: parameters
     type(table_printer_type) :: table
 
@@ -272,17 +296,17 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        method = ''; parameters = ''
        if (trdata(tr)%tr_atm >0) then
           if (query_method('dry_deposition', MODEL_ATMOS, trdata(tr)%tr_atm, method,parameters)) then
-             if (parse(parameters,'land', value_str)>0) then
-                if (trim(value_str)=="interactive") trdata(tr)%do_deposition=.TRUE.
-                if (trim(value_str)=="interactive_aer") then
-                   trdata(tr)%do_deposition = .TRUE.
-                   trdata(tr)%is_aerosol    = .TRUE.
-                end if
-             end if
+             trdata(tr)%do_deposition=(index(lowercase(method),'land:dynamics')>0 )
           endif
        endif
        ! set up deposition parameters
        if(query_method('dry_deposition', MODEL_LAND, tr, method, parameters)) then
+
+          if (trim(method).eq."gas") then
+             trdata(tr)%is_aerosol = .FALSE.
+          elseif (trim(method).eq."aerosol") then
+             trdata(tr)%is_aerosol = .TRUE.
+          end if             
 
           if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
           if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
@@ -371,18 +395,19 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                (/id_ug/),  lnd%time, 'conductance between canopy and ground for '//trim(name), &
                'm/s', missing_value=-1.0)
 
-
-          trdata(tr)%id_Eb =                register_tiled_diag_field(diag_name, trim(name)//'_Eb', &
-               (/id_ug/),  lnd%time, 'Eb collection efficiency from Brownian diffusion for '//trim(name), &
-               'm/s', missing_value=-1.0)
-          trdata(tr)%id_Ein =                register_tiled_diag_field(diag_name, trim(name)//'_Ein', &
-               (/id_ug/),  lnd%time, 'Ein collection efficiency from interception for '//trim(name), &
-               'm/s', missing_value=-1.0)
-          trdata(tr)%id_Eim =                register_tiled_diag_field(diag_name, trim(name)//'_Eim', &
-               (/id_ug/),  lnd%time, 'Eim collection efficiency from impaction for '//trim(name), &
-               'm/s', missing_value=-1.0)
-
-
+          !only available for aerosols
+          if (trdata(tr)%is_aerosol) then
+             trdata(tr)%id_Eb =                register_tiled_diag_field(diag_name, trim(name)//'_Eb', &
+                  (/id_ug/),  lnd%time, 'Eb collection efficiency from Brownian diffusion for '//trim(name), &
+                  'm/s', missing_value=-1.0)
+             trdata(tr)%id_Ein =                register_tiled_diag_field(diag_name, trim(name)//'_Ein', &
+                  (/id_ug/),  lnd%time, 'Ein collection efficiency from interception for '//trim(name), &
+                  'm/s', missing_value=-1.0)
+             trdata(tr)%id_Eim =                register_tiled_diag_field(diag_name, trim(name)//'_Eim', &
+                  (/id_ug/),  lnd%time, 'Eim collection efficiency from impaction for '//trim(name), &
+                  'm/s', missing_value=-1.0)
+          end if
+          
           trdata(tr)%id_con_g = &
                register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
                (/id_ug/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
@@ -399,6 +424,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
                register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_tot_con_new', &
                (/id_ug/),  lnd%time,'total conductance of '//trim(trdata(tr)%name)//' new', &
                "m/s", missing_value=-1.0)
+
+          !these diagnostics are not relevant for aerosol tracers
+          !if (.not. trdata(tr)%is_aerosol) then
           trdata(tr)%id_con_mx_st = &
                register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_con_mx_st', &
                (/id_ug/),  lnd%time, 'mesophyl + stomatal conductance for '//trim(trdata(tr)%name), &
@@ -931,8 +959,16 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        ddep  = rho*(cv+cg)*tile%cana%tr(tr)*trdata(tr)%conv_flux
        f_atm = tr_flux(tr)+dfdtr(tr)*dq*trdata(tr)%conv_flux
        ! ---- diagnostic section
-       dvel = con_atm*(cv+cg)/(con_atm+cv+cg)
-       dvel_new =  dfdtr(tr)*(cv+cg)/(dfdtr(tr)+rho*(cv+cg))
+       if (con_atm.gt.epsln) then
+          dvel = con_atm*(cv+cg)/(con_atm+cv+cg)
+       else
+          dvel = 0.
+       end if
+       if (dfdtr(tr).gt.epsln) then
+          dvel_new =  dfdtr(tr)*(cv+cg)/(dfdtr(tr)+rho*(cv+cg))
+       else
+          dvel_new = 0.
+       end if
 
        call send_tile_data(trdata(tr)%id_con_v,      cv,         tile%diag)
        call send_tile_data(trdata(tr)%id_con_g,      cg,         tile%diag)
@@ -961,31 +997,33 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
        call send_tile_data(trdata(tr)%id_ddep_g, (1.-fdiag)*ddep,tile%diag)
        call send_tile_data(trdata(tr)%id_ddep_v, fdiag*ddep,     tile%diag)
 
-       call send_tile_data(trdata(tr)%id_econ_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
-       call send_tile_data(trdata(tr)%id_econ_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
-       call send_tile_data(trdata(tr)%id_econ_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
 
-       call send_tile_data(trdata(tr)%id_ddep_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+       !the following diagnostics are not (yet) defined if the tracer is an aerosol species
+       if (.not. trdata(tr)%is_aerosol) then
+          call send_tile_data(trdata(tr)%id_econ_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
 
+          call send_tile_data(trdata(tr)%id_ddep_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
 
-       call send_tile_data(trdata(tr)%id_econ_cu,       fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-       call send_tile_data(trdata(tr)%id_econ_cu_wet,   fdiag*dvel*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-       call send_tile_data(trdata(tr)%id_econ_cu_dry,   fdiag*dvel*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-       call send_tile_data(trdata(tr)%id_econ_cu_frz,   fdiag*dvel*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_cu,       fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_cu_wet,   fdiag*dvel*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_cu_dry,   fdiag*dvel*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_cu_frz,   fdiag*dvel*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
 
-       call send_tile_data(trdata(tr)%id_econ_stem, fdiag*dvel*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
-       call send_tile_data(trdata(tr)%id_econ_stom, fdiag*dvel*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_stem, fdiag*dvel*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
+          call send_tile_data(trdata(tr)%id_econ_stom, fdiag*dvel*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
 
-       call send_tile_data(trdata(tr)%id_ddep_cu,       fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep_cu_wet,   fdiag*ddep*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep_cu_dry,   fdiag*ddep*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep_cu_frz,   fdiag*ddep*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_cu,       fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_cu_wet,   fdiag*ddep*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_cu_dry,   fdiag*ddep*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_cu_frz,   fdiag*ddep*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
 
-       call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
-       call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
-
+          call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
+          call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
+       end if
 
     enddo
 
@@ -1143,6 +1181,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
     !from Zhang 2001 as presented by Seinfeld (19.27)
     !rb = 1/ (3*ustar * (Sc^-gamma + (St/(alpha+St))^2 + 1/2 * (Dp/A)^2) * R1 )
+
     type(tracer_data_type), intent(in) :: tr_data
 
     real, intent(in) :: T !temperature
