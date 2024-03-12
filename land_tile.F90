@@ -1,6 +1,6 @@
 module land_tile_mod
 
-use fms_mod, only : file_exist, close_file, mpp_pe, mpp_root_pe, &
+use fms_mod, only : mpp_pe, mpp_root_pe, &
      input_nml_file, check_nml_error, error_mesg, stdlog, FATAL
 
 use land_constants_mod, only : NBANDS
@@ -323,7 +323,6 @@ subroutine init_tile_map()
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=tile_merge_nml)
-     call close_file (unit)
   endif
 
   allocate(land_tile_map(lnd%ls:lnd%le))

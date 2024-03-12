@@ -5,7 +5,7 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: file_exist, check_nml_error, input_nml_file, close_file, &
+use fms_mod, only: check_nml_error, input_nml_file, &
      check_nml_error, stdlog, error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
 use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe

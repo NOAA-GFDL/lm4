@@ -5,8 +5,8 @@ module uptake_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, file_exist, input_nml_file, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL
+use fms_mod, only: error_mesg, input_nml_file, check_nml_error, &
+     stdlog, mpp_pe, mpp_root_pe, FATAL
 use constants_mod, only: PI
 
 use soil_tile_mod, only : soil_tile_type, max_lev, psi_wilt

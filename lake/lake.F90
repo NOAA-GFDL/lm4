@@ -4,7 +4,7 @@
 module lake_mod
 
 use fms_mod, only : error_mesg, file_exist, read_data, input_nml_file, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
 use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, grav, vonkarm, rdgas

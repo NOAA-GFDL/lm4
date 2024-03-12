@@ -5,8 +5,8 @@ module snow_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : error_mesg, file_exist, input_nml_file, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_mod, only : error_mesg, input_nml_file, check_nml_error, &
+     stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
