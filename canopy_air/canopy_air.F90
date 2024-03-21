@@ -536,7 +536,7 @@ subroutine cana_v_turb (ustar, &
 
      ! exponent of wind profile within canopy
      a       = max(1.0,(ztop*u_ratio)/L_m)
-     a       = max(10.0,(ztop*u_ratio)/L_m)
+     a       = min(10.0,(ztop*u_ratio)/L_m)
 
      if (is_watch_point()) then
         __DEBUG5__(vegn_idx, ztop, u_ratio, L_c, L_m)
