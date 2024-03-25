@@ -98,6 +98,7 @@ type :: soil_predefined_type
  real,allocatable,dimension(:) :: tile_hlsp_length
  real,allocatable,dimension(:) :: tile_hlsp_slope
  real,allocatable,dimension(:) :: tile_hlsp_elev
+ real,allocatable,dimension(:) :: tile_elevation 
  real,allocatable,dimension(:) :: tile_hlsp_hpos
  real,allocatable,dimension(:) :: tile_hlsp_width
  real,allocatable,dimension(:) :: tile_hlsp_frac

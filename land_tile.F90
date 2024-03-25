@@ -58,11 +58,12 @@ public :: init_tile_map, free_tile_map
 public :: max_n_tiles
 
 ! operations with tile
-public :: new_land_tile, delete_land_tile
+public :: new_land_tile
 public :: new_land_tile_glac
 public :: new_land_tile_lake
 public :: new_land_tile_soil
-public :: merge_land_tiles, merge_land_tile_into_list
+public :: delete_land_tile
+public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 public :: remerge_tile_list ! reduces number of tiles by merging all that can be merged
 
 public :: get_tile_water ! returns liquid and frozen water masses
@@ -88,6 +89,9 @@ public :: empty   ! returns true if the list of tiles is empty
 public :: nitems  ! count of items in list
 
 public :: tile_is_selected
+
+public :: print_land_tile_info
+public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
 public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
@@ -294,7 +298,10 @@ abstract interface
 end interface
 
 ! ==== module data ===========================================================
+integer :: n_created_land_tiles = 0 ! total number of created tiles
+integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
 type(land_tile_list_type), allocatable :: land_tile_map(:) ! map of tiles
+
 
 real    :: min_tile_frac = 0.0 ! minimum fraction of tile land area that is not
    ! aggressively merged during re-merging of the tiles in remerge_tile_list
@@ -566,6 +573,9 @@ function land_tile_ctor(frac,glac,lake,soil,vegn) result(tile)
    ! create a buffer for diagnostic output
    call init_diag_buff(tile%diag)
 
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
 end function land_tile_ctor
 
 
@@ -602,6 +612,9 @@ subroutine delete_land_tile(tile)
 
   ! release the tile memory
   deallocate(tile)
+
+  ! increment the number of deleted files for tile statistics
+  n_deleted_land_tiles = n_deleted_land_tiles + 1
 
 end subroutine delete_land_tile
 
@@ -1397,5 +1410,10 @@ subroutine print_land_tile_info(tile)
   write(*,'(")")')
 
 end subroutine print_land_tile_info
+! ============================================================================
+subroutine print_land_tile_statistics()
+  write(*,*)'Total number of created land_tiles =',n_created_land_tiles
+  write(*,*)'Total number of deleted land_tiles =',n_deleted_land_tiles
+end subroutine print_land_tile_statistics
 
 end module land_tile_mod

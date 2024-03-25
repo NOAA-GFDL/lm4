@@ -23,7 +23,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
-     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
+     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_RAINF, LU_IRRIG, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
@@ -1253,6 +1253,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%nsc)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
+
+  soil%hlsp%gpp_vegn=sum(gpp(1:M)*c(1:M)%nindivs)
+  soil%hlsp%npp_vegn=sum(npp(1:M)*c(1:M)%nindivs)
+  soil%hlsp%resp_vegn=sum(resp(1:M)*c(1:M)%nindivs)
+  soil%hlsp%cVeg_vegn=sum( c(1:M)%nindivs* (c(1:M)%bl+c(1:M)%blv+c(1:M)%br+c(1:M)%bsw+c(1:M)%bwood+c(1:M)%bseed+c(1:M)%nsc) )
 
 ! ------ diagnostic section
   call send_cohort_data(id_gpp,  diag, c(1:M), gpp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
@@ -2512,7 +2517,7 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
            write(*,*)
         enddo
      endif
-     if (tile%vegn%landuse==LU_CROP .and. .not.allow_weeds_on_crops) then
+     if ((tile%vegn%landuse==LU_RAINF.or.tile%vegn%landuse==LU_IRRIG) .and. .not.allow_weeds_on_crops) then
         call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
                                                    (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
                                germination_factor = 0.0) ! no seeds germinate

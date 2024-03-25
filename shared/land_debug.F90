@@ -350,6 +350,7 @@ end function is_watch_point
 ! ============================================================================
 ! returns true, if the watch point is within the grid cell, regardless of
 ! the tile number
+
 logical function is_watch_cell()
   integer :: thread
   thread = 1
@@ -359,6 +360,7 @@ logical function is_watch_cell()
   if (.not.watched_cell(thread)) return
   if (.not.is_watch_time()) return
   is_watch_cell = .TRUE.
+
 end function is_watch_cell
 
 

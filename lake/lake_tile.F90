@@ -14,6 +14,7 @@ use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 use tiling_input_types_mod, only : lake_predefined_type
 use land_debug_mod, only : is_watch_point
+use transitions_input_mod, only : do_lake_change
 
 implicit none
 private
@@ -119,6 +120,13 @@ type :: lake_tile_type
    real :: geothermal_heat_flux
    real, allocatable :: e(:),f(:)
    real, allocatable :: heat_capacity_dry(:)
+   real :: Afrac_rsv = 0.
+   real :: Vfrac_rsv = 0. !this must be added to restart file
+   real :: rsv_depth = 0.
+   real :: sub_lmass = 0. !kg/m2
+   real :: sub_fmass = 0. !kg/m2
+   real :: sub_heat = 0. !J/m2
+   real :: sub_cmass = 0. !kgC/m2
 end type lake_tile_type
 
 ! ==== module data ===========================================================
@@ -261,7 +269,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_LAKE, idata1 = i, area_depends_on_time=.FALSE. )
+          tag = SEL_LAKE, idata1 = i, area_depends_on_time=.false. )
   enddo
 
   ! set up output arguments

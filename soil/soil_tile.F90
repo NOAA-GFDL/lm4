@@ -19,6 +19,7 @@ use tiling_input_types_mod, only : soil_predefined_type
 use land_debug_mod, only : is_watch_point
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
                        open_file, read_data, get_variable_num_dimensions
+use transitions_input_mod, only : do_lake_change
 
 implicit none
 private
@@ -58,6 +59,7 @@ public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
 public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
+public :: soil_ave_theta3
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
@@ -133,6 +135,9 @@ character(16), parameter, public :: &
      l_longname (N_LITTER_POOLS) = [ 'leaf            ', 'coarse wood     '  ], & ! for long names
      l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
 
+character(3), parameter, public :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
+                                                     'JUL','AUG','SEP','OCT','NOV','DEC'  ] 
+
 ! ==== types =================================================================
 type :: soil_pars_type
   real vwc_sat
@@ -186,6 +191,9 @@ type :: soil_pars_type
                         ! tile area)
   real tile_hlsp_slope  ! vertical slope of tile (-)
   real tile_hlsp_elev   ! elevation of center of tile above streambed at hillslope bottom (m)
+  real tile_elevation    ! absolute elevation for each tile
+  real precip_slope2p(12)
+
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
   real tile_hlsp_width  ! width of tile perpendicular to hillslope, normalized to strm width (-)
                         ! (proportional to tile area)
@@ -197,8 +205,92 @@ type :: soil_pars_type
   real hand_bedges(11)
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
   real iwtd             ! Initial water table depth
+
+  real irr_fac_et
 end type soil_pars_type
 
+
+type :: soil_hlsp_type
+   integer :: nk_g = 0
+   integer :: nj_g = 0
+
+   real :: elevmean_g = initval   
+   real :: elevmax_g = initval
+   real :: soilfrac_g = initval
+   real :: pslope2p_g = initval 
+   real, allocatable :: tfrac_g(:, :) 
+
+   real :: precip_T = initval !used only when do_hlsp_disagg_tpq is true
+   real :: evap_T = initval !used only when do_hlsp_disagg_tpq is true 
+   real :: hprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+   real :: tprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+
+   real :: lift = initval   
+   real :: pratio = initval   
+   real :: lprec = initval   
+   real :: fprec = initval   
+   real :: zatm = initval   
+   real :: tatm = initval   
+   real :: patm = initval   
+   real :: psurf = initval   
+   real :: qatm = initval   
+   real :: tatm_nodis = initval
+
+   real, allocatable :: lwc(:)
+   real, allocatable :: swc(:)
+   real, allocatable :: temp(:)  
+
+
+   real :: transp_land = initval
+   real :: precip_land = initval
+   real :: precip_l_land = initval
+   real :: precip_s_land = initval
+   real :: runf_land = initval
+   real :: evap_land = initval
+   real :: sens_land = initval
+   real :: total_C_land = initval
+   real :: swdn_dif_1_land = initval
+   real :: swdn_dif_2_land = initval
+   real :: swup_dif_1_land = initval
+   real :: swup_dif_2_land = initval
+   real :: swdn_dir_1_land = initval
+   real :: swdn_dir_2_land = initval
+   real :: swup_dir_1_land = initval
+   real :: swup_dir_2_land = initval   
+   real :: fevapv_land = initval
+   real :: flw_land = initval
+   real :: fsw_land = initval
+   real :: FWSv_land = initval
+   real :: grnd_flux_land = initval
+   real :: levapv_land = initval
+   real :: LWSv_land = initval
+   real :: snow_land = initval
+   real :: Tca_land = initval
+   real :: grnd_T_land = initval
+   real :: fco2_land = initval
+   real :: water_land = initval
+   real :: lai_land = initval
+   real :: sai_land = initval
+   real :: treeFrac_land = initval
+   real :: melt_land = initval
+   real :: meltv_land = initval
+   real :: melts_land = initval
+   real :: snow_frac_land = initval
+   real :: snow_depth_land = initval
+
+   real :: gpp_vegn = initval
+   real :: npp_vegn = initval
+   real :: resp_vegn = initval
+   real :: cVeg_vegn = initval
+
+   real :: irrrate_soil = initval
+   real :: hirrrate_soil = initval
+   real :: absts_soil = initval
+   real :: habsts_soil = initval
+   real :: abstd_soil = initval
+   real :: habstd_soil = initval
+  
+end type soil_hlsp_type
 
 type :: soil_tile_type
    integer :: tag ! kind of the soil
@@ -210,6 +302,7 @@ type :: soil_tile_type
        ! disturbance. So these indices function similarly to "tag".)
 
    type(soil_pars_type) :: pars
+   type(soil_hlsp_type) :: hlsp
 
    real, allocatable ::  &
        wl(:)           , & ! liquid water, kg/m2
@@ -279,7 +372,24 @@ type :: soil_tile_type
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
 
+
+   ! For irrigation module
+   real :: irr_demand_ac = 0. !kg/m2
+   real :: irr_rate      = 0. !kg/(m2 s)
+   real :: hirr_rate     = 0. !W/m2
+   real :: irr_area2frac_input= 0. !m2, per tile frac
+   real :: irr_area2frac_real = 0. !m2, per tile frac
+   real :: abst_s = 0. !kg/(m2 s)
+   real :: habst_s = 0. !W/m2
+   real :: abst_d = 0. !kg/(m2 s)
+   real :: habst_d = 0. !W/m2
    real :: r_pores ! surface pore radius, m
+
+   real :: irr_demand_ac_et = 0. !kg/m2
+   real :: irr_area2frac_input_et = 0. !m2, per tile frac
+   real :: irr_area2frac_real_et = 0. !m2, per tile frac
+
+   
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -453,7 +563,11 @@ logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to repro
 logical :: override_soil_e_depth = .FALSE.
 real :: soil_e_depth = 2.0
                                ! The two ways of calculating zfull are mathematically identical, but they differ
-                               ! in the lowest bits of answer.
+                               ! in the lowest bits of answer.                           
+integer, public :: MAX_HLSP_K = 1
+integer, public :: MAX_HLSP_J = 20  
+
+
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
      comp, K_min, K_max_matrix, DThDP_max, psi_min, k_over_B, &
@@ -485,7 +599,8 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr,     clay,       &
      peat_soil_e_depth,         peat_kx0, repro_zms, &
-     anisotropy_ratio, use_depth_to_bedrock, override_soil_e_depth, soil_e_depth
+     anisotropy_ratio, use_depth_to_bedrock, override_soil_e_depth, soil_e_depth, &
+     MAX_HLSP_K, MAX_HLSP_J
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -562,11 +677,11 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
 
   ! register selector for all soil tiles
   call register_tile_selector('soil', long_name='soil',&
-       tag = SEL_SOIL, idata1 = 0, area_depends_on_time=.FALSE. )
+       tag = SEL_SOIL, idata1 = 0, area_depends_on_time=.false. )
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_soil_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_SOIL, idata1 = i, area_depends_on_time=.FALSE. )
+          tag = SEL_SOIL, idata1 = i, area_depends_on_time=.false. )
   enddo
   num_sfc_layers = 0
   sub_layer_min = 0
@@ -710,6 +825,12 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%gtos              (num_l),  &
             ptr%gtosh             (num_l)   )
 
+ allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
+
+ allocate ( ptr%hlsp%lwc(num_l), &
+            ptr%hlsp%swc(num_l), &
+            ptr%hlsp%temp(num_l) )
+
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -721,6 +842,12 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   ptr%div_hlsp_NH4(:) = initval
   ptr%gtos(:)      = initval
   ptr%gtosh(:) = initval
+
+  ptr%hlsp%tfrac_g(:, :) = initval 
+
+  ptr%hlsp%lwc(:) = initval
+  ptr%hlsp%swc(:) = initval
+  ptr%hlsp%temp(:) = initval  
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
@@ -784,6 +911,12 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%gtos          (num_l),  &
             ptr%gtosh     (num_l)  )
 
+ allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
+
+ allocate ( ptr%hlsp%lwc(num_l), &
+            ptr%hlsp%swc(num_l), &
+            ptr%hlsp%temp(num_l) )
+
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -795,6 +928,12 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
   ptr%div_hlsp_NH4(:) = initval
   ptr%gtos(:)      = initval
   ptr%gtosh(:) = initval
+
+  ptr%hlsp%tfrac_g(:, :) = initval 
+
+  ptr%hlsp%lwc(:) = initval   
+  ptr%hlsp%swc(:) = initval
+  ptr%hlsp%temp(:) = initval   
 
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
   do i=1,num_l
@@ -921,6 +1060,7 @@ subroutine soil_data_init_0d(soil)
   soil%pars%tile_hlsp_length = initval
   soil%pars%tile_hlsp_slope = initval
   soil%pars%tile_hlsp_elev = initval
+  soil%pars%tile_elevation = initval
   soil%pars%tile_hlsp_hpos = initval
   soil%pars%tile_hlsp_width = initval
 
@@ -1059,6 +1199,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%tile_hlsp_length = tile_parameters%tile_hlsp_length(itile)
   soil%pars%tile_hlsp_slope = tile_parameters%tile_hlsp_slope(itile)
   soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
+  soil%pars%tile_elevation = tile_parameters%tile_elevation(itile)  
   soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
   soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
   soil%pars%tile_hlsp_frac = tile_parameters%tile_hlsp_frac(itile)
@@ -1106,6 +1247,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
      call dpri('tile_hlsp_length',soil%pars%tile_hlsp_length); write(*,*)
      call dpri('tile_hlsp_slope',soil%pars%tile_hlsp_slope); write(*,*)
      call dpri('tile_hlsp_elev',soil%pars%tile_hlsp_elev); write(*,*)
+     call dpri('tile_elevation',soil%pars%tile_elevation); write(*,*)     
      call dpri('tile_hlsp_hpos',soil%pars%tile_hlsp_hpos); write(*,*)
      call dpri('tile_hlsp_width',soil%pars%tile_hlsp_width); write(*,*)
   endif
@@ -1600,6 +1742,28 @@ function soil_ave_theta2(soil, depth) result (A) ; real :: A
   enddo
   A = A/N
 end function soil_ave_theta2
+
+
+! ============================================================================
+ function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)                 :: depth ! m, averaging depth
+  integer, intent(out) :: layer
+  real    :: w ! averaging weight
+  real    :: N ! normalizing factor for averaging
+  integer :: k
+
+  A = 0 ; N = 0
+  do k = 1, num_l
+     w = dz(k) * exp(-zfull(k)/depth) !m
+     A = A +max(soil%wl(k)/(dens_h2o*dz(k)),0.0) * w ! kg/m2 / (kg/m3 * m) * m = m
+     N = N + w !m
+     if (zhalf(k+1).gt.depth) exit
+  enddo
+  A = A/N ! m / m = 1
+  layer = k
+end function soil_ave_theta3
+
 
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water

@@ -2,11 +2,18 @@ module transition_io_mod
 
 use netcdf, only: nf90_max_name
 use constants_mod, only : PI
-use fms_mod, only : string, lowercase, error_mesg, FATAL, WARNING, NOTE
+use mpp_mod, only : mpp_error, FATAL
+use mpp_domains_mod, only : mpp_pass_sg_to_ug
+use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
+     mpp_pe, lowercase, file_exist, close_file, read_data, &
+     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+use fms_io_mod, only : get_file_name
 
 use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
-     operator(//), operator(==)
+     operator(//), operator(==), days_in_year, print_date, increment_date, get_time, &
+     valid_calendar_types, get_calendar_type
+use time_interp_mod, only : time_interp
 use get_cal_time_mod, only : get_cal_time
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp_new, horiz_interp_del
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_file, &
@@ -15,6 +22,8 @@ use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_fil
     get_variable_dimension_names, get_variable_num_dimensions
 use axis_utils2_mod, only: axis_edges
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
+use land_debug_mod, only : set_current_point, is_watch_cell, &
+     get_current_point, check_var_range, log_date
 
 implicit none
 private
@@ -23,6 +32,7 @@ private
 public :: transition_io_init
 public :: infile_T
 public :: varset_T
+public :: new_infile_LUH1, new_infile_LUH2, new_infile_CS
 ! ==== end of public interface ==============================================
 
 ! usage:
@@ -48,6 +58,8 @@ character(len=*), parameter :: module_name = 'transitions_io_mod'
 !! We assume that all variables from this file are on the same grid (horizontal and time),
 !! that the valid values mask is the same does not change in time, and that the same
 !! normalization factor (if any) must be applied to all of them
+!!
+!! This is not an abstract class, but many of its methods should never be called
 type :: infile_T
   character(1024) :: path      = '' !< file path
   character(1024) :: static    = '' !< static path
@@ -70,6 +82,14 @@ contains
   procedure :: destroy      => infile_destroy
 end type infile_T
 
+type, extends(infile_t) :: infile_cs_t
+contains
+  procedure :: setup_hgrid => infile_cs_setup_hgrid
+  procedure :: to_ug       => infile_cs_to_ug
+  procedure :: get_record  => infile_cs_get_record   
+end type infile_cs_t
+
+
 !> structure that represents a set of variables
 !!
 !! Since in general there is no on-to-one correspondence between LUH database land use
@@ -89,6 +109,8 @@ contains
   procedure :: descr    => varset_descr
   procedure :: destroy  => varset_destroy
   procedure :: get_data => varset_get_data
+  procedure :: integrate   => varset_integrate   ! integrate over time between t1 and t2
+  procedure :: interpolate => varset_interpolate ! interpolate in time
 end type varset_T
 
 ! ---- module variables
@@ -137,22 +159,70 @@ subroutine infile_init(this, path, static, data_type)
 end subroutine infile_init
 
 ! ============================================================================
-!> free memory and close input files
-subroutine infile_destroy(this)
-  class(infile_T), intent(inout) :: this
+!> destructor: free memory and close input files
+subroutine infile_t_destroy(this)
+  type(infile_T), intent(inout) :: this
 
   ! close input file
   call close_file(this%ncobj)
   ! deallocate timeline
   if (allocated(this%time_in)) deallocate(this%time_in)
-  ! deallocate interpolator, if it exists
-  call horiz_interp_del(this%interp)
-  ! deallocate norm, if it exist
-  if (allocated(this%norm_in)) deallocate(this%norm_in)
-  this%nlon_in = -1; this%nlat_in = -1
-  this%grid_initialized = .FALSE.
-end subroutine infile_destroy
 
+  this%nlon_in = -1; this%nlat_in = -1
+end subroutine infile_t_destroy
+
+subroutine infile_t_setup_hgrid(this, varname)
+  class(infile_t), intent(inout) :: this
+  character(*),    intent(in)    :: varname
+
+  call mpp_error(FATAL, 'infile_t_setup_hgrid should never be called')
+end subroutine infile_t_setup_hgrid
+
+! ============================================================================
+logical function infile_t_var_exists(this, varname)
+  class(infile_T), intent(inout) :: this
+  character(*),    intent(in)    :: varname
+
+  integer :: ierr
+  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
+
+  ierr = nfu_inq_var(this%ncid, trim(varname), dimids=dimids, dimlens=dimlens)
+
+  select case(ierr)
+  case (NF_NOERR)
+     infile_t_var_exists = .TRUE.
+  case (NF_ENOTVAR)
+     infile_t_var_exists = .FALSE.
+!       call error_mesg('land_transitions_init',&
+!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
+!            NOTE)
+  case default
+     call mpp_error(FATAL,&
+          'error initializing field "'//varname//&
+          '" from file "'//trim(this%path)//'" : '//nf_strerror(ierr))
+  end select
+end function infile_t_var_exists
+
+!> given variable bane and record number, read the variable data for this record
+subroutine infile_t_get_record(this, varname, rec, buff)
+  class(infile_t), intent(in)  :: this !< file object
+  character(*),    intent(in)  :: varname !< name of the variable
+  integer,         intent(in)  :: rec  !< record number
+  real,            intent(out) :: buff(:,:) !< buffer for output data
+
+  !TODO: check buffer size
+  __NF_ASRT__(nfu_get_rec(this%ncid,varname,rec,buff))
+end subroutine infile_t_get_record
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!> convert input data from native grid to model grid, on unstructured domain
+subroutine infile_t_to_ug(this,data2,data1)
+  class(infile_t), intent(in)  :: this !< file object
+  real,            intent(in)  :: data2(:,:) !< input 2D data
+  real,            intent(out) :: data1(:) !< output data, on model's unstructured grid
+
+  call mpp_error(FATAL, 'infile_t_to_ug should never be called')
+end subroutine infile_t_to_ug
 ! ==== end of infile_T member functions ======================================
 
 ! ============================================================================
@@ -191,10 +261,33 @@ subroutine get_time_axis(ncobj, time_in)
   deallocate(time)
 end subroutine get_time_axis
 
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function new_infile_LUH1(path) result(ptr)
+  class(infile_latlon_t), pointer :: ptr
+  character(*), intent(in) :: path
+
+  allocate(ptr)
+  call infile_t_open(ptr,path)
+  ptr%static    = ''
+  ptr%data_type = 'luh1'
+end function new_infile_LUH1
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function new_infile_LUH2(path,static) result(ptr)
+  class(infile_latlon_t), pointer :: ptr
+  character(*), intent(in) :: path
+  character(*), intent(in) :: static
+
+  allocate(ptr)
+  call infile_t_open(ptr,path)
+  ptr%static    = static
+  ptr%data_type = 'luh2'
+end function new_infile_LUH2
+
 ! ==================================================================
 !> set up horizontal grid information for a file
-subroutine setup_hgrid(this,varname)
-  class(infile_T), intent(inout) :: this
+subroutine infile_latlon_setup_hgrid(this,varname)
+  class(infile_latlon_t), intent(inout) :: this
   character(*),    intent(in)    :: varname !< name of a variable whose horizontal grid is
       !! used as for horizontal interpolator setup. It is assumed that all variables
       !! read from a file are on the same grid.
@@ -270,7 +363,78 @@ subroutine setup_hgrid(this,varname)
   deallocate(buffer_in, mask_in,lon_in,lat_in)
 
   this%grid_initialized = .TRUE.
-end subroutine setup_hgrid
+end subroutine infile_latlon_setup_hgrid
+
+subroutine infile_latlon_to_ug(this, data2, data1)
+  class(infile_latlon_t), intent(in)  :: this !< file object
+  real,            intent(in)  :: data2(:,:) !< input 2D data
+  real,            intent(out) :: data1(:) !< output data, on model's unstructured grid
+
+  call horiz_interp_ug(this%interp,data2*this%norm_in,data1)
+end subroutine infile_latlon_to_ug
+
+
+subroutine infile_latlon_destroy(this)
+  type(infile_latlon_t), intent(inout) :: this
+
+  ! deallocate interpolator, if it exists
+  call horiz_interp_del(this%interp)
+  ! deallocate norm, if it exist
+  if (allocated(this%norm_in)) deallocate(this%norm_in)
+end subroutine infile_latlon_destroy
+
+
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function new_infile_CS(path) result(ptr)
+  class(infile_cs_t), pointer :: ptr
+  character(*), intent(in) :: path
+
+  logical :: read_dist, io_domain_exist, found_file
+
+  allocate(ptr)
+
+  found_file = get_file_name(path, ptr%path, read_dist, io_domain_exist, domain=lnd%sg_domain)
+  if (.not.found_file) call mpp_error(FATAL, &
+     'file "'//trim(path)//'" not found')
+
+  ! set ncid to positive number, just as an indicator of the open file
+  call infile_t_open(ptr,ptr%path)
+
+  ! data are suposed to be on SG grid compute domain
+  ptr%nlon_in   = lnd%ie-lnd%is+1
+  ptr%nlat_in   = lnd%je-lnd%js+1
+end function new_infile_CS
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+subroutine infile_cs_setup_hgrid(this,varname)
+  class(infile_cs_t), intent(inout) :: this
+  character(*),       intent(in)    :: varname
+
+  ! do nothing here
+end subroutine infile_cs_setup_hgrid
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+subroutine infile_cs_to_ug(this,data2,data1)
+  class(infile_cs_t), intent(in)  :: this !< file object
+  real,            intent(in)  :: data2(:,:) !< input 2D data, on SG domain
+  real,            intent(out) :: data1(:) !< output data, on model's unstructured grid
+
+  call mpp_pass_SG_to_UG(lnd%ug_domain, data2, data1)
+end subroutine infile_cs_to_ug
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+subroutine infile_cs_get_record(this,varname,rec,buff)
+  class(infile_cs_t), intent(in)  :: this !< file object
+  character(*),    intent(in)  :: varname !< name of the variable
+  integer,         intent(in)  :: rec  !< record number
+  real,            intent(out) :: buff(:,:) !< buffer for output data, supposed to be on SG domain
+
+  call read_data(this%path,varname, buff, lnd%sg_domain, rec)
+end subroutine infile_cs_get_record
+
+
+
 
 ! ==== varset members ========================================================
 
@@ -312,7 +476,7 @@ subroutine varset_add_var(this,infile,varname)
       this%nvars = this%nvars+1
       this%varname(this%nvars) = trim(varname)
       ! set up grid in the input file
-      call setup_hgrid (this%file,varname)
+      call this%file%setup_hgrid (varname)
    else
       call error_mesg('land_transitions_init',&
            'did not find field "'//trim(varname)//'" in file "'//trim(this%file%path)//'"'//&
@@ -344,9 +508,105 @@ subroutine varset_get_data(this,rec,frac)
       call read_data(this%file%ncobj, this%varname(i), buff0, unlim_dim_level=rec)
       buff1 = buff1 + buff0
    enddo
-   call horiz_interp_ug(this%file%interp,buff1*this%file%norm_in,frac)
+   call this%file%to_ug(buff1,frac)
+
    deallocate(buff0,buff1)
 end subroutine varset_get_data
+
+! ==============================================================================
+! given boundaries of time interval [t1,t2], calculates total transition (time
+! integral of transition rates) over the specified interval
+subroutine varset_integrate(tran, t1, t2, frac)
+  class(varset_T), intent(in)  :: tran
+  type(time_type), intent(in)  :: t1,t2 ! time boundaries
+  real           , intent(out) :: frac(:)
+
+  ! ---- local vars
+  integer :: n ! size of time axis
+  type(time_type) :: ts,te
+  integer         :: i1,i2
+  real :: w  ! time interpolation weight
+  real :: dt ! current time interval, in years
+  real :: sum(size(frac(:)))
+  integer :: l
+
+  ! adjust the integration limits, in case they are out of range
+  associate(time_in => tran%file%time_in)
+  n = size(time_in)
+  ts = t1;
+  if (ts<time_in(1)) ts = time_in(1)
+  if (ts>time_in(n)) ts = time_in(n)
+  te = t2
+  if (te<time_in(1)) te = time_in(1)
+  if (te>time_in(n)) te = time_in(n)
+
+  call time_interp(ts, time_in, w, i1,i2)
+  call tran%get_data(i1,frac)
+
+  dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
+  sum = -frac*w*dt
+  do while(time_in(i2)<=te)
+     call tran%get_data(i1,frac)
+     dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
+     sum = sum+frac*dt
+     i2 = i2+1
+     i1 = i2-1
+     if(i2>size(time_in)) exit ! from loop
+  enddo
+
+  call time_interp(te,time_in,w,i1,i2)
+  call tran%get_data(i1,frac)
+  dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
+  frac = sum+frac*w*dt
+  end associate
+  ! check the transition rate validity
+  do l = 1,size(frac(:))
+     call set_current_point(l+lnd%ls-1,1)
+     call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition',tran%name, FATAL)
+  enddo
+end subroutine varset_integrate
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+subroutine varset_interpolate(this, t2, irr_area, interp)
+  class(varset_T), intent(in)  :: this ! id of the field
+  type(time_type), intent(in)  :: t2 ! time boundaries
+  real           , intent(out) :: irr_area(:)
+  character(*)   , intent(in), optional :: interp ! 'exact', 'before', or 'after'
+
+  real :: irr_area1(lnd%ls:lnd%le)
+  real :: irr_area2(lnd%ls:lnd%le)
+  integer :: i1,i2, n
+  real :: w  ! time interpolation weight
+  type(time_type) :: time_adjust
+  character(16) :: interp_
+
+  interp_ = 'exact'
+  if (present(interp)) interp_ = interp
+
+  if (.not.associated(this%file)) call mpp_error(FATAL, &
+       'variable set "'//trim(this%name)//'" has no associated file')
+  n = size(this%file%time_in)
+  time_adjust = t2
+  if (time_adjust<this%file%time_in(1)) time_adjust = this%file%time_in(1)
+  if (time_adjust>this%file%time_in(n)) time_adjust = this%file%time_in(n)
+
+  call time_interp(time_adjust, this%file%time_in, w, i1,i2)
+
+  select case (trim(lowercase(interp_)))
+  case('exact')
+     call this%get_data(i1,irr_area1)
+     call this%get_data(i2,irr_area2)
+
+     irr_area = irr_area1*(1-w)+irr_area2*w
+  case('before')
+     call this%get_data(i1,irr_area)
+  case('after')
+     call this%get_data(i2,irr_area)
+  case default
+     call mpp_error(FATAL, &
+         'interpolation type "'//trim(interp)//'" is incorrect, mus be "before", "after", or "exact"')
+  end select
+end subroutine varset_interpolate
 
 ! ============================================================================
 !> string representation of variable set
