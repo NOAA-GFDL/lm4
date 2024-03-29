@@ -753,7 +753,7 @@ subroutine land_transitions (time)
   do k1 = 1,N_LU_TYPES
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
-     frac(:) = 0.0
+     tran(:,k1,k2) = 0.0
      if (time0==set_date(0001,01,01).and.fstate%ncobj%is_open) then
         ! read initial transition from state file
         call time_interp(time, fstate%time_in, w, i1,i2)
@@ -764,7 +764,7 @@ subroutine land_transitions (time)
         endif
      endif
      if(diag_ids(k1,k2)>0) then
-        used = send_data(diag_ids(k1,k2), frac/part_of_year, time)
+        used = send_data(diag_ids(k1,k2), tran(:,k1,k2)/part_of_year, time)
      endif
   enddo
   enddo
