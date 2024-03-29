@@ -11,8 +11,8 @@ use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, file_exist, close_file, read_data, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+     mpp_pe, lowercase, &
+     check_nml_error, stdlog, mpp_root_pe
 
      use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
@@ -455,7 +455,7 @@ subroutine lake_transitions_init(id_ug)
   if(module_is_initialized_lake) return
   module_is_initialized_lake = .TRUE.
 
-  if (file_exist('INPUT/laketran.res')) then
+  if (file_exists('INPUT/laketran.res')) then
      call error_mesg('lake_transitions_init','reading restart "INPUT/laketran.res"',&
           NOTE)
      call mpp_open(unit,'INPUT/laketran.res', action=MPP_RDONLY, form=MPP_ASCII)
@@ -469,7 +469,7 @@ subroutine lake_transitions_init(id_ug)
   endif
 
   found_file = get_file_name(state_file_lake, state_lake_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
-  if (file_exist(state_lake_file)) then
+  if (file_exists(state_lake_file)) then
       infile_lake_state => new_infile_CS(input_file_lake)
       ! initialize state variable array
       ! 1 means lake, 2 means soil
@@ -480,7 +480,7 @@ subroutine lake_transitions_init(id_ug)
   endif
 
   found_file = get_file_name(depth_file_rsv, depth_rsv_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
-  if(file_exist(depth_rsv_file))then
+  if(file_exists(depth_rsv_file))then
       ! open reservoir depth file
       infile_depth_rsv => new_infile_CS(depth_file_rsv)
 
@@ -504,9 +504,9 @@ subroutine lake_transitions_init(id_ug)
       call input_tran_lake(2,1)%addvar(infile_lake_tran,'soil_to_lake')
     !enddo
     !enddo
-    if(.not.file_exist(depth_rsv_file)) &
+    if(.not.file_exists(depth_rsv_file)) &
       call error_mesg('lake_transitions_init','depth_rsv_file must exist with do_lake_change turned on', FATAL)
-    if(timel0==set_date(0001,01,01).and.(.not.file_exist(state_lake_file))) &
+    if(timel0==set_date(0001,01,01).and.(.not.file_exists(state_lake_file))) &
       call error_mesg('lake_transitions_init','state_lake_file must exist when do_lake_change start', FATAL)
   endif
 
@@ -532,7 +532,7 @@ subroutine lake_transitions_init(id_ug)
     call error_mesg('lake_transitions_init','static reservoir mod', NOTE)
   !use_reservoir%.not.do_lake_change  or  .not.use_reservoir&.not.do_lake_change
   !if Afrac_rsv and rsv_depth files exist, we read data anyway, and then determine Vfrac_rsv by restart or Afrac_rsv
-  if (file_exist(state_lake_file).and.file_exist(depth_rsv_file)) then
+  if (file_exists(state_lake_file).and.file_exists(depth_rsv_file)) then
     n1 = size(infile_depth_rsv%time_in)
     call read_rsv_depth(n1)
     frac(:) = 0.0
