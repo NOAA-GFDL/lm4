@@ -5,7 +5,6 @@ module soil_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 
 use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
@@ -297,7 +296,7 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 integer :: id_tile_elev
 integer :: id_nk, id_nj, id_elevmean, id_pslope2p
 integer :: id_hidx_k, id_hidx_j
-integer :: id_hidx_k2,id_hidx_j2 
+integer :: id_hidx_k2,id_hidx_j2
 
 integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
@@ -307,7 +306,7 @@ integer, dimension(max_lev) :: id_lwc_hlsp, id_swc_hlsp, id_temp_hlsp
 integer ::  id_transp_land_hlsp, id_precip_land_hlsp, id_precip_l_land_hlsp, id_precip_s_land_hlsp, &
     id_runf_land_hlsp, id_evap_land_hlsp, id_sens_land_hlsp, id_total_C_land_hlsp, &
     id_swdn_dif_1_land_hlsp, id_swdn_dif_2_land_hlsp, id_swup_dif_1_land_hlsp, id_swup_dif_2_land_hlsp, &
-    id_swdn_dir_1_land_hlsp, id_swdn_dir_2_land_hlsp, id_swup_dir_1_land_hlsp, id_swup_dir_2_land_hlsp, &    
+    id_swdn_dir_1_land_hlsp, id_swdn_dir_2_land_hlsp, id_swup_dir_1_land_hlsp, id_swup_dir_2_land_hlsp, &
     id_fevapv_land_hlsp, id_flw_land_hlsp, id_fsw_land_hlsp, id_FWSv_land_hlsp, &
     id_grnd_flux_land_hlsp, id_levapv_land_hlsp, id_LWSv_land_hlsp, id_snow_land_hlsp, &
     id_Tca_land_hlsp, id_grnd_T_land_hlsp, id_fco2_land_hlsp, id_water_land_hlsp, &
@@ -416,19 +415,19 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   real :: psi(num_l), mwc(num_l)
   real :: sum_frac
 
-  real, dimension(lnd%ls:lnd%le) :: zmean_ug, elev_bottom, hlsp_elev_frac   
+  real, dimension(lnd%ls:lnd%le) :: zmean_ug, elev_bottom, hlsp_elev_frac
   real, allocatable :: topo_mean(:)
   real, allocatable :: topo_mean_SG(:,:)
   logical  ::  answer
   logical :: pslope_exist
-  real, allocatable :: precip_s2p(:,:)  
+  real, allocatable :: precip_s2p(:,:)
 
   real, dimension(lnd%ls:lnd%le) :: elev_mean, soil_frac, elevmax !elev_max, pslope2p
   real, allocatable, dimension(:,:,:) :: elev, tfrac
   integer, dimension(lnd%ls:lnd%le) :: nk, nj
   integer :: hidx_k, hidx_j
 
-  integer :: ls, le, isc, iec, jsc, jec                         ! compute domain decomposition  
+  integer :: ls, le, isc, iec, jsc, jec                         ! compute domain decomposition
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
@@ -655,15 +654,15 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
       !call mpp_get_UG_compute_domain(lnd%ug_domain, ls, le)
       !allocate(topo_mean(ls:le))
-      !call mpp_get_compute_domain(lnd%sg_domain, isc, iec, jsc, jec) 
-      !allocate(topo_mean_SG(isc:iec,jsc:jec))  
+      !call mpp_get_compute_domain(lnd%sg_domain, isc, iec, jsc, jec)
+      !allocate(topo_mean_SG(isc:iec,jsc:jec))
 
       !answer = get_topog_mean(lnd%sg_lonb, lnd%sg_latb,topo_mean_SG)
       !if (.not.answer) &
       !       call error_mesg ('soil_init', &
-      !       'could not read topography data', FATAL) 
+      !       'could not read topography data', FATAL)
 
-      !call mpp_pass_SG_to_UG(lnd%ug_domain, topo_mean_SG, topo_mean)    
+      !call mpp_pass_SG_to_UG(lnd%ug_domain, topo_mean_SG, topo_mean)
       !zmean_ug(lnd%ls:lnd%le) = topo_mean(ls:le)
 
       !soil_frac(lnd%ls:lnd%le) = 0.0
@@ -681,27 +680,27 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
       !    else
       !      elev_bottom(ll) = max(0.,zmean_ug(ll))
       !    endif
-      !enddo     
+      !enddo
 
       !do ll = lnd%ls, lnd%le
       !    ce = first_elmt(land_tile_map(ll))
       !    do while (loop_over_tiles(ce,tile,k=k))
       !        if (.not.associated(tile%soil)) cycle
       !        tile%soil%pars%tile_elevation = elev_bottom(ll) + tile%soil%pars%tile_hlsp_elev
-      !    enddo       
-      !enddo     
+      !    enddo
+      !enddo
       !deallocate(topo_mean, topo_mean_SG)
 
       if(trim(elev_scale_to_use)=="OBS")then
-          pslope_exist = file_exist('INPUT/precip_s2p.nc', lnd%sg_domain)  
+          pslope_exist = file_exist('INPUT/precip_s2p.nc', lnd%sg_domain)
           if (pslope_exist) then
               call error_mesg('soil_init', 'reading precipitation slope from file', NOTE)
           else
               call error_mesg('soil_init', 'precipitation slope data file not present', FATAL)
-          endif  
+          endif
           allocate(precip_s2p(lnd%ls:lnd%le,12))
-          do i = 1,12          
-            call read_data('INPUT/precip_s2p.nc','s2p_'//month_name(i), precip_s2p(:,i), lnd%sg_domain, lnd%ug_domain)            
+          do i = 1,12
+            call read_data('INPUT/precip_s2p.nc','s2p_'//month_name(i), precip_s2p(:,i), lnd%sg_domain, lnd%ug_domain)
           enddo
           !where(precip_s2p<0.) precip_s2p=0.
           do ll = lnd%ls, lnd%le
@@ -710,54 +709,54 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
                   if (.not.associated(tile%soil)) cycle
                   where(precip_s2p(ll,:)==-9999.) precip_s2p(ll,:)=0.
                   tile%soil%pars%precip_slope2p(:)=precip_s2p(ll,:)
-              enddo       
-          enddo               
+              enddo
+          enddo
           deallocate(precip_s2p)
-      endif 
+      endif
 
       allocate( tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
 
       nk(lnd%ls:lnd%le)=0
-      nj(lnd%ls:lnd%le)=0  
+      nj(lnd%ls:lnd%le)=0
       soil_frac(lnd%ls:lnd%le) = 0.0
       elev_mean(lnd%ls:lnd%le) = 0.0
       elevmax(lnd%ls:lnd%le) = 0.0
       !pslope2p(lnd%ls:lnd%le)=initval
-      !elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
-      tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
+      !elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+      tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
       !l
       do ll = lnd%ls, lnd%le
          ce = first_elmt(land_tile_map(ll))
          do while (loop_over_tiles(ce,tile,k=k))
            if (.not.associated(tile%soil)) cycle
-           soil_frac(ll) = soil_frac(ll) + tile%frac       
+           soil_frac(ll) = soil_frac(ll) + tile%frac
            elev_mean(ll) = elev_mean(ll) + tile%frac * tile%soil%pars%tile_elevation
            if (tile%soil%pars%tile_elevation > elevmax(ll)) elevmax(ll) = tile%soil%pars%tile_elevation
            hidx_k =  tile%soil%hidx_k
            hidx_j =  tile%soil%hidx_j
            if(hidx_k>nk(ll)) nk(ll)=hidx_k
-           if(hidx_j>nj(ll)) nj(ll)=hidx_j       
+           if(hidx_j>nj(ll)) nj(ll)=hidx_j
            if(tfrac(ll,hidx_k,hidx_j)==initval) tfrac(ll,hidx_k,hidx_j) = 0.
-           tfrac(ll,hidx_k,hidx_j) = tfrac(ll,hidx_k,hidx_j) + tile%frac                
+           tfrac(ll,hidx_k,hidx_j) = tfrac(ll,hidx_k,hidx_j) + tile%frac
          enddo
          if(soil_frac(ll) > 0.) elev_mean(ll) = elev_mean(ll)/soil_frac(ll)
-         if(elevmax(ll) <= 0.) elevmax(ll) = epsilon(1.0)               
-      enddo           
+         if(elevmax(ll) <= 0.) elevmax(ll) = epsilon(1.0)
+      enddo
 
       do ll = lnd%ls, lnd%le
         ce = first_elmt(land_tile_map(ll))
         do while (loop_over_tiles(ce,tile,k=k))
           if (.not.associated(tile%soil)) cycle
           tile%soil%hlsp%nk_g = nk(ll)
-          tile%soil%hlsp%nj_g = nj(ll)  
-          tile%soil%hlsp%elevmean_g = elev_mean(ll)  
+          tile%soil%hlsp%nj_g = nj(ll)
+          tile%soil%hlsp%elevmean_g = elev_mean(ll)
           tile%soil%hlsp%elevmax_g = elevmax(ll)
           tile%soil%hlsp%soilfrac_g = soil_frac(ll)
-          tile%soil%hlsp%tfrac_g(:,:) = tfrac(ll,:,:)     
+          tile%soil%hlsp%tfrac_g(:,:) = tfrac(ll,:,:)
         enddo
-      enddo    
+      enddo
 
-      deallocate(tfrac)   
+      deallocate(tfrac)
 
   endif
   !--------------------------------------------------------
@@ -1016,18 +1015,18 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_tau_gw,       soil_tau_groundwater_ptr)
-  call send_tile_data_r0d_fptr(id_slope_l,      soil_hillslope_length_ptr) 
+  call send_tile_data_r0d_fptr(id_slope_l,      soil_hillslope_length_ptr)
   call send_tile_data_r0d_fptr(id_slope_Z,      soil_hillslope_relief_ptr)
   call send_tile_data_r0d_fptr(id_zeta_bar,     soil_hillslope_zeta_bar_ptr)
-  call send_tile_data_r0d_fptr(id_tile_elev,    soil_tile_elevation_ptr)  
+  call send_tile_data_r0d_fptr(id_tile_elev,    soil_tile_elevation_ptr)
   call send_tile_data_r0d_fptr(id_e_depth,      soil_soil_e_depth_ptr)
   call send_tile_data_r0d_fptr(id_zeta,         soil_zeta_ptr)
   call send_tile_data_r0d_fptr(id_tau,          soil_tau_ptr)
   call send_tile_data_r0d_fptr(id_vwc_wilt,     soil_vwc_wilt_ptr)
   call send_tile_data_r0d_fptr(id_vwc_fc,       soil_vwc_fc_ptr)
-  call send_tile_data_r0d_fptr(id_irr_fac_et,   soil_irr_fac_et_ptr)  
+  call send_tile_data_r0d_fptr(id_irr_fac_et,   soil_irr_fac_et_ptr)
   call send_tile_data_r0d_fptr(id_vwc_sat,      soil_vwc_sat_ptr)
-  call send_tile_data_r0d_fptr(id_K_sat,        soil_k_sat_ref_ptr)  
+  call send_tile_data_r0d_fptr(id_K_sat,        soil_k_sat_ref_ptr)
   call send_tile_data_r0d_fptr(id_K_gw,         soil_k_sat_gw_ptr)
   call send_tile_data_r0d_fptr(id_Qmax,         soil_Qmax_ptr)
   call send_tile_data_r1d_fptr(id_w_fc,         soil_w_fc_ptr)
@@ -1044,7 +1043,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   call send_tile_data_r1d_fptr(id_f_geo_sat,    soil_f_geo_sat_ptr)
   call send_tile_data_i0d_fptr(id_type,         soil_tag_ptr)
   call send_tile_data_i0d_fptr(id_hidx_k,       soil_hidx_k_ptr)
-  call send_tile_data_i0d_fptr(id_hidx_j,       soil_hidx_j_ptr)    
+  call send_tile_data_i0d_fptr(id_hidx_j,       soil_hidx_j_ptr)
 
   if (id_mrsofc>0) then
      total_soil_depth = sum(dz(1:num_l))
@@ -1089,7 +1088,7 @@ function register_hlsplev_diag_fields(module_name, field_name, axes, init_time, 
   character(len=*), intent(in), optional :: standard_name
 
   integer :: i
-  character(len=2) :: num_i 
+  character(len=2) :: num_i
 
 
   do i = 1, num_l
@@ -1206,7 +1205,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   integer :: id_kj
   integer :: i
   real, allocatable :: kj(:)
- 
+
 
 
   ! define vertical axis and its edges
@@ -1261,51 +1260,51 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   ! hillslope output
 
   id_hidx_k2 = register_tiled_diag_field ( module_name, 'hidx_k2',  &
-       axes(1:1), lnd%time, 'number of types of hillslope', '-', missing_value=-1.0 )  
+       axes(1:1), lnd%time, 'number of types of hillslope', '-', missing_value=-1.0 )
   id_hidx_j2 = register_tiled_diag_field ( module_name, 'hidx_j2',  &
-       axes(1:1), lnd%time, 'number of hillslope bands', '-', missing_value=-1.0 )  
+       axes(1:1), lnd%time, 'number of hillslope bands', '-', missing_value=-1.0 )
 
   id_nk = register_tiled_diag_field ( module_name, 'nk', axes(1:1), &
-       lnd%time, 'maximum hidx_k', '-',  missing_value=-1.0 ) 
+       lnd%time, 'maximum hidx_k', '-',  missing_value=-1.0 )
   id_nj = register_tiled_diag_field ( module_name, 'nj', axes(1:1), &
-       lnd%time, 'maximum hidx_j', '-',  missing_value=-1.0 )   
+       lnd%time, 'maximum hidx_j', '-',  missing_value=-1.0 )
   id_elevmean = register_tiled_diag_field ( module_name, 'elev_mean', axes(1:1), &
-       lnd%time, 'mean elevation of soil tiles', 'm',  missing_value=initval )  
+       lnd%time, 'mean elevation of soil tiles', 'm',  missing_value=initval )
   id_pslope2p = register_tiled_diag_field ( module_name, 'pslope2p', axes(1:1), &
-       lnd%time, 'ratio of precitation slope to the mean precip', '1/m',  missing_value=initval ) 
+       lnd%time, 'ratio of precitation slope to the mean precip', '1/m',  missing_value=initval )
 
   id_lift_hlsp = register_tiled_diag_field ( module_name, 'lift_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'hillslope air lift compared to mean elevation of soil tiles', 'm', missing_value=initval )
   id_pratio_hlsp = register_tiled_diag_field ( module_name, 'pratio_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'hillslope ratio of precitation to the mean precip', 'unitless', missing_value=initval )  
+       lnd%time, 'hillslope ratio of precitation to the mean precip', 'unitless', missing_value=initval )
   id_lprec_hlsp = register_tiled_diag_field ( module_name, 'lprec_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'hillslope rainfall', 'kg/(m2 s)', missing_value=initval )  
+       lnd%time, 'hillslope rainfall', 'kg/(m2 s)', missing_value=initval )
   id_fprec_hlsp = register_tiled_diag_field ( module_name, 'fprec_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'hillslope snowfall', 'kg/(m2 s)', missing_value=initval )  
+       lnd%time, 'hillslope snowfall', 'kg/(m2 s)', missing_value=initval )
   id_elev_hlsp = register_tiled_diag_field ( module_name, 'elev_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'hillslope elevation', 'm', missing_value=initval )  
+       lnd%time, 'hillslope elevation', 'm', missing_value=initval )
   id_tfrac_hlsp = register_tiled_diag_field ( module_name, 'tfrac_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )  
+       lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )
 
   id_zatm_hlsp = register_tiled_diag_field ( module_name, 'zatm_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'disaggregated height above the surface for the lowest atmos level', 'm', missing_value=initval )
   id_tatm_hlsp = register_tiled_diag_field ( module_name, 'tatm_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'disaggregated temperature at lowest atmos level', 'degK', missing_value=initval ) 
+       lnd%time, 'disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )
   id_patm_hlsp = register_tiled_diag_field ( module_name, 'patm_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'disaggregated pressure at lowest atmos level', 'Pa', missing_value=initval )         
+       lnd%time, 'disaggregated pressure at lowest atmos level', 'Pa', missing_value=initval )
   id_psurf_hlsp = register_tiled_diag_field ( module_name, 'psurf_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'disaggregated disaggregated surface pressure', 'Pa', missing_value=initval ) 
+       lnd%time, 'disaggregated disaggregated surface pressure', 'Pa', missing_value=initval )
   id_qatm_hlsp = register_tiled_diag_field ( module_name, 'qatm_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'disaggregated specific humidity at lowest atmos level', 'kg/kg', missing_value=initval )      
+       lnd%time, 'disaggregated specific humidity at lowest atmos level', 'kg/kg', missing_value=initval )
   id_tatm_nodis_hlsp = register_tiled_diag_field ( module_name, 'tatm_nodis_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'non-disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )                                   
+       lnd%time, 'non-disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )
 
   id_lwc_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'lwc<lev>_hlsp', &
        (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of liquid water', 'kg/m3', missing_value=initval )
   id_swc_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'swc<lev>_hlsp', &
        (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of solid water', 'kg/m3', missing_value=initval )
   id_temp_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'temp<lev>_hlsp', &
-       (/id_ug,id_kj/), lnd%time, 'layer <lev> soil temperature', 'degK', missing_value=initval )  
+       (/id_ug,id_kj/), lnd%time, 'layer <lev> soil temperature', 'degK', missing_value=initval )
 
   id_transp_land_hlsp = register_tiled_diag_field ( module_name, 'transp_land_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'Transpiration', 'kg/(m2 s)', missing_value=initval )
@@ -1338,7 +1337,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_swup_dir_1_land_hlsp = register_tiled_diag_field ( module_name, 'swup_dir_1_land_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )
   id_swup_dir_2_land_hlsp = register_tiled_diag_field ( module_name, 'swup_dir_2_land_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )  
+       lnd%time, 'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )
   id_fevapv_land_hlsp = register_tiled_diag_field ( module_name, 'fevapv_land_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'vapor flux leaving vegn ice', 'kg/(m2 s)', missing_value=initval )
   id_flw_land_hlsp = register_tiled_diag_field ( module_name, 'flw_land_hlsp', (/id_ug,id_kj/), &
@@ -1372,7 +1371,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_melt_land_hlsp = register_tiled_diag_field ( module_name, 'melt_land_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
   id_meltv_land_hlsp = register_tiled_diag_field ( module_name, 'meltv_land_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'rate of melt, interception', 'kg/(m2 s)', missing_value=initval ) 
+       lnd%time, 'rate of melt, interception', 'kg/(m2 s)', missing_value=initval )
   id_melts_land_hlsp = register_tiled_diag_field ( module_name, 'melts_land_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'rate of snow melt', 'kg/(m2 s)', missing_value=initval )
   id_snow_frac_land_hlsp = register_tiled_diag_field ( module_name, 'snow_frac_land_hlsp', (/id_ug,id_kj/), &
@@ -1390,17 +1389,17 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=initval )
 
   id_irrrate_soil_hlsp = register_tiled_diag_field ( module_name, 'irrrate_soil_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)', missing_value=initval )  
+       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)', missing_value=initval )
   id_hirrrate_soil_hlsp = register_tiled_diag_field ( module_name, 'hirrrate_soil_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2', missing_value=initval ) 
+       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2', missing_value=initval )
   id_absts_soil_hlsp = register_tiled_diag_field ( module_name, 'absts_soil_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)', missing_value=initval )  
+       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)', missing_value=initval )
   id_habsts_soil_hlsp = register_tiled_diag_field ( module_name, 'habsts_soil_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'heat associated with shallow groundwater withdrawal', 'W/m2', missing_value=initval )  
+       lnd%time, 'heat associated with shallow groundwater withdrawal', 'W/m2', missing_value=initval )
   id_abstd_soil_hlsp = register_tiled_diag_field ( module_name, 'abstd_soil_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)', missing_value=initval )  
+       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)', missing_value=initval )
   id_habstd_soil_hlsp = register_tiled_diag_field ( module_name, 'habstd_soil_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'heat associated with deep groundwater withdrawal', 'W/m2', missing_value=initval )    
+       lnd%time, 'heat associated with deep groundwater withdrawal', 'W/m2', missing_value=initval )
 
   id_hprec_e_hlsp = register_tiled_diag_field ( module_name, 'hprec_e_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'energy error due to phase change of precip', 'W/m2', missing_value=initval )
@@ -1677,17 +1676,17 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
 
   id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
-       lnd%time, 'irrigation demand rate on soil area, only meaningful when the all demand has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )  
+       lnd%time, 'irrigation demand rate on soil area, only meaningful when the all demand has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )
   id_irr_rate = register_tiled_diag_field ( module_name, 'irr_rate', axes(1:1), &
-       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)',  missing_value=-100.0 )  
+       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)',  missing_value=-100.0 )
   id_hirr_rate = register_tiled_diag_field ( module_name, 'hirr_rate', axes(1:1), &
-       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2',  missing_value=-100.0 )    
+       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2',  missing_value=-100.0 )
   id_abst_s = register_tiled_diag_field ( module_name, 'abst_s', axes(1:1), &
-       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )  
+       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )
   id_habst_s = register_tiled_diag_field ( module_name, 'habst_s', axes(1:1), &
        lnd%time, 'heat associated with shallow groundwater withdrawal', 'W/m2',  missing_value=-100.0 )
   id_abst_d = register_tiled_diag_field ( module_name, 'abst_d', axes(1:1), &
-       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )  
+       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )
   id_habst_d = register_tiled_diag_field ( module_name, 'habst_d', axes(1:1), &
        lnd%time, 'heat associated with deep groundwater withdrawal', 'W/m2',  missing_value=-100.0 )
   id_irr_area_input = register_tiled_diag_field ( module_name, 'irr_area_input', axes(1:1), &
@@ -1707,13 +1706,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
   id_hidx_k = register_tiled_static_field ( module_name, 'hidx_k',  &
-       axes(1:1), 'number of types of hillslope', missing_value=-1.0 )  
+       axes(1:1), 'number of types of hillslope', missing_value=-1.0 )
   id_hidx_j = register_tiled_static_field ( module_name, 'hidx_j',  &
-       axes(1:1), 'number of hillslope bands', missing_value=-1.0 )    
+       axes(1:1), 'number of hillslope bands', missing_value=-1.0 )
   id_tau_gw = register_tiled_static_field ( module_name, 'tau_gw',  &
        axes(1:1), 'groundwater residence time', 's', missing_value=-100.0 )
   id_slope_l = register_tiled_static_field ( module_name, 'slope_l',  &
-       axes(1:1), 'hillslope length', 'm', missing_value=-100.0 ) 
+       axes(1:1), 'hillslope length', 'm', missing_value=-100.0 )
   id_slope_Z = register_tiled_static_field ( module_name, 'soil_rlief',  &
        axes(1:1), 'hillslope relief', 'm', missing_value=-100.0 )
   id_zeta_bar = register_tiled_static_field ( module_name, 'zeta_bar',  &
@@ -1729,17 +1728,17 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_vwc_fc = register_tiled_static_field ( module_name, 'soil_fc',  &
        axes(1:1), 'field capacity', '-', missing_value=-100.0 )
   id_irr_fac_et = register_tiled_static_field ( module_name, 'irr_fac_et',  &
-       axes(1:1), 'irrigation factor used in ET-based irrigation estimates', '-', missing_value=-100.0 )  
+       axes(1:1), 'irrigation factor used in ET-based irrigation estimates', '-', missing_value=-100.0 )
   id_vwc_sat = register_tiled_static_field ( module_name, 'soil_sat',  &
        axes(1:1), 'soil porosity', '-', missing_value=-100.0 )
   id_K_sat = register_tiled_static_field ( module_name, 'soil_Ksat',  &
-       axes(1:1), 'soil sat. hydraulic conductivity', 'kg /(m2 s)', missing_value=-100.0 )  
+       axes(1:1), 'soil sat. hydraulic conductivity', 'kg /(m2 s)', missing_value=-100.0 )
   id_K_gw  = register_tiled_static_field ( module_name, 'soil_K_gw',  &
        axes(1:1), 'deep hydraulic conductivity', 'kg /(m2 s)', missing_value=-100.0 )
   id_w_fc = register_tiled_static_field ( module_name, 'w_fc',  &
        axes, 'soil field capacity', missing_value=-1.0 )
   id_alpha = register_tiled_static_field ( module_name, 'soil_alpha',  &
-       axes, 'soil microscopic length scale', missing_value=-1.0 ) 
+       axes, 'soil microscopic length scale', missing_value=-1.0 )
   id_refl_dry_dir = register_tiled_static_field ( module_name, 'refl_dry_dir',  &
        (/id_ug, id_band/), 'reflectance of dry soil for direct light', &
        missing_value=-1.0 )
@@ -5742,34 +5741,34 @@ subroutine soil_hlsp_diag()
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle 
+       if (.not.associated(tile%soil)) cycle
        !some irrigation variables are ouput here
-       call send_tile_data(id_irr_rate, tile%soil%irr_rate, tile%diag) !kg/(m2 s)  
+       call send_tile_data(id_irr_rate, tile%soil%irr_rate, tile%diag) !kg/(m2 s)
        call send_tile_data(id_hirr_rate, tile%soil%hirr_rate, tile%diag) !W/m2
-       call send_tile_data(id_abst_s, tile%soil%abst_s, tile%diag)   
-       call send_tile_data(id_habst_s, tile%soil%habst_s, tile%diag) 
-       call send_tile_data(id_abst_d, tile%soil%abst_d, tile%diag)   
-       call send_tile_data(id_habst_d, tile%soil%habst_d, tile%diag) 
+       call send_tile_data(id_abst_s, tile%soil%abst_s, tile%diag)
+       call send_tile_data(id_habst_s, tile%soil%habst_s, tile%diag)
+       call send_tile_data(id_abst_d, tile%soil%abst_d, tile%diag)
+       call send_tile_data(id_habst_d, tile%soil%habst_d, tile%diag)
 
        call send_tile_data(id_hidx_k2,float(tile%soil%hidx_k),tile%diag)
-       call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)       
+       call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)
        call send_tile_data(id_nk,float(tile%soil%hlsp%nk_g), tile%diag)
-       call send_tile_data(id_nj,float(tile%soil%hlsp%nj_g), tile%diag) 
+       call send_tile_data(id_nj,float(tile%soil%hlsp%nj_g), tile%diag)
        call send_tile_data(id_elevmean, tile%soil%hlsp%elevmean_g, tile%diag)
-       call send_tile_data(id_pslope2p, tile%soil%hlsp%pslope2p_g, tile%diag) 
-       call send_tile_data(id_tfrac_hlsp, pack(tile%soil%hlsp%tfrac_g,.true.), tile%diag)  
+       call send_tile_data(id_pslope2p, tile%soil%hlsp%pslope2p_g, tile%diag)
+       call send_tile_data(id_tfrac_hlsp, pack(tile%soil%hlsp%tfrac_g,.true.), tile%diag)
      enddo
-  enddo  
+  enddo
 
   call send_hlsp_data_r0d_fptr(id_lift_hlsp, soil_hlsp_lift_ptr)
-  call send_hlsp_data_r0d_fptr(id_pratio_hlsp, soil_hlsp_pratio_ptr) 
+  call send_hlsp_data_r0d_fptr(id_pratio_hlsp, soil_hlsp_pratio_ptr)
   call send_hlsp_data_r0d_fptr(id_lprec_hlsp, soil_hlsp_lprec_ptr)
-  call send_hlsp_data_r0d_fptr(id_fprec_hlsp, soil_hlsp_fprec_ptr)  
+  call send_hlsp_data_r0d_fptr(id_fprec_hlsp, soil_hlsp_fprec_ptr)
   call send_hlsp_data_r0d_fptr(id_zatm_hlsp, soil_hlsp_zatm_ptr)
   call send_hlsp_data_r0d_fptr(id_tatm_hlsp, soil_hlsp_tatm_ptr)
-  call send_hlsp_data_r0d_fptr(id_patm_hlsp, soil_hlsp_patm_ptr)  
-  call send_hlsp_data_r0d_fptr(id_psurf_hlsp, soil_hlsp_psurf_ptr)  
-  call send_hlsp_data_r0d_fptr(id_qatm_hlsp, soil_hlsp_qatm_ptr)  
+  call send_hlsp_data_r0d_fptr(id_patm_hlsp, soil_hlsp_patm_ptr)
+  call send_hlsp_data_r0d_fptr(id_psurf_hlsp, soil_hlsp_psurf_ptr)
+  call send_hlsp_data_r0d_fptr(id_qatm_hlsp, soil_hlsp_qatm_ptr)
   call send_hlsp_data_r0d_fptr(id_tatm_nodis_hlsp, soil_hlsp_tatm_nodis_ptr)
 
   call    send_hlsp_data_r0d_fptr(    id_transp_land_hlsp ,   soil_hlsp_transp_land_ptr   )
@@ -5808,28 +5807,28 @@ subroutine soil_hlsp_diag()
   call    send_hlsp_data_r0d_fptr(    id_melts_land_hlsp  ,   soil_hlsp_melts_land_ptr    )
   call    send_hlsp_data_r0d_fptr(    id_snow_frac_land_hlsp  ,   soil_hlsp_snow_frac_land_ptr    )
   call    send_hlsp_data_r0d_fptr(    id_snow_depth_land_hlsp ,   soil_hlsp_snow_depth_land_ptr   )
-                    
+
   call    send_hlsp_data_r0d_fptr(    id_gpp_vegn_hlsp    ,   soil_hlsp_gpp_vegn_ptr  )
   call    send_hlsp_data_r0d_fptr(    id_npp_vegn_hlsp    ,   soil_hlsp_npp_vegn_ptr  )
   call    send_hlsp_data_r0d_fptr(    id_resp_vegn_hlsp   ,   soil_hlsp_resp_vegn_ptr )
   call    send_hlsp_data_r0d_fptr(    id_cVeg_vegn_hlsp   ,   soil_hlsp_cVeg_vegn_ptr )
 
-  call    send_hlsp_data_r0d_fptr(    id_hprec_e_hlsp   ,   soil_hlsp_hprec_e_ptr )  
-  call    send_hlsp_data_r0d_fptr(    id_tprec_e_hlsp   ,   soil_hlsp_tprec_e_ptr )   
+  call    send_hlsp_data_r0d_fptr(    id_hprec_e_hlsp   ,   soil_hlsp_hprec_e_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_tprec_e_hlsp   ,   soil_hlsp_tprec_e_ptr )
 
-  call    send_hlsp_data_r0d_fptr(    id_irrrate_soil_hlsp    ,   soil_hlsp_irrrate_soil_ptr  )  
-  call    send_hlsp_data_r0d_fptr(    id_hirrrate_soil_hlsp    ,   soil_hlsp_hirrrate_soil_ptr  )    
-  call    send_hlsp_data_r0d_fptr(    id_absts_soil_hlsp    ,   soil_hlsp_absts_soil_ptr  )    
+  call    send_hlsp_data_r0d_fptr(    id_irrrate_soil_hlsp    ,   soil_hlsp_irrrate_soil_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_hirrrate_soil_hlsp    ,   soil_hlsp_hirrrate_soil_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_absts_soil_hlsp    ,   soil_hlsp_absts_soil_ptr  )
   call    send_hlsp_data_r0d_fptr(    id_habsts_soil_hlsp    ,   soil_hlsp_habsts_soil_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_abstd_soil_hlsp    ,   soil_hlsp_abstd_soil_ptr  )    
+  call    send_hlsp_data_r0d_fptr(    id_abstd_soil_hlsp    ,   soil_hlsp_abstd_soil_ptr  )
   call    send_hlsp_data_r0d_fptr(    id_habstd_soil_hlsp    ,   soil_hlsp_habstd_soil_ptr  )
 
-  call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)  
+  call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)
 
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle 
+       if (.not.associated(tile%soil)) cycle
        tile%soil%hlsp%lwc = tile%soil%wl/dz(1:num_l) !kg/m2 / m = kg/m3
        tile%soil%hlsp%swc = tile%soil%ws/dz(1:num_l)
        tile%soil%hlsp%temp = tile%soil%T
@@ -5838,8 +5837,8 @@ subroutine soil_hlsp_diag()
 
   do i=1,num_l
     call send_hlsp_data_r1d_fptr(id_lwc_hlsp(i), soil_hlsp_lwc_ptr, i)
-    call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i) 
-    call send_hlsp_data_r1d_fptr(id_temp_hlsp(i), soil_hlsp_temp_ptr, i) 
+    call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i)
+    call send_hlsp_data_r1d_fptr(id_temp_hlsp(i), soil_hlsp_temp_ptr, i)
   enddo
 
 end subroutine soil_hlsp_diag
@@ -5866,16 +5865,16 @@ subroutine send_hlsp_data_r0d_fptr(id, fptr)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         if (.not.associated(tile%soil)) cycle
-        hidx_k =  tile%soil%hidx_k 
+        hidx_k =  tile%soil%hidx_k
         hidx_j =  tile%soil%hidx_j
         if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%hlsp%tfrac_g
         if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
         call fptr(tile,ptr) !tileptr
         if(associated(ptr))then
-          data_hlsp(l,hidx_k,hidx_j) = data_hlsp(l,hidx_k,hidx_j) + ptr*tile%frac 
+          data_hlsp(l,hidx_k,hidx_j) = data_hlsp(l,hidx_k,hidx_j) + ptr*tile%frac
         else
           call error_mesg(module_name, 'unrecognized soil variable', FATAL)
-        endif  
+        endif
      enddo
   enddo
   where(data_hlsp/=initval) data_hlsp=data_hlsp/tfrac
@@ -5883,7 +5882,7 @@ subroutine send_hlsp_data_r0d_fptr(id, fptr)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         if (.not.associated(tile%soil)) cycle
-        call send_tile_data(id,  pack(data_hlsp(l,:,:),.true.),  tile%diag)      
+        call send_tile_data(id,  pack(data_hlsp(l,:,:),.true.),  tile%diag)
      enddo
   enddo
 
@@ -5914,16 +5913,16 @@ subroutine send_hlsp_data_r1d_fptr(id, fptr, lev)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         if (.not.associated(tile%soil)) cycle
-        hidx_k =  tile%soil%hidx_k 
+        hidx_k =  tile%soil%hidx_k
         hidx_j =  tile%soil%hidx_j
         if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%hlsp%tfrac_g
         if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
         call fptr(tile,lev,ptr) !tileptr
         if(associated(ptr))then
-          data_hlsp(l,hidx_k,hidx_j) = data_hlsp(l,hidx_k,hidx_j) + ptr*tile%frac 
+          data_hlsp(l,hidx_k,hidx_j) = data_hlsp(l,hidx_k,hidx_j) + ptr*tile%frac
         else
           call error_mesg(module_name, 'unrecognized soil variable', FATAL)
-        endif  
+        endif
      enddo
   enddo
   where(data_hlsp/=initval) data_hlsp=data_hlsp/tfrac
@@ -5931,7 +5930,7 @@ subroutine send_hlsp_data_r1d_fptr(id, fptr, lev)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         if (.not.associated(tile%soil)) cycle
-        call send_tile_data(id,  pack(data_hlsp(l,:,:),.true.),  tile%diag)      
+        call send_tile_data(id,  pack(data_hlsp(l,:,:),.true.),  tile%diag)
      enddo
   enddo
 
@@ -6079,7 +6078,7 @@ subroutine irrigation_deficit()
              irr_area_temp = tile%frac*lnd%ug_area(l) !m2
              irr_demand_ac = 0. !kg/m2
              if(use_irrigation_routine)then
-               do i = 1, vegn%n_cohorts    
+               do i = 1, vegn%n_cohorts
                  ! depth for 95% of root according to Jackson distribution
                  depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
                  theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
@@ -6123,7 +6122,7 @@ subroutine irrigation_deficit()
          call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
          call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
          call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
-         call send_tile_data(id_root_theta, root_theta, tile%diag)  
+         call send_tile_data(id_root_theta, root_theta, tile%diag)
 
        else
 
@@ -6134,8 +6133,8 @@ subroutine irrigation_deficit()
            if(use_irrigation_routine)then
              do i = 1, vegn%n_cohorts
                 if(vegn%cohorts(i)%evap_demand > vegn%cohorts(i)%soil_water_supply &
-                  .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then     
-                  if(.not.use_irr_fac_et_glob)then        
+                  .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
+                  if(.not.use_irr_fac_et_glob)then
                     irr_cohorts = soil%pars%irr_fac_et &
                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
                                 * vegn%cohorts(i)%nindivs &
@@ -6144,8 +6143,8 @@ subroutine irrigation_deficit()
                     irr_cohorts = irr_fac_et_glob &
                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
                                 * vegn%cohorts(i)%nindivs &
-                                * delta_time !kg/m2      
-                  endif                            
+                                * delta_time !kg/m2
+                  endif
                 else
                   irr_cohorts = 0.
                 endif
@@ -6166,13 +6165,13 @@ subroutine irrigation_deficit()
            soil%irr_demand_ac = soil%irr_demand_ac_et
            soil%irr_area2frac_input = irr_area_input / tile%frac !m2
            soil%irr_area2frac_real = soil%irr_area2frac_real_et
-           
+
            soil%irr_demand_ac_et = 0. ! kg/m2
-           soil%irr_area2frac_real_et = 0. !m2               
+           soil%irr_area2frac_real_et = 0. !m2
          endif
          call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
          call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
-         call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)          
+         call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
 
        endif
 
