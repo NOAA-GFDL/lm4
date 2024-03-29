@@ -92,14 +92,6 @@ integer, parameter :: tran_order(M_LU_TYPES) = [ LU_URBN, LU_RAINF, LU_IRRIG, LU
 
 ! TODO: describe differences between data sets
 
-! ==== data types ===========================================================
-! a description of single transition
-type :: tran_type
-   integer :: donor    = 0  ! kind of donor tile
-   integer :: acceptor = 0  ! kind of acceptor tile
-   real    :: frac     = 0  ! area of transition
-end type tran_type
-
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
 
