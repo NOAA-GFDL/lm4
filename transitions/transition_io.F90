@@ -1,24 +1,27 @@
 module transition_io_mod
 
 use netcdf, only: nf90_max_name
+
 use constants_mod, only : PI
 use mpp_mod, only : mpp_error, FATAL
 use mpp_domains_mod, only : mpp_pass_sg_to_ug
-use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE
+use fms_mod, only : string, lowercase, error_mesg, FATAL, WARNING, NOTE
 use fms_io_mod, only : get_file_name
 
-use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
+use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
      operator(//), operator(==), days_in_year, print_date, increment_date, get_time, &
      valid_calendar_types, get_calendar_type
 use time_interp_mod, only : time_interp
 use get_cal_time_mod, only : get_cal_time
-use horiz_interp_mod, only : horiz_interp_type, horiz_interp_new, horiz_interp_del
+use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
+     horiz_interp_new, horiz_interp_del
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_file, &
     get_valid, is_valid, variable_exists, get_variable_size, &
     get_unlimited_dimension_name, get_dimension_size, get_variable_attribute, &
     get_variable_dimension_names, get_variable_num_dimensions
 use axis_utils2_mod, only: axis_edges
+
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
@@ -49,44 +52,61 @@ public :: new_infile_LUH1, new_infile_LUH2, new_infile_CS
 character(len=*), parameter :: module_name = 'transitions_io_mod'
 #include "../shared/version_variable.inc"
 
+! ==== NetCDF declarations ===================================================
+include 'netcdf.inc'
+#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
+
 ! ==== data types ===========================================================
 
-!> container for information about input file and grid information
+!> container for information about input file and grid
 !!
 !! We assume that all variables from this file are on the same grid (horizontal and time),
 !! that the valid values mask is the same does not change in time, and that the same
 !! normalization factor (if any) must be applied to all of them
 !!
 !! This is not an abstract class, but many of its methods should never be called
-type :: infile_T
-  character(1024) :: path      = '' !< file path
-  character(1024) :: static    = '' !< static path
+type :: infile_t
+  character(1024)       :: path = '' !< file path
+  type(FmsNetcdfFile_t) :: ncobj     !< netcdf fms_io2 file object
+
+  type(time_type), allocatable :: time_in(:)   !< input data time axis
+  integer         :: nlon_in=-1, nlat_in=-1 !< sizes of input data horizontal grid
+
+contains
+  procedure :: setup_hgrid => infile_t_setup_hgrid ! set up a horizontal grid and interpolator for conversion to UG
+  procedure :: var_exists  => infile_t_var_exists  ! returns TRUE if variable is found in the file
+  procedure :: get_record  => infile_t_get_record  ! reads a single record of given variable, on variable's native grid
+  procedure :: to_ug       => infile_t_to_ug       ! converts from variable native grid to model grid, on unstructured domain
+  final     :: infile_t_destroy ! destructor
+end type infile_t
+
+!> container for information about input file on regular lat-lon grid
+type, extends(infile_t) :: infile_latlon_t
+  character(1024) :: static    = '' !< static file path
+  type(FmsNetcdfFile_t) :: statobj  !< netcdf fms_io2 file object for static file
+
   character(16)   :: data_type = '' !< type of input data (LUH1 or LUH2). Due to differences
       !! in the normalization in the input data sets (per unit area of land or per unit area
       !! of grid cell) and differences in definition of valid values mask, interpolation is set
       !! up slightly differently depending on the type of the data set.
-  type(FmsNetcdfFile_t)        :: statobj !< static fms2_io file object
-  type(FmsNetcdfFile_t)        :: ncobj !< netcdf fms_io2 file object
-
-  type(time_type), allocatable :: time_in(:)   !< input data time axis
 
   logical :: grid_initialized = .FALSE. !< set to TRUE when horizontal interpolator is set up
-  integer                      :: nlon_in=-1, nlat_in=-1 !< sizes of input data horizontal grid
   real, allocatable            :: norm_in(:,:) !< normalizing factor to convert input data to
       !! units of [fractions of vegetated area per year]
   type(horiz_interp_type)      :: interp       !< horizontal interpolator
 contains
-  procedure :: init         => infile_init
-  procedure :: destroy      => infile_destroy
-end type infile_T
+  final     :: infile_latlon_destroy
+  procedure :: setup_hgrid => infile_latlon_setup_hgrid ! set up a horizontal grid and interpolator for conversion to UG
+  procedure :: to_ug       => infile_latlon_to_ug
+end type infile_latlon_t
 
+!> container for information about input file on model native (cubic sphere)
 type, extends(infile_t) :: infile_cs_t
 contains
   procedure :: setup_hgrid => infile_cs_setup_hgrid
   procedure :: to_ug       => infile_cs_to_ug
   procedure :: get_record  => infile_cs_get_record
 end type infile_cs_t
-
 
 !> structure that represents a set of variables
 !!
@@ -98,10 +118,10 @@ end type infile_cs_t
 !! This structure holds  a set of variables that come from the same file,
 !! and are added together to get one model field
 type :: varset_T
-  type(infile_T), pointer :: file => NULL() !< pointer to input file object
-  character(len=nf90_max_name) :: name  = '' !< internal name of the field
+  class(infile_T), pointer :: file => NULL() !< pointer to input file object
+  character(NF_MAX_NAME) :: name  = '' !< internal name of the field
   integer       :: nvars = 0  !< number of variable ids
-  character(len=nf90_max_name), dimension(:), allocatable :: varname !< names of the input fields
+  character(NF_MAX_NAME), allocatable :: varname(:) !< names of the input fields
 contains
   procedure :: addvar   => varset_add_var
   procedure :: descr    => varset_descr
@@ -113,9 +133,6 @@ end type varset_T
 
 ! ---- module variables
 logical :: module_is_initialized = .FALSE.
-integer :: ndims
-integer, dimension(:), allocatable :: dimlens
-character(len=nf90_max_name), dimension(:), allocatable :: dimnames
 
 contains
 
@@ -134,32 +151,24 @@ end subroutine transition_io_init
 !! \throws FATAL "file ... could not be opened"
 !!
 !! opens file; reads time axis from the file
-subroutine infile_init(this, path, static, data_type)
-  class(infile_T), intent(inout) :: this
+subroutine infile_t_open(this, path)
+  class(infile_t), intent(inout) :: this
   character(*),    intent(in)    :: path   !< file path
-  character(*),    intent(in)    :: static !< static file path
-  character(*),    intent(in)    :: data_type !< data type, LUH1 or LUH2
 
-  logical :: path_exists, static_exists
+  logical :: exists
 
-  this%path      = path
-  this%static    = static
-  this%data_type = data_type
-  path_exists = open_file(this%ncobj, this%path, "read")
-  if(.not. path_exists) call error_mesg('land_transition_io_infile_init', &
-      trim(path)//'" could not be opened.', FATAL)
-  static_exists = open_file(this%statobj, this%static, "read")
-  if(trim(lowercase(this%data_type)) == 'luh2' .and. .not. static_exists) call &
-      error_mesg('land_transition_io_infile_init', &
-      trim(static)//'" could not be opened.', FATAL)
-  ! get time axis
+  this%path = path ! store path for future reference
+  exists = open_file(this%ncobj, this%path, mode="read")
+  if(.not.exists) call mpp_error(FATAL, &
+      'file "'//trim(this%path)//'" could not be opened because it does not exist', FATAL)
+  ! get the time axis from file
   call get_time_axis(this%ncobj,this%time_in)
-end subroutine infile_init
+end subroutine infile_t_open
 
 ! ============================================================================
 !> destructor: free memory and close input files
 subroutine infile_t_destroy(this)
-  type(infile_T), intent(inout) :: this
+  type(infile_t), intent(inout) :: this
 
   ! close input file
   call close_file(this%ncobj)
@@ -169,6 +178,7 @@ subroutine infile_t_destroy(this)
   this%nlon_in = -1; this%nlat_in = -1
 end subroutine infile_t_destroy
 
+! ============================================================================
 subroutine infile_t_setup_hgrid(this, varname)
   class(infile_t), intent(inout) :: this
   character(*),    intent(in)    :: varname
@@ -181,27 +191,11 @@ logical function infile_t_var_exists(this, varname)
   class(infile_T), intent(inout) :: this
   character(*),    intent(in)    :: varname
 
-  integer :: ierr
-  integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
-
-  ierr = nfu_inq_var(this%ncid, trim(varname), dimids=dimids, dimlens=dimlens)
-
-  select case(ierr)
-  case (NF_NOERR)
-     infile_t_var_exists = .TRUE.
-  case (NF_ENOTVAR)
-     infile_t_var_exists = .FALSE.
-!       call error_mesg('land_transitions_init',&
-!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
-!            NOTE)
-  case default
-     call mpp_error(FATAL,&
-          'error initializing field "'//varname//&
-          '" from file "'//trim(this%path)//'" : '//nf_strerror(ierr))
-  end select
+  infile_t_var_exists = variable_exists(this%ncobj,trim(varname))
 end function infile_t_var_exists
 
-!> given variable bane and record number, read the variable data for this record
+! ============================================================================
+!> given variable name and record number, read the variable data for this record
 subroutine infile_t_get_record(this, varname, rec, buff)
   class(infile_t), intent(in)  :: this !< file object
   character(*),    intent(in)  :: varname !< name of the variable
@@ -209,7 +203,7 @@ subroutine infile_t_get_record(this, varname, rec, buff)
   real,            intent(out) :: buff(:,:) !< buffer for output data
 
   !TODO: check buffer size
-  __NF_ASRT__(nfu_get_rec(this%ncid,varname,rec,buff))
+  call read_data(this%ncobj, varname, buff, unlim_dim_level=rec )
 end subroutine infile_t_get_record
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -226,7 +220,7 @@ end subroutine infile_t_to_ug
 ! ============================================================================
 !> read time axis from a file
 subroutine get_time_axis(ncobj, time_in)
-    type(FmsNetcdfFile_t), intent(in) :: ncobj
+  type(FmsNetcdfFile_t), intent(in) :: ncobj
   type(time_type), allocatable :: time_in(:)
 
   character(len=nf90_max_name) :: timename  ! name of the time variable
@@ -293,8 +287,12 @@ subroutine infile_latlon_setup_hgrid(this,varname)
   real, allocatable :: lon_in(:,:),lat_in(:,:) ! horizontal grid of input data
   real, allocatable :: buffer_in(:,:) ! buffers for input data reading
   real, allocatable :: mask_in  (:,:) ! valid data mask on the input data grid
+  character(len=256), allocatable :: dimnames(:)
+  integer, allocatable :: dimlens(:)
+  integer :: ndims
 
   type(Valid_t) :: v
+
   if (this%grid_initialized) return ! do nothing if grid is already set up
   ! TODO: possibly check that variable size is the same
 
@@ -396,7 +394,6 @@ function new_infile_CS(path) result(ptr)
   if (.not.found_file) call mpp_error(FATAL, &
      'file "'//trim(path)//'" not found')
 
-  ! set ncid to positive number, just as an indicator of the open file
   call infile_t_open(ptr,ptr%path)
 
   ! data are suposed to be on SG grid compute domain
@@ -428,7 +425,35 @@ subroutine infile_cs_get_record(this,varname,rec,buff)
   integer,         intent(in)  :: rec  !< record number
   real,            intent(out) :: buff(:,:) !< buffer for output data, supposed to be on SG domain
 
-  call read_data(this%path,varname, buff, lnd%sg_domain, rec)
+!   call read_data(this%path, varname, buff, lnd%sg_domain, rec)
+! slm: I am not entirely sure this fms2_io call is equivalent to the older version above:
+! see signature of the function below. Do we need to create FmsNetcdfDomainFile_t for CS files?
+  call read_data(this%ncobj, varname, buff, unlim_dim_level=rec)
+
+!> @brief I/O domain root reads in  a domain decomposed variable at a
+!!        specific unlimited dimension level and scatters the data to the
+!!        rest of the ranks using its I/O compute domain indices. This
+!!        routine may only be used with variables that are "domain
+!!        decomposed".
+! subroutine domain_read_2d(fileobj, variable_name, vdata, unlim_dim_level, &
+!                           corner, edge_lengths)
+!
+!   type(FmsNetcdfDomainFile_t), intent(in) :: fileobj !< File object.
+!   character(len=*), intent(in) :: variable_name !< Variable name.
+!   class(*), dimension(:,:), intent(inout) :: vdata !< Data that will
+!                                                    !! be written out
+!                                                    !! to the netcdf file.
+!   integer, intent(in), optional :: unlim_dim_level !< Level for the unlimited
+!                                                    !! dimension.
+!   integer, dimension(2), intent(in), optional :: corner !< Array of starting
+!                                                         !! indices describing
+!                                                         !! where the data
+!                                                         !! will be written to.
+!   integer, dimension(2), intent(in), optional :: edge_lengths !< The number of
+!                                                               !! elements that
+!                                                               !! will be written
+!                                                               !! in each dimension.
+
 end subroutine infile_cs_get_record
 
 
@@ -443,12 +468,12 @@ subroutine varset_add_var(this,infile,varname)
    class(infile_T), target        :: infile   !< input file
    character(*),    intent(in)    :: varname  !< name of the variable in input file
 
-   character(len=nf90_max_name), allocatable :: varname_(:)
+   character(NF_MAX_NAME), allocatable :: varname_(:)
 
    if (.not.associated(this%file)) then
       this%file => infile
    else if (.not.associated(this%file,infile)) then
-      call error_mesg('transition_io_varset_add_var', 'variable set already associated with different file', FATAL)
+      call mpp_error(FATAL, 'variable set already associated with different file')
    endif
 
    ! allocate space for variable names on the first call
@@ -466,7 +491,7 @@ subroutine varset_add_var(this,infile,varname)
       call move_alloc(varname_,this%varname)
    endif
 
-   if (variable_exists(this%file%ncobj, varname)) then
+   if (this%file%var_exists(varname)) then
       call error_mesg('land_transitions_init',&
            'adding field "'//trim(varname)//'" from file "'//trim(this%file%path)//'"'//&
            ' to transition "'//trim(this%name)//'"',&
@@ -496,14 +521,14 @@ subroutine varset_get_data(this,rec,frac)
    frac = 0.0
    if (this%nvars == 0) return
 
-   if (.not.associated(this%file)) call error_mesg('transition_io_varset_get_data', &
-       'variable set "'//trim(this%name)//'" has no associated file', FATAL)
+   if (.not.associated(this%file)) call mpp_error(FATAL, &
+       'variable set "'//trim(this%name)//'" has no associated file')
 
    allocate(buff0(this%file%nlon_in,this%file%nlat_in), &
             buff1(this%file%nlon_in,this%file%nlat_in)  )
    buff1 = 0.0
    do i = 1,this%nvars
-      call read_data(this%file%ncobj, this%varname(i), buff0, unlim_dim_level=rec)
+      call this%file%get_record(this%varname(i),rec,buff0)
       buff1 = buff1 + buff0
    enddo
    call this%file%to_ug(buff1,frac)
@@ -613,7 +638,7 @@ function varset_descr(this) result(str)
   character(:), allocatable :: str
   class(varset_T), intent(in) :: this
 
-  character(len=nf90_max_name) :: varname
+  character(NF_MAX_NAME) :: varname
   integer :: i
 
   str = trim(this%name)//' = '
