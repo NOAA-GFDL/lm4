@@ -4,9 +4,7 @@ use netcdf, only: nf90_max_name
 use constants_mod, only : PI
 use mpp_mod, only : mpp_error, FATAL
 use mpp_domains_mod, only : mpp_pass_sg_to_ug
-use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, file_exist, close_file, read_data, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE
 use fms_io_mod, only : get_file_name
 
 use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
@@ -86,7 +84,7 @@ type, extends(infile_t) :: infile_cs_t
 contains
   procedure :: setup_hgrid => infile_cs_setup_hgrid
   procedure :: to_ug       => infile_cs_to_ug
-  procedure :: get_record  => infile_cs_get_record   
+  procedure :: get_record  => infile_cs_get_record
 end type infile_cs_t
 
 
