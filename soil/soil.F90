@@ -8,7 +8,7 @@ module soil_mod
 use mpp_mod, only: input_nml_file
 
 use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE, read_data
+     stdlog, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE, read_data
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
@@ -583,7 +583,9 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   if(use_irrigation_routine .and. .not.use_fc_irr_deficit)then
       allocate(gw_param(lnd%ls:lnd%le))
       if(.not.use_irr_fac_et_glob)then
-          call read_field( 'INPUT/irr_fac.nc', 'irr_fac', gw_param, interp='bilinear' )
+          exists = open_file(fileobj, "INPUT/irr_fac.nc", "read")
+          call read_field(fileobj, 'irr_fac', gw_param, interp='bilinear')
+          call close_file(fileobj)
       else
           gw_param(lnd%ls:lnd%le) = irr_fac_et_glob
       endif
