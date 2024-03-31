@@ -1072,7 +1072,7 @@ subroutine lake_transitions (time)
   !do k2 = 1,1
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (timel0==set_date(0001,01,01).and.infile_lake_state%ncid>0) then
+     if (timel0==set_date(0001,01,01).and.infile_lake_state%ncobj%is_open>0) then
         ! read initial transition from state file
         call input_state_lake(2,1)%interpolate(time,frac,interp='before')
      else
