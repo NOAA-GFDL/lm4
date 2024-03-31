@@ -11,10 +11,11 @@ use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, &
+     mpp_pe, lowercase, get_unit, &
      check_nml_error, stdlog, mpp_root_pe
+use fms_io_mod, only : get_file_name
 
-     use time_manager_mod, only : time_type, set_date, get_date, set_time, &
+use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
      operator(//), operator(==), days_in_year, get_time
 use horiz_interp_mod, only : horiz_interp_init
@@ -39,7 +40,6 @@ use land_tile_mod, only : land_tile_map, &
      erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat, &
      empty
-use land_tile_io_mod, only : print_netcdf_error
 use land_tile_diag_mod, only : cmor_name
 
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
@@ -135,33 +135,6 @@ integer :: &
 ! LU types it lists the corresponding LUMIP type.
 ! do we need to add irrigation here?
 integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB, LUMIP_PST]
-logical :: close_state_file = .false.
-
-! ---- namelist variables ---------------------------------------------------
-logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
-character(len=1024) :: input_file  = '' ! input data set of transition dates
-character(len=1024) :: state_file  = '' ! input data set of LU states (for initial transition only)
-character(len=1024) :: static_file = '' ! static data file, for input land fraction
-character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
-! distribute_transitions sets how the land use transitions are distributed among
-! tiles within grid cells. 'lm3' is traditional (transitions applied to every
-! tile in equal measure, except secondary-to-secondary); 'min-tiles' applies
-! transitions to tiles in the order of priority, thereby minimizing the number
-! of resulting tiles
-logical :: rangeland_is_pasture = .FALSE. ! if true, rangeland is combined with pastures.
-! This only applies to luh2 transitions, since there is no rangeland in luh1 anyway.
-character(len=16)  :: distribute_transitions  = 'lm3' ! or 'min-n-tiles'
-! sets how to handle transition overshoot: that is, the situation when transition
-! is larger than available area of the given land use type.
-character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
-real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
-! specifies how to handle non-conservation
-character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
-
-namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
-     rangeland_is_pasture, distribute_transitions, &
-     overshoot_handling, overshoot_tolerance, &
-     conservation_handling
 
 ! variables for irrigation
 type(varset_T) :: input_irrig!, input_flood(1) ! input irrigation area
@@ -199,7 +172,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   type(land_tile_enum_type) :: ce
   logical :: exists
   character(len=nf90_max_name) :: name
-  type(FmsNetcdfFile_t) :: fileobj_static
   integer :: ndims
 
   if(module_is_initialized) return
@@ -209,13 +181,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
 
   call horiz_interp_init()
   call transition_io_init()
-
-  read (input_nml_file, nml=landuse_nml, iostat=io)
-  ierr = check_nml_error(io, 'landuse_nml')
-  if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=landuse_nml)
-  endif
 
   ! read restart file, if any
   if (file_exists('INPUT/landuse.res')) then
