@@ -51,11 +51,12 @@ module river_mod
   use fms_mod,             only : check_nml_error, string, get_unit
   use fms_mod,             only : CLOCK_FLAG_DEFAULT, error_mesg
   use fms_io_mod,          only : get_instance_filename
-  use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
-                         register_restart_field, variable_exists, register_field, &
-                         read_restart, close_file, write_data, &
-                         get_global_io_domain_indices, FmsNetcdfFile_t, &
-                         get_variable_size, read_data, get_variable_num_dimensions, unlimited
+  use fms2_io_mod, only: FmsNetcdfDomainFile_t, FmsNetcdfFile_t, &
+                         file_exists, variable_exists, open_file, close_file, &
+                         get_variable_size, get_variable_num_dimensions, unlimited, &
+                         register_axis, register_restart_field, register_field, &
+                         read_restart, read_data, write_data, &
+                         get_global_io_domain_indices
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
   use data_override_mod,   only : data_override
@@ -1705,23 +1706,27 @@ end subroutine groundwater_abstraction
     where (River%So .LT. 0.0) River%So = Somin
     call close_file(fileobj)
 
-    if(file_exists(river_threshold_file))then
-      call read_field(river_threshold_file, 'Threshold', threshold) !kg/m2
-      threshold = threshold*lnd%ug_cellarea/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
-      where (threshold<0.) threshold = 0.
-      call mpp_pass_UG_to_SG(lnd%ug_domain,threshold,River%threshold)
-    else
-      River%threshold = 0.
+    exists = open_file(fileobj, river_threshold_file, "read")
+    if(exists)then
+       call read_field(fileobj, 'Threshold', threshold) !kg/m2
+       threshold = threshold*lnd%ug_cellarea/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+       where (threshold<0.0) threshold = 0.0
+       call mpp_pass_UG_to_SG(lnd%ug_domain,threshold,River%threshold)
+     else
+       River%threshold = 0.0
     endif
+    call close_file(fileobj)
 
-    if(file_exists(env_flow_file))then
-      call read_field(env_flow_file, 'Env_flow', env_flow) !kg/(m2 s)
-      env_flow = env_flow*lnd%ug_cellarea/DENS_H2O !kg/(m2 s) * m2 / kg/m3 = m3/s
-      where (env_flow<0.) env_flow = 0.
-      call mpp_pass_UG_to_SG(lnd%ug_domain,env_flow,River%env_flow)
+    exists = open_file(fileobj, env_flow_file, "read")
+    if(exists)then
+       call read_field(fileobj, 'Env_flow', env_flow) !kg/(m2 s)
+       env_flow = env_flow*lnd%ug_cellarea/DENS_H2O !kg/(m2 s) * m2 / kg/m3 = m3/s
+       where (env_flow<0.0) env_flow = 0.0
+       call mpp_pass_UG_to_SG(lnd%ug_domain,env_flow,River%env_flow)
     else
-      River%env_flow = 0.
+       River%env_flow = 0.0
     endif
+    call close_file(fileobj)
 
     deallocate(lake_frac)
 
