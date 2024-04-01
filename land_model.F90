@@ -303,7 +303,8 @@ integer :: &
   id_snow_depth, id_snow_liq, id_snow_ice, &
   id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit, &
   id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om, &
-  id_snow_avrg_bc_tot, id_snow_avrg_md_tot, id_snow_avrg_om_tot
+  id_snow_avrg_bc_tot, id_snow_avrg_md_tot, id_snow_avrg_om_tot, &
+  id_snow_refl_dir, id_snow_refl_dif 
   ! ==================            End of new snowpack diag fields      ===================
 
 
@@ -4025,6 +4026,10 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   call send_tile_data(id_snow_depth, max(snow_depth, 0.0), tile%diag)  ! //TODO duplicate diag var, get rid of one ! EZSNOW
 
+  ! EZSNOW added for saf
+  call send_tile_data(id_snow_refl_dir, snow_refl_dir, tile%diag)
+  call send_tile_data(id_snow_refl_dif, snow_refl_dif, tile%diag)
+
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
 
@@ -4745,6 +4750,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_subs_refl_dif = register_tiled_diag_field(module_name, 'subs_refl_dif', &
        (/id_ug, id_band/), time, &
        'substrate reflectivity for diffuse light',missing_value=-1.0)
+  id_snow_refl_dir = register_tiled_diag_field(module_name, 'snow_refl_dir', & ! EZSNOW added
+       (/id_ug, id_band/), time, &
+       'snow reflectivity for direct light',missing_value=-1.0)
+  id_snow_refl_dif = register_tiled_diag_field(module_name, 'snow_refl_dif', & ! EZSNOW added
+       (/id_ug, id_band/), time, &
+       'snow reflectivity for diffuse light',missing_value=-1.0)
   id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', axes, time, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
