@@ -23,7 +23,7 @@ use vegn_data_mod, only : &
      landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
-use snow_tile_mod, only : snow_tile_heat
+! use snow_tile_mod, only : snow_tile_heat ! EZSNOW
 use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
@@ -547,7 +547,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
+   !   if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
+     if(associated(ptr%snow)) snow_heat0 = snow_heat0 + ptr%snow%snow_tile_heat()*ptr%frac ! EZSNOW
   enddo
 
   ! calculate the area that can participate in land transitions
@@ -695,10 +696,13 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%soil)) soil_heat1 = soil_heat1 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
+     ! if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
+     if(associated(ptr%snow)) snow_heat1 = snow_heat1 + ptr%snow%snow_tile_heat()*ptr%frac ! EZSNOW
   enddo
-  call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
-  call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
+    ! EZSNOW //FIXME: I have temporarily removed checks as snow merging tiles can chance ice and water, but not their total [not currently used]
+  call check_conservation ('liquid + frozen water', lmass0+fmass0, lmass1+fmass1, 1e-6) ! EZSNOW
+!   call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
+!   call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
   call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
   call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
 ! heat content of vegetation may not conserve because of the cohort merging issues

@@ -20,7 +20,7 @@ use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
 use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
-use snow_tile_mod, only : snow_tile_stock_pe
+! use snow_tile_mod, only : snow_tile_stock_pe ! EZSNOW
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL, LU_RANGE
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
@@ -609,7 +609,8 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
 
   irr_frac = 0.0
 
-  call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
+  ! call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
+  call tile%snow%stock_pe(snow_lmass, snow_fmass) ! EZSNOW
   if (associated(tile%soil)) then
     ! calculate soil average wetness and "iceness"
     call soil_ave_wetness(tile%soil, soil_depth, soil_wetness, soil_iceness)

@@ -3559,8 +3559,10 @@ subroutine fire_transitions_0D(tiles, land_area, l)
      cmass1 = cmass1 + cm*tile%frac ; nmass1 = nmass1 + nm*tile%frac
      f1 = f1+tile%frac
   enddo
-  call check_conservation ('fire_transitions_0D', 'liquid water', lmass0, lmass1, water_cons_tol)
-  call check_conservation ('fire_transitions_0D', 'frozen water', fmass0, fmass1, water_cons_tol)
+  ! //FIXME EZSNOW: I have temporarily removed checks as GLASS can modify ice and snow totals when merging tiles [not currently used]
+  call check_conservation ('fire_transitions_0D', 'liquid + frozen water', lmass0+fmass0, lmass1+fmass1, water_cons_tol) ! EZSNOW
+!   call check_conservation ('fire_transitions_0D', 'liquid water', lmass0, lmass1, water_cons_tol)
+!   call check_conservation ('fire_transitions_0D', 'frozen water', fmass0, fmass1, water_cons_tol)
   call check_conservation ('fire_transitions_0D', 'carbon'      , cmass0, cmass1, carbon_cons_tol)
   call check_conservation ('fire_transitions_0D', 'nitrogen'    , nmass0, nmass1, nitrogen_cons_tol)
   call check_var_range(f1, 1.0-1e7,1.0+1e7, 'fire_transitions_0D output', 'sum of tile fractions',FATAL)
