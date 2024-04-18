@@ -75,9 +75,8 @@ use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_cover_cold_start, &
                           glac_tile_stock_pe, glac_tile_heat, glac_roughness
-use land_numerics_mod, only : land_numerics_init, ludcmp, lubksb, lubksb_and_improve, nearest, &
-use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
-     horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
+use land_numerics_mod, only : land_numerics_init, ludcmp, lubksb, lubksb_and_improve, &
+     nearest, horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
 use land_io_mod, only : read_land_io_namelist, input_buf_size
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
