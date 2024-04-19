@@ -1,13 +1,9 @@
 module gl_snow_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog, error_mesg, FATAL, NOTE
+use fms_mod, only : FATAL
 use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
@@ -90,7 +86,7 @@ function gl_snow_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = 0 ; if(present(tag)) ptr%tag = tag
 
-  ! allocate also fields for old snow just in case we need to read them 
+  ! allocate also fields for old snow just in case we need to read them
   ! from old restart - deallocate after reading restart
   ! allocate(ptr%ws(num_l))
   ! allocate(ptr%wl(num_l))
@@ -133,7 +129,7 @@ end subroutine gl_delete_snow_tile
 function gl_snow_tiles_can_be_merged(snow1,snow2) result(response)
   logical :: response
   type(gl_snow_tile_type), intent(in) :: snow1,snow2
-  response = .TRUE. 
+  response = .TRUE.
 end function gl_snow_tiles_can_be_merged
 
 
@@ -145,7 +141,7 @@ subroutine gl_merge_snow_tiles_wrapper(snow2, w2, snow1, w1)
   select type (snow1)
   type is (gl_snow_tile_type)
       call gl_merge_snow_tiles(snow2, w2, snow1, w1)
-  class default 
+  class default
   call land_error_message('gl_merge_snow_tiles_wrapper in gl_snow_tile_mod: type is incorrect!', FATAL)
   end select
 end subroutine gl_merge_snow_tiles_wrapper
@@ -188,7 +184,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
   real, dimension(3) :: temp_lost_im, temp_lost_em
   real, dimension(3) :: final_lost_im, final_lost_em
   real temp_lost_wl, temp_lost_ws, temp_lost_heat, temp_density, temp_lost_dz
-  real temp_lost_age_w, temp_lost_sph_w, temp_lost_optd_w, temp_lost_dendr_w 
+  real temp_lost_age_w, temp_lost_sph_w, temp_lost_optd_w, temp_lost_dendr_w
   real true_heat_3, fict_heat_3, orig_heat_1, orig_heat_2
   integer ill
   logical use_first_tile
@@ -196,7 +192,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
 
   snow1 = snow1ez%sp
   snow2 = snow2ez%sp
-  
+
   lai1 = sum(snow1ez%sp%lai_im() + snow1ez%sp%lai_em())
   lai2 = sum(snow2ez%sp%lai_im() + snow2ez%sp%lai_em())
   wat1 = snow1ez%sp%SWE()
@@ -213,12 +209,12 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
   minc_nlayers = min(snow1%nlayers, snow2%nlayers)
 
   snow3%nlayers = new_nlayers
-  snow3%topwater = x1 * snow1%topwater + x2 * snow2%topwater 
-  snow3%topwheat = x1 * snow1%topwheat + x2 * snow2%topwheat 
-  snow3%topsnowdeficit = x1 * snow1%topsnowdeficit + x2 * snow2%topsnowdeficit 
-  snow3%topsnowheatdeficit = x1 * snow1%topsnowheatdeficit + x2 * snow2%topsnowheatdeficit 
+  snow3%topwater = x1 * snow1%topwater + x2 * snow2%topwater
+  snow3%topwheat = x1 * snow1%topwheat + x2 * snow2%topwheat
+  snow3%topsnowdeficit = x1 * snow1%topsnowdeficit + x2 * snow2%topsnowdeficit
+  snow3%topsnowheatdeficit = x1 * snow1%topsnowheatdeficit + x2 * snow2%topsnowheatdeficit
 
-  snow3%beta_rad = x1 * snow1%beta_rad + x2 * snow2%beta_rad 
+  snow3%beta_rad = x1 * snow1%beta_rad + x2 * snow2%beta_rad
 
     allocate(snow3%snow(new_nlayers)) ! ok also in case of zero size? move later?
     ! allocate(snowt(new_nlayers)) ! ok also in case of zero size? move later?
@@ -245,7 +241,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
         snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x1
       enddo
     enddo
-    
+
 
   else if ((snow1%nlayers==0).and.(snow2%nlayers>0)) then
     snow3%snow = snow2%snow
@@ -264,7 +260,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
     if(is_watch_cell()) then
       write(*,*) '#### gl_snow_tile - merging tiles glass checkpoint 1 ####'
       write(*,*) "case of both snowpacks with non-zero snow layers"
-      write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2 
+      write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2
       ! call snow1%print()
       ! write(*,*) "Second snow object:"
       ! call snow2%print()
@@ -283,22 +279,22 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
           snow3%snow(il)%wc_im(it) = snow1%snow(il)%wc_im(it) * x1 + snow2%snow(il)%wc_im(it) * x2
         enddo
         ! intensive quantities to be weight - averaged based on solid mass:
-        snow3%snow(il)%age = ( snow1%snow(il)%age * snow1%snow(il)%ws * x1 + snow2%snow(il)%age * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2) 
-        snow3%snow(il)%sph = ( snow1%snow(il)%sph * snow1%snow(il)%ws * x1 + snow2%snow(il)%sph * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2) 
-        snow3%snow(il)%optd = ( snow1%snow(il)%optd * snow1%snow(il)%ws * x1 + snow2%snow(il)%optd * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2) 
-        snow3%snow(il)%dendr = ( snow1%snow(il)%dendr * snow1%snow(il)%ws * x1 + snow2%snow(il)%dendr * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2) 
+        snow3%snow(il)%age = ( snow1%snow(il)%age * snow1%snow(il)%ws * x1 + snow2%snow(il)%age * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2)
+        snow3%snow(il)%sph = ( snow1%snow(il)%sph * snow1%snow(il)%ws * x1 + snow2%snow(il)%sph * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2)
+        snow3%snow(il)%optd = ( snow1%snow(il)%optd * snow1%snow(il)%ws * x1 + snow2%snow(il)%optd * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2)
+        snow3%snow(il)%dendr = ( snow1%snow(il)%dendr * snow1%snow(il)%ws * x1 + snow2%snow(il)%dendr * snow2%snow(il)%ws * x2) / (snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2)
         ! heat balance of the two layers:
         ! do not change phases here -
-        ! snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2) / (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2) 
+        ! snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2) / (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2)
         !
-        ! snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2) / & 
-        !            (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2 + snow1%snow(il)%wl * x1 * HLF + snow2%snow(il)%wl * x2 * HLF ) 
-        ! 
-                  !  snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + snow1%snow(il)%wl * x1 * HLF + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2 + snow2%snow(il)%wl * x2 * HLF ) / & 
-                  !  (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2 + snow1%snow(il)%wl * x1 * HLF + snow2%snow(il)%wl * x2 * HLF ) 
+        ! snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2) / &
+        !            (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2 + snow1%snow(il)%wl * x1 * HLF + snow2%snow(il)%wl * x2 * HLF )
+        !
+                  !  snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + snow1%snow(il)%wl * x1 * HLF + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2 + snow2%snow(il)%wl * x2 * HLF ) / &
+                  !  (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2 + snow1%snow(il)%wl * x1 * HLF + snow2%snow(il)%wl * x2 * HLF )
 
-                   snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2 ) / & 
-                   (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2  ) 
+                   snow3%snow(il)%T = TFREEZE + ( (snow1%snow(il)%T - TFREEZE) * snow1%snow(il)%hCap() * x1 + (snow2%snow(il)%T-TFREEZE) * snow2%snow(il)%hCap() * x2 ) / &
+                   (snow1%snow(il)%hCap() * x1 + snow2%snow(il)%hCap() * x2  )
         ! end case of shared layer index
       else
         ! only one of two tiles has this layer
@@ -316,7 +312,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
             snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x1
             snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x1
           enddo
-        
+
         else if (il .le. snow2%nlayers) then
           snow3%snow(il)    = snow2%snow(il)
           snow3%snow(il)%T    = snow2%snow(il)%T
@@ -372,8 +368,8 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
         ! note: this can give rise to unpysical ice / liquid water equilibrium T
         ! The equilibrium balance between phases will be done at next snow step
         ! not here (it would potentially change the amount of liquid and ice in the snowpack)
-        temp_lost_dz = temp_lost_dz + snow3%snow(il)%dz 
-        temp_lost_ws = temp_lost_ws + snow3%snow(il)%ws 
+        temp_lost_dz = temp_lost_dz + snow3%snow(il)%dz
+        temp_lost_ws = temp_lost_ws + snow3%snow(il)%ws
         temp_lost_wl = temp_lost_wl + snow3%snow(il)%wl
         temp_lost_em = temp_lost_em + snow3%snow(il)%wc_em
         temp_lost_im = temp_lost_im + snow3%snow(il)%wc_im
@@ -422,7 +418,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       if(is_watch_cell()) then
         write(*,*) '#### gl_snow_tile - merging tiles glass checkpoint 3 ####'
         write(*,*) "3 - case of all layers being too thin and being removed"
-        write(*,*) "3 - fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2 
+        write(*,*) "3 - fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2
       endif
       ! case in which all layers are being removed ( ws < threshold for all)
       ! final_nlayers=1
@@ -441,7 +437,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       snow3%nlayers = 1
       ! now to avoid numerical instabilities, if there is very little snow
       ! assign to resulting snow the properties of first [largest] tile
-      ! and add the remaining heat to the topwater heat (topwheat) 
+      ! and add the remaining heat to the topwater heat (topwheat)
       if (temp_lost_ws > min_snow_mass_merging) then
         snow3%snow(1)%age = (temp_lost_age_w) / (temp_lost_ws)
         snow3%snow(1)%sph = (temp_lost_sph_w) / (temp_lost_ws)
@@ -449,7 +445,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
         snow3%snow(1)%dendr = ( temp_lost_dendr_w) / ( temp_lost_ws)
         snow3%snow(1)%T = TFREEZE + ( temp_lost_heat   )/( CSW*temp_lost_ws + CLW*temp_lost_wl)
       else
-        
+
         ! determine from which tile properties are taken
         if (snow2%nlayers==0) then
           use_first_tile = .true.
@@ -462,7 +458,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
           else
             use_first_tile = .false.
           endif
-        endif  
+        endif
         if (use_first_tile) then ! get the properties from first tile, surface layer
           snow3%snow(1)%age   = snow1%snow(1)%age
           snow3%snow(1)%sph   = snow1%snow(1)%sph
@@ -551,7 +547,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       total_heat = total_heat + snow3%snow(il)%heat()
       total_mass = total_mass + snow3%snow(il)%ws + snow3%snow(il)%wl
     enddo
-    ! total_heat_loss = 
+    ! total_heat_loss =
     DEALLOCATE(snow3%snow)
     snow3%nlayers = 0
     ! snow3%topsnowdeficit = 0.0 ! do not modify this term
@@ -575,12 +571,12 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
 
     write(*,*) '#### gl_snow_tile - merging tiles glass checkpoint 4 ####'
     write(*,*) "after having removed the layers that are too thin ..."
-    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2 
+    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2
     write(*,*) "SWE1, SWE2, SWE3 = ", snow1%SWE(), snow2%SWE(), snow3%SWE()
     write(*,*) "SWE3 - SWE2*x2 - SWE1*x1 = ", - snow1%SWE() * x1 - snow2%SWE() * x2 + snow3%SWE()
     write(*,*) "heat1, heat2, heat3 = ", snow1%heat(), snow2%heat(), snow3%heat()
     write(*,*) "heat3 - heat2*x2 - heat1*x1 = ", - snow1%heat() * x1 - snow2%heat() * x2 + snow3%heat()
-    write(*,*) "snow1%nlayers, snow2%nlayers, minc_nlayers, new_nlayers = ", snow1%nlayers, snow2%nlayers, minc_nlayers, new_nlayers 
+    write(*,*) "snow1%nlayers, snow2%nlayers, minc_nlayers, new_nlayers = ", snow1%nlayers, snow2%nlayers, minc_nlayers, new_nlayers
     write(*,*) "[number of layers in snow3 including thin layers to be removed] new_nlayers = ",new_nlayers
     write(*,*) "[number of layers in snow3 after removing thin layers] final_nlayers = ", final_nlayers
     write(*,*) "temp_lost_ws = ", temp_lost_ws
@@ -608,7 +604,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
   if(dlai>1E-6) then
     write(*,*) "snow1%nlayers, snow2%nlayers", snow1%nlayers, snow2%nlayers
     write(*,*) "Initial numbers of layers: snow1%nl, snow2%nl, tot_lai_loss, lai3 = ", snow1%nlayers, snow2%nlayers, total_lai_loss, lai3
-    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2 
+    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2
     call snow1%print()
     call snow2%print()
     call snow3%print()
@@ -617,14 +613,14 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
   if(dwat>1E-6) then
     write(*,*) "snow1%nlayers, snow2%nlayers", snow1%nlayers, snow2%nlayers
     write(*,*) "Initial numbers of layers: snow1%nl, snow2%nl, tot_lai_loss = ", snow1%nlayers, snow2%nlayers, total_lai_loss
-    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2 
+    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2
     call snow1%print()
     call snow2%print()
     call snow3%print()
     call land_error_message("error in gl_merge_snow_tiles in gl_snow_tile_mod : total water non conserved merging snow tiles!", FATAL)
   endif
   if(dheat>1E-6) then
-    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2 
+    write(*,*) "fractions: w1, w2, x1, x2 = ", w1, w2, x1, x2
     write(*,*) "snow1%nlayers, snow2%nlayers", snow1%nlayers, snow2%nlayers
     write(*,*) "Initial numbers of layers: snow1%nl, snow2%nl, tot_lai_loss = ", snow1%nlayers, snow2%nlayers, total_lai_loss
     write(*,*) "heat1, heat2, heat3 = ", snow1%heat(), snow2%heat(), snow3%heat()
@@ -682,7 +678,7 @@ subroutine gl_snow_tile_stock_pe (snow, twd_liq, twd_sol  )
 end subroutine gl_snow_tile_stock_pe
 
 
-real function gl_snow_tile_heat (snow) result(heat) 
+real function gl_snow_tile_heat (snow) result(heat)
   class(gl_snow_tile_type),  intent(in)    :: snow
   integer :: il
   heat = 0
@@ -710,8 +706,8 @@ subroutine gl_snow_get_sfc_temp(snow, snow_T)
   class(gl_snow_tile_type), intent(in) :: snow
   real, intent(out) :: snow_T
   if (snow%sp%nlayers > 0) then
-    snow_T = snow%sp%snow(1)%T 
-    ! call snow%sp%nearsurf_properties() 
+    snow_T = snow%sp%snow(1)%T
+    ! call snow%sp%nearsurf_properties()
     ! snow_T = snow%sp%nearsurf_T
   else
     call land_error_message("gl_snow_get_sfc_temp in gl_snow_tile.F90:: sfc temperature requested, but no snow on the ground!", FATAL)

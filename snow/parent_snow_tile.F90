@@ -1,13 +1,9 @@
 module parent_snow_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog, FATAL, NOTE
+use fms_mod, only : check_nml_error, stdlog, FATAL, NOTE
 use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
@@ -19,12 +15,12 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: read_snow_data_namelist 
-public :: read_snow_data_namelist_brief 
-public :: snow_data_thermodynamics 
-public :: snow_data_hydraulics 
-public :: snow_data_area 
-public :: snow_radiation 
+public :: read_snow_data_namelist
+public :: read_snow_data_namelist_brief
+public :: snow_data_thermodynamics
+public :: snow_data_hydraulics
+public :: snow_data_area
+public :: snow_radiation
 public :: mc_fict, z0_momentum, k_over_B, num_l, dz, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
@@ -153,21 +149,21 @@ abstract interface
     integer, intent(in) :: i
   end function func_snow_get_Ti
 
-  subroutine func_snow_set_wli(snow, i, v) 
+  subroutine func_snow_set_wli(snow, i, v)
     import :: snow_tile_type
     class(snow_tile_type), intent(inout) :: snow
     integer, intent(in) :: i
     real, intent(in) :: v
   end subroutine func_snow_set_wli
 
-  subroutine func_snow_set_wsi(snow, i, v) 
+  subroutine func_snow_set_wsi(snow, i, v)
     import :: snow_tile_type
     class(snow_tile_type), intent(inout) :: snow
     integer, intent(in) :: i
     real, intent(in) :: v
   end subroutine func_snow_set_wsi
 
-  subroutine func_snow_set_Ti(snow, i, v) 
+  subroutine func_snow_set_Ti(snow, i, v)
     import :: snow_tile_type
     class(snow_tile_type), intent(inout) :: snow
     integer, intent(in) :: i
@@ -278,21 +274,8 @@ subroutine read_snow_data_namelist_brief()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snow_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snow_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   unit=stdlog()
   write(unit, nml=snow_data_nml)
 
@@ -320,21 +303,8 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snow_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snow_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   unit=stdlog()
   write(unit, nml=snow_data_nml)
 

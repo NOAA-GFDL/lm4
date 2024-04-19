@@ -3,14 +3,12 @@ module snicar_mod
 
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
-#ifdef INTERNAL_FILE_NML
+
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-use fms_mod, only : file_exist, check_nml_error, &
-   close_file, stdlog, read_data, error_mesg, FATAL, WARNING, NOTE, field_size, write_data, mpp_pe, mpp_root_pe
-use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message 
+
+use fms_mod, only : check_nml_error, &
+   stdlog, read_data, error_mesg, FATAL, WARNING, NOTE, mpp_pe, mpp_root_pe
+use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message
 use land_data_mod, only : lnd, log_version
 use snow_constants_mod
 use constants_mod, only : PI
@@ -20,15 +18,15 @@ use snowpack_mod
 implicit none
 private
 
-public :: SNICAR_RT           
-public :: SNICAR_AD_RT        
-public :: read_snicar_optics_data 
-public :: compute_snicar_albedo 
+public :: SNICAR_RT
+public :: SNICAR_AD_RT
+public :: read_snicar_optics_data
+public :: compute_snicar_albedo
 public :: read_snow_snicar_namelist
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'snicar_mod' 
+character(len=*), parameter :: module_name = 'snicar_mod'
 #include "../../shared/version_variable.inc"
 
 
@@ -55,7 +53,7 @@ integer, parameter :: num_nourbanc = 1 ! EZDEV
 
   integer,  public, parameter :: sno_nbr_aer =   8        ! number of aerosol species in snowpack
   logical,  public, parameter :: DO_SNO_OC =    .false.   ! parameter to include organic carbon (OC)
-  logical,  public, parameter :: DO_SNO_AER =   .true.    ! parameter to include aerosols 
+  logical,  public, parameter :: DO_SNO_AER =   .true.    ! parameter to include aerosols
   integer,  parameter :: numrad_snw  =   5               ! number of spectral bands used in snow model [nbr]
   integer,  parameter :: nir_bnd_bgn =   2               ! first band index in near-IR spectrum [idx]
   integer,  parameter :: nir_bnd_end =   5               ! ending near-IR band index [idx]
@@ -131,21 +129,8 @@ subroutine read_snow_snicar_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_snicar_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_snicar_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snow_snicar_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snow_snicar_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=snow_snicar_nml)
@@ -235,7 +220,7 @@ end subroutine read_snow_snicar_namelist
            call SNICAR_RT(s%nlayers, flg_snw_ice, (/ cosz /), flg_slr, &      ! INPUT
                              wlmat, wsmat, remat, trmat, subs_adif_mat, &     ! INPUT
                              albsnd, flx_absd_snw)                            ! OUTPUT
-       endif 
+       endif
        flg_slr = 2; ! diffuse light
        if (use_snicar_ad) then
            call SNICAR_AD_RT(s%nlayers, flg_snw_ice, (/ cosz /), flg_slr, &   ! INPUT
@@ -245,7 +230,7 @@ end subroutine read_snow_snicar_namelist
            call SNICAR_RT(s%nlayers, flg_snw_ice, (/ cosz /), flg_slr, &      ! INPUT
                              wlmat, wsmat, remat, trmat, subs_adif_mat, &     ! INPUT
                              albsni, flx_absi_snw)                            ! OUTPUT
-       endif 
+       endif
 
 
    ! write(*,*) "COMPUTING SNICAR SNOW ALBEDO!"
@@ -260,8 +245,8 @@ end subroutine read_snow_snicar_namelist
    ! write(*,*) "snicar NIR diffuse absorbed flux fractions = ",albsni(1,2) + sum(flx_absi_snw(1, :, 2))
 
          ! SAVE SNICAR RESULTS IN SNOWPACK OBJECT
-         s%snow_refl_dir = albsnd(1,:) 
-         s%snow_refl_dif = albsni(1,:) 
+         s%snow_refl_dir = albsnd(1,:)
+         s%snow_refl_dif = albsni(1,:)
          if (allocated(s%sw_frac_dir)) then
             ! write(*,*) "original size frac_dir = ", size(s%sw_frac_dir), NBANDS*s%nlayers
             if (size(s%sw_frac_dir)<NBANDS*s%nlayers) then
@@ -285,8 +270,8 @@ end subroutine read_snow_snicar_namelist
          sum_absi_snw = 0.0
          do il=1, NL
             do ib=1,NBANDS
-               sum_absd_snw(ib) = sum_absd_snw(ib) + flx_absd_snw(1, il, ib) 
-               sum_absi_snw(ib) = sum_absi_snw(ib) + flx_absi_snw(1, il, ib) 
+               sum_absd_snw(ib) = sum_absd_snw(ib) + flx_absd_snw(1, il, ib)
+               sum_absi_snw(ib) = sum_absi_snw(ib) + flx_absi_snw(1, il, ib)
             enddo
          enddo
          do il=1, NL
@@ -294,15 +279,15 @@ end subroutine read_snow_snicar_namelist
                if (sum_absd_snw(ib) >(1E-7)) then
                   s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) / sum_absd_snw(ib)
                else
-                  s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
+                  s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib)
                endif
                if (sum_absi_snw(ib) >(1E-7)) then
                   s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) / sum_absi_snw(ib)
                else
-                  s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
+                  s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib)
                endif
-               ! s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib) 
-               ! s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib) 
+               ! s%sw_frac_dir(il,ib) = flx_absd_snw(1, il, ib)
+               ! s%sw_frac_dif(il,ib) = flx_absi_snw(1, il, ib)
             enddo
          enddo
          ! write(*,*) "end SNICAR albedo subroutine"
@@ -416,7 +401,7 @@ end subroutine read_snow_snicar_namelist
     integer :: n                                  ! tridiagonal matrix index [idx]
     integer :: m                                  ! secondary layer index [idx]
     integer :: nint_snw_rds_min                   ! nearest integer value of snw_rds_min
-    
+
     real:: F_direct(-nlevsno+1:0)             ! direct-beam radiation at bottom of layer interface (lyr) [W/m^2]
     real:: F_net(-nlevsno+1:0)                ! net radiative flux at bottom of layer interface (lyr) [W/m^2]
     real:: F_abs(-nlevsno+1:0)                ! net absorbed radiative energy (lyr) [W/m^2]
@@ -1151,8 +1136,8 @@ end subroutine read_snow_snicar_namelist
   !-----------------------------------------------------------------------
      subroutine read_snicar_optics_data()
 
-     integer :: ier      
-     logical :: readvar      
+     integer :: ier
+     logical :: readvar
       ! write(*,*) "Reading SNICAR optics data"
       ! LM4p2 READ:
       ! direct-beam snow Mie parameters:
@@ -1165,7 +1150,7 @@ end subroutine read_snow_snicar_namelist
       call read_data( ncid, 'ext_cff_mss_ice_dfs', ext_cff_mss_snw_dfs, no_domain=.true.)
 
       if (snicar_atm_type > 0)then
-         call read_data( ncid, 'flx_wgt_dir', flx_wgt_dir, no_domain=.true.) ! direct-beam incident spectral flux: 
+         call read_data( ncid, 'flx_wgt_dir', flx_wgt_dir, no_domain=.true.) ! direct-beam incident spectral flux:
          call read_data( ncid, 'flx_wgt_dif', flx_wgt_dif, no_domain=.true.) ! diffuse incident spectral flux:
       endif
 
@@ -1265,7 +1250,7 @@ end subroutine read_snow_snicar_namelist
      ! Dang et al., Inter-comparison and improvement of 2-stream shortwave
      ! radiative transfer models for unified treatment of cryospheric surfaces
      ! in ESMs, in review, 2019
- 
+
      integer       , intent(in)  :: nlevsno    ! number of layer in snowpack
      integer       , intent(in)  :: flg_snw_ice                                        ! flag: =1 when called from CLM, =2 when called from CSIM
      real          , intent(in)  :: coszen         ( 1: )                    ! cosine of solar zenith angle for next time step (col) [unitless]
@@ -1372,10 +1357,10 @@ end subroutine read_snow_snicar_namelist
      real:: &
          diam_ice  , & !
          fs_sphd  , & !
-         fs_hex0  , & ! 
-         fs_hex  , & ! 
-         fs_koch  , & ! 
-         AR_tmp  , & ! 
+         fs_hex0  , & !
+         fs_hex  , & !
+         fs_koch  , & !
+         AR_tmp  , & !
          g_ice_Cg_tmp(7)  , & !
          gg_ice_F07_tmp(7)  , & !
          g_ice_F07  , & !
@@ -1387,7 +1372,7 @@ end subroutine read_snow_snicar_namelist
          C_dust_total !! dust concentration
      integer :: slr_zen
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    
+
      ! SNICAR_AD new variables, follow sea-ice shortwave conventions
      real:: &
         trndir(-nlevsno+1:1)  , & ! solar beam down transmission from top
@@ -1529,7 +1514,7 @@ end subroutine read_snow_snicar_namelist
       ! g_snw asymmetry factor parameterization coefficients (6 bands) from
       !  Table 3 & Eqs. 6-7 in He et al. (2017)
       ! assume same values for 4-5 um band, which leads to very small biases (<3%)
-      
+
       real :: g_b2(7)
       real :: g_b1(7)
       real :: g_b0(7)
@@ -1551,7 +1536,7 @@ end subroutine read_snow_snicar_namelist
 
    real :: h2osno(num_nourbanc)
    real :: snl(num_nourbanc)
-      
+
      ! Enforce expected array sizes
 
    !   associate(&
@@ -1592,8 +1577,8 @@ end subroutine read_snow_snicar_namelist
       ! snw_shp_lcl(:) = snow_shape_defined
       ! EZDEV - read level-by-level snow shape:
       snw_shp_lcl(:) = snw_shp(1,:)
-      snw_fs_lcl(:)  = 0. 
-      snw_ar_lcl(:)  = 0. 
+      snw_fs_lcl(:)  = 0.
+      snw_ar_lcl(:)  = 0.
       !data g_wvl(:) /0.25,0.70,1.41,1.90,2.50,3.50,4.00,5.00/ ! wavelength (um) division point
       !g_wvl_center = g_wvl(2:8)/2 + g_wvl(1:7)/2 ; ! center point for wavelength band
       data g_b0(:) /9.76029E-01,9.67798E-01,1.00111E+00,1.00224E+00,9.64295E-01,9.97475E-01,9.97475E-01/
@@ -1606,24 +1591,24 @@ end subroutine read_snow_snicar_namelist
       data g_F07_p2(:) /3.165543E-3,2.014810E-3,1.780838E-3,6.987734E-4,-1.882932E-2,-2.277872E-2,-2.277872E-2/
       data g_F07_p1(:) /1.140557E-1,1.143152E-1,1.143814E-1,1.071238E-1,1.353873E-1,1.914431E-1,1.914431E-1/
       data g_F07_p0(:) /5.292852E-1,5.425909E-1,5.601598E-1,6.023407E-1,6.473899E-1,4.634944E-1,4.634944E-1/
-      
+
       !!! BC internal mixing
       data BC_d0(:) /3.50098E-02,6.51688E-03,7.96544E-01/
       data BC_d1(:) /9.91050E-01,7.36315E-01,4.36649E-02/
       data BC_d2(:) /3.00370E+01,9.52134E+02,2.57288E+02/
-      
+
       !!! dust internal mixing
       data dust_clear_d0(:) /1.0413E+00,1.0168E+00,1.0189E+00/
       data dust_clear_d1(:) /1.0016E+00,1.0070E+00,1.0840E+00/
       data dust_clear_d2(:) /2.4208E-01,1.5300E-03,1.1230E-04/
-      
+
       data dust_cloudy_d0(:) /1.0388E+00,1.0167E+00,1.0189E+00/
       data dust_cloudy_d1(:) /1.0015E+00,1.0061E+00,1.0823E+00/
       data dust_cloudy_d2(:) /2.5973E-01,1.6200E-03,1.1721E-04/
 !!!!!!!!!!!!!
 
 
-      
+
       ! Loop over all non-urban columns
       ! (when called from CSIM, there is only one column)
        do fc = 1,num_nourbanc
@@ -1759,7 +1744,7 @@ end subroutine read_snow_snicar_namelist
                      flx_wgt(3) = 0.18099494230665
                      flx_wgt(4) = 0.12094898498813
                      flx_wgt(5) = 0.20453448749347
-                  else                 
+                  else
                      slr_zen = nint(acosd(coszen(c_idx)))
                      if (slr_zen>89) then
                         slr_zen = 89
@@ -1768,8 +1753,8 @@ end subroutine read_snow_snicar_namelist
                      flx_wgt(2) = flx_wgt_dir(snicar_atm_type, slr_zen+1, 2)
                      flx_wgt(3) = flx_wgt_dir(snicar_atm_type, slr_zen+1, 3)
                      flx_wgt(4) = flx_wgt_dir(snicar_atm_type, slr_zen+1, 4)
-                     flx_wgt(5) = flx_wgt_dir(snicar_atm_type, slr_zen+1, 5)  
-                     
+                     flx_wgt(5) = flx_wgt_dir(snicar_atm_type, slr_zen+1, 5)
+
                     ! write(iulog,*) "SNICAR_AD STATS: coszen(c_idx) (0)= ", coszen(c_idx) ! add by Dalei check
                    !  write(iulog,*) "SNICAR_AD STATS: slr_zen (0)= ", slr_zen ! add by Dalei check
                     ! write(iulog,*) "SNICAR_AD STATS: flx_wgt (2)= ", flx_wgt(2) ! add by Dalei check
@@ -1789,7 +1774,7 @@ end subroutine read_snow_snicar_namelist
                      flx_wgt(3) = flx_wgt_dif(snicar_atm_type, 3)
                      flx_wgt(4) = flx_wgt_dif(snicar_atm_type, 4)
                      flx_wgt(5) = flx_wgt_dif(snicar_atm_type, 5)
-                     
+
                      !write(iulog,*) "SNICAR_AD STATS: flx_wgt (0)= ", flx_wgt(2) ! add by Dalei check
                      !write(iulog,*) "SNICAR_AD STATS: flx_wgt (0)= ", flx_wgt(4) ! add by Dalei check
                   endif
@@ -1851,61 +1836,61 @@ end subroutine read_snow_snicar_namelist
                       enddo
                    endif
 
-  !!! Dalei Hao 
+  !!! Dalei Hao
                   ! shape-dependent asymetry factors (He et al., 2017)
                   do i=snl_top,snl_btm,1
                      if(snw_shp_lcl(i) == 2) then ! spheroid
-                     
+
                        diam_ice = 2.*snw_rds_lcl(i)
                         if(snw_fs_lcl(i) == 0) then
                            fs_sphd = 0.929
                         else
-                           fs_sphd = snw_fs_lcl(i)               
+                           fs_sphd = snw_fs_lcl(i)
                         endif
-                        fs_hex = 0.788 
+                        fs_hex = 0.788
                         if(snw_ar_lcl(i) == 0) then
                            AR_tmp = 0.5
                         else
-                           AR_tmp = snw_ar_lcl(i)              
+                           AR_tmp = snw_ar_lcl(i)
                         endif
                         g_ice_Cg_tmp = g_b0 * ((fs_sphd/fs_hex)**g_b1) * (diam_ice**g_b2) ! Eq.7, He et al. (2017)
-                        gg_ice_F07_tmp = g_F07_c0 + g_F07_c1 * AR_tmp + g_F07_c2 * (AR_tmp**2) ! Eqn. 3.1 in Fu (2007)                           
-            
+                        gg_ice_F07_tmp = g_F07_c0 + g_F07_c1 * AR_tmp + g_F07_c2 * (AR_tmp**2) ! Eqn. 3.1 in Fu (2007)
+
                      elseif(snw_shp_lcl(i) == 3) then ! hexagonal plate
                           diam_ice = 2.*snw_rds_lcl(i)
                         if(snw_fs_lcl(i) == 0) then
                            fs_hex0 = 0.788
                         else
-                           fs_hex0 = snw_fs_lcl(i)               
+                           fs_hex0 = snw_fs_lcl(i)
                         endif
-                        fs_hex = 0.788 
+                        fs_hex = 0.788
                         if(snw_ar_lcl(i) == 0) then
                            AR_tmp = 2.5
                         else
-                           AR_tmp = snw_ar_lcl(i)              
+                           AR_tmp = snw_ar_lcl(i)
                         endif
                         g_ice_Cg_tmp = g_b0 * ((fs_hex0/fs_hex)**g_b1) * (diam_ice**g_b2) ! Eq.7, He et al. (2017)
                         gg_ice_F07_tmp = g_F07_p0 + g_F07_p1 * log(AR_tmp) + g_F07_p2 * ((log(AR_tmp))**2) ! Eqn. 3.3 in Fu (2007)
-            
+
                      elseif(snw_shp_lcl(i) == 4) then ! koch snowflake
                      diam_ice = 2. * snw_rds_lcl(i) /0.544
                         if(snw_fs_lcl(i) == 0) then
                            fs_koch = 0.712
                         else
-                           fs_koch = snw_fs_lcl(i)               
+                           fs_koch = snw_fs_lcl(i)
                         endif
-                        fs_hex = 0.788 
+                        fs_hex = 0.788
                         if(snw_ar_lcl(i) == 0) then
                            AR_tmp = 2.5
                         else
-                           AR_tmp = snw_ar_lcl(i)              
+                           AR_tmp = snw_ar_lcl(i)
                         endif
-                        
+
                         g_ice_Cg_tmp = g_b0 * ((fs_koch/fs_hex)**g_b1) * (diam_ice**g_b2) ! Eq.7, He et al. (2017)
                         gg_ice_F07_tmp = g_F07_p0 + g_F07_p1 * log(AR_tmp) + g_F07_p2 * ((log(AR_tmp))**2) ! Eqn. 3.3 in Fu (2007)
-        
+
                      endif
-                     
+
                      ! 6 wavelength bands for g_ice to be interpolated into 480-bands of SNICAR
                      ! shape-preserving piecewise interpolation into 480-bands
                      if(snw_shp_lcl(i) > 1) then
@@ -1920,32 +1905,32 @@ end subroutine read_snow_snicar_namelist
                      if(bnd_idx == 1) then
                         g_Cg_intp = (g_ice_Cg_tmp(2)-g_ice_Cg_tmp(1))/(1.055-0.475)*(0.5-0.475)+g_ice_Cg_tmp(1);
                         gg_F07_intp = (gg_ice_F07_tmp(2)-gg_ice_F07_tmp(1))/(1.055-0.475)*(0.5-0.475)+gg_ice_F07_tmp(1);
-                     elseif(bnd_idx == 2) then 
+                     elseif(bnd_idx == 2) then
                         g_Cg_intp = (g_ice_Cg_tmp(2)-g_ice_Cg_tmp(1))/(1.055-0.475)*(0.85-0.475)+g_ice_Cg_tmp(1);
                         gg_F07_intp = (gg_ice_F07_tmp(2)-gg_ice_F07_tmp(1))/(1.055-0.475)*(0.85-0.475)+gg_ice_F07_tmp(1);
- 
-                     elseif(bnd_idx == 3) then 
+
+                     elseif(bnd_idx == 3) then
                         g_Cg_intp = (g_ice_Cg_tmp(3)-g_ice_Cg_tmp(2))/(1.655-1.055)*(1.1-1.055)+g_ice_Cg_tmp(2);
                         gg_F07_intp = (gg_ice_F07_tmp(3)-gg_ice_F07_tmp(2))/(1.655-1.055)*(1.1-1.055)+gg_ice_F07_tmp(2);
-                     elseif(bnd_idx == 4) then 
+                     elseif(bnd_idx == 4) then
                         g_Cg_intp = (g_ice_Cg_tmp(3)-g_ice_Cg_tmp(2))/(1.655-1.055)*(1.35-1.055)+g_ice_Cg_tmp(2);
                         gg_F07_intp = (gg_ice_F07_tmp(3)-gg_ice_F07_tmp(2))/(1.655-1.055)*(1.35-1.055)+gg_ice_F07_tmp(2);
                      elseif(bnd_idx == 5) then
                         g_Cg_intp = (g_ice_Cg_tmp(6)-g_ice_Cg_tmp(5))/(3.75-3.0)*(3.25-3.0)+g_ice_Cg_tmp(5);
                         gg_F07_intp = (gg_ice_F07_tmp(6)-gg_ice_F07_tmp(5))/(3.75-3.0)*(3.25-3.0)+gg_ice_F07_tmp(5);
                      endif
-      
+
                         g_ice_F07 = gg_F07_intp + (1. - gg_F07_intp) / ss_alb_snw_lcl(i) / 2. ! Eq.2.2 in Fu (2007)
                         g_ice = g_ice_F07 * g_Cg_intp ! Eq.6, He et al. (2017)
                         asm_prm_snw_lcl(i) = g_ice;
                      endif
-                     
-                     if(asm_prm_snw_lcl(i) > 0.99) then 
+
+                     if(asm_prm_snw_lcl(i) > 0.99) then
                       asm_prm_snw_lcl(i) = 0.99
-                     endif                        
-                      
+                     endif
+
                   enddo
-                  
+
                   !  aerosol species 1 optical properties
                   ss_alb_aer_lcl(1)        = ss_alb_bc1(bnd_idx)
                   asm_prm_aer_lcl(1)       = asm_prm_bc1(bnd_idx)
@@ -1994,23 +1979,23 @@ end subroutine read_snow_snicar_namelist
                    ! Weighted Mie parameters of each layer
                    do i=snl_top,snl_btm,1
 
-                    
+
                     if (is_BC_internal_mixing) then
-                    
+
                      if(bnd_idx < 4) then
                      ! R_1_omega: BC-induced enhancement in snow single-scattering coalbedo
                      ! R_1_omega from Eq.8b in He et al.(2017,JC) is based on BC Re=0.1um &
                      ! MAC=6.81 m2/g (@550 nm) & BC density=1.7g/cm3.
                      ! To be consistent with SNICAR default (BC MAC=7.5 m2/g @550nm), we
                      ! made adjustments on BC size & density as follows to get MAC=7.5m2/g.
-                     ! (1) We use BC Re=0.045um [geometric mean diameter=0.06um (Dentener et al.2006, 
+                     ! (1) We use BC Re=0.045um [geometric mean diameter=0.06um (Dentener et al.2006,
                      ! Yu and Luo,2009) & geometric std=1.5 (Flanner et al.2007;Aoki et al., 2011)]
                      ! (2) We tune BC density from 1.7 to 1.49 g/cm3 (Aoki et al., 2011) to match BC MAC=7.5 m2/g @550 nm. 100
                         C_BC_total = mss_cnc_aer_lcl(i,1) * 1.7/1.49 * 1.0E+09; ! kg/kg to ng/g
-                        
+
                         if (C_BC_total > 0) then
                            R_1_omega_tmp = BC_d0(bnd_idx) * ((C_BC_total + BC_d2(bnd_idx))**BC_d1(bnd_idx)) ! Eq. 8b in He et al.2017,JC
-                     ! Adust R_1_omega_tmp due to BC Re from 0.1 to 0.045um based on 
+                     ! Adust R_1_omega_tmp due to BC Re from 0.1 to 0.045um based on
                      ! Eq. 1 & Table S1 in He et al.2018 (GRL)
                            if(bnd_idx == 1) then
                               R_1_omega_tmp = (R_1_omega_tmp / ((0.1/0.05)**(-0.1866)))**((0.1/0.05)**0.1918)  ! visible
@@ -2021,10 +2006,10 @@ end subroutine read_snow_snicar_namelist
                            endif
                      ! new omega for entire BC-snow internal mixture
                            ss_alb_snw_lcl(i) = 1.0 - (1.0 - ss_alb_snw_lcl(i))*R_1_omega_tmp
-                                              
+
                         endif
                      endif
-                     
+
                      ss_alb_aer_lcl(1)     = 0.
                      asm_prm_aer_lcl(1)       = 0.
                      ext_cff_mss_aer_lcl(1)   = 0.
@@ -2039,15 +2024,15 @@ end subroutine read_snow_snicar_namelist
                            if(C_dust_total > 0) then
                     ! Direct:
                               if (flg_slr_in == 1) then
-                                 R_1_omega_tmp = dust_clear_d0(bnd_idx) + dust_clear_d2(bnd_idx)*(C_dust_total**dust_clear_d1(bnd_idx)) ! Eq. 1 in He et al.2019,JAMES                     
+                                 R_1_omega_tmp = dust_clear_d0(bnd_idx) + dust_clear_d2(bnd_idx)*(C_dust_total**dust_clear_d1(bnd_idx)) ! Eq. 1 in He et al.2019,JAMES
                               else
-                                 R_1_omega_tmp = dust_cloudy_d0(bnd_idx) + dust_cloudy_d2(bnd_idx)*(C_dust_total**dust_cloudy_d1(bnd_idx)) ! Eq. 1 in He et al.2019,JAMES   
+                                 R_1_omega_tmp = dust_cloudy_d0(bnd_idx) + dust_cloudy_d2(bnd_idx)*(C_dust_total**dust_cloudy_d1(bnd_idx)) ! Eq. 1 in He et al.2019,JAMES
                               endif
-                           
-                   
+
+
                            ! new omega for entire BC-snow internal mixture
                               ss_alb_snw_lcl(i) = 1.0 - (1.0 - ss_alb_snw_lcl(i)) *R_1_omega_tmp
-             
+
                            endif
                         endif
                         do j = 5,8,1
@@ -2057,7 +2042,7 @@ end subroutine read_snow_snicar_namelist
                            !mss_cnc_aer_lcl(i,j) = 0._r8
                         enddo
                     endif
-                    
+
 
                       L_snw(i)   = h2osno_ice_lcl(i)+h2osno_liq_lcl(i)
                       tau_snw(i) = L_snw(i)*ext_cff_mss_snw_lcl(i)
@@ -2375,7 +2360,7 @@ end subroutine read_snow_snicar_namelist
                       write(*,*) "g_ice_Cg_tmp ", g_ice_Cg_tmp(4) ! add by Dalei check
                       write(*,*) "g_ice_Cg_tmp ", g_ice_Cg_tmp(5) ! add by Dalei check
                       write(*,*) "g_ice_Cg_tmp ", g_ice_Cg_tmp(6) ! add by Dalei check
-                      
+
                      call land_error_message("SNICAR_AD_RT in snicar_mod: Negative absorption!", severity=FATAL)
                     endif
                   enddo
@@ -2512,6 +2497,6 @@ end subroutine read_snow_snicar_namelist
 
    end subroutine SNICAR_AD_RT
 
-  
+
 
  end module snicar_mod

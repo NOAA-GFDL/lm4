@@ -15,7 +15,7 @@ use mpp_domains_mod, only : domain2d, domainUG, mpp_get_ntile_count, &
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, input_nml_file, mpp_npes, &
      mpp_send, mpp_recv, mpp_broadcast, mpp_sync, mpp_error, COMM_TAG_1, COMM_TAG_2
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
-     mpp_root_pe, file_exist, check_nml_error, &
+     mpp_root_pe, check_nml_error, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE, lowercase
 use data_override_mod, only : data_override_ug

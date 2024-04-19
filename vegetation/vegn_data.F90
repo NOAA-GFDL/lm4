@@ -1,9 +1,8 @@
 module vegn_data_mod
 
 use constants_mod, only : PI, TFREEZE
-use fms_mod, only : &
-     file_exist, input_nml_file, check_nml_error, &
-     close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
+use fms_mod, only : input_nml_file, check_nml_error, &
+     stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
@@ -412,8 +411,8 @@ type spec_data_type
   real    :: alloc_allowed_over_limit = 10.0
   real    :: tau_smooth_Nstress       = 0.0
 
-  ! dry deposition related parameters                                                                                          
-  !based on deciduous by default                                                                                               
+  ! dry deposition related parameters
+  !based on deciduous by default
   real    :: r_cus     = 2500.    !dry cuticle resistance, SO2, s/m
   real    :: r_cuo     = 6000.    !dry cuticle resistance, O3, s/m
   real    :: r_stems   = 1000.    !dry stem resistance, SO2, s/m
@@ -1157,7 +1156,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(alloc_allowed_over_limit)
   __GET_SPDATA_REAL__(tau_smooth_Nstress)
   ! dry deposition
-  !dry deposition parameters    
+  !dry deposition parameters
   __GET_SPDATA_REAL__(r_cus)
   __GET_SPDATA_REAL__(r_cuo)
   __GET_SPDATA_REAL__(r_stems)
@@ -1166,7 +1165,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(r_cuo_wet)
   __GET_SPDATA_REAL__(A_aer)
   __GET_SPDATA_REAL__(gamma_aer)
-  __GET_SPDATA_REAL__(alpha_aer)  
+  __GET_SPDATA_REAL__(alpha_aer)
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
   __GET_SPDATA_REAL__(fire_duration)
@@ -1551,8 +1550,8 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'alloc_allowed_over_limit', spdata(idx)%alloc_allowed_over_limit)
   call add_row(table, 'tau_smooth_Nstress', spdata(idx)%tau_smooth_Nstress)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(idx)%max_n_stress_for_seed_production)
-  
-  !dry deposition parameters                                                                                        
+
+  !dry deposition parameters
   call add_row(table, 'r_cus',spdata(idx)%r_cus)
   call add_row(table, 'r_cuo',spdata(idx)%r_cuo)
   call add_row(table, 'r_stems',spdata(idx)%r_stems)
@@ -1562,7 +1561,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'A_aer',spdata(idx)%A_aer)
   call add_row(table, 'gamma_aer',spdata(idx)%gamma_aer)
   call add_row(table, 'alpha_aer',spdata(idx)%alpha_aer)
-  
+
   call add_row(table, 'dat_height',       spdata(idx)%dat_height)
   call add_row(table, 'dat_lai',          spdata(idx)%dat_lai)
   call add_row(table, 'dat_root_density', spdata(idx)%dat_root_density)

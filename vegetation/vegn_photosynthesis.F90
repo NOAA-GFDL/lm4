@@ -3,7 +3,7 @@ module vegn_photosynthesis_mod
 #include "../shared/debug.inc"
 
 use mpp_mod, only:
-use fms_mod, only: error_mesg, FATAL, WARNING, file_exist, close_file, &
+use fms_mod, only: error_mesg, FATAL, WARNING, &
       check_nml_error, input_nml_file, stdlog, mpp_pe, mpp_root_pe, lowercase
 use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp

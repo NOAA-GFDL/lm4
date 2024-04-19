@@ -5,7 +5,7 @@ module lake_tile_mod
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug
 
-use fms_mod, only : file_exist, input_nml_file, check_nml_error, read_data, close_file, stdlog
+use fms_mod, only : file_exist, input_nml_file, check_nml_error, read_data, stdlog
 use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version

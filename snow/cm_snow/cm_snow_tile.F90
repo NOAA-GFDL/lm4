@@ -1,15 +1,8 @@
 module cm_snow_tile_mod
 #include <fms_platform.h>
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : file_exist, check_nml_error, close_file, stdlog, error_mesg, FATAL, NOTE
+use fms_mod, only : FATAL
 use constants_mod,only: tfreeze, hlf
-use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
 use parent_snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
@@ -124,7 +117,7 @@ subroutine cm_merge_snow_tiles_wrapper(snow2, w2, snow1, w1)
   select type (snow1)
   type is (cm_snow_tile_type)
       call cm_merge_snow_tiles(snow2, w2, snow1, w1)
-  class default 
+  class default
    call land_error_message( &
         'cm_merge_snow_tiles_wrapper in cm_snow_tile_mod: type is incorrect!', FATAL)
   end select

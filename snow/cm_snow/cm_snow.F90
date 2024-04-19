@@ -5,14 +5,10 @@ module cm_snow_mod
 
 #include "../../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
 
-use fms_mod, only : error_mesg, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_mod, only : error_mesg, check_nml_error, &
+     stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_constants_mod, only : NBANDS
@@ -103,21 +99,8 @@ subroutine cm_read_snow_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=cm_snow_nml, iostat=io)
   ierr = check_nml_error(io, 'cm_snow_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=cm_snow_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'cm_snow_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=cm_snow_nml)
@@ -293,7 +276,7 @@ subroutine cm_snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
 
   snow_T = tfreeze
   snow_T = snow%T(1)
-  
+
   call snow_data_thermodynamics ( snow_rh, thermal_cond )
   snow_depth= 0.0
   do l = 1, num_l

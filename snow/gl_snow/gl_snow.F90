@@ -3,14 +3,7 @@ module gl_snow_mod
 
 #include "../../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
-use fms_mod, only : error_mesg, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+use fms_mod, only : error_mesg, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_constants_mod, only : NBANDS
@@ -125,7 +118,7 @@ subroutine gl_snow_init()
   type(land_restart_type) :: restart
   logical :: restart_exists
   integer ib, ik, ic, counter
-  
+
   logical read_old_snow_restart
   real old_init_snow_density
 
@@ -146,7 +139,7 @@ subroutine gl_snow_init()
 
   ! -------- initialize snow state --------
   call open_land_restart(restart,restart_file_name,restart_exists)
-  if (restart_exists) then 
+  if (restart_exists) then
 
    call error_mesg('gl_snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
 
@@ -179,7 +172,7 @@ subroutine gl_snow_init()
                tile%snow%sp%topsnowdeficit = sum(tile%snow%ws)
                tile%snow%sp%topsnowheatdeficit =CSW * sum(tile%snow%ws * (tile%snow%T-TFREEZE))
             else
-            tile%snow%sp%nlayers = 0 
+            tile%snow%sp%nlayers = 0
             do ik=1,size(tile%snow%ws)
                if (tile%snow%ws(ik)>0.0) then
                   tile%snow%sp%nlayers = tile%snow%sp%nlayers + 1
@@ -265,7 +258,7 @@ subroutine gl_snow_init()
      ce = first_elmt(land_tile_map)
      do while(loop_over_tiles(ce, tile))
          if (.not.associated(tile%snow)) cycle
-            tile%snow%sp%nlayers = 0 
+            tile%snow%sp%nlayers = 0
             tile%snow%sp%topsnowdeficit = 0.0
             tile%snow%sp%topsnowheatdeficit = 0.0
             tile%snow%sp%topwater = 0.0
@@ -376,7 +369,7 @@ end subroutine
 subroutine gl_get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
   type(gl_snow_tile_type), intent(in) :: snow
   real, intent(out) :: snow_LMASS, snow_FMASS, snow_HEAT
-  snow_LMASS = snow%sp%liq() 
+  snow_LMASS = snow%sp%liq()
   snow_FMASS = snow%sp%ice()
   snow_HEAT = snow%sp%heat()
 end subroutine gl_get_snow_integrals
@@ -407,7 +400,7 @@ subroutine snow_temp_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%T 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%T
    endif
 end subroutine snow_temp_ptr
 
@@ -417,7 +410,7 @@ subroutine snow_wl_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%wl 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%wl
    endif
 end subroutine snow_wl_ptr
 
@@ -427,7 +420,7 @@ subroutine snow_ws_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%ws 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%ws
    endif
 end subroutine snow_ws_ptr
 
@@ -437,7 +430,7 @@ subroutine snow_dz_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%dz 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%dz
    endif
 end subroutine snow_dz_ptr
 
@@ -447,7 +440,7 @@ subroutine snow_optd_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%optd 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%optd
    endif
 end subroutine snow_optd_ptr
 
@@ -457,7 +450,7 @@ subroutine snow_dendr_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%dendr 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%dendr
    endif
 end subroutine snow_dendr_ptr
 
@@ -467,7 +460,7 @@ subroutine snow_age_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%age 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%age
    endif
 end subroutine snow_age_ptr
 
@@ -477,7 +470,7 @@ subroutine snow_sph_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%sph 
+      if(associated(tile%snow)) ptr => tile%snow%sp%snow(i)%sph
    endif
 end subroutine snow_sph_ptr
 
@@ -487,7 +480,7 @@ subroutine beta_rad_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%sp%beta_rad(i) 
+      if(associated(tile%snow)) ptr => tile%snow%sp%beta_rad(i)
    endif
 end subroutine beta_rad_ptr
 

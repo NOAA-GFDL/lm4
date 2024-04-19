@@ -6,7 +6,7 @@ use netcdf, only: nf90_max_name
 use constants_mod, only : PI
 use time_manager_mod, only : time_type, get_date, operator(/=), operator(-), &
      operator(<), valid_calendar_types, get_calendar_type, time_type_to_real
-use fms_mod, only : file_exist, input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, &
+use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, &
      error_mesg, FATAL, NOTE, string
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, file_exists, read_data, open_file, close_file, &
                        get_valid, is_valid, variable_exists, get_variable_size, &

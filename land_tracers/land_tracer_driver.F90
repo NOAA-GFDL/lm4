@@ -2,17 +2,13 @@ module land_tracer_driver_mod
 
 #include "../shared/debug.inc"
 
-#ifdef INTERNAL_FILE_NML
   use mpp_mod, only: input_nml_file
-#else
-  use fms_mod, only: open_namelist_file
-#endif
 
   use ieee_arithmetic
 
   use constants_mod, only : rdgas,wtmair,grav,pi,pstd_mks,avogno,DENS_H2O,epsln
   use time_manager_mod, only : time_type, time_type_to_real
-  use fms_mod, only : lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, file_exist, close_file, &
+  use fms_mod, only : lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, &
        check_nml_error
   use field_manager_mod , only : MODEL_ATMOS, MODEL_LAND, parse
   use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names, query_method
@@ -223,21 +219,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
          __FILE__)
 
     !read namelist
-#ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=land_tracer_nml, iostat=io)
     ierr = check_nml_error(io, 'land_tracer_nml')
-#else
-    if (file_exist('input.nml')) then
-       unit = open_namelist_file()
-       ierr = 1;
-       do while (ierr /= 0)
-          read (unit, nml=land_tracer_nml, iostat=io, end=10)
-          ierr = check_nml_error (io, 'land_tracer_nml')
-       enddo
-10     continue
-       call close_file (unit)
-    endif
-#endif
     if (mpp_pe() == mpp_root_pe()) then
        unit=stdlog()
        write(unit, nml=land_tracer_nml)

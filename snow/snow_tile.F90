@@ -1,7 +1,7 @@
 module snow_tile_mod
 #include <fms_platform.h>
 
-use fms_mod, only : error_mesg, file_exist, check_nml_error, close_file, stdlog, FATAL, NOTE, lowercase
+use fms_mod, only : error_mesg, FATAL, NOTE, lowercase
 
 use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS

@@ -1,6 +1,6 @@
 module land_tile_mod
 
-use fms_mod, only : file_exist, close_file, mpp_pe, mpp_root_pe, &
+use fms_mod, only : mpp_pe, mpp_root_pe, &
      input_nml_file, check_nml_error, error_mesg, stdlog, FATAL
 
 use land_constants_mod, only : NBANDS
@@ -37,7 +37,7 @@ use snow_tile_mod, only : &
 new_snow_tile, delete_snow_tile, &
 !   merge_snow_tiles, &
 snow_tiles_can_be_merged
-use parent_snow_tile_mod, only : snow_tile_type 
+use parent_snow_tile_mod, only : snow_tile_type
 ! ##### end new snow model ######
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
@@ -308,7 +308,6 @@ subroutine init_tile_map()
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=tile_merge_nml)
-     call close_file (unit)
   endif
 
   allocate(land_tile_map(lnd%ls:lnd%le))

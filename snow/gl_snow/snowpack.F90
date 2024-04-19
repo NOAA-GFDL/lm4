@@ -3,16 +3,14 @@ module snowpack_mod
 !----- added for lm4p2 -----
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
-#ifdef INTERNAL_FILE_NML
+
 use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-use fms_mod, only : error_mesg, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE,lowercase
+
+use fms_mod, only : error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
+       FATAL, WARNING, NOTE
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
-use constants_mod,      only: tfreeze, hlv, hlf, PI 
+use constants_mod,      only: tfreeze, hlv, hlf, PI
 use snow_constants_mod
 
 implicit none
@@ -61,7 +59,7 @@ type :: snowpack_t
     real, allocatable :: sw_frac_dif(:,:) ! frac of sw down absorbed by each layer in (VIS, NIR) bands , diffuse
     real, DIMENSION(NBANDS) :: snow_refl_dir ! direct albedo of snowpack in (VIS, NIR) bands
     real, DIMENSION(NBANDS) :: snow_refl_dif ! direct albedo of snowpack in (VIS, NIR) bands
-    real, DIMENSION(NBANDS) :: beta_rad ! penetration length of radiation in snowpack 
+    real, DIMENSION(NBANDS) :: beta_rad ! penetration length of radiation in snowpack
     real :: topwater ! liquid water temporarily stored on top of snow during soild water balance [kg m^-2]
     real :: topwheat ! heat of topliquid water [J m^-2] with resp. to soild ice at TFREEZE [J m^-2]
     real :: topsnowdeficit ! temporary deficit of snow at the top, due to sublimation [Kg m^-2] - it is a negative mass of soild ice!
@@ -362,21 +360,8 @@ subroutine read_snowpack_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-#ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snowpack_nml, iostat=io)
   ierr = check_nml_error(io, 'snowpack_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=snowpack_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'snowpack_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=snowpack_nml)
@@ -385,9 +370,9 @@ subroutine read_snowpack_namelist()
   ! write(*,*) "after reading snowpack nml:"
   ! write(*,*) "version = ", version
   ! write(*,*) "module_name = ", module_name
-  ! write(*,*)  "opt_layer_N" ,  opt_layer_N 
-  ! write(*,*)  "opt_layer_R" ,  opt_layer_R 
-  ! write(*,*)  "opt_layer_max" ,  opt_layer_max 
+  ! write(*,*)  "opt_layer_N" ,  opt_layer_N
+  ! write(*,*)  "opt_layer_R" ,  opt_layer_R
+  ! write(*,*)  "opt_layer_max" ,  opt_layer_max
 ! real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
 ! ! real :: opt_layer_N   = 0.01 !< thickness of the bottom layer, m
 ! real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
@@ -471,7 +456,7 @@ subroutine update_dzopt_size(snow_depth)
 
     !!! ------ Determine new number of layers needed for dzopt
     cumz = opt_layer_z(size(opt_layer_z)) ! max depth in opt layer z, bottom of opt snowpack
-    cuml = size(opt_layer) ! current maximum number of layers in optimum snowpack 
+    cuml = size(opt_layer) ! current maximum number of layers in optimum snowpack
     dz = opt_layer(size(opt_layer)) ! current optimal thickness of bottom opt layer
     do while(cumz<snow_depth)
       dz = min(dz*opt_layer_R, opt_layer_max)
@@ -522,7 +507,7 @@ subroutine update_dzopt_size(snow_depth)
   if (opt_layer_z(size(opt_layer_z))< snow_depth) &
       call land_error_message("Optimal layer thickness distribution is not thick enough for given snow depth", FATAL)
 
-end subroutine update_dzopt_size 
+end subroutine update_dzopt_size
 
 
 !> finalize snowpack module, e.g. free all memory that is no longer needed
@@ -540,7 +525,7 @@ subroutine snowpack_update_age(s, dt)
   real dt ! time incremenet [in seconds]
   if (s%nlayers > 0) then
     do il=1,s%nlayers
-      s%snow(il)%age = s%snow(il)%age + dt/86400.0 
+      s%snow(il)%age = s%snow(il)%age + dt/86400.0
     enddo
   endif
 end subroutine snowpack_update_age
@@ -626,7 +611,7 @@ real function snow_heat_conductance(snow, surfT, surfP) result(res)
         write(*,*) "surfT, surfP = ", surfT, surfP
         write(*,*) "kc, kwv, kc+kwv = ", kc, kwv, res
       endif
-      
+
     else if (trim(lowercase(heat_cond_to_use))=='yen') then
       rho_snow = (snow%ws + snow%wl)/snow%dz ! [kg m^-3]
       res = max(lmin, al*(rho_snow/rho_water)**expon) ! YEN 1981, CROCUS
@@ -651,7 +636,7 @@ real function snowpack_heat(snowpack) result(heat)
   heat = heat + snowpack%topwheat + snowpack%topsnowheatdeficit
   if (snowpack%nlayers>0) then
     do k = 1, snowpack%nlayers
-        heat = heat+snowpack%snow(k)%heat() 
+        heat = heat+snowpack%snow(k)%heat()
     enddo
   endif
 end function snowpack_heat
@@ -665,7 +650,7 @@ real function snowpack_ice(s) result(sum)
   sum = sum + s%topsnowdeficit
   if (s%nlayers>0) then
     do k = 1,s%nlayers
-      sum = sum + s%snow(k)%ws 
+      sum = sum + s%snow(k)%ws
     enddo
   endif
 end function snowpack_ice
@@ -824,8 +809,8 @@ real function snowpack_avrg_bceq_im(s) result(res)
   sum_wsl = 0.0
   if (s%nlayers>0) then
     do k = 1,s%nlayers
-      sum = sum + s%snow(k)%wc_im(1) + s%snow(k)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-                                       s%snow(k)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
+      sum = sum + s%snow(k)%wc_im(1) + s%snow(k)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + &
+                                       s%snow(k)%wc_im(3)*(LAI_abs(3)/LAI_abs(1))
       ! sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
       sum_wsl = sum_wsl + s%snow(k)%ws
     enddo
@@ -847,8 +832,8 @@ real function snowpack_avrg_bceq_em(s) result(res)
   sum_wsl = 0.0
   if (s%nlayers>0) then
     do k = 1,s%nlayers
-      sum = sum + s%snow(k)%wc_em(1) + s%snow(k)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-                                       s%snow(k)%wc_em(3)*(LAI_abs(3)/LAI_abs(1)) 
+      sum = sum + s%snow(k)%wc_em(1) + s%snow(k)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + &
+                                       s%snow(k)%wc_em(3)*(LAI_abs(3)/LAI_abs(1))
       ! sum_wsl = sum_wsl + s%snow(k)%ws + s%snow(k)%wl
       sum_wsl = sum_wsl + s%snow(k)%ws
     enddo
@@ -862,7 +847,7 @@ end function snowpack_avrg_bceq_em
 
 
 !> \Internally mixed LAIs content of the snowpack [mg/m2]
-function snowpack_lai_im(s) 
+function snowpack_lai_im(s)
   class(snowpack_t), intent(in) :: s
   real, DIMENSION(NTRACERS) :: snowpack_lai_im
   integer :: k
@@ -876,7 +861,7 @@ end function snowpack_lai_im
 
 
 !> \Externally mixed LAIs content of the snowpack [mg/m2]
-function snowpack_lai_em(s) 
+function snowpack_lai_em(s)
   class(snowpack_t), intent(in) :: s
   real, DIMENSION(NTRACERS) :: snowpack_lai_em
   integer :: k
@@ -1018,7 +1003,7 @@ end subroutine snowpack_check_bounds
 
 !> \brief Forward elimination pass of tridiagonal solver
 ! Deprecated in lm4p2 to account for internal sw sources, split in 2 parts (step1 a and b)
-subroutine snowpack_step_1(s, G0, DGDT, & 
+subroutine snowpack_step_1(s, G0, DGDT, &
                           ! output -- additional output  for lm4p2
                           snow_active, snow_T1, snow_rh, snow_liq, snow_ice, snow_subl, snow_area, F0, DFDT, &
                           t_atm, p_surf ,&
@@ -1068,7 +1053,7 @@ subroutine snowpack_step_1(s, G0, DGDT, &
   snow_active = .FALSE.
     snow_T1 = TFREEZE ! value not defined - do not pass it?
     snow_liq = 0.0
-    snow_ice = 0.0 
+    snow_ice = 0.0
     snow_rh = 1.0 ! value not defined - do not pass it?
     snow_area = 0.0
     snow_subl = 0.0
@@ -1081,7 +1066,7 @@ end subroutine snowpack_step_1
 
 !> \brief Forward elimination pass of tridiagonal solver
 subroutine snowpack_step_1a(s, &
-                            ! G0, DGDT, & 
+                            ! G0, DGDT, &
                           ! output -- additional output  for lm4p2
                           snow_active, snow_T1, snow_rh, snow_liq, snow_ice, snow_subl, snow_area, snow_E_max, &
                           ! F0, DFDT, &
@@ -1134,7 +1119,7 @@ subroutine snowpack_step_1a(s, &
   !  write(*,*) "AVRG T BEFORE STEP 1 = ", s%avrg_T() ! // TODO not currently used, clean
 
 
-      snow_liq = s%snow(1)%wl 
+      snow_liq = s%snow(1)%wl
       snow_rh = 1.0
       if (do_mgimplicit) then
         snow_ice = s%ice() ! set this to zero to turn off implicit melt in lm4p2
@@ -1149,7 +1134,7 @@ subroutine snowpack_step_1a(s, &
   snow_active = .FALSE.
     snow_T1 = TFREEZE ! value not defined - do not pass it?
     snow_liq = 0.0
-    snow_ice = 0.0 
+    snow_ice = 0.0
     snow_rh = 1.0 ! value not defined - do not pass it?
     snow_area = 0.0
     snow_subl = 0.0
@@ -1162,9 +1147,9 @@ end subroutine snowpack_step_1a
 
 
 !> \brief Forward elimination pass of tridiagonal solver
-subroutine snowpack_step_1b(s, G0, DGDT, & 
+subroutine snowpack_step_1b(s, G0, DGDT, &
                           ! output -- additional output  for lm4p2
-                          ! snow_active, snow_T1, snow_rh, snow_liq, snow_ice, snow_subl, snow_area, 
+                          ! snow_active, snow_T1, snow_rh, snow_liq, snow_ice, snow_subl, snow_area,
                           F0, DFDT, &
                           t_atm, p_surf,&
                            dt) ! dt need to be passed only in standalone model, global var in lm4p2 [delta_time]
@@ -1222,7 +1207,7 @@ subroutine snowpack_step_1b(s, G0, DGDT, &
   ! snow_active = .FALSE.
   !   snow_T1 = TFREEZE ! value not defined - do not pass it?
   !   snow_liq = 0.0
-  !   snow_ice = 0.0 
+  !   snow_ice = 0.0
   !   snow_rh = 1.0 ! value not defined - do not pass it?
   !   snow_area = 0.0
   !   snow_subl = 0.0
@@ -1287,7 +1272,7 @@ subroutine step1(snow, N, dt, G0, DGDT, S, F0, DFDT, e, f, t_atm, p_surf)
     !    resist = snow(k)%dz/lambda(k)/2.0 + snow(k+1)%dz/lambda(k+1)/2.0
     !  endif
      resist = snow(k)%dz/lambda(k)/2.0 + snow(k+1)%dz/lambda(k+1)/2.0
-     cond(k) = 1.0/resist 
+     cond(k) = 1.0/resist
      ! explicit estimate of downward heat flux from layer k to k+1
      H0(k)   = cond(k) * (snow(k)%t - snow(k+1)%t)
   enddo
@@ -1376,7 +1361,7 @@ subroutine snowpack_nearsurf_properties(s)
   integer il, it, il_final
   real cumz ! cumulative depth
   real cumm ! cumulative mass
-  real cumden ! cumulative snow dendricity (multiplied - weighted by mass) 
+  real cumden ! cumulative snow dendricity (multiplied - weighted by mass)
   real cumd ! cumulative optical diameter (multiplied - weighted by mass)
   real cumc_im ! cumulative mass black carbon equivalent impurities - im
   real cumc_em ! cumulative mass black carbon equivalent impurities - em
@@ -1390,37 +1375,37 @@ subroutine snowpack_nearsurf_properties(s)
   ! density [must be computed] [kg m^-3]
   ! LAI concentration [must be computed] [ppm] - see params
   ! BC equivalent concentration as needed for albedo calculations
-  
+
   ! first compute the properties needed for each layer and not yet available
   if (s%nlayers > 0) then
   do il = 1, s%nlayers
-    rho_snow(il) = s%snow(il)%ws / s%snow(il)%dz 
+    rho_snow(il) = s%snow(il)%ws / s%snow(il)%dz
     ! Note, this is the equivalent MASS of black carbon - bring it to concentration here [ppm = mug/g]
 
-    ! bceq_im(il) = s%snow(il)%wc_im(1) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-    !                                     s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
-    ! bceq_em(il) = s%snow(il)%wc_em(1) + s%snow(il)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + & 
-    !                                     s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1)) 
+    ! bceq_im(il) = s%snow(il)%wc_im(1) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) + &
+    !                                     s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1))
+    ! bceq_em(il) = s%snow(il)%wc_em(1) + s%snow(il)%wc_em(2)*(LAI_abs(2)/LAI_abs(1)) + &
+    !                                     s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1))
 
     ! added option to selectively turn off one of the specie in the computation
     ! of near surface LAP concentration used in albedo calculations
     bceq_im(il) = 0.0
     bceq_em(il) = 0.0
     if (lap_albedo_include_bc) then
-      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(1) 
-      bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(1) 
+      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(1)
+      bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(1)
     endif
     if (lap_albedo_include_md) then
-      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1)) 
+      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(2)*(LAI_abs(2)/LAI_abs(1))
       bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(2)*(LAI_abs(2)/LAI_abs(1))
     endif
     if (lap_albedo_include_om) then
-      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1)) 
+      bceq_im(il) = bceq_im(il) + s%snow(il)%wc_im(3)*(LAI_abs(3)/LAI_abs(1))
       bceq_em(il) = bceq_em(il) + s%snow(il)%wc_em(3)*(LAI_abs(3)/LAI_abs(1))
     endif
 
-    bceq_im(il) = bceq_im(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
-    bceq_em(il) = bceq_em(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg 
+    bceq_im(il) = bceq_im(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg
+    bceq_em(il) = bceq_em(il) / (s%snow(il)%ws) ! concentration in ppm = mg/kg
 
   enddo
 
@@ -1447,16 +1432,16 @@ subroutine snowpack_nearsurf_properties(s)
     s%nearsurf_sph = s%snow(1)%sph
     s%nearsurf_T = s%snow(1)%T
 
-    
+
   else if (thickn >= s%depth()) then ! compute average properties over entire snowpack
     do il=1,s%nlayers
-      cumz = cumz + s%snow(il)%dz 
+      cumz = cumz + s%snow(il)%dz
       cumm = cumm + s%snow(il)%ws
       cumhc = cumhc + s%snow(il)%hCap() ! sum layers heat capacity
-      cumden = cumden + s%snow(il)%dendr * s%snow(il)%ws 
-      cumd = cumd + s%snow(il)%optd * s%snow(il)%ws 
-      cuma = cuma + s%snow(il)%age * s%snow(il)%ws 
-      cums = cums + s%snow(il)%sph * s%snow(il)%ws 
+      cumden = cumden + s%snow(il)%dendr * s%snow(il)%ws
+      cumd = cumd + s%snow(il)%optd * s%snow(il)%ws
+      cuma = cuma + s%snow(il)%age * s%snow(il)%ws
+      cums = cums + s%snow(il)%sph * s%snow(il)%ws
       cumc_im = cumc_im + bceq_im(il) * s%snow(il)%ws
       cumc_em = cumc_em + bceq_em(il) * s%snow(il)%ws
       cum_T = cum_T + s%snow(il)%T * s%snow(il)%hCap() ! T weighted by hCap
@@ -1479,12 +1464,12 @@ subroutine snowpack_nearsurf_properties(s)
     ! do while (cumz < thickn)
     do while (cumz + s%snow(il)%dz < thickn)
       cumhc = cumhc + s%snow(il)%hCap() ! sum layers heat capacity
-      cuma = cuma + s%snow(il)%age * s%snow(il)%ws 
-      cumz = cumz + s%snow(il)%dz 
+      cuma = cuma + s%snow(il)%age * s%snow(il)%ws
+      cumz = cumz + s%snow(il)%dz
       cumm = cumm + s%snow(il)%ws
-      cumden = cumden + s%snow(il)%dendr * s%snow(il)%ws 
-      cumd = cumd + s%snow(il)%optd * s%snow(il)%ws 
-      cums = cums + s%snow(il)%sph * s%snow(il)%ws 
+      cumden = cumden + s%snow(il)%dendr * s%snow(il)%ws
+      cumd = cumd + s%snow(il)%optd * s%snow(il)%ws
+      cums = cums + s%snow(il)%sph * s%snow(il)%ws
       ! cumc = cumc + bceq(il)
       cumc_im = cumc_im + bceq_im(il) * s%snow(il)%ws
       cumc_em = cumc_em + bceq_em(il) * s%snow(il)%ws
@@ -1568,7 +1553,7 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
 
   swnet_in_total = swnet_dif(1) + swnet_dif(2) + swnet_dir(1) + swnet_dir(2)
 
-  ! to compute the radiation absorbed by each snow layer, use the expression for the 
+  ! to compute the radiation absorbed by each snow layer, use the expression for the
   ! radiation flux at depth z below surface : Qz = Qsurface * exp(-beta * z)
   ! See e.g., CROCUS papers  -  Brun 1992 and Vionnet et al., 2012
   ! assume exponential distribution of radiation absorbed within snowpack
@@ -1580,23 +1565,23 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
     zztop_dif = 0.0
     zzbottom_dif = 0.0
     do il = 1, s%nlayers
-      zzbottom_dir = zzbottom_dir + s%snow(il)%dz 
-      zzbottom_dif = zzbottom_dif + s%snow(il)%dz 
+      zzbottom_dir = zzbottom_dir + s%snow(il)%dz
+      zzbottom_dif = zzbottom_dif + s%snow(il)%dz
       Q_vis_dir = swnet_dir(1) * ( exp(-s%beta_rad(1)*zztop_dir)  - exp(-s%beta_rad(1)*zzbottom_dir))
       Q_nir_dir = swnet_dir(2) * ( exp(-s%beta_rad(2)*zztop_dir)  - exp(-s%beta_rad(2)*zzbottom_dir))
       Q_vis_dif = swnet_dif(1) * ( exp(-s%beta_rad(1)*zztop_dif)  - exp(-s%beta_rad(1)*zzbottom_dif))
       Q_nir_dif = swnet_dif(2) * ( exp(-s%beta_rad(2)*zztop_dif)  - exp(-s%beta_rad(2)*zzbottom_dif))
       s%swheat(il) = Q_vis_dir + Q_nir_dir + Q_vis_dif + Q_nir_dif
-      zztop_dir = zztop_dir + s%snow(il)%dz  
-      zztop_dif = zztop_dif + s%snow(il)%dz  
+      zztop_dir = zztop_dir + s%snow(il)%dz
+      zztop_dif = zztop_dif + s%snow(il)%dz
     enddo
     ! whatwever survives is passed to the ground
     ! radiation passed down to the ground [not done for now, all absorbed by snowpack here]
     swdn_ground = swnet_dir(1)*exp(-s%beta_rad(1)*s%depth()) + &
-                  swnet_dir(2)*exp(-s%beta_rad(2)*s%depth()) + &   
+                  swnet_dir(2)*exp(-s%beta_rad(2)*s%depth()) + &
                   swnet_dif(1)*exp(-s%beta_rad(1)*s%depth()) + &
-                  swnet_dif(2)*exp(-s%beta_rad(2)*s%depth()) 
-    
+                  swnet_dif(2)*exp(-s%beta_rad(2)*s%depth())
+
     !  rescale SW absorbed by snow to match total - assume no penetration to underlying soil
     if (swnet_in_total-swdn_ground > 0.0) then
     do il = 1, s%nlayers
@@ -1605,7 +1590,7 @@ subroutine snowpack_sw_sources(s, swnet_dir, swnet_dif)
     swdn_ground = 0.0
     endif
 
-    ! check conservation 
+    ! check conservation
     total0 = swnet_in_total
     total1 = swdn_ground + sum(s%swheat(:))
 
@@ -1693,10 +1678,10 @@ logical function layers_can_be_merged(s1,s2) result(ans)
   logical cond_ceq ! condition on equiv conc of impurities
   logical cond_dens ! condition snow density
 
-  
+
 
   ! arbitrary thresholds for now
-  cond_sph = abs(s1%sph - s2%sph) < 0.2 
+  cond_sph = abs(s1%sph - s2%sph) < 0.2
   cond_dopt = abs(s1%optd - s2%optd) < 1E-4
   cond_dens = abs(s1%density() - s2%density()) < 30.0
   ! cond_dopt = abs(s1%optd - s2%optd)/s2%optd < 0.5 ! see characteristic values. 30% diff for now
@@ -1742,7 +1727,7 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   ! heat  = (s%ws*CSW+s%wl*CLW)*(s%T-TFREEZE) + (wl2*CLW)*(T2-TFREEZE) + (s%wl + wl2) * HLF
   heat  = s%hCap()*(s%T-TFREEZE) + (wl2*CLW)*(T2-TFREEZE) + (s%wl + wl2) * HLF
   ! heat2melt = s%ws * HLF ! // old energy balance
-  heat2melt = (s%ws + s%wl + wl2) * HLF 
+  heat2melt = (s%ws + s%wl + wl2) * HLF
   heat2freeze = 0.0 ! all heat is computed wrt solid at freezing termperature
   heatleft = heat - heat2melt
 
@@ -1785,14 +1770,14 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   ! instead, if there is a net freeze (unlikely, but say we add supercooled water)
   ! assign to the net newly formed solid the density of old snow (350 kg/m3), and do weighted average
   delta_solid = ws3 - original_total_solid
-  ! rho_s = s%ws / max(s%dz, 1E-9)  
-  rho_s = max(s%ws / s%dz, 10.0)  
+  ! rho_s = s%ws / max(s%dz, 1E-9)
+  rho_s = max(s%ws / s%dz, 10.0)
   if (delta_solid > 0.0) then ! net freeze
     dz3 = s%ws / rho_s + delta_solid / rho_refrozen ! sum of layer thickness due to original and newly frozen solid
   else ! net melt
     dz3 = ws3 / rho_s ! preserve density of initial soild phase
   endif
-    ! dz3 = max(1E-9, dz3) 
+    ! dz3 = max(1E-9, dz3)
 
                    if(is_watch_point()) then
                       write(*,*)'#### add_liquid_to_layer'
@@ -1807,7 +1792,7 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   s%T = T3
   s%dz = dz3
 
-  ! final_heat = 
+  ! final_heat =
   ! final_heat  = (s%ws*CSW+s%wl*CLW)*(s%T-TFREEZE) + (s%wl) * HLF
   final_heat  = s%hCap()*(s%T-TFREEZE) + (s%wl) * HLF
 
@@ -1848,7 +1833,7 @@ subroutine merge_phases(ws1, wl1, T1, ws2, wl2, T2, ws3, wl3, T3)
   mass = original_total_liquid + original_total_solid
   heat  = (ws1*CSW+wl1*CLW)*(T1-TFREEZE) + (ws2*CSW+wl2*CLW)*(T2-TFREEZE) + (wl1 + wl2) * HLF
   ! heat2melt = (ws1 + ws2) * HLF
-  heat2melt = (ws1 + ws2 + wl1 + wl2) * HLF 
+  heat2melt = (ws1 + ws2 + wl1 + wl2) * HLF
   heat2freeze = 0.0 ! heat is computed wrt solid at freezing termperature
   heatleft = heat - heat2melt
   if (heatleft > 0.0) then
