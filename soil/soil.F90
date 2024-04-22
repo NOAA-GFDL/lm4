@@ -1921,7 +1921,7 @@ end subroutine soil_step_1
 ! apply boundary flows to soil water and move soil water vertically.
   subroutine soil_step_2 ( soil, vegn, diag, soil_subl, snow_lprec, snow_hlprec,  &
                            vegn_uptk, &
-                           subs_DT, subs_M_imp, subs_evap, &
+                           subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate 
                            use_tfreeze_in_grnd_latent, &
                            ! output
                            soil_levap, soil_fevap, soil_melt, &
@@ -1939,7 +1939,8 @@ end subroutine soil_step_1
        vegn_uptk(:), &  ! vegetation soil water uptake flux [kg/m2 of cohort/s]
        subs_DT,       & ! ?? soil surface layer temperature tendency [K]
        subs_M_imp,       &! rate of phase change of non-evaporated soil water ?? [kg/m2/s]
-       subs_evap         ! ?? solution for soil surface evaporation [kg/m2/s]
+       subs_evap, &         ! ?? solution for soil surface evaporation [kg/m2/s]
+       fswg_substrate  ! EZSNOW added fswg_substrate [W/m^2]
   logical, intent(in) :: use_tfreeze_in_grnd_latent
   real, intent(out) :: &
        soil_levap, & ! ?? liquid soil surface evaporation [mm/s]
@@ -2107,6 +2108,10 @@ end subroutine soil_step_1
         write(*,*)
      enddo
   endif
+
+      ! EZSNOW: account for heat penetration in substrate
+  hcap = soil%heat_capacity_dry(1)*dz(1) + clw*soil%wl(1) + csw*soil%ws(1)
+  soil%T(1)  = soil%T(1) + fswg_substrate/hcap
 
   ! ---- extract evap from soil and do implicit melt --------------------
   IF(LM2) THEN

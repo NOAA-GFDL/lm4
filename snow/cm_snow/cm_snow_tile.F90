@@ -195,8 +195,6 @@ subroutine cm_snow_tile_stock_pe (snow, twd_liq, twd_sol  )
 
   twd_liq = 0.
   twd_sol = 0.
-  ! write(*,*) "SNOW STOCK PE :: print the size of snow"
-  ! write(*,*) "SNOW STOCK PE :: size(snow%wl) =  ", size(snow%wl)
   do n=1, size(snow%wl)
     twd_liq = twd_liq + snow%wl(n)
     twd_sol = twd_sol + snow%ws(n)
@@ -211,7 +209,6 @@ function cm_snow_tile_heat (snow) result(heat) ; real heat
   class(cm_snow_tile_type), intent(in)  :: snow
 
   integer :: i
-
   heat = 0
   do i = 1,num_l
      heat = heat - snow%ws(i)*hlf &

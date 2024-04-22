@@ -43,9 +43,10 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_cover_cold_start, retrieve_soil_tags
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
-use snow_mod, only : read_snow_namelist, snow_init, snow_end, compute_snow_albedo, &
+!!!! ================ EZSNOW ================
+use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
     snow_get_depth_area, snow_step_1, snow_step_2, &
-    save_snow_restart, sweep_tiny_snow
+    save_snow_restart, sweep_tiny_snow, compute_snow_albedo, partition_sw_heat_in_snow
 use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use parent_snow_tile_mod, only : snow_radiation, snow_option
@@ -295,7 +296,10 @@ integer :: &
   id_snow_nearsurf_optd, id_snow_nearsurf_sph,id_snow_nearsurf_density,id_snow_nearsurf_age, &
   id_snow_nearsurf_dendr, id_snow_nearsurf_bceq_tot,id_snow_nearsurf_bceq_im,id_snow_nearsurf_bceq_em,       &
   id_snow_depth, id_snow_liq, id_snow_ice, &
-  id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit
+  id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit, &
+  id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om, &
+  id_snow_avrg_bc_tot, id_snow_avrg_md_tot, id_snow_avrg_om_tot, &
+  id_snow_refl_dir, id_snow_refl_dif
   ! ==================            End of new snowpack diag fields      ===================
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
@@ -1262,11 +1266,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   allocate(drydep_md(lnd%ls:lnd%le))
   allocate(drydep_om(lnd%ls:lnd%le))
 
-  ! read deposition data in [mg/m2/s], multiply original fluxes by 1E6
+  ! read deposition data: Wet deposition fluxes in [ppm] ->[mg/m2/s]/[kg/m2/s] conc. in prcp.
   call data_override_ug("LND", "bc_wet_dep", wetdep_bc, lnd%time, override = wetdep_bc_overridden)
   call data_override_ug("LND", "md_wet_dep", wetdep_md, lnd%time, override = wetdep_md_overridden)
   call data_override_ug("LND", "om_wet_dep", wetdep_om, lnd%time, override = wetdep_om_overridden)
-
+  ! read deposition data: Dry deposition fluxes in [mg/m2/s]
   call data_override_ug("LND", "bc_dry_dep", drydep_bc, lnd%time, override = drydep_bc_overridden)
   call data_override_ug("LND", "md_dry_dep", drydep_md, lnd%time, override = drydep_md_overridden)
   call data_override_ug("LND", "om_dry_dep", drydep_om, lnd%time, override = drydep_om_overridden)
@@ -1516,9 +1520,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, intent(inout) :: &
        runoff, &   ! total runoff of H2O, kg/m2
        runoff_c(:) ! runoff of tracers (including ice/snow and heat)
-  real, DIMENSION(NTRACERS), intent(in) :: wetdep, drydep ! EZSNOW pass  deposition of Light Absorbing Impurities
-
-
+  real, DIMENSION(NTRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om
+  real, DIMENSION(NTRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
 
   ! ---- local vars
   real :: A(3*N+3,3*N+3),B0(3*N+3),B1(3*N+3),B2(3*N+3) ! implicit equation matrix and right-hand side vectors
@@ -1644,7 +1647,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! ====== EZSNOW additional local variables
   real :: grnd_T_preprec
-  real :: fswg_surface
+  real :: fswg_surface, fswg_substrate
   real begw_check !, endw_check, netw_check ! to check mass balance after snow step 2
   real begh_check !, endh_check, neth_check ! to check heat balance after snow step 2
   real, DIMENSION(NTRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2 ! currently only 1 is used
@@ -1716,6 +1719,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     nflux0=0.0
   endif
   ! - end of conservation check, part 1
+
+
+  ! EZSNOW : moved this here before soil step 1 in order to pass leftover heat to substrate (soil/lake/glac)
+  ! calculate net shortwave for ground and canopy
+  fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
+  ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
+  fswg_dir = tile%Sg_dir * ISa_dn_dir
+  fswg_dif = tile%Sg_dif * ISa_dn_dif
+  call partition_sw_heat_in_snow(tile%snow, fswg, fswg_dir, fswg_dif, fswg_substrate, fswg_surface)
 
   ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
   ! avoid numerical issues.
@@ -1789,6 +1801,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         __DEBUG1__( associated(tile%vegn) )
         __DEBUG4__( snow_active, snow_T, snow_liq, snow_ice)
      endif
+
+     ! NOTE: moved it here now that albedo pre-calculation is done before
+     call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
 
   else
      call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
@@ -1880,12 +1895,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   DEgDqc    = -cana_dens*con_g_v
   DEgDpsig  =  cana_dens*con_g_v*grnd_qsat*grnd_rh_psi
 
-  ! calculate net shortwave for ground and canopy
-  fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
-  ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
-  fswg_dir = tile%Sg_dir * ISa_dn_dir
-  fswg_dif = tile%Sg_dif * ISa_dn_dif
-  ! -----
+!   ! calculate net shortwave for ground and canopy
+!   fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
+!   ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
+!   ! EZSNOW : move this before soil step 1
+!   fswg_dir = tile%Sg_dir * ISa_dn_dir
+!   fswg_dif = tile%Sg_dif * ISa_dn_dif
+!   ! -----
   vegn_fsw = 0
   do k = 1,N
      vegn_fsw = vegn_fsw+f(k)*SUM(swnet(k,:))
@@ -2229,55 +2245,70 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          ! delta_xx(i) = X0(i) + X1(i)*delta_Tg + X2(i)*delta_psig.
 
 
-         ! EZSNOW
-           if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat)
+         ! ! EZSNOW
+         !   if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat)
            begw_check = tile%snow%sp%SWE() ! init conservation checks
            begh_check = tile%snow%sp%heat() ! init conservation checks
 
-           if (trim(lowercase(snow_option)) == 'gl') then
-              if (trim(lowercase(albedo_to_use))=='snicar') then
-                 ! assign to each snow layer sw radiation based on snicar rad transfer
-                 ! for now, in case of thin snow assign all radiation to surface balance
-                 ! else in case of thick snow assign all to snow - no to underlying soil
-                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) &
-                                            .and. (tile%snow%sp%nlayers > 0))) then
-                    ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-                    fswg_surface = 0.0
-                    do il=1,tile%snow%sp%nlayers
-                       tile%snow%sp%swheat(il) =     fswg_dir(1) * tile%snow%sp%sw_frac_dir(il, 1) + &
-                                                     fswg_dif(1) * tile%snow%sp%sw_frac_dif(il, 1) + &
-                                                     fswg_dir(2) * tile%snow%sp%sw_frac_dir(il, 2) + &
-                                                     fswg_dif(2) * tile%snow%sp%sw_frac_dif(il, 2)
-                    enddo
-                 else
-                    if (tile%snow%sp%nlayers>0) then
-                       ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-                       tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
-                    else
-                       ALLOCATE(tile%snow%sp%swheat(1))
-                       tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
-                    endif
-                    fswg_surface = fswg
-                 endif
-              else ! snow option = ez but albedo model not SNICAR
-                 if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) &
-                                            .and. (tile%snow%sp%nlayers > 0))) then
-                    ! call tile%snow%sp%sw_sources_lm4p2(fswg)
-                    ! call tile%snow%sp%sw_sources(fswg_dir, fswg_dif, cosz)
-                    call tile%snow%sp%sw_sources(fswg_dir, fswg_dif)
-                    fswg_surface = 0.0
-                 else
-                    ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-                    tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
-                    fswg_surface = fswg
-                 endif
-              endif ! end albedo choice
-              !                           input      input   output   output    input   input      input
-              call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
-           else
-              ! case of CM snow model
-              fswg_surface=fswg
-           endif
+         !   if (trim(lowercase(snow_option)) == 'gl') then
+         !      if (trim(lowercase(albedo_to_use))=='snicar') then
+         !         ! assign to each snow layer sw radiation based on snicar rad transfer
+         !         ! for now, in case of thin snow assign all radiation to surface balance
+         !         ! else in case of thick snow assign all to snow - no to underlying soil
+         !         if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) &
+         !                                    .and. (tile%snow%sp%nlayers > 0))) then
+         !            ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+         !            do il=1,tile%snow%sp%nlayers
+         !               tile%snow%sp%swheat(il) =     fswg_dir(1) * tile%snow%sp%sw_frac_dir(il, 1) + &
+         !                                             fswg_dif(1) * tile%snow%sp%sw_frac_dif(il, 1) + &
+         !                                             fswg_dir(2) * tile%snow%sp%sw_frac_dir(il, 2) + &
+         !                                             fswg_dif(2) * tile%snow%sp%sw_frac_dif(il, 2)
+
+
+         !            enddo
+         !             ! //FIXME here the fractions are NOT summed up to one.
+         !             ! Instead, I should let the leftovers for the soil / for the top
+         !            ! fswg_surface = 0.0
+         !            ! // TODO: absorb that in the soil instead that at the surface
+         !            if ((sum(tile%snow%sp%sw_frac_dir(:, 1))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))>1.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))>1.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))>1.0)  ) then
+         !             call land_error_message("Error in sw sources from SNICAR: a total larger than 1!", severity=FATAL)
+         !            endif
+         !            if ((sum(tile%snow%sp%sw_frac_dir(:, 1))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 1))<0.0) .or.(sum(tile%snow%sp%sw_frac_dir(:, 2))<0.0).or. (sum(tile%snow%sp%sw_frac_dif(:, 2))<0.0)  ) then
+         !             call land_error_message("Error in sw sources from SNICAR: a total is < 0!", severity=FATAL)
+         !            endif
+         !            fswg_surface = fswg_dir(1) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 1))) + &
+         !                           fswg_dif(1) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 1))) + &
+         !                           fswg_dir(2) * (1.0 - sum(tile%snow%sp%sw_frac_dir(:, 2))) + &
+         !                           fswg_dif(2) * (1.0 - sum(tile%snow%sp%sw_frac_dif(:, 2)))
+         !         else
+         !            if (tile%snow%sp%nlayers>0) then
+         !               ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+         !               tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
+         !            else
+         !               ALLOCATE(tile%snow%sp%swheat(1))
+         !               tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
+         !            endif
+         !            fswg_surface = fswg
+         !         endif
+         !      else ! snow option = ez but albedo model not SNICAR
+         !         if ((use_internal_sources) .and. ((tile%snow%sp%depth() > thresh_snow_depth_swheat) &
+         !                                    .and. (tile%snow%sp%nlayers > 0))) then
+         !            ! call tile%snow%sp%sw_sources_lm4p2(fswg)
+         !            ! call tile%snow%sp%sw_sources(fswg_dir, fswg_dif, cosz)
+         !            call tile%snow%sp%sw_sources(fswg_dir, fswg_dif)
+         !            fswg_surface = 0.0
+         !         else
+         !            ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
+         !            tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
+         !            fswg_surface = fswg
+         !         endif
+         !      endif ! end albedo choice
+         !      !                           input      input   output   output    input   input      input
+         !      call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
+         !   else
+         !      ! case of CM snow model
+         !      fswg_surface=fswg
+         !   endif
 
            ! solve the non-linear equation for energy balance at the surface.
 
@@ -2517,7 +2548,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (associated(tile%glac)) then
      call glac_step_2 &
           ( tile%glac, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-          subs_DT, subs_M_imp, subs_evap, &
+          subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate
           subs_levap, subs_fevap, &
           subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
      subs_frunf = 0.
@@ -2527,7 +2558,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   else if (associated(tile%lake)) then
      call lake_step_2 &
           ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-          subs_DT, subs_M_imp, subs_evap, &
+          subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate
           use_tfreeze_in_grnd_latent, subs_levap, subs_fevap, &
           subs_melt, subs_Ttop, subs_Ctop )
      subs_lrunf = 0.
@@ -2539,7 +2570,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   else if (associated(tile%soil)) then
      call soil_step_2 &
           ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-          vegn_uptk, subs_DT, subs_M_imp, subs_evap, &
+          vegn_uptk, subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate
           use_tfreeze_in_grnd_latent, &
           ! output:
           subs_levap, subs_fevap, &
@@ -2874,6 +2905,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! ------ what to do for quantities averaged monthly and regridded over snow partial cover?
   ! ------ Here they are saved weighted by the fractional snow cover
   ! recompute the snow area frac and near surface properties here to get that at end of snow processes calculations
+!   call snow_get_depth_area ( tile%snow, tile%snow%sp%depth(), snow_area )
+  if (trim(lowercase(snow_option)) == 'gl') then
   snow_area = tile%snow%sp%area()
   call tile%snow%sp%nearsurf_properties()
    ! if(tile%snow%nlayers > 0) then
@@ -2884,6 +2917,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_snow_density, snow_area * tile%snow%sp%density(), tile%diag)
   call send_tile_data(id_snow_avrg_T, snow_area * snow_avrg_T, tile%diag)
   call send_tile_data(id_snow_avrg_bceq_tot, snow_area * tile%snow%sp%avrg_bceq_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_bc_tot, snow_area * tile%snow%sp%avrg_bc_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_md_tot, snow_area * tile%snow%sp%avrg_md_tot(), tile%diag)
+  call send_tile_data(id_snow_avrg_om_tot, snow_area * tile%snow%sp%avrg_om_tot(), tile%diag)
   call send_tile_data(id_snow_avrg_bceq_im, snow_area * tile%snow%sp%avrg_bceq_im(), tile%diag)
   call send_tile_data(id_snow_avrg_bceq_em, snow_area * tile%snow%sp%avrg_bceq_em(), tile%diag)
   call send_tile_data(id_snow_nearsurf_bceq_tot, snow_area * tile%snow%sp%nearsurf_bceq_tot, tile%diag)
@@ -2905,6 +2941,17 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_snow_topwheat, tile%snow%sp%topwheat, tile%diag)
   call send_tile_data(id_snow_topsnowdeficit, tile%snow%sp%topsnowdeficit, tile%diag)
   call send_tile_data(id_snow_topsnowheatdeficit, tile%snow%sp%topsnowheatdeficit, tile%diag)
+
+
+  ! note: these diag fields are not quite the same as the wet lap deposited on snowpack because
+  ! laps are note deposited when vegn_fprec or vegn_lprec are very small (< 1E-9 kg/m2/s)
+  call send_tile_data(id_wetdep_bc, wetdep(1)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_md, wetdep(2)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_om, wetdep(3)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_drydep_bc, drydep(1), tile%diag)
+  call send_tile_data(id_drydep_md, drydep(2), tile%diag)
+  call send_tile_data(id_drydep_om, drydep(3), tile%diag)
+   endif
   ! call send_tile_data(id_snow_nlayers, real(tile%snow%nlayers), tile%diag)
   ! ------ end snow additional fields
 
@@ -3775,6 +3822,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
 ! ======= EZSNOW updated snow albedo
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+!   call tile%snow%snow_get_sfc_temp(snow_top_temp)
   if (tile%snow%snow_active()) then
       call tile%snow%snow_get_sfc_temp(snow_top_temp)
    else
@@ -3786,7 +3834,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
       call compute_snow_albedo(tile%snow, snow_top_temp, cosz, associated(tile%glac), 87000.0, subs_refl_dif, & ! input
                 snow_refl_dir, snow_refl_dif)
   else
-!   write(*,*) "using snow option :: ", snow_option
       snow_refl_dir = snow_refl_dir_cm
       snow_refl_dif = snow_refl_dif_cm
   endif
@@ -3993,6 +4040,10 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call send_tile_data(id_snd, max(snow_depth,0.0),     tile%diag)
 
   call send_tile_data(id_snow_depth, max(snow_depth, 0.0), tile%diag)  ! //TODO duplicate diag var, get rid of one ! EZSNOW
+
+  ! EZSNOW added for saf
+  call send_tile_data(id_snow_refl_dir, snow_refl_dir, tile%diag)
+  call send_tile_data(id_snow_refl_dif, snow_refl_dif, tile%diag)
 
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
@@ -4607,6 +4658,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
      'Snowpack near-surface conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_tot = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_tot', (/id_ug/), time, &
      'Snowpack total (im + em) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+          id_snow_avrg_bc_tot = register_tiled_diag_field ( module_name, 'snow_avrg_bc_tot', (/id_ug/), time, &
+             'Snowpack total (im + em) average conc. of black carbon', 'ppm', missing_value=-9999.0)
+          id_snow_avrg_md_tot = register_tiled_diag_field ( module_name, 'snow_avrg_md_tot', (/id_ug/), time, &
+             'Snowpack total (im + em) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
+          id_snow_avrg_om_tot = register_tiled_diag_field ( module_name, 'snow_avrg_om_tot', (/id_ug/), time, &
+             'Snowpack total (im + em) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_im = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_im', (/id_ug/), time, &
      'Snowpack average conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_em = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_em', (/id_ug/), time, &
@@ -4640,7 +4697,22 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
      'Snowpack topwheat', 'J/m2', missing_value=-1.0e+20)
   id_snow_topsnowheatdeficit = register_tiled_diag_field ( module_name, 'snow_topsnowheatdeficit', (/id_ug/), time, &
      'Snowpack topsnowheatdeficit', 'J/m2', missing_value=-1.0e+20)
-  ! ---------------------------------------- end new snow added fields ---------------------
+
+         ! //TODO maybe it would be best to export these diag fields as kg/m2/s
+          id_wetdep_bc = register_tiled_diag_field ( module_name, 'wetdep_bc', (/id_ug/), time, &
+             'Wet deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20)
+          id_wetdep_md = register_tiled_diag_field ( module_name, 'wetdep_md', (/id_ug/), time, &
+             'Wet deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20)
+          id_wetdep_om = register_tiled_diag_field ( module_name, 'wetdep_om', (/id_ug/), time, &
+             'Wet deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20)
+          id_drydep_bc = register_tiled_diag_field ( module_name, 'drydep_bc', (/id_ug/), time, &
+             'Dry deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20)
+          id_drydep_md = register_tiled_diag_field ( module_name, 'drydep_md', (/id_ug/), time, &
+             'Dry deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20)
+          id_drydep_om = register_tiled_diag_field ( module_name, 'drydep_om', (/id_ug/), time, &
+             'Dry deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20)
+
+   ! ---------------------------------------- end new snow added fields ---------------------
 
   id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_ug,id_band/), time, &
        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
@@ -4691,6 +4763,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_subs_refl_dif = register_tiled_diag_field(module_name, 'subs_refl_dif', &
        (/id_ug, id_band/), time, &
        'substrate reflectivity for diffuse light',missing_value=-1.0)
+  id_snow_refl_dir = register_tiled_diag_field(module_name, 'snow_refl_dir', & ! EZSNOW added
+       (/id_ug, id_band/), time, &
+       'snow reflectivity for direct light',missing_value=-1.0)
+  id_snow_refl_dif = register_tiled_diag_field(module_name, 'snow_refl_dif', & ! EZSNOW added
+       (/id_ug, id_band/), time, &
+       'snow reflectivity for diffuse light',missing_value=-1.0)
   id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', axes, time, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &

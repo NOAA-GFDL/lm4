@@ -34,6 +34,7 @@ public :: min_snow_depth
 public :: do_mgimplicit
 public :: albedo_to_use
 public :: thresh_snow_depth_swheat
+public :: assign_substrate_sw_to_surface
 
 
 
@@ -145,13 +146,15 @@ logical :: prevent_tiny_snow = .true.
 logical :: correct_surface_T = .false.
 real :: depth_surface_T_corr = 0.2
 real :: thresh_snow_depth_swheat = 0.05 ! snow depth threshold [m] above which internal sw heat sources are computed
+logical :: assign_substrate_sw_to_surface = .FALSE.
+real :: min_fresh_density = 50.0 ! [kg/m3] minimum density for newly formed snow layers
 
 namelist /snow_evolution_nml/ &
          do_compaction, do_metamorph, do_wind_drift, do_split, do_merge, &
          use_internal_sources, do_snow_check_cons, &
          min_snow_mass, min_snow_depth, max_snow, prevent_tiny_snow, do_mgimplicit, &
          metamor_model, file_data_F06, wlmax_to_use, albedo_to_use, &
-         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat
+         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
 ! ---- end of namelist
 
 
@@ -175,6 +178,30 @@ subroutine read_snow_evolution_namelist()
      unit=stdlog()
      write(unit, nml=snow_evolution_nml)
   endif
+
+! !   if(is_watch_point()) then
+!     write(*,*) "EZNML CHECK - READ_SNOW_EVOLUTION_NAMELIST"
+!     __DEBUG1__(do_compaction)
+!     __DEBUG1__(do_metamorph)
+!     __DEBUG1__(do_wind_drift)
+!     __DEBUG1__(do_mgimplicit)
+!     __DEBUG1__(use_internal_sources)
+!     __DEBUG1__(wlmax_to_use)
+!     __DEBUG1__(albedo_to_use)
+!     __DEBUG1__(albedo_correction_to_use)
+!     __DEBUG1__(metamor_model)
+!     __DEBUG1__(file_data_F06)
+!     __DEBUG1__(do_split)
+!     __DEBUG1__(do_merge)
+!     __DEBUG1__(do_snow_check_cons)
+!     __DEBUG1__(min_snow_mass)
+!     __DEBUG1__(min_snow_depth)
+!     __DEBUG1__(max_snow)
+!     __DEBUG1__(prevent_tiny_snow)
+!     __DEBUG1__(correct_surface_T)
+!     __DEBUG1__(depth_surface_T_corr)
+!     __DEBUG1__(thresh_snow_depth_swheat)
+!     ! endif
 
 end subroutine read_snow_evolution_namelist
 
@@ -509,9 +536,9 @@ subroutine new_snow_density(rho_new, Tatm, Ubar)
    real, PARAMETER :: ar = 109.0 ! [Kg m^-3]
    real, PARAMETER :: br = 6.0 ! [Kg m^-3 K-1]
    real, PARAMETER :: cr = 26.0 ! Kg m^-7/2 s^-1/2
-   real, PARAMETER :: rho_min = 50.0 ! Kg m-3 ! // FIXME was 50 in CROCUS
+!    real, PARAMETER :: rho_min = 50.0 ! Kg m-3 ! // FIXME was 50 in CROCUS
    rho_new = ar + br * (Tatm - TFREEZE) + cr * sqrt(Ubar)
-   rho_new = max(rho_new, rho_min)
+   rho_new = max(rho_new, min_fresh_density)
 end subroutine new_snow_density
 
 
@@ -1422,7 +1449,7 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
 
             ds = dt_hours * (1.0 - sph)/tau_i ! POSITIVE
             if (.not.is_dendritic) then
-                ddopt = -2.0 * 1E-4 * sph * (1.0 - sph)/tau_i ! NEGATIVE
+                ddopt = -2.0 * 1E-4 * sph * dt_hours * (1.0 - sph)/tau_i ! NEGATIVE 
             else
                 ! dendricity from dopt and s
                 ! den = den_from_dopt(sph, dopt)
@@ -2682,7 +2709,7 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
         else if (trim(lowercase(albedo_to_use)) == 'crocus') then
             call compute_albedo_crocus(s, p_atm) ! add to it cos dependence through modificed snow grain?
         else if (trim(lowercase(albedo_to_use)) == 'snicar') then
-            call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modificed snow grain?
+            call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modified snow grain?
         else
             ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
             call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
