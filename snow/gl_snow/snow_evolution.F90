@@ -178,31 +178,6 @@ subroutine read_snow_evolution_namelist()
      unit=stdlog()
      write(unit, nml=snow_evolution_nml)
   endif
-
-! !   if(is_watch_point()) then
-!     write(*,*) "EZNML CHECK - READ_SNOW_EVOLUTION_NAMELIST"
-!     __DEBUG1__(do_compaction)
-!     __DEBUG1__(do_metamorph)
-!     __DEBUG1__(do_wind_drift)
-!     __DEBUG1__(do_mgimplicit)
-!     __DEBUG1__(use_internal_sources)
-!     __DEBUG1__(wlmax_to_use)
-!     __DEBUG1__(albedo_to_use)
-!     __DEBUG1__(albedo_correction_to_use)
-!     __DEBUG1__(metamor_model)
-!     __DEBUG1__(file_data_F06)
-!     __DEBUG1__(do_split)
-!     __DEBUG1__(do_merge)
-!     __DEBUG1__(do_snow_check_cons)
-!     __DEBUG1__(min_snow_mass)
-!     __DEBUG1__(min_snow_depth)
-!     __DEBUG1__(max_snow)
-!     __DEBUG1__(prevent_tiny_snow)
-!     __DEBUG1__(correct_surface_T)
-!     __DEBUG1__(depth_surface_T_corr)
-!     __DEBUG1__(thresh_snow_depth_swheat)
-!     ! endif
-
 end subroutine read_snow_evolution_namelist
 
 ! !> \Write current timestep variables to output
@@ -1449,7 +1424,7 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
 
             ds = dt_hours * (1.0 - sph)/tau_i ! POSITIVE
             if (.not.is_dendritic) then
-                ddopt = -2.0 * 1E-4 * sph * dt_hours * (1.0 - sph)/tau_i ! NEGATIVE 
+                ddopt = -2.0 * 1E-4 * sph * dt_hours * (1.0 - sph)/tau_i ! NEGATIVE
             else
                 ! dendricity from dopt and s
                 ! den = den_from_dopt(sph, dopt)

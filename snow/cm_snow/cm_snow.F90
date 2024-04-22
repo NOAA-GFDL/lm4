@@ -114,24 +114,6 @@ subroutine cm_read_snow_namelist()
      z(l)    = 0.5*(zz(l+1) + zz(l))
   enddo
 
-
-!   ! EZSNOW - check nml values here
-! !   if(is_watch_point()) then
-!    write(*,*) "EZNML CHECK - CM_READ_SNOW_NAMELIST"
-!    __DEBUG1__(retro_heat_capacity)
-!    __DEBUG1__(lm2)
-!    __DEBUG1__(steal)
-!    __DEBUG1__(albedo_to_use)
-!    __DEBUG1__(max_snow)
-!    __DEBUG1__(wet_max)
-!    __DEBUG1__(snow_density)
-!    __DEBUG1__(init_temp)
-!    __DEBUG1__(init_pack_ws)
-!    __DEBUG1__(init_pack_wl)
-!    __DEBUG1__(min_snow_mass)
-!    __DEBUG1__(prevent_tiny_snow)
-! ! endif
-
 end subroutine cm_read_snow_namelist
 
 ! ============================================================================
