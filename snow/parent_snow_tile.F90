@@ -17,7 +17,6 @@ private
 
 ! ==== public interfaces =====================================================
 public :: read_snow_data_namelist
-public :: read_snow_data_namelist_brief
 public :: snow_data_thermodynamics
 public :: snow_data_hydraulics
 public :: snow_data_area
@@ -260,39 +259,8 @@ namelist /snow_data_nml/  w_sat,                    &
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
-
-! ============================================================================
-subroutine read_snow_data_namelist_brief()
-! subroutine read_snow_data_namelist()
-  ! integer, intent(out) :: snow_num_l
-  ! real,    intent(out) :: snow_dz(:)
-  ! real,    intent(out) :: snow_mc_fict
-
-  ! ---- local vars
-  integer :: unit         ! unit for namelist i/o
-  integer :: io           ! i/o status for the namelist
-  integer :: ierr         ! error code, returned by i/o routines
-
-  call log_version(version, module_name, &
-  __FILE__)
-  read (input_nml_file, nml=snow_data_nml, iostat=io)
-  ierr = check_nml_error(io, 'snow_data_nml')
-  unit=stdlog()
-  write(unit, nml=snow_data_nml)
-
-  ! initialize global module data here
-
-  ! set up output arguments
-  ! snow_num_l = num_l
-  ! snow_dz    = dz
-  ! snow_mc_fict = mc_fict
-
-end subroutine read_snow_data_namelist_brief
-
-
 ! ============================================================================
 subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
-! subroutine read_snow_data_namelist()
   integer, intent(out) :: snow_num_l
   real,    intent(out) :: snow_dz(:)
   real,    intent(out) :: snow_mc_fict

@@ -27,8 +27,7 @@ use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart, gl_snow_get_depth_area
 
 use parent_snow_tile_mod, only : &
-     snow_tile_type, read_snow_data_namelist, &
-     read_snow_data_namelist_brief, &
+     snow_tile_type, &
      snow_option
 
 use cm_snow_tile_mod, only: cm_snow_tile_type
@@ -65,8 +64,6 @@ contains
 
 
 subroutine read_snow_namelist()
-
-!   call read_snow_data_namelist_brief()
   call log_version(version, module_name, &
   __FILE__)
 
