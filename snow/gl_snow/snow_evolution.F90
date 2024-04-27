@@ -16,6 +16,11 @@ use snowpack_mod
 use parent_snow_tile_mod, only : distinct_snow_on_glacier
 
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
+use land_constants_mod, only : &
+! MODIS BRDF model parameters
+    g_iso, g0_iso, g1_iso, g2_iso, &
+    g_vol, g0_vol, g1_vol, g2_vol, &
+    g_geo, g0_geo, g1_geo, g2_geo
 
 implicit none
 private
@@ -2984,18 +2989,6 @@ real :: zenith_angle, zsq, zcu
 !    logical, parameter :: use_brdf = .false. ! in lm4p2 this is set in nml, can change
    real, parameter :: t_range = 10.0 ! degK ! range of temperatures for ramp between "warm" and "cold" albedo
 
-   real, parameter :: g_iso  = 1.
-   real, parameter :: g_vol  = 0.189184
-   real, parameter :: g_geo  = -1.377622
-   real, parameter :: g0_iso = 1.0
-   real, parameter :: g1_iso = 0.0
-   real, parameter :: g2_iso = 0.0
-   real, parameter :: g0_vol = -0.007574
-   real, parameter :: g1_vol = -0.070987
-   real, parameter :: g2_vol =  0.307588
-   real, parameter :: g0_geo = -1.284909
-   real, parameter :: g1_geo = -0.166314
-   real, parameter :: g2_geo =  0.041840
 !    real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
 !    real    :: emis_snow_min         = 0.90      ! reset to 1 for M
    real    :: emis_snow_max         = 1.0      ! reset to 1 for MCM

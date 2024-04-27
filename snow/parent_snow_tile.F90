@@ -6,7 +6,12 @@ use mpp_mod, only: input_nml_file
 
 use fms_mod, only : check_nml_error, stdlog, FATAL, NOTE
 use constants_mod,only: tfreeze, hlf
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : NBANDS, &
+! MODIS BRDF model parameters
+    g_iso, g0_iso, g1_iso, g2_iso, &
+    g_vol, g0_vol, g1_vol, g2_vol, &
+    g_geo, g0_geo, g1_geo, g2_geo
+
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point
@@ -29,20 +34,6 @@ character(len=*), parameter :: module_name = 'parent_snow_tile_mod'
 #include "../shared/version_variable.inc"
 
 integer, parameter, public :: max_lev = 10
-
-! ! from the modis brdf/albedo product user's guide:
-real, parameter :: g_iso  = 1.
-real, parameter :: g_vol  = 0.189184
-real, parameter :: g_geo  = -1.377622
-real, parameter :: g0_iso = 1.0
-real, parameter :: g1_iso = 0.0
-real, parameter :: g2_iso = 0.0
-real, parameter :: g0_vol = -0.007574
-real, parameter :: g1_vol = -0.070987
-real, parameter :: g2_vol =  0.307588
-real, parameter :: g0_geo = -1.284909
-real, parameter :: g1_geo = -0.166314
-real, parameter :: g2_geo =  0.041840
 
 ! range of temperatures for ramp between "warm" and "cold" albedo
 real, parameter :: t_range = 10.0 ! degK

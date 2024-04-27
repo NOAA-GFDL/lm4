@@ -7,7 +7,11 @@ use mpp_domains_mod, only : &
 
 use fms_mod, only : file_exist, input_nml_file, check_nml_error, read_data, stdlog
 use constants_mod, only : PI, tfreeze, hlf
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : NBANDS, &
+! MODIS BRDF model parameters
+    g_iso, g0_iso, g1_iso, g2_iso, &
+    g_vol, g0_vol, g1_vol, g2_vol, &
+    g_geo, g0_geo, g1_geo, g2_geo
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
@@ -50,20 +54,6 @@ integer, parameter :: max_lev          = 80
 integer, parameter :: n_dim_lake_types = 1  ! size of lookup table
 real,    parameter :: psi_wilt         = -150.  ! matric head at wilting
 real,    parameter :: comp             = 0.001  ! m^-1
-
-! from the modis brdf/albedo product user's guide:
-real, parameter :: g_iso  = 1.
-real, parameter :: g_vol  = 0.189184
-real, parameter :: g_geo  = -1.377622
-real, parameter :: g0_iso = 1.0
-real, parameter :: g1_iso = 0.0
-real, parameter :: g2_iso = 0.0
-real, parameter :: g0_vol = -0.007574
-real, parameter :: g1_vol = -0.070987
-real, parameter :: g2_vol =  0.307588
-real, parameter :: g0_geo = -1.284909
-real, parameter :: g1_geo = -0.166314
-real, parameter :: g2_geo =  0.041840
 
 ! ==== types =================================================================
 type :: lake_pars_type
