@@ -6,17 +6,10 @@ module snow_mod
 #include "../shared/debug.inc"
 
 use fms_mod, only : error_mesg, FATAL, NOTE, lowercase
-use time_manager_mod,   only: time_type_to_real
-use constants_mod,      only: tfreeze, hlv, hlf, PI
 
 use land_constants_mod, only : NBANDS
 
-use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles
-use land_data_mod, only : lnd, log_version
-use land_tile_io_mod, only: land_restart_type, &
-     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_tile_data, get_tile_data
+use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
@@ -285,10 +278,10 @@ subroutine partition_sw_heat_in_snow( &
          else ! albedo = snicar, but do not use internal sw sources
             if (snow%sp%nlayers>0) then
                ALLOCATE(snow%sp%swheat(snow%sp%nlayers))
-               snow%sp%swheat = 0.0 ! don't change fswg in this case
+               snow%sp%swheat = 0.0 ! do not change fswg in this case
             else
                ALLOCATE(snow%sp%swheat(1))
-               snow%sp%swheat = 0.0 ! don't change fswg in this case
+               snow%sp%swheat = 0.0 ! do not change fswg in this case
             endif
             fswg_surface = fswg
             fswg_substrate = 0.0

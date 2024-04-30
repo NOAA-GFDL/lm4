@@ -3,28 +3,12 @@ module snow_tile_mod
 
 use fms_mod, only : error_mesg, FATAL, NOTE, lowercase
 
-use constants_mod,only: tfreeze, hlf
-use land_constants_mod, only : NBANDS
-use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
-use land_debug_mod, only : is_watch_point, land_error_message
+use land_debug_mod, only : land_error_message
 
-use cm_snow_tile_mod, only : cm_snow_tile_type, cm_snow_tile_ctor, &
-  cm_snow_tile_copy_ctor, cm_delete_snow_tile, &
-  cm_snow_tiles_can_be_merged, cm_merge_snow_tiles, cm_snow_is_selected, &
-  cm_get_snow_tile_tag, cm_snow_tile_stock_pe, cm_snow_tile_heat, &
-  cm_snow_active, &
-  cm_snow_roughness, cm_snow_get_sfc_temp
-
-use gl_snow_tile_mod, only : gl_snow_tile_type, gl_snow_tile_ctor, &
-  gl_snow_tile_copy_ctor, gl_delete_snow_tile, &
-  gl_snow_tiles_can_be_merged, gl_merge_snow_tiles, gl_snow_is_selected, &
-  gl_get_snow_tile_tag, gl_snow_tile_stock_pe, gl_snow_tile_heat, &
-  gl_snow_active, &
-  gl_snow_roughness, gl_snow_get_sfc_temp
-
-use parent_snow_tile_mod, only: snow_tile_type, snow_option, num_l
-
+use cm_snow_tile_mod, only : cm_snow_tile_ctor
+use gl_snow_tile_mod, only : gl_snow_tile_ctor
+use parent_snow_tile_mod, only: snow_tile_type, snow_option
 
 implicit none
 private
