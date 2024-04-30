@@ -179,7 +179,6 @@ end interface
 logical, public :: use_brdf ! not protected because it is set in snow.F90
 
 !---- namelist ---------------------------------------------------------------
-character(len=16), PUBLIC:: snow_option = 'cm'  ! or 'gl' later on
 ! logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
 real    :: w_sat                 = 670.
 real    :: psi_sat               = -0.06
@@ -243,7 +242,7 @@ namelist /snow_data_nml/  w_sat,                    &
      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
      f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
      refl_snow_max_dir_on_glacier,    refl_snow_min_dir_on_glacier,   &
-     refl_snow_max_dif_on_glacier,    refl_snow_min_dif_on_glacier, snow_option
+     refl_snow_max_dif_on_glacier,    refl_snow_min_dif_on_glacier
 
 ! ---- end of namelist --------------------------------------------------------
 

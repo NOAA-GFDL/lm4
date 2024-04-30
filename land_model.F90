@@ -45,11 +45,11 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
     SOILC_CORPSE_N
 !!!! ================ EZSNOW ================
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
-    snow_get_depth_area, snow_step_1, snow_step_2, &
+    snow_option, SNOW_CM, SNOW_GL, snow_get_depth_area, snow_step_1, snow_step_2, &
     save_snow_restart, sweep_tiny_snow, compute_snow_albedo, partition_sw_heat_in_snow
 use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
-use parent_snow_tile_mod, only : snow_radiation, snow_option
+use parent_snow_tile_mod, only : snow_radiation
 use snow_constants_mod, only: NTRACERS
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
@@ -1732,7 +1732,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
   ! avoid numerical issues.
   call sweep_tiny_snow(tile%snow, lswept, fswept, hlswept, hfswept, lost_wc_em1, lost_wc_im1)
-  if (trim(lowercase(snow_option)) == 'gl') then
+  if (snow_option == SNOW_GL) then
       ! additionally sweep huge snow here in ez snow option
 
       call gl_sweep_huge_snow(tile%snow%sp, lswept_huge, fswept_huge, hlswept_huge, hfswept_huge, lost_wc_em1_huge, lost_wc_im1_huge)
@@ -1787,7 +1787,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   subs_subl = grnd_subl
 
-  if (trim(lowercase(snow_option)) == 'gl') then ! EZSNOW updated snow step 1
+  if (snow_option == SNOW_GL) then ! EZSNOW updated snow step 1
      call tile%snow%sp%step1a(  &              ! input
         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &   ! output
         snow_subl, snow_area, snow_E_max, delta_time, do_mgimplicit, grnd_T)
@@ -2250,7 +2250,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            begw_check = tile%snow%sp%SWE() ! init conservation checks
            begh_check = tile%snow%sp%heat() ! init conservation checks
 
-         !   if (trim(lowercase(snow_option)) == 'gl') then
+         !   if (snow_option == SNOW_GL) then
          !      if (trim(lowercase(albedo_to_use))=='snicar') then
          !         ! assign to each snow layer sw radiation based on snicar rad transfer
          !         ! for now, in case of thin snow assign all radiation to surface balance
@@ -2584,7 +2584,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
 ! TEMP FIX: MAIN PROG SHOULD NOT TOUCH CONTENTS OF PROG VARS. ******
 ! ALSO, DIAGNOSTICS IN COMPONENT MODULES SHOULD _FOLLOW_ THIS ADJUSTMENT******
-  if (trim(lowercase(snow_option)) == 'gl') tile%snow%nlayers = tile%snow%sp%nlayers ! //TODO EZSNOW should make this cleaner
+  if (snow_option == SNOW_GL) tile%snow%nlayers = tile%snow%sp%nlayers ! //TODO EZSNOW should make this cleaner
   if (LM2) then
       ! tile%snow%T = subs_Ttop
       do il=1, tile%snow%nlayers
@@ -2602,7 +2602,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
      else
         if(tau_snow_T_adj>=0) then
-            ! if (trim(lowercase(snow_option))=='gl') call land_error_message("update_land_model_fast_0d: This option is not supported with new snow model EZSNOW", severity=FATAL)
+            ! if (snow_option == SNOW_GL) call land_error_message("update_land_model_fast_0d: This option is not supported with new snow model EZSNOW", severity=FATAL)
            delta_T_snow = subs_Ctop*(subs_Ttop-snow_avrg_T)/&
                 (subs_Ctop*tau_snow_T_adj/delta_time+subs_Ctop+snow_C)
            do il=1, tile%snow%nlayers
@@ -2906,7 +2906,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! ------ Here they are saved weighted by the fractional snow cover
   ! recompute the snow area frac and near surface properties here to get that at end of snow processes calculations
 !   call snow_get_depth_area ( tile%snow, tile%snow%sp%depth(), snow_area )
-  if (trim(lowercase(snow_option)) == 'gl') then
+  if (snow_option == SNOW_GL) then
   snow_area = tile%snow%sp%area()
   call tile%snow%sp%nearsurf_properties()
    ! if(tile%snow%nlayers > 0) then
@@ -3830,7 +3830,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
    endif
   ! first run original albedo code in any case to get longwave opt properties [snow_refl_lw, snow_emis]
   call snow_radiation ( snow_top_temp, cosz, associated(tile%glac), snow_refl_dir_cm, snow_refl_dif_cm, snow_refl_lw, snow_emis)
-  if (trim(lowercase(snow_option))=='gl') then
+  if (snow_option == SNOW_GL) then
       call compute_snow_albedo(tile%snow, snow_top_temp, cosz, associated(tile%glac), 87000.0, subs_refl_dif, & ! input
                 snow_refl_dir, snow_refl_dif)
   else

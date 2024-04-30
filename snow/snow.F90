@@ -19,9 +19,8 @@ use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart, gl_snow_get_depth_area
 
-use parent_snow_tile_mod, only : &
-     snow_tile_type, &
-     snow_option
+use parent_snow_tile_mod, only : snow_tile_type
+use snow_tile_mod, only : read_snow_model_namelist, snow_option, SNOW_CM, SNOW_GL
 
 use cm_snow_tile_mod, only: cm_snow_tile_type
 
@@ -48,6 +47,8 @@ public :: snow_step_2 ! interface
 public :: compute_snow_albedo
 public :: partition_sw_heat_in_snow
 
+! re-export snow model selector
+public :: snow_option, SNOW_CM, SNOW_GL
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_mod'
@@ -60,45 +61,41 @@ subroutine read_snow_namelist()
   call log_version(version, module_name, &
   __FILE__)
 
-  select case(trim(lowercase(snow_option)))
-      case('cm')
-         call cm_read_snow_namelist()
-      case('gl')
-         call gl_read_snow_namelist()
-      case default
-         call error_mesg( &
-            'read_snow_namelist in snow_mod', &
-            'snow_option = "'//trim(snow_option)//'" is incorrect, use "cm", or "gl"', FATAL)
+  call read_snow_model_namelist()
+
+  select case(snow_option)
+  case(SNOW_CM)
+     call cm_read_snow_namelist()
+  case(SNOW_GL)
+     call gl_read_snow_namelist()
+  case default
+     call land_error_message('read_snow_namelist: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end subroutine read_snow_namelist
 
 
 ! initialize snow model
 subroutine snow_init()
-  select case(trim(lowercase(snow_option)))
-      case('cm')
-         call cm_snow_init()
-      case('gl')
-         call gl_snow_init()
-      case default
-         call error_mesg( &
-            'snow_init in snow_mod', &
-            'snow_option = "'//trim(snow_option)//'" is incorrect, use "cm", or "gl"', FATAL)
+  select case(snow_option)
+  case(SNOW_CM)
+     call cm_snow_init()
+  case(SNOW_GL)
+     call gl_snow_init()
+  case default
+     call land_error_message('snow_init: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end subroutine snow_init
 
 
 ! initialize snow model
 subroutine snow_end()
-  select case(trim(lowercase(snow_option)))
-      case('cm')
-         call cm_snow_end()
-      case('gl')
-         call gl_snow_end()
-      case default
-         call error_mesg( &
-            'snow_end in snow_mod', &
-            'snow_option = "'//trim(snow_option)//'" is incorrect, use "cm", or "gl"', FATAL)
+  select case(snow_option)
+  case(SNOW_CM)
+     call cm_snow_end()
+  case(SNOW_GL)
+     call gl_snow_end()
+  case default
+     call land_error_message('snow_end: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end subroutine snow_end
 
@@ -108,15 +105,13 @@ subroutine save_snow_restart(tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  select case(trim(lowercase(snow_option)))
-      case('cm')
-         call cm_save_snow_restart(tile_dim_length, timestamp)
-      case('gl')
-         call gl_save_snow_restart(tile_dim_length, timestamp)
-      case default
-         call error_mesg( &
-            'save_snow_restart in snow_mod', &
-            'snow_option = "'//trim(snow_option)//'" is incorrect, use "cm", or "gl"', FATAL)
+  select case(snow_option)
+  case(SNOW_CM)
+     call cm_save_snow_restart(tile_dim_length, timestamp)
+  case(SNOW_GL)
+     call gl_save_snow_restart(tile_dim_length, timestamp)
+  case default
+     call land_error_message('snow_end: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end subroutine save_snow_restart
 
@@ -235,7 +230,7 @@ subroutine partition_sw_heat_in_snow( &
 
    if (ALLOCATED(snow%sp%swheat)) DEALLOCATE(snow%sp%swheat)
 
-   if (trim(lowercase(snow_option)) == 'gl') then
+   if (snow_option == SNOW_GL) then
       if (trim(lowercase(albedo_to_use))=='snicar') then
          if ((use_internal_sources) .and. ((snow%sp%depth() > thresh_snow_depth_swheat) &
                                     .and. (snow%sp%nlayers > 0))) then
@@ -313,7 +308,7 @@ subroutine partition_sw_heat_in_snow( &
       __DEBUG1__(fswg)
       __DEBUG1__(fswg_surface)
       __DEBUG1__(fswg_substrate)
-      if (trim(lowercase(snow_option)) == 'gl') then
+      if (snow_option == SNOW_GL) then
          __DEBUG1__(snow%sp%swheat)
          call snow%sp%print()
       endif
