@@ -1,127 +1,399 @@
-module snow_base_mod
+module snow_tile_mod
 #include <fms_platform.h>
+#include "../shared/debug.inc"
 
-use fms_mod, only: check_nml_error, input_nml_file, lowercase, &
-            stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
+use mpp_mod, only: input_nml_file
 
+use fms_mod, only : check_nml_error, stdlog, FATAL, NOTE
+use constants_mod,only: tfreeze, hlf
+use land_constants_mod, only : NBANDS, &
+! MODIS BRDF model parameters
+    g_iso, g0_iso, g1_iso, g2_iso, &
+    g_vol, g0_vol, g1_vol, g2_vol, &
+    g_geo, g0_geo, g1_geo, g2_geo
+
+use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
-use land_debug_mod, only : land_error_message
-
-use cm_snow_tile_mod, only : cm_snow_tile_ctor
-use gl_snow_tile_mod, only : gl_snow_tile_ctor
-use snow_tile_mod, only: snow_tile_type
+use land_debug_mod, only : is_watch_point
+use snowpack_mod, only : snowpack_t, use_mcm_masking, depth_crit
 
 implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: read_snow_model_namelist
-public :: new_snow_tile
-public :: delete_snow_tile
-public :: snow_tiles_can_be_merged
+public :: read_snow_data_namelist
+public :: snow_data_thermodynamics
+public :: snow_data_hydraulics
+public :: snow_data_area
+public :: snow_radiation
+public :: mc_fict, z0_momentum, k_over_B, num_l, dz, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
-interface new_snow_tile
-   module procedure snow_tile_ctor
-   module procedure snow_tile_copy_ctor
-end interface
-
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'snow_base_mod'
+character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
 
-!---- namelist ---------------------------------------------------------------
-character(32) :: model_to_use = 'cm' ! name of the snow model to use
-namelist /snow_nml/ model_to_use
+integer, parameter, public :: max_lev = 10
 
-integer, public, protected :: snow_option = -1
-integer, public, parameter :: &
-    SNOW_CM = 1, &  ! Milly model
-    SNOW_GL = 2     ! GLASS snow model, Zorzetto et al. 2024
+! range of temperatures for ramp between "warm" and "cold" albedo
+real, parameter :: t_range = 10.0 ! degK
+
+! ==== types =================================================================
+
+
+
+
+type, abstract, public :: snow_tile_type
+  ! variables common to the two snow models:
+  integer :: tag ! kind of the tile
+  integer :: nlayers !< number of snow layers
+  ! variables needed for old snow model only:
+  real, allocatable :: wl(:)
+  real, allocatable :: ws(:)
+  real, allocatable :: T(:)
+  real, allocatable :: e(:), f(:)
+  type(snowpack_t) :: sp ! structure with data for glass snow model
+  contains
+  procedure(func_snow_is_selected),   deferred :: snow_is_selected
+  procedure(func_snow_roughness),   deferred :: snow_roughness
+  procedure(func_stock_pe),   deferred :: stock_pe
+  procedure(func_snow_active),   deferred :: snow_active
+  procedure(func_snow_tile_heat),   deferred :: snow_tile_heat
+  procedure(func_snow_get_sfc_temp),   deferred :: snow_get_sfc_temp
+  procedure(func_merge_snow_tiles), deferred :: merge_snow_tiles
+  procedure(func_get_snow_tile_tag), deferred :: get_snow_tile_tag
+  procedure(func_snow_get_wsi), deferred :: get_wsi
+  procedure(func_snow_get_wli), deferred :: get_wli
+  procedure(func_snow_get_Ti), deferred :: get_Ti
+  procedure(func_snow_set_wsi), deferred :: set_wsi
+  procedure(func_snow_set_wli), deferred :: set_wli
+  procedure(func_snow_set_Ti), deferred :: set_Ti
+  procedure(func_get_snow_total_ice), deferred :: ice
+  procedure(func_get_snow_total_liq), deferred :: liq
+end type snow_tile_type
+
+abstract interface
+  ! module procedures
+  subroutine func_merge_snow_tiles(snow2, w2, snow1, w1)
+    import :: snow_tile_type
+    real, intent(in) :: w1
+    real, intent(in) :: w2
+    class(snow_tile_type), intent(in) :: snow1
+    class(snow_tile_type), intent(inout) :: snow2
+  end subroutine func_merge_snow_tiles
+
+  integer function func_get_snow_tile_tag(snow) result(tag)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+  end function func_get_snow_tile_tag
+
+  logical function func_snow_is_selected(snow, sel) result(cm1_snow_is_selected)
+    import :: snow_tile_type
+    import :: tile_selector_type
+    type(tile_selector_type),  intent(in) :: sel
+    class(snow_tile_type), intent(in) :: snow
+  end function func_snow_is_selected
+
+  subroutine func_snow_roughness(snow, snow_z0s, snow_z0m)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    real, intent(out):: snow_z0s, snow_z0m
+  end subroutine func_snow_roughness
+
+  subroutine func_stock_pe(snow, twd_liq, twd_sol  )
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    real,                  intent(out)   :: twd_liq, twd_sol
+  end subroutine func_stock_pe
+
+  real function func_snow_tile_heat(snow) result(heat)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in)  :: snow
+  end function func_snow_tile_heat
+
+  logical function func_snow_active(snow) result(snow_active)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in)  :: snow
+  end function func_snow_active
+
+  subroutine func_snow_get_sfc_temp(snow, snow_T)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    real,                  intent(out)   :: snow_T
+  end subroutine func_snow_get_sfc_temp
+
+  real function func_snow_get_wli(snow, i) result(res)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    integer, intent(in) :: i
+  end function func_snow_get_wli
+
+  real function func_snow_get_wsi(snow, i) result(res)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    integer, intent(in) :: i
+  end function func_snow_get_wsi
+
+  real function func_snow_get_Ti(snow, i) result(res)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    integer, intent(in) :: i
+  end function func_snow_get_Ti
+
+  subroutine func_snow_set_wli(snow, i, v)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow
+    integer, intent(in) :: i
+    real, intent(in) :: v
+  end subroutine func_snow_set_wli
+
+  subroutine func_snow_set_wsi(snow, i, v)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow
+    integer, intent(in) :: i
+    real, intent(in) :: v
+  end subroutine func_snow_set_wsi
+
+  subroutine func_snow_set_Ti(snow, i, v)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow
+    integer, intent(in) :: i
+    real, intent(in) :: v
+  end subroutine func_snow_set_Ti
+
+  real function func_get_snow_total_ice(snow) result(ice)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+  end function func_get_snow_total_ice
+
+  real function func_get_snow_total_liq(snow) result(liq)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+  end function func_get_snow_total_liq
+
+end interface
+
+
+
+! ==== module data ===========================================================
+logical, public :: use_brdf ! not protected because it is set in snow.F90
+
+!---- namelist ---------------------------------------------------------------
+! logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
+real    :: w_sat                 = 670.
+real    :: psi_sat               = -0.06
+real    :: k_sat                 = 0.02
+real    :: chb                   = 3.5
+real    :: thermal_cond_ref      = 0.3
+! real    :: depth_crit            = 0.0167
+real    :: z0_momentum           = 0.001
+real    :: refl_snow_max_dir(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real    :: refl_snow_max_dif(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real    :: refl_snow_min_dir(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+real    :: refl_snow_min_dif(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
+real    :: emis_snow_min         = 0.90      ! reset to 1 for MCM
+real    :: k_over_B              = 2         ! reset to 0 for MCM
+integer :: num_l                 = 3         ! number of snow levels
+real    :: dz(max_lev)           = (/0.1,0.8,0.1,0.,0.,0.,0.,0.,0.,0./)
+                                              ! rel. thickness of model layers,
+                                              ! from top down
+! real, protected, public :: &
+!    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
+!    clw = 4218.0, &  ! specific heat of water (liquid)
+!    csw = 2106.0     ! specific heat of water (ice)
+real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
+! from analysis of modis data (ignoring temperature dependence):
+  real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
+  real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
+  real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
+  real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
+  real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
+  real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
+
+logical :: distinct_snow_on_glacier = .FALSE. ! if TRUE, the following parameters define
+           ! reflectance of snow on glaciers, otherwise snow reflectance does not depend
+           ! on the underlying surface (except overlap).
+real :: f_iso_cold_on_glacier(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_cold_on_glacier(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_cold_on_glacier(NBANDS) = (/ 0.054, 0.064 /)
+real :: f_iso_warm_on_glacier(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_warm_on_glacier(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_warm_on_glacier(NBANDS) = (/ 0.054, 0.064 /)
+real :: refl_snow_max_dir_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+
+namelist /snow_data_nml/  w_sat,                    &
+     psi_sat,                k_sat,                 &
+     chb,                                           &
+     thermal_cond_ref,                              &
+     z0_momentum,                                   &
+     f_iso_cold, f_vol_cold, f_geo_cold, &
+     f_iso_warm, f_vol_warm, f_geo_warm, &
+     refl_snow_max_dir,    refl_snow_min_dir,   &
+     refl_snow_max_dif,    refl_snow_min_dif,   &
+     emis_snow_max,          emis_snow_min,         &
+     k_over_B,             &
+     num_l,                   dz, mc_fict, &
+! snow radiative parameters on glacier
+     distinct_snow_on_glacier, &
+     f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
+     f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
+     refl_snow_max_dir_on_glacier,    refl_snow_min_dir_on_glacier,   &
+     refl_snow_max_dif_on_glacier,    refl_snow_min_dif_on_glacier
+
+! ---- end of namelist --------------------------------------------------------
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-subroutine read_snow_model_namelist()
+
+! ============================================================================
+subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
+  integer, intent(out) :: snow_num_l
+  real,    intent(out) :: snow_dz(:)
+  real,    intent(out) :: snow_mc_fict
+
+  ! ---- local vars
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__)
-  read (input_nml_file, nml=snow_nml, iostat=io)
-  ierr = check_nml_error(io, 'snow_nml')
-  if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=snow_nml)
-  endif
+  call log_version(version, module_name, &
+  __FILE__)
+  read (input_nml_file, nml=snow_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'snow_data_nml')
+  unit=stdlog()
+  write(unit, nml=snow_data_nml)
 
-  ! parse snow model options
-  select case (lowercase(model_to_use))
-  case('cm')
-    snow_option = SNOW_CM
-  case('gl')
-    snow_option = SNOW_GL
-  case default
-    call error_mesg('read_snow_model_namelist', &
-        '"'//trim(model_to_use)//'" is an invalid option for model_to_use', FATAL)
-  end select
-end subroutine
+  ! initialize global module data here
+
+  ! set up output arguments
+  snow_num_l = num_l
+  snow_dz    = dz
+  snow_mc_fict = mc_fict
+end subroutine read_snow_data_namelist
+
 
 ! ============================================================================
-function snow_tile_ctor(tag) result(ptr)
-  class(snow_tile_type), pointer :: ptr ! return value
-  integer, optional, intent(in) :: tag ! kind of tile
-  select case(snow_option)
-  case(SNOW_CM)
-     ptr => cm_snow_tile_ctor()
-  case(SNOW_GL)
-     ptr => gl_snow_tile_ctor()
-  case default
-     call land_error_message('snow_tile_ctor: The value of snow_option is invalid. This should never happen. See developer', FATAL)
-  end select
-end function snow_tile_ctor
+! compute snow thermodynmamic properties.
+subroutine snow_data_thermodynamics ( snow_rh, thermal_cond)
+  real, intent(out) :: snow_rh
+  real, intent(out) :: thermal_cond(:)
+
+  ! snow surface assumed to have air at saturation
+  snow_rh = 1
+
+  ! these will eventually be functions of water contents and T.
+  thermal_cond  = thermal_cond_ref
+
+end subroutine snow_data_thermodynamics
 
 
-function snow_tile_copy_ctor(snow) result(ptr)
-  class(snow_tile_type), pointer :: ptr ! return value
-  class(snow_tile_type), intent(in) :: snow ! tile to copy
+! ============================================================================
+! compute snow hydraulic properties (assumed dependent only on wl)
+subroutine snow_data_hydraulics (wl, ws, psi, hyd_cond )
+  real, intent(in),  dimension(:) :: wl, ws
+  real, intent(out), dimension(:) :: psi, hyd_cond
 
-  real liq1, liq2, ice1, ice2, heat1, heat2, dheat, dwat
+  ! ---- local vars
+  integer :: l
 
-  allocate(ptr, source=snow)
-  ptr%sp = snow%sp
-  ptr%sp%snow = snow%sp%snow
+  do l = 1, num_l
+    psi     (l) = psi_sat *(w_sat/(wl(l)+ws(l)))**chb
+    hyd_cond(l) = k_sat*(wl(l)/w_sat)**(3+2*chb)
+  enddo
 
-  call snow%stock_pe(liq1, ice1)
-  call ptr%stock_pe(liq2, ice2)
-  heat1 =  snow%snow_tile_heat()
-  heat2 = ptr%snow_tile_heat()
-
-  if (abs(liq1-liq2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: liquid water non conserved!", FATAL)
-  if (abs(ice1-ice2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: frozen water non conserved!", FATAL)
-  if (abs(heat1-heat2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: heat non conserved!", FATAL)
-end function snow_tile_copy_ctor
+end subroutine snow_data_hydraulics
 
 
-subroutine delete_snow_tile(snow)
-  class(snow_tile_type), pointer :: snow
-  deallocate(snow)
-end subroutine delete_snow_tile
+! ============================================================================
+! compute snow area
+subroutine snow_data_area ( snow_depth, snow_area )
+    real, intent(in)  :: snow_depth
+    real, intent(out) :: snow_area
+
+  snow_area = 0.
+  if (use_mcm_masking) then
+     snow_area = min(1., 0.5*sqrt(max(0.,snow_depth)/depth_crit))
+  else
+     snow_area = max(0.,snow_depth) / (max(0.,snow_depth) + depth_crit)
+  endif
+
+end subroutine snow_data_area
+
+! ============================================================================
+! compute snow properties needed to do soil-canopy-atmos energy balance
+subroutine snow_radiation ( snow_T, cosz, on_glacier,&
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  real, intent(in) :: snow_T  ! snow temperature, deg K
+  real, intent(in) :: cosz ! cosine of zenith angle
+  logical, intent(in) :: on_glacier ! TRUE if snow is on glacier
+  real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
+
+  if (on_glacier.and.distinct_snow_on_glacier) then
+     call snow_rad_calculations ( snow_T, cosz, &
+        f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
+        f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
+        refl_snow_min_dir_on_glacier, refl_snow_max_dir_on_glacier, &
+        refl_snow_min_dif_on_glacier, refl_snow_max_dif_on_glacier, &
+        snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  else
+     call snow_rad_calculations ( snow_T, cosz, &
+        f_iso_warm, f_vol_warm, f_geo_warm, &
+        f_iso_cold, f_vol_cold, f_geo_cold, &
+        refl_snow_min_dir, refl_snow_max_dir, &
+        refl_snow_min_dif, refl_snow_max_dif, &
+        snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  endif
+end subroutine snow_radiation
+
+! ============================================================================
+subroutine snow_rad_calculations ( snow_T, cosz, &
+     f_iso_warm, f_vol_warm, f_geo_warm, &
+     f_iso_cold, f_vol_cold, f_geo_cold, &
+     refl_snow_min_dir, refl_snow_max_dir, &
+     refl_snow_min_dif, refl_snow_max_dif, &
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  real, intent(in) :: snow_T  ! snow temperature, deg K
+  real, intent(in) :: cosz ! cosine of zenith angle
+  real, intent(in), dimension(NBANDS) :: &
+     f_iso_warm, f_vol_warm, f_geo_warm, &
+     f_iso_cold, f_vol_cold, f_geo_cold, &
+     refl_snow_min_dir, refl_snow_max_dir, refl_snow_min_dif, refl_snow_max_dif
+  real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
+
+  ! ---- local vars
+  real :: blend
+  real :: warm_value_dir(NBANDS), cold_value_dir(NBANDS)
+  real :: warm_value_dif(NBANDS), cold_value_dif(NBANDS)
+  real :: zenith_angle, zsq, zcu
+
+  blend = max(0.,min(1.,1.-(tfreeze-snow_T)/t_range))
+  if (use_brdf) then
+     zenith_angle = acos(cosz)
+     zsq = zenith_angle*zenith_angle
+     zcu = zenith_angle*zsq
+     warm_value_dir = f_iso_warm*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                    + f_vol_warm*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                    + f_geo_warm*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+     cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                    + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                    + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+     cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
+     warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
+  else
+     warm_value_dir = refl_snow_min_dir
+     cold_value_dir = refl_snow_max_dir
+     warm_value_dif = refl_snow_min_dif
+     cold_value_dif = refl_snow_max_dif
+  endif
+  snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
+  snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
+  snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
+  snow_refl_lw  = 1 - snow_emis
+end subroutine snow_rad_calculations
 
 
-function snow_tiles_can_be_merged(snow1,snow2) result(response)
-  logical :: response
-  class(snow_tile_type), intent(in) :: snow1,snow2
-!  select case(snow_option)
-!  case(SNOW_CM)
-!     response = cm1_snow_tiles_can_be_merged(snow1, snow2)
-!  case(SNOW_GL)
-!     response = cm2_snow_tiles_can_be_merged(snow1, snow2)
-!  case default
-!     call land_error_message('snow_tiles_can_be_merged: The value of snow_option is invalid. This should never happen. See developer', FATAL)
-!  end select
-!  // TODO to make it type-specific if necessary
-  response = .TRUE.
-end function snow_tiles_can_be_merged
-
-
-end module snow_base_mod
+end module snow_tile_mod
