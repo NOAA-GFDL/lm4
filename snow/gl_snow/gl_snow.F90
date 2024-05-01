@@ -5,12 +5,9 @@ module gl_snow_mod
 
 use fms_mod, only : error_mesg, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
-use constants_mod,      only: tfreeze, hlv, hlf, PI
-use land_constants_mod, only : NBANDS
+use constants_mod,      only: tfreeze
 use snow_tile_mod, only : &
-     read_snow_data_namelist, &
-     snow_data_thermodynamics, snow_data_area, &
-     snow_data_hydraulics, max_lev, use_brdf
+     read_snow_data_namelist, snow_data_area, max_lev
 use gl_snow_tile_mod, only: gl_snow_tile_type
 use snicar_mod, only: read_snicar_optics_data, read_snow_snicar_namelist
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
@@ -23,11 +20,11 @@ use land_tile_io_mod, only: land_restart_type, &
      add_int_tile_data, get_int_tile_data, field_exists
 use land_debug_mod, only : is_watch_point, check_var_range
 use snowpack_mod, only: snowpack_init_lm4p2, read_snowpack_namelist, &
-     snow_layer_type, MAX_OPT_LAYERS, cpw, clw, csw
+     snow_layer_type, csw
 use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
      add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
 use snow_evolution_mod, only : &
-         read_F06_data, gl_compute_snow_albedo, read_snow_evolution_namelist
+     read_F06_data, gl_compute_snow_albedo, read_snow_evolution_namelist
 
 
 implicit none
@@ -51,40 +48,10 @@ character(len=*), parameter :: module_name = 'gl_snow_mod'
 ! gathering, as described in CF conventions.
 character(len=*),   parameter :: snowlayers_index_name   = 'snow_layer_index'
 
-! ==== module variables ======================================================
-
-
-abstract interface
-  ! given land snow layer, returns pointer to some scalar real data
-  ! within this snow layer, or an unassociated pointer if there is no data
-  subroutine cptr_r0(tile, ptr)
-     import snow_layer_type
-     type(snow_layer_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine cptr_r0
-  ! given land snow layer, returns pointer to some scalar real data
-  ! within this snow layer, or an unassociated pointer if there is no data
-  subroutine cptr_i0(tile, ptr)
-     import snow_layer_type
-     type(snow_layer_type), pointer :: tile ! input
-     integer               , pointer :: ptr  ! returned pointer to the data
-  end subroutine cptr_i0
-end interface
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
+! ---- module variables
 logical         :: module_is_initialized =.FALSE.
 real            :: delta_time
-integer         :: num_l    ! # of snow layers
-! next three 'z' variables are all normalized by total snow pack depth
-real            :: dz (max_lev) ! relative thicknesses of layers
-real            :: z  (max_lev) ! relative depths of layer bounds
-real            :: zz (max_lev) ! relative depths of layer centers
-real            :: heat_capacity_retro = 1.6e6
-real            :: mc_fict
-! ==== end of module variables ===============================================
+! ---- end of module variables
 
 contains
 
@@ -96,8 +63,12 @@ subroutine gl_read_snow_namelist()
   integer :: ierr         ! error code, returned by i/o routines
   integer :: l            ! layer iterator
 
-  call read_snow_data_namelist(num_l,dz,mc_fict)
+  ! local variables only to satisfy interface of read_snow_data_namelist
+  integer :: num_l    ! # of snow layers
+  real    :: dz (max_lev) ! relative thicknesses of layers
+  real    :: mc_fict
 
+  call read_snow_data_namelist(num_l,dz,mc_fict)
 end subroutine gl_read_snow_namelist
 
 

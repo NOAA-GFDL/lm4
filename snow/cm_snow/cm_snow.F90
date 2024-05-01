@@ -18,8 +18,7 @@ use snow_tile_mod, only : &
      snow_data_hydraulics, max_lev, use_brdf
 use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
      ! namelist variables:
-     lm2, steal, max_snow, snow_density, &
-     wet_max, retro_heat_capacity, albedo_to_use, init_temp, min_snow_mass, &
+     snow_density, retro_heat_capacity, albedo_to_use, init_temp, &
      init_pack_wl, init_pack_ws
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
