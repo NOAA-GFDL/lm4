@@ -19,8 +19,8 @@ use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart, gl_snow_get_depth_area
 
-use parent_snow_tile_mod, only : snow_tile_type
-use snow_tile_mod, only : read_snow_model_namelist, snow_option, SNOW_CM, SNOW_GL
+use snow_tile_mod, only : snow_tile_type
+use snow_base_mod, only : read_snow_model_namelist, snow_option, SNOW_CM, SNOW_GL
 
 use cm_snow_tile_mod, only: cm_snow_tile_type
 

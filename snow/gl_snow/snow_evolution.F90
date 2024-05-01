@@ -13,7 +13,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use snicar_mod, only: compute_snicar_albedo
 use snow_constants_mod
 use snowpack_mod
-use parent_snow_tile_mod, only : distinct_snow_on_glacier
+use snow_tile_mod, only : distinct_snow_on_glacier
 
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
 use land_constants_mod, only : &

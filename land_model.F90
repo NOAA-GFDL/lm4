@@ -49,7 +49,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
     save_snow_restart, sweep_tiny_snow, compute_snow_albedo, partition_sw_heat_in_snow
 use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
-use parent_snow_tile_mod, only : snow_radiation
+use snow_tile_mod, only : snow_radiation
 use snow_constants_mod, only: NTRACERS
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &

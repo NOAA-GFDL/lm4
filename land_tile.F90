@@ -29,15 +29,8 @@ use vegn_tile_mod, only : &
 use vegn_util_mod, only : kill_small_cohorts_ppa
 use vegn_data_mod, only : landuse_name
 ! ##### EZSNOW - new snow model #####
-! use snow_tile_mod, only : &
-!      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
-!      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
-!      snow_tile_stock_pe, snow_tile_heat, snow_active
-use snow_tile_mod, only : &
-new_snow_tile, delete_snow_tile, &
-!   merge_snow_tiles, &
-snow_tiles_can_be_merged
-use parent_snow_tile_mod, only : snow_tile_type
+use snow_base_mod, only : new_snow_tile, delete_snow_tile, snow_tiles_can_be_merged
+use snow_tile_mod, only : snow_tile_type
 ! ##### end new snow model ######
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP

@@ -5,7 +5,7 @@ use fms_mod, only : FATAL
 use constants_mod,only: tfreeze, hlf
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
-use parent_snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
+use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
 use land_debug_mod, only : is_watch_point, land_error_message
 use snowpack_mod, only : cpw, clw, csw
 

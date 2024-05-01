@@ -1,4 +1,4 @@
-module parent_snow_tile_mod
+module snow_tile_mod
 #include <fms_platform.h>
 #include "../shared/debug.inc"
 
@@ -30,7 +30,7 @@ public :: mc_fict, z0_momentum, k_over_B, num_l, dz, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'parent_snow_tile_mod'
+character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
 
 integer, parameter, public :: max_lev = 10
@@ -396,4 +396,4 @@ subroutine snow_rad_calculations ( snow_T, cosz, &
 end subroutine snow_rad_calculations
 
 
-end module parent_snow_tile_mod
+end module snow_tile_mod

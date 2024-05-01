@@ -1,4 +1,4 @@
-module snow_tile_mod
+module snow_base_mod
 #include <fms_platform.h>
 
 use fms_mod, only: check_nml_error, input_nml_file, lowercase, &
@@ -9,7 +9,7 @@ use land_debug_mod, only : land_error_message
 
 use cm_snow_tile_mod, only : cm_snow_tile_ctor
 use gl_snow_tile_mod, only : gl_snow_tile_ctor
-use parent_snow_tile_mod, only: snow_tile_type
+use snow_tile_mod, only: snow_tile_type
 
 implicit none
 private
@@ -27,7 +27,7 @@ interface new_snow_tile
 end interface
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'snow_tile_mod'
+character(len=*), parameter :: module_name = 'snow_base_mod'
 #include "../shared/version_variable.inc"
 
 !---- namelist ---------------------------------------------------------------
@@ -124,4 +124,4 @@ function snow_tiles_can_be_merged(snow1,snow2) result(response)
 end function snow_tiles_can_be_merged
 
 
-end module snow_tile_mod
+end module snow_base_mod

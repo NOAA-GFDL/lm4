@@ -12,7 +12,7 @@ use fms_mod, only : error_mesg, check_nml_error, &
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_constants_mod, only : NBANDS
-use parent_snow_tile_mod, only : &
+use snow_tile_mod, only : &
      read_snow_data_namelist, &
      snow_data_thermodynamics, snow_data_area, &
      snow_data_hydraulics, max_lev, use_brdf
