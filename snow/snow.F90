@@ -44,7 +44,6 @@ public :: snow_get_depth_area ! interface
 public :: snow_step_1 ! interface
 public :: snow_step_2 ! interface
 public :: compute_snow_albedo
-public :: partition_sw_heat_in_snow
 
 ! re-export snow model selector
 public :: snow_option, SNOW_CM, SNOW_GL
@@ -179,121 +178,6 @@ subroutine compute_snow_albedo(snow, snow_T, cosz, on_glacier, p_atm, subs_refl_
         'type is incorrect: works only with gl_snow_tile_type!', FATAL)
   end select
 end subroutine compute_snow_albedo
-
-
-subroutine partition_sw_heat_in_snow( &
-   snow, fswg, fswg_dir, fswg_dif, & ! input
-   fswg_substrate, fswg_surface) ! output
-   !
-   ! Given the shortwave radiation absorbed by snow + substrate (fswg) [W/m2]
-   ! as well its direct and diffuse components (fswg_dir, fswg_dif)
-   ! partition it between surface of snow (where it was absorbed entirely in old cm snow model)
-   ! and, if requested, absorption within the snowpack
-   ! andabsoirption in the underlying substrate (lake/soil/glacier)
-   !
-   class(snow_tile_type), intent(inout) :: snow !< state of snowpack
-   real, intent(IN) :: fswg ! total sw absorbed by snow + substrate [W/m2]
-   real, intent(IN), dimension(NBANDS) :: fswg_dir, fswg_dif ! total sw absorbed by snow + substrate (dir only, dif only) [W/m2]
-   ! logical, intent(IN) :: assign_substrate_sw_to_surface ! if true, override code and assign excess heat to surface instead that passing it to underlying substrate
-   real, intent(OUT) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
-   real, intent(OUT) :: fswg_surface ! sw radiation to be absorbed at surface [W/m2]
-
-   integer il
-   real, dimension(NBANDS) :: sum_sw_frac_dir, sum_sw_frac_dif
-
-   ! SNICAR computed flux absorbed in each snow layer for unit of incident flux
-   ! snow%sp%sw_frac_dir(il, 1) = snow%sp%sw_frac_dir(il, 1) * fswg_dir(1)
-   ! snow%sp%sw_frac_dir(il, 2) = snow%sp%sw_frac_dir(il, 2) * fswg_dir(2)
-   ! snow%sp%sw_frac_dif(il, 1) = snow%sp%sw_frac_dif(il, 1) * fswg_dif(1)
-   ! snow%sp%sw_frac_dif(il, 2) = snow%sp%sw_frac_dif(il, 2) * fswg_dif(2)
-
-   if (ALLOCATED(snow%sp%swheat)) DEALLOCATE(snow%sp%swheat)
-
-   if (snow_option == SNOW_GL) then
-      if (trim(lowercase(albedo_to_use))=='snicar') then
-         if ((use_internal_sources) .and. ((snow%sp%depth() > thresh_snow_depth_swheat) &
-                                    .and. (snow%sp%nlayers > 0))) then
-            ALLOCATE(snow%sp%swheat(snow%sp%nlayers))
-            sum_sw_frac_dir = 0.0 ! init total fractions of sw down absorbed by snowpack
-            sum_sw_frac_dif = 0.0 ! init total fractions of sw down absorbed by snowpack
-            do il=1,snow%sp%nlayers
-               snow%sp%swheat(il) = &
-                     fswg_dir(1) * snow%sp%sw_frac_dir(il, 1) + &
-                     fswg_dif(1) * snow%sp%sw_frac_dif(il, 1) + &
-                     fswg_dir(2) * snow%sp%sw_frac_dir(il, 2) + &
-                     fswg_dif(2) * snow%sp%sw_frac_dif(il, 2)
-               sum_sw_frac_dir(1)  = sum_sw_frac_dir(1) + snow%sp%sw_frac_dir(il, 1)
-               sum_sw_frac_dif(1)  = sum_sw_frac_dif(1) + snow%sp%sw_frac_dif(il, 1)
-               sum_sw_frac_dir(2)  = sum_sw_frac_dir(2) + snow%sp%sw_frac_dir(il, 2)
-               sum_sw_frac_dif(2)  = sum_sw_frac_dif(2) + snow%sp%sw_frac_dif(il, 2)
-            enddo
-            if ((sum_sw_frac_dir(1)>1.0+1E-7).or. (sum_sw_frac_dif(1)>1.0+1E-7) .or. &
-               (sum_sw_frac_dir(2) >1.0+1E-7).or. (sum_sw_frac_dif(2) >1.0+1E-7)  ) then
-               write(*,*) "sum of sw_frac_dir(1):", sum_sw_frac_dir(1)
-               write(*,*) "sum of sw_frac_dir(2):", sum_sw_frac_dir(2)
-               write(*,*) "sum of sw_frac_dif(1):", sum_sw_frac_dif(1)
-               write(*,*) "sum of sw_frac_dif(2):", sum_sw_frac_dif(2)
-               call land_error_message("Error in sw sources from SNICAR: a total is larger than 1!", severity=FATAL)
-            endif
-            if ((sum_sw_frac_dir(1)<0.0-1E-7).or. (sum_sw_frac_dif(1)<0.0-1E-7) .or. &
-               (sum_sw_frac_dir(2) <0.0-1E-7).or. (sum_sw_frac_dif(2) <0.0-1E-7)  ) then
-               write(*,*) "sum of sw_frac_dir(1):", sum_sw_frac_dir(1)
-               write(*,*) "sum of sw_frac_dir(2):", sum_sw_frac_dir(2)
-               write(*,*) "sum of sw_frac_dif(1):", sum_sw_frac_dif(1)
-               write(*,*) "sum of sw_frac_dif(2):", sum_sw_frac_dif(2)
-               call land_error_message("Error in sw sources from SNICAR: a total is below 0!", severity=FATAL)
-            endif
-            fswg_surface = 0.0
-            fswg_substrate = &
-                  fswg_dir(1) * (1.0 - sum_sw_frac_dir(1)) + &
-                  fswg_dif(1) * (1.0 - sum_sw_frac_dif(1)) + &
-                  fswg_dir(2) * (1.0 - sum_sw_frac_dir(2)) + &
-                  fswg_dif(2) * (1.0 - sum_sw_frac_dif(2))
-         else ! albedo = snicar, but do not use internal sw sources
-            if (snow%sp%nlayers>0) then
-               ALLOCATE(snow%sp%swheat(snow%sp%nlayers))
-               snow%sp%swheat = 0.0 ! do not change fswg in this case
-            else
-               ALLOCATE(snow%sp%swheat(1))
-               snow%sp%swheat = 0.0 ! do not change fswg in this case
-            endif
-            fswg_surface = fswg
-            fswg_substrate = 0.0
-         endif
-      else ! snow option = GL but albedo model not SNICAR
-         if ((use_internal_sources) .and. ((snow%sp%depth() > thresh_snow_depth_swheat) &
-                                    .and. (snow%sp%nlayers > 0))) then
-            call snow%sp%sw_sources(fswg_dir, fswg_dif, fswg_substrate)
-            fswg_surface = 0.0
-         else
-            ALLOCATE(snow%sp%swheat(snow%sp%nlayers))
-            snow%sp%swheat = 0.0
-            fswg_surface = fswg
-            fswg_substrate = 0.0
-         endif
-      endif ! end albedo choice for GL snow model option
-   else ! case of CM snow model: all sw absorption occurs at the surface (part of surface energy balance)
-      fswg_surface=fswg
-      fswg_substrate = 0.0
-   endif
-
-   if (assign_substrate_sw_to_surface) then
-      fswg_surface=fswg_surface + fswg_substrate
-      fswg_substrate = 0.0
-   endif
-
-   if (is_watch_point()) then
-      write(*,*) "##### partition_sw_heat_in_snow checkpoint 1: #####"
-      __DEBUG1__(fswg)
-      __DEBUG1__(fswg_surface)
-      __DEBUG1__(fswg_substrate)
-      if (snow_option == SNOW_GL) then
-         __DEBUG1__(snow%sp%swheat)
-         call snow%sp%print()
-      endif
-   endif
-
-end subroutine partition_sw_heat_in_snow
 
 
 subroutine snow_step_2 ( snow, snow_subl,                     &

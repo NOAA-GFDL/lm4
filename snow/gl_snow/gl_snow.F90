@@ -26,7 +26,7 @@ use snowpack_mod, only: snowpack_init_lm4p2, read_snowpack_namelist, &
      snow_layer_type, MAX_OPT_LAYERS, cpw, clw, csw
 use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
      add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
-use snow_evolution_mod, only : gl_snow_step_2, gl_sweep_tiny_snow, &
+use snow_evolution_mod, only : gl_snow_step_2, &
          read_F06_data, gl_compute_snow_albedo, read_snow_evolution_namelist, use_internal_sources
 use fms_io_mod,       only : restart_file_type, get_instance_filename
 
@@ -40,7 +40,6 @@ public :: gl_snow_init
 public :: gl_snow_end
 public :: gl_save_snow_restart
 public :: gl_snow_get_depth_area
-public :: gl_sweep_tiny_snow
 public :: gl_snow_step_2
 ! =====end of public interfaces ==============================================
 

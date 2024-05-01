@@ -1,5 +1,7 @@
 module cm_snow_tile_mod
 #include <fms_platform.h>
+#include "../../shared/debug.inc"
+
 
 use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, FATAL
 use constants_mod,only: tfreeze, hlf
@@ -58,6 +60,8 @@ type, extends(snow_tile_type) :: cm_snow_tile_type
     procedure :: liq => cm_snow_get_total_liq
 
     procedure :: sweep_tiny => cm_sweep_tiny_snow
+    procedure :: partition_sw => cm_partition_sw
+
 end type cm_snow_tile_type
 
 ! ==== module data ===========================================================
@@ -356,5 +360,32 @@ subroutine cm_sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lo
   snow%ws = 0 ; snow%wl = 0
 end subroutine cm_sweep_tiny_snow
 
+subroutine cm_partition_sw( &
+   snow, fswg, fswg_dir, fswg_dif, & ! input
+   fswg_substrate, fswg_surface) ! output
+   !
+   ! Given the shortwave radiation absorbed by snow + substrate (fswg) [W/m2]
+   ! as well its direct and diffuse components (fswg_dir, fswg_dif)
+   ! partition it between surface of snow (where it was absorbed entirely in old cm snow model)
+   ! and, if requested, absorption within the snowpack
+   ! andabsoirption in the underlying substrate (lake/soil/glacier)
+   !
+   class(cm_snow_tile_type), intent(inout) :: snow !< state of snowpack
+   real, intent(in)  :: fswg ! total sw absorbed by snow + substrate [W/m2]
+   real, intent(in)  :: fswg_dir(:), fswg_dif(:) ! total sw absorbed by snow + substrate (dir only, dif only) [W/m2]
+   real, intent(out) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
+   real, intent(out) :: fswg_surface   ! sw radiation to be absorbed at the surface [W/m2]
+
+   ! case of CM snow model: all sw absorption occurs at the surface (part of surface energy balance)
+   fswg_surface=fswg
+   fswg_substrate = 0.0
+
+   if (is_watch_point()) then
+      write(*,*) "##### cm_partition_sw checkpoint 1: #####"
+      __DEBUG1__(fswg)
+      __DEBUG1__(fswg_surface)
+      __DEBUG1__(fswg_substrate)
+   endif
+end subroutine cm_partition_sw
 
 end module cm_snow_tile_mod

@@ -46,7 +46,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
 !!!! ================ EZSNOW ================
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
     snow_option, SNOW_CM, SNOW_GL, snow_get_depth_area, snow_step_1, snow_step_2, &
-    save_snow_restart, compute_snow_albedo, partition_sw_heat_in_snow
+    save_snow_restart, compute_snow_albedo
 use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use snow_tile_mod, only : snow_radiation
@@ -1727,7 +1727,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! ----- EZSNOW : additional 2 vars needed for snicar albedo option:
   fswg_dir = tile%Sg_dir * ISa_dn_dir
   fswg_dif = tile%Sg_dif * ISa_dn_dif
-  call partition_sw_heat_in_snow(tile%snow, fswg, fswg_dir, fswg_dif, fswg_substrate, fswg_surface)
+  call tile%snow%partition_sw(fswg, fswg_dir, fswg_dif, fswg_substrate, fswg_surface)
 
   ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
   ! avoid numerical issues.

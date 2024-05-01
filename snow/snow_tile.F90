@@ -72,6 +72,7 @@ type, abstract, public :: snow_tile_type
   procedure(func_get_snow_total_liq), deferred :: liq
 
   procedure(func_sweep_tiny), deferred :: sweep_tiny
+  procedure(func_partition_sw), deferred :: partition_sw
 end type snow_tile_type
 
 abstract interface
@@ -182,6 +183,22 @@ abstract interface
     real, intent(out) :: lost_wc_em(:), lost_wc_im(:) ! tracer losses
   end subroutine
 
+  ! Given the shortwave radiation absorbed by snow + substrate (fswg) [W/m2]
+  ! as well its direct and diffuse components (fswg_dir, fswg_dif)
+  ! partition it between surface of snow (where it was absorbed entirely in old cm snow model)
+  ! and, if requested, absorption within the snowpack
+  ! and absoirption in the underlying substrate (lake/soil/glacier)
+  subroutine func_partition_sw( snow, &
+    fswg, fswg_dir, fswg_dif,    & ! input
+    fswg_substrate, fswg_surface ) ! output
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow !< state of snowpack
+    real, intent(in)  :: fswg ! total sw absorbed by snow + substrate [W/m2]
+    real, intent(in)  :: fswg_dir(:), fswg_dif(:) ! total sw absorbed by snow + substrate (dir only, dif only) [W/m2]
+    ! logical, intent(IN) :: assign_substrate_sw_to_surface ! if true, override code and assign excess heat to surface instead that passing it to underlying substrate
+    real, intent(out) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
+    real, intent(out) :: fswg_surface   ! sw radiation to be absorbed at the surface [W/m2]
+  end subroutine
 end interface
 
 
