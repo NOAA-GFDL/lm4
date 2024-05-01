@@ -45,9 +45,9 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
     SOILC_CORPSE_N
 !!!! ================ EZSNOW ================
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
-    snow_option, SNOW_CM, SNOW_GL, snow_get_depth_area, snow_step_1, snow_step_2, &
+    snow_option, SNOW_CM, SNOW_GL, snow_get_depth_area, snow_step_1, &
     save_snow_restart, compute_snow_albedo
-use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, &
+use snow_evolution_mod, only: use_internal_sources, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use snow_tile_mod, only : snow_radiation
 use snow_constants_mod, only: NTRACERS
@@ -2490,7 +2490,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
  !   call s%print()
   endif
 
-  call snow_step_2 ( tile%snow, snow_subl,                     &
+  call tile%snow%step2 ( snow_subl, &
              vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
              delta_Tg,  Mg_imp,  &
              evapg,  &

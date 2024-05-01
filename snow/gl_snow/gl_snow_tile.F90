@@ -15,7 +15,8 @@ use snow_constants_mod, only: NTRACERS
 use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
 use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
-     albedo_to_use, use_internal_sources, thresh_snow_depth_swheat
+     albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &
+     gl_snow_step_2_ev => gl_snow_step_2
 
 use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
 
@@ -75,6 +76,7 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
     procedure :: sweep_tiny => gl_sweep_tiny_snow1
     procedure :: partition_sw => gl_partition_sw
 
+    procedure :: step2 => gl_step_2
 end type gl_snow_tile_type
 
 
@@ -884,5 +886,81 @@ subroutine gl_partition_sw( &
       __DEBUG1__(snow%sp%swheat)
    endif
 end subroutine gl_partition_sw
+
+subroutine gl_step_2 ( snow, snow_subl,                     &
+     vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
+     DTg,  Mg_imp,  evapg,  fswg,  flwg,  sensg,  &
+     use_tfreeze_in_grnd_latent, &
+     ! output
+     subs_DT, &
+     subs_M_imp, subs_evap, subs_fsw, subs_flw, subs_sens,  &
+     snow_fsw, snow_flw, snow_sens, &
+     snow_levap, snow_fevap, snow_melt, &
+     snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
+     snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, &
+     snow_avrg_T , &
+     ! additional input/output added by Enrico for standalone model only
+     !    snow_rho, snow_age, snow_sph, snow_optd, & ! average snow properties
+     ! heat1, verbose, hfevap, dt, wind_atm, t_atm, &
+     dt, wind_atm, t_atm, p_surf, &
+     wetdep, drydep, grnd_T_preprec, &
+     ! for conservation checks only :
+     begw_check, begh_check, &
+     G0, DGDTg, snow_G_Z, snow_G_TZ, &
+     mass_lai_em_1, mass_lai_im_1, &
+     lost_wc_em_st, lost_wc_im_st, &
+     lost_wc_em, lost_wc_im)
+  class(gl_snow_tile_type), intent(inout) :: snow
+  real, intent(in) :: &
+     snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
+  real, intent(in) :: &
+     DTg, Mg_imp, evapg, fswg, flwg, sensg
+  logical, intent(in) :: use_tfreeze_in_grnd_latent
+  real, intent(out) :: &
+         subs_DT, subs_M_imp, subs_evap, subs_fsw, subs_flw, subs_sens, &
+         snow_fsw, snow_flw, snow_sens, &
+         snow_levap, snow_fevap, snow_melt, &
+         snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
+         snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T
+   real, intent(out) :: grnd_T_preprec
+   !  additional in-out variables
+   !  real, intent(out) :: heat1
+   !  real, intent(out) :: hfevap ! heat released by subl [kg m^-2 s^-1]
+   !  logical, intent(in) :: verbose
+   !  real, intent(out) :: delta_heat_DTg
+   real, intent(in) :: dt ! delta time step
+   real, intent(in) :: wind_atm, t_atm, p_surf
+   real, intent(in) :: wetdep(:) ! wet deposition rate of tracers from atmosphere [ppm]
+   real, intent(in) :: drydep(:) ! dry deposition rate of tracers from atmosphere [mg/m2/s]
+   real, intent(out):: lost_wc_em(:), lost_wc_im(:)
+   real, intent(in) :: mass_lai_em_1(:), mass_lai_im_1(:) ! mass of LAIs at beginning of step, for mass cons checks
+   real, intent(in) :: lost_wc_em_st(:), lost_wc_im_st(:)
+   real, intent(in) :: begw_check, begh_check
+   real, intent(in) :: G0, DGDTg, snow_G_Z, snow_G_TZ
+
+   call gl_snow_step_2_ev (snow%sp, snow_subl,                     &
+                     vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
+                     DTg,  Mg_imp,  evapg,  fswg,  flwg,  sensg,  &
+                     use_tfreeze_in_grnd_latent, &
+                     ! output
+                     subs_DT, &
+                     subs_M_imp, subs_evap, subs_fsw, subs_flw, subs_sens,  &
+                     snow_fsw, snow_flw, snow_sens, &
+                     snow_levap, snow_fevap, snow_melt, &
+                     snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
+                     snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, &
+                     snow_avrg_T , &
+                     ! additional input/output added by Enrico for standalone model only
+                     !    snow_rho, snow_age, snow_sph, snow_optd, & ! average snow properties
+                     ! heat1, verbose, hfevap, dt, wind_atm, t_atm, &
+                     dt, wind_atm, t_atm, p_surf, &
+                     wetdep, drydep, grnd_T_preprec, &
+                     ! for conservation checks only :
+                     begw_check, begh_check, &
+                     G0, DGDTg, snow_G_Z, snow_G_TZ, &
+                     mass_lai_em_1, mass_lai_im_1, &
+                     lost_wc_em_st, lost_wc_im_st, &
+                     lost_wc_em, lost_wc_im)
+end subroutine
 
 end module gl_snow_tile_mod
