@@ -14,7 +14,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 
 use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
     cm_save_snow_restart, cm_snow_get_depth_area, &
-    cm_sweep_tiny_snow, cm_snow_step_1, cm_snow_step_2
+    cm_snow_step_1, cm_snow_step_2
 
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart, gl_snow_get_depth_area
@@ -41,7 +41,6 @@ public :: snow_init
 public :: snow_end
 public :: save_snow_restart
 public :: snow_get_depth_area ! interface
-public :: sweep_tiny_snow ! interface
 public :: snow_step_1 ! interface
 public :: snow_step_2 ! interface
 public :: compute_snow_albedo
@@ -131,26 +130,6 @@ subroutine snow_get_depth_area(snow, snow_depth, snow_area)
         'type is incorrect!', FATAL)
   end select
 end subroutine snow_get_depth_area
-
-
-subroutine sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc_im)
-  class(snow_tile_type), intent(inout) :: snow
-  real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
-  real, intent(out), dimension(NTRACERS) :: lost_wc_em, lost_wc_im
-
-  select type (snow)
-  type is (cm_snow_tile_type)
-      call cm_sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf)
-      lost_wc_em = 0.0
-      lost_wc_im = 0.0
-  type is (gl_snow_tile_type)
-      call gl_sweep_tiny_snow(snow%sp, lrunf, frunf, hlrunf, hfrunf,lost_wc_em, lost_wc_im)
-  class default
-      call error_mesg( &
-        'sweep_tiny_snow in snow_tile_mod', &
-        'snow tile type is incorrect!', FATAL)
-  end select
-end subroutine sweep_tiny_snow
 
 
 subroutine snow_step_1( snow, snow_G_Z, snow_G_TZ, &

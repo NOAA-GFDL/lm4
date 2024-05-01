@@ -46,7 +46,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
 !!!! ================ EZSNOW ================
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
     snow_option, SNOW_CM, SNOW_GL, snow_get_depth_area, snow_step_1, snow_step_2, &
-    save_snow_restart, sweep_tiny_snow, compute_snow_albedo, partition_sw_heat_in_snow
+    save_snow_restart, compute_snow_albedo, partition_sw_heat_in_snow
 use snow_evolution_mod, only: use_internal_sources, min_snow_depth, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use snow_tile_mod, only : snow_radiation
@@ -1731,7 +1731,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
   ! avoid numerical issues.
-  call sweep_tiny_snow(tile%snow, lswept, fswept, hlswept, hfswept, lost_wc_em1, lost_wc_im1)
+  call tile%snow%sweep_tiny(lswept, fswept, hlswept, hfswept, lost_wc_em1, lost_wc_im1)
   if (snow_option == SNOW_GL) then
       ! additionally sweep huge snow here in ez snow option
 

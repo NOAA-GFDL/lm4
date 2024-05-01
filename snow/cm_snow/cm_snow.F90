@@ -16,7 +16,12 @@ use snow_tile_mod, only : &
      read_snow_data_namelist, &
      snow_data_thermodynamics, snow_data_area, &
      snow_data_hydraulics, max_lev, use_brdf
-use cm_snow_tile_mod, only : cm_snow_tile_type
+use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
+     ! namelist variables:
+     lm2, steal, max_snow, snow_density, &
+     wet_max, retro_heat_capacity, albedo_to_use, init_temp, min_snow_mass, &
+     init_pack_wl, init_pack_ws
+
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
@@ -37,7 +42,6 @@ public :: cm_snow_init
 public :: cm_snow_end
 public :: cm_save_snow_restart
 public :: cm_snow_get_depth_area
-public :: cm_sweep_tiny_snow
 public :: cm_snow_step_1
 public :: cm_snow_step_2
 ! =====end of public interfaces ==============================================
@@ -48,29 +52,6 @@ character(len=*), parameter :: module_name = 'cm_snow_mod'
 #include "../../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
-
-!---- namelist ---------------------------------------------------------------
-logical :: retro_heat_capacity  = .false.
-logical :: lm2  = .false.
-logical :: steal = .false.
-character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
-real :: max_snow       = 1000.
-real :: wet_max        = 0.0  ! TEMP, move to snow_data
-real :: snow_density   = 300. ! TEMP, move to snow_data and generalize
-real :: init_temp = 260.   ! cold-start snow T
-real :: init_pack_ws   =   0.
-real :: init_pack_wl   =   0.
-real :: min_snow_mass = 0.
-logical :: prevent_tiny_snow = .FALSE. ! if true, tiny snow is removed at the
-   ! beginning of fast time step to avoid numerical issues. There is no harm
-   ! in doing that, but it changes answers, so for compatibility with older code
-   ! turn it off.
-
-namelist /cm_snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
-                    max_snow, wet_max, snow_density, &
-                    init_temp, init_pack_ws, init_pack_wl, &
-                    min_snow_mass, prevent_tiny_snow
-!---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
 real            :: delta_time
@@ -97,17 +78,12 @@ subroutine cm_read_snow_namelist()
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
   call read_snowpack_namelist()  ! need to read some variables from snowpack module
+  call read_snow_cm_namelist()
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=cm_snow_nml, iostat=io)
-  ierr = check_nml_error(io, 'cm_snow_nml')
-  if (mpp_pe() == mpp_root_pe()) then
-     unit=stdlog()
-     write(unit, nml=cm_snow_nml)
-  endif
 
-  ! -------- set up vertical discretization --------
+  ! set up vertical discretization
   zz(1) = 0
   do l = 1, num_l
      zz(l+1) = zz(l) + dz(l)
@@ -224,31 +200,6 @@ subroutine cm_snow_get_depth_area(snow, snow_depth, snow_area)
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
 end subroutine
-
-! ============================================================================
-! if snow amount is below specified limit, sweeps it into runoff
-subroutine cm_sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf)
-  type(cm_snow_tile_type), intent(inout) :: snow
-  real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
-
-  real :: snow_mass
-  integer :: l
-
-  lrunf=0 ; frunf=0 ; hlrunf=0 ; hfrunf=0
-  if (.not.prevent_tiny_snow) return ! do nothing, return zeros
-
-  snow_mass  = sum(snow%ws)
-  ! check if the snow is small enough to warrant sweeping
-  if ( snow_mass<0 .or. snow_mass >= min_snow_mass ) return
-
-  lrunf  = sum(snow%wl) ; frunf  = snow_mass
-  hlrunf = 0.0 ; hfrunf = 0.0
-  do l = 1, num_l
-     hlrunf = hlrunf + clw*snow%wl(l)*(snow%T(l)-tfreeze)
-     hfrunf = hfrunf + csw*snow%ws(l)*(snow%T(l)-tfreeze)
-  enddo
-  snow%ws = 0 ; snow%wl = 0
-end subroutine cm_sweep_tiny_snow
 
 ! ============================================================================
 ! update snow properties explicitly for time step.
