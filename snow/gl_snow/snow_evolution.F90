@@ -6,6 +6,7 @@ module snow_evolution_mod
 
 use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
        FATAL, WARNING, NOTE
+use time_manager_mod, only: time_type_to_real
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
 use land_constants_mod, only : &
 ! MODIS BRDF model parameters
@@ -161,6 +162,8 @@ namelist /snow_evolution_nml/ &
          albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
 ! ---- end of namelist
 
+! ---- module data
+real, public, protected :: delta_time ! model physics time step, s
 
 contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -182,6 +185,8 @@ subroutine read_snow_evolution_namelist()
      unit=stdlog()
      write(unit, nml=snow_evolution_nml)
   endif
+
+  delta_time = time_type_to_real(lnd%dt_fast) ! [s]
 end subroutine read_snow_evolution_namelist
 
 ! !> \Write current timestep variables to output

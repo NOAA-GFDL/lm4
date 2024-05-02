@@ -75,6 +75,7 @@ type, abstract, public :: snow_tile_type
   procedure(func_sweep_tiny), deferred :: sweep_tiny
   procedure(func_partition_sw), deferred :: partition_sw
 
+  procedure(func_step1), deferred :: step1
   procedure(func_step2), deferred :: step2
 end type snow_tile_type
 
@@ -207,6 +208,22 @@ abstract interface
     ! logical, intent(IN) :: assign_substrate_sw_to_surface ! if true, override code and assign excess heat to surface instead that passing it to underlying substrate
     real, intent(out) :: fswg_substrate ! sw radiation passed to substrate [W/m2]
     real, intent(out) :: fswg_surface   ! sw radiation to be absorbed at the surface [W/m2]
+  end subroutine
+
+  subroutine func_step1( snow, p_surf, grnd_T, snow_G_Z, snow_G_TZ, &
+         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+         snow_subl, snow_area, snow_G0, snow_DGDT, snow_E_max )
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow
+    real,    intent(in) :: p_surf
+    real,    intent(in) :: grnd_T
+    real,    intent(in) :: snow_G_Z
+    real,    intent(in) :: snow_G_TZ
+    logical, intent(out):: snow_active
+    real,    intent(out):: &
+         snow_T, snow_rh, snow_liq, snow_ice, &
+         snow_subl, snow_area, snow_G0, snow_DGDT, &
+         snow_E_max
   end subroutine
 
   subroutine func_step2 ( snow, snow_subl,                     &

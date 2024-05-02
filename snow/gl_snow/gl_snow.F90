@@ -48,7 +48,6 @@ character(len=*),   parameter :: snowlayers_index_name   = 'snow_layer_index'
 
 ! ---- module variables
 logical         :: module_is_initialized =.FALSE.
-real            :: delta_time
 ! ---- end of module variables
 
 contains
@@ -82,8 +81,6 @@ subroutine gl_snow_init()
 
   old_init_snow_density = 250.0 ! kg/m3, density for old model snow to input ! // TODO read from nml?
   module_is_initialized = .TRUE.
-  delta_time = time_type_to_real(lnd%dt_fast)
-
 
   ! initialize snowpack -> namelist moved to snowpack_init
   call read_snowpack_namelist()

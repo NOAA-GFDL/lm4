@@ -9,7 +9,6 @@ use mpp_mod, only: input_nml_file
 
 use fms_mod, only : error_mesg, check_nml_error, &
      stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
-use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
@@ -24,7 +23,6 @@ use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
      snow_density, retro_heat_capacity, albedo_to_use, init_temp, &
      init_pack_wl, init_pack_ws
 use snow_tile_mod, only : read_snow_data_namelist, &
-     snow_data_thermodynamics, snow_data_area, &
      max_lev, use_brdf
 use snowpack_mod, only : clw, csw, read_snowpack_namelist
 
@@ -37,7 +35,6 @@ public :: cm_read_snow_namelist
 public :: cm_snow_init
 public :: cm_snow_end
 public :: cm_save_snow_restart
-public :: cm_snow_step_1
 ! =====end of public interfaces ==============================================
 
 
@@ -48,13 +45,11 @@ character(len=*), parameter :: module_name = 'cm_snow_mod'
 ! ==== module variables ======================================================
 
 logical         :: module_is_initialized =.FALSE.
-real            :: delta_time
 integer         :: num_l    ! # of snow layers
 ! next three 'z' variables are all normalized by total snow pack depth
 real            :: dz (max_lev) ! relative thicknesses of layers
 real            :: z  (max_lev) ! relative depths of layer bounds
 real            :: zz (max_lev) ! relative depths of layer centers
-real            :: heat_capacity_retro = 1.6e6
 real            :: mc_fict
 
 ! ==== end of module variables ===============================================
@@ -100,7 +95,6 @@ subroutine cm_snow_init()
   logical :: restart_exists
 
   module_is_initialized = .TRUE.
-  delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize snow state --------
   call open_land_restart(restart,restart_file_name,restart_exists)
@@ -170,137 +164,6 @@ subroutine cm_save_snow_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 
 end subroutine cm_save_snow_restart
-
-! ============================================================================
-! update snow properties explicitly for time step.
-! integrate snow-heat conduction equation upward from bottom of snow
-! to surface, delivering linearization of surface ground heat flux.
-subroutine cm_snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-                         snow_subl, snow_area, snow_G0, snow_DGDT )
-  type(cm_snow_tile_type), intent(inout) :: snow
-  real,                 intent(in) :: snow_G_Z
-  real,                 intent(in) :: snow_G_TZ
-  logical,              intent(out):: snow_active
-  real,                 intent(out):: &
-       snow_T, snow_rh, snow_liq, snow_ice, &
-       snow_subl, snow_area, snow_G0, snow_DGDT
-
-  ! ---- local vars
-  real :: snow_depth, bbb, denom, dt_e
-  real, dimension(num_l):: aaa, ccc, thermal_cond, dz_phys, heat_capacity
-  integer :: l
-
-! ----------------------------------------------------------------------------
-! in preparation for implicit energy balance, determine various measures
-! of water availability, so that vapor fluxes will not exceed mass limits
-! ----------------------------------------------------------------------------
-
-  snow_T = tfreeze
-  snow_T = snow%T(1)
-
-  call snow_data_thermodynamics ( snow_rh, thermal_cond )
-  snow_depth= 0.0
-  do l = 1, num_l
-     snow_depth = snow_depth + snow%ws(l)
-  enddo
-  snow_depth = snow_depth / snow_density
-  call snow_data_area (snow_depth, snow_area )
-  ! ---- only liquid in the top snow layer is available to freeze implicitly
-  snow_liq =     snow%wl(1)
-  ! ---- snow in any layer can be melted implicitly
-  snow_ice = sum(snow%ws(:))
-
-! ---- fractionate evaporation/sublimation according to sfc phase ratios
-!  where (max(snow%ws(1),0.)+max(snow%wl(1),0.)>0)
-!      snow_subl = max(snow%ws(1),0.) &
-!       /(max(snow%ws(1),0.)+max(snow%wl(1),0.))
-!    elsewhere
-!      snow_subl = 0
-!    endwhere
-!  snow_active = snow_subl>0.
-  if (snow_depth>0) then
-     snow_subl = 1.
-  else
-     snow_subl = 0
-  endif
-  snow_active = snow_subl>0.
-
-  do l = 1, num_l
-     dz_phys(l) = dz(l)*snow_depth
-  enddo
-
-  if (retro_heat_capacity) then
-     do l = 1, num_l
-        heat_capacity(l) = heat_capacity_retro*dz_phys(l)
-     enddo
-  else
-     do l = 1, num_l
-        heat_capacity(l) = mc_fict*dz(l) + &
-             clw*snow%wl(l) + csw*snow%ws(l)
-     enddo
-  endif
-
-!  if(num_l > 1) then
-  if (snow_depth > 0) then
-     do l = 1, num_l-1
-        dt_e = 2 / ( dz_phys(l+1)/thermal_cond(l+1) &
-                     + dz_phys(l)/thermal_cond(l)   )
-        aaa(l+1) = - dt_e * delta_time / heat_capacity(l+1)
-        ccc(l)   = - dt_e * delta_time / heat_capacity(l)
-     enddo
-
-     bbb = 1.0 - aaa(num_l) + delta_time*snow_G_TZ/heat_capacity(num_l)
-     denom = bbb
-     dt_e = aaa(num_l)*(snow%T(num_l) - snow%T(num_l-1)) &
-          - delta_time*snow_G_Z/heat_capacity(num_l)
-     snow%e(num_l-1) = -aaa(num_l)/denom
-     snow%f(num_l-1) = dt_e/denom
-
-     do l = num_l-1, 2, -1
-        bbb = 1.0 - aaa(l) - ccc(l)
-        denom = bbb + ccc(l)*snow%e(l)
-        dt_e = - ( ccc(l)*(snow%T(l+1) - snow%T(l)  ) &
-                  -aaa(l)*(snow%T(l)   - snow%T(l-1)) )
-        snow%e(l-1) = -aaa(l)/denom
-        snow%f(l-1) = (dt_e - ccc(l)*snow%f(l))/denom
-     enddo
-
-     denom = delta_time/heat_capacity(1)
-     snow_G0    = ccc(1)*(snow%T(2)- snow%T(1) &
-          + snow%f(1)) / denom
-     snow_DGDT  = (1 - ccc(1)*(1-snow%e(1))) / denom
-  endif
-
-!    else  ! one-level case
-!      denom = delta_time/heat_capacity(1)
-!      snow_G0    = 0.
-!      snow_DGDT  = 1. / denom
-!    end if
-
-  if (snow_depth <= 0) then
-     snow_G0   = snow_G_Z
-     snow_DGDT = snow_G_TZ
-  endif
-
-  if(is_watch_point()) then
-     write(*,*) 'snow_depth', snow_depth
-     write(*,*) '############ snow_step_1 output'
-     write(*,*) 'mask      ', .true.
-     write(*,*) 'snow_T    ', snow_T
-     write(*,*) 'snow_rh   ', snow_rh
-     write(*,*) 'snow_liq  ', snow_liq
-     write(*,*) 'snow_ice  ', snow_ice
-     write(*,*) 'snow_subl ', snow_subl
-     write(*,*) 'snow_area ', snow_area
-     write(*,*) 'snow_G_Z  ', snow_G_Z
-     write(*,*) 'snow_G_TZ ', snow_G_TZ
-     write(*,*) 'snow_G0   ', snow_G0
-     write(*,*) 'snow_DGDT ', snow_DGDT
-     write(*,*) '############ end of snow_step_1 output'
-  endif
-
-end subroutine cm_snow_step_1
 
 
 ! ============================================================================

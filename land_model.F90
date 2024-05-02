@@ -45,7 +45,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
     SOILC_CORPSE_N
 !!!! ================ EZSNOW ================
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
-    snow_option, SNOW_CM, SNOW_GL, snow_step_1, &
+    snow_option, SNOW_CM, SNOW_GL, &
     save_snow_restart, compute_snow_albedo
 use snow_evolution_mod, only: use_internal_sources, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
@@ -1331,7 +1331,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            phot_co2_overridden, phot_co2_data(l),&
            runoff(l), runoff_c(l,:), &
            (/drydep_bc(l), drydep_md(l), drydep_om(l)/), &  ! EZSNOW added
-           (/wetdep_bc(l), wetdep_md(l), wetdep_om(l)/)  &  !   "    added
+           (/wetdep_bc(l), wetdep_md(l), wetdep_om(l)/)  &  ! EZSNOW added
         )
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
@@ -1394,7 +1394,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      endif
      if(associated(tile%snow)) then
          call tile%snow%stock_pe(snow_LMASS, snow_FMASS) ! EZSNOW changed
-         snow_HEAT = tile%snow%snow_tile_heat()          !   " .  changed
+         snow_HEAT = tile%snow%snow_tile_heat()          ! EZSNOW changed
      endif
      if (associated(tile%glac)) then
          call glac_tile_stock_pe(tile%glac, subs_LMASS, subs_FMASS)
@@ -1787,29 +1787,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   subs_subl = grnd_subl
 
-  if (snow_option == SNOW_GL) then ! EZSNOW updated snow step 1
-     call tile%snow%sp%step1a(  &              ! input
-        snow_active, snow_T, snow_rh, snow_liq, snow_ice, &   ! output
-        snow_subl, snow_area, snow_E_max, delta_time, do_mgimplicit, grnd_T)
-
-     if(is_watch_point()) then
-        write(*,*) "##### Check after glass snow step 1a #####"
-        __DEBUG1__( associated(tile%soil) )
-        __DEBUG1__( associated(tile%lake) )
-        __DEBUG1__( associated(tile%glac) )
-        __DEBUG1__( associated(tile%snow) )
-        __DEBUG1__( associated(tile%vegn) )
-        __DEBUG4__( snow_active, snow_T, snow_liq, snow_ice)
-     endif
-
-     ! NOTE: moved it here now that albedo pre-calculation is done before
-     call tile%snow%sp%step1b( snow_G_Z, snow_G_TZ,   G0,    DGDTg,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
-
-  else
-     call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
-        snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-        snow_subl, snow_area, G0, DGDTg )
-  endif
+  call tile%snow%step1(p_surf, grnd_T, snow_G_Z, snow_G_TZ, &
+     snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+     snow_subl, snow_area, G0, DGDTg, snow_E_max )
 
   if (snow_active) then
      grnd_T    = snow_T;   grnd_rh   = snow_rh;   grnd_liq  = snow_liq
@@ -2283,10 +2263,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          !         else
          !            if (tile%snow%sp%nlayers>0) then
          !               ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-         !               tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
+         !               tile%snow%sp%swheat = 0.0 ! do not change fswg in this case
          !            else
          !               ALLOCATE(tile%snow%sp%swheat(1))
-         !               tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
+         !               tile%snow%sp%swheat = 0.0 ! do not change fswg in this case
          !            endif
          !            fswg_surface = fswg
          !         endif
@@ -2299,7 +2279,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          !            fswg_surface = 0.0
          !         else
          !            ALLOCATE(tile%snow%sp%swheat(tile%snow%sp%nlayers))
-         !            tile%snow%sp%swheat = 0.0 ! don't change fswg in this case
+         !            tile%snow%sp%swheat = 0.0 ! do not change fswg in this case
          !            fswg_surface = fswg
          !         endif
          !      endif ! end albedo choice
@@ -3789,8 +3769,8 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: i, j, m, tr
-  real snow_top_temp                                        ! EZSNOW added
-  real snow_refl_dir_cm(NBANDS), snow_refl_dif_cm(NBANDS)  !   " .  added
+  real :: snow_top_temp                                       ! EZSNOW added
+  real :: snow_refl_dir_cm(NBANDS), snow_refl_dif_cm(NBANDS)  ! EZSNOW added
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 

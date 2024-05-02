@@ -16,7 +16,7 @@ use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, cs
 use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &
-     gl_snow_step_2_ev => gl_snow_step_2
+     gl_snow_step_2_ev => gl_snow_step_2, delta_time, do_mgimplicit
 
 
 implicit none
@@ -33,9 +33,6 @@ character(len=*), parameter :: module_name = 'gl_snow_tile_mod'
 
 
 ! ==== types =================================================================
-
-
-
 type, extends(snow_tile_type) :: gl_snow_tile_type
 
    contains
@@ -65,7 +62,8 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
     procedure :: sweep_tiny => gl_sweep_tiny_snow1
     procedure :: partition_sw => gl_partition_sw
 
-    procedure :: step2 => gl_step_2
+    procedure :: step1 => gl_snow_step_1
+    procedure :: step2 => gl_snow_step_2
 end type gl_snow_tile_type
 
 
@@ -883,7 +881,37 @@ subroutine gl_partition_sw( &
    endif
 end subroutine gl_partition_sw
 
-subroutine gl_step_2 ( snow, snow_subl,                     &
+
+subroutine gl_snow_step_1( snow, p_surf, grnd_T, snow_G_Z, snow_G_TZ, &
+       snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+       snow_subl, snow_area, snow_G0, snow_DGDT, snow_E_max )
+  class(gl_snow_tile_type), intent(inout) :: snow
+  real,    intent(in) :: p_surf
+  real,    intent(in) :: grnd_T
+  real,    intent(in) :: snow_G_Z
+  real,    intent(in) :: snow_G_TZ
+  logical, intent(out):: snow_active
+  real,    intent(out):: &
+       snow_T, snow_rh, snow_liq, snow_ice, &
+       snow_subl, snow_area, snow_G0, snow_DGDT, &
+       snow_E_max
+
+  real, parameter :: atmos_T = 273.15 ! slm: per Enrico's comments, it is not needed, remove later
+
+  call snow%sp%step1a(  &              ! input
+     snow_active, snow_T, snow_rh, snow_liq, snow_ice, &   ! output
+     snow_subl, snow_area, snow_E_max, delta_time, do_mgimplicit, grnd_T)
+
+  if(is_watch_point()) then
+     write(*,*) "##### Check after glass snow step 1a #####"
+     __DEBUG4__( snow_active, snow_T, snow_liq, snow_ice)
+  endif
+
+  ! NOTE: moved it here now that albedo pre-calculation is done before
+  call snow%sp%step1b( snow_G_Z, snow_G_TZ,   snow_G0, snow_DGDT,  atmos_T,  p_surf,    delta_time ) ! for all ez models, regardless of albedo
+end subroutine
+
+subroutine gl_snow_step_2 ( snow, snow_subl,                     &
      vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
      DTg,  Mg_imp,  evapg,  fswg,  flwg,  sensg,  &
      use_tfreeze_in_grnd_latent, &

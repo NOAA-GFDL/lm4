@@ -15,7 +15,7 @@ use snow_tile_mod, only : snow_tile_type
 use cm_snow_tile_mod, only: cm_snow_tile_type
 use gl_snow_tile_mod, only: gl_snow_tile_type
 use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
-    cm_save_snow_restart, cm_snow_step_1
+    cm_save_snow_restart
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart
 use snow_evolution_mod, only: gl_compute_snow_albedo, albedo_to_use
@@ -29,7 +29,6 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: snow_step_1 ! interface
 public :: compute_snow_albedo
 
 ! re-export snow model selector
@@ -99,30 +98,6 @@ subroutine save_snow_restart(tile_dim_length, timestamp)
      call land_error_message('snow_end: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end subroutine save_snow_restart
-
-
-subroutine snow_step_1( snow, snow_G_Z, snow_G_TZ, &
-         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-         snow_subl, snow_area, snow_G0, snow_DGDT )
-  class(snow_tile_type), intent(inout) :: snow
-  real,                 intent(in) :: snow_G_Z
-  real,                 intent(in) :: snow_G_TZ
-  logical,              intent(out):: snow_active
-  real,                 intent(out):: &
-       snow_T, snow_rh, snow_liq, snow_ice, &
-       snow_subl, snow_area, snow_G0, snow_DGDT
-
-  select type (snow)
-  type is (cm_snow_tile_type)
-      call cm_snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-                         snow_subl, snow_area, snow_G0, snow_DGDT )
-  class default
-      call error_mesg( &
-        'snow_step_1 in snow_tile_mod', &
-        'type is incorrect!', FATAL)
-  end select
-end subroutine snow_step_1
 
 
 subroutine compute_snow_albedo(snow, snow_T, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
