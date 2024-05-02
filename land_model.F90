@@ -45,7 +45,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_op
     SOILC_CORPSE_N
 !!!! ================ EZSNOW ================
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
-    snow_option, SNOW_CM, SNOW_GL, snow_get_depth_area, snow_step_1, &
+    snow_option, SNOW_CM, SNOW_GL, snow_step_1, &
     save_snow_restart, compute_snow_albedo
 use snow_evolution_mod, only: use_internal_sources, do_mgimplicit, &
     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
@@ -1348,7 +1348,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
 
         if (id_snc>0) then
-           call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+           call tile%snow%get_depth_area ( snow_depth, snow_area )
            snc(l) = snc(l) + snow_area*tile%frac
         endif
      enddo
@@ -3821,7 +3821,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   endif
 
 ! ======= EZSNOW updated snow albedo
-  call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+  call tile%snow%get_depth_area ( snow_depth, snow_area )
 !   call tile%snow%snow_get_sfc_temp(snow_top_temp)
   if (tile%snow%snow_active()) then
       call tile%snow%snow_get_sfc_temp(snow_top_temp)

@@ -31,7 +31,6 @@ module land_tracer_driver_mod
   use soil_tile_mod, only : num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types
   use soil_carbon_mod, only: SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, soil_carbon_option
   use soil_carbon_mod, only: poolTotals1
-  use snow_mod,      only : snow_get_depth_area
 
   use sat_vapor_pres_mod, only: compute_qs
 
@@ -1018,7 +1017,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     endif
 
     if (associated(tile%snow)) then
-       call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+       call tile%snow%get_depth_area ( snow_depth, snow_area )
        gfrac_frz = snow_area
     end if
 
@@ -1274,7 +1273,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
           R_snow = 0.
           if (associated(tile%snow)) then
-             call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
+             call tile%snow%get_depth_area ( snow_depth, snow_area )
              if (snow_depth.gt.epsln) then
                 R_snow     = snow_depth/diff_H2_snow(tile%soil%T(isoil),p)
              end if

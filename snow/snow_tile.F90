@@ -70,6 +70,7 @@ type, abstract, public :: snow_tile_type
   procedure(func_snow_set_Ti), deferred :: set_Ti
   procedure(func_get_snow_total_ice), deferred :: ice
   procedure(func_get_snow_total_liq), deferred :: liq
+  procedure(func_get_depth_area), deferred :: get_depth_area
 
   procedure(func_sweep_tiny), deferred :: sweep_tiny
   procedure(func_partition_sw), deferred :: partition_sw
@@ -175,6 +176,12 @@ abstract interface
     import :: snow_tile_type
     class(snow_tile_type), intent(in) :: snow
   end function func_get_snow_total_liq
+
+  subroutine func_get_depth_area(snow, snow_depth, snow_area)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    real, intent(out) :: snow_depth, snow_area
+  end subroutine
 
   ! removes snow if its amount is tiny
   subroutine func_sweep_tiny(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc_im)

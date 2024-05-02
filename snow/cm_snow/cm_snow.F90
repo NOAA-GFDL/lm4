@@ -20,6 +20,7 @@ use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
      ! namelist variables:
      snow_density, retro_heat_capacity, albedo_to_use, init_temp, &
      init_pack_wl, init_pack_ws
+use snowpack_mod, only : clw, csw, read_snowpack_namelist
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
@@ -28,8 +29,6 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
-use snowpack_mod ! need to load it all because here we read snowpack_nml used in cm snow
-! use snowpack_mod, only : cpw, clw, csw, read_snowpack_namelist
 
 
 implicit none
@@ -40,7 +39,6 @@ public :: cm_read_snow_namelist
 public :: cm_snow_init
 public :: cm_snow_end
 public :: cm_save_snow_restart
-public :: cm_snow_get_depth_area
 public :: cm_snow_step_1
 ! =====end of public interfaces ==============================================
 
@@ -182,22 +180,6 @@ end subroutine cm_save_snow_restart
 
 !   snow_T = snow%T(1)
 ! end subroutine
-
-
-! ============================================================================
-subroutine cm_snow_get_depth_area(snow, snow_depth, snow_area)
-  type(cm_snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_depth, snow_area
-
-  integer :: l
-
-  snow_depth= 0.0
-  do l = 1, num_l
-     snow_depth = snow_depth + snow%ws(l)
-  enddo
-  snow_depth = snow_depth / snow_density
-  call snow_data_area (snow_depth, snow_area )
-end subroutine
 
 ! ============================================================================
 ! update snow properties explicitly for time step.

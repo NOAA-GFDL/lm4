@@ -13,11 +13,11 @@ use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
-    cm_save_snow_restart, cm_snow_get_depth_area, &
+    cm_save_snow_restart, &
     cm_snow_step_1
 
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
-    gl_save_snow_restart, gl_snow_get_depth_area
+    gl_save_snow_restart
 
 use snow_tile_mod, only : snow_tile_type
 use snow_base_mod, only : read_snow_model_namelist, snow_option, SNOW_CM, SNOW_GL
@@ -39,7 +39,6 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: snow_get_depth_area ! interface
 public :: snow_step_1 ! interface
 public :: compute_snow_albedo
 
@@ -110,23 +109,6 @@ subroutine save_snow_restart(tile_dim_length, timestamp)
      call land_error_message('snow_end: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end subroutine save_snow_restart
-
-
-subroutine snow_get_depth_area(snow, snow_depth, snow_area)
-  class(snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_depth, snow_area
-
-  select type (snow)
-  type is (cm_snow_tile_type)
-      call cm_snow_get_depth_area(snow, snow_depth, snow_area)
-   type is (gl_snow_tile_type)
-      call gl_snow_get_depth_area(snow, snow_depth, snow_area)
-  class default
-      call error_mesg( &
-        'snow_get_depth_area in snow_tile_mod', &
-        'type is incorrect!', FATAL)
-  end select
-end subroutine snow_get_depth_area
 
 
 subroutine snow_step_1( snow, snow_G_Z, snow_G_TZ, &

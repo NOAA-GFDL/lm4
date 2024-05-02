@@ -13,7 +13,7 @@ use land_data_mod, only : log_version
 use snow_constants_mod, only: NTRACERS
 
 use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
-use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
+use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &
      gl_snow_step_2_ev => gl_snow_step_2
@@ -72,6 +72,7 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
 
     procedure :: ice => gl_snow_get_total_ice
     procedure :: liq => gl_snow_get_total_liq
+    procedure :: get_depth_area => gl_snow_get_depth_area
 
     procedure :: sweep_tiny => gl_sweep_tiny_snow1
     procedure :: partition_sw => gl_partition_sw
@@ -773,6 +774,13 @@ real function gl_snow_get_total_liq(snow) result(liq)
   ! liq = sum(snow%wl(:))
   liq = snow%sp%liq()
 end function
+
+subroutine gl_snow_get_depth_area(snow, snow_depth, snow_area)
+  class(gl_snow_tile_type), intent(in) :: snow
+  real, intent(out) :: snow_depth, snow_area
+  snow_depth = snow%sp%depth()
+  call snow_data_area ( snow_depth, snow_area )
+end subroutine
 
 subroutine gl_sweep_tiny_snow1(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc_im)
   class(gl_snow_tile_type), intent(inout) :: snow

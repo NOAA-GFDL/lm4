@@ -35,7 +35,6 @@ public :: gl_read_snow_namelist
 public :: gl_snow_init
 public :: gl_snow_end
 public :: gl_save_snow_restart
-public :: gl_snow_get_depth_area
 ! =====end of public interfaces ==============================================
 
 
@@ -319,18 +318,6 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   call free_land_restart(restart1)
 
 end subroutine gl_save_snow_restart
-
-! ============================================================================
-subroutine gl_snow_get_depth_area(snow, snow_depth, snow_area)
-  type(gl_snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_depth, snow_area
-  integer :: l
-  snow_depth = snow%sp%depth()
-  call snow_data_area (snow_depth, snow_area )
-end subroutine
-
-
-
 
 ! ============================================================================
 subroutine gl_get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)

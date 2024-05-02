@@ -8,7 +8,7 @@ use time_manager_mod, only: time_type_to_real
 use constants_mod,only: tfreeze, hlf
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : lnd, log_version
-use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz
+use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
 use land_debug_mod, only : is_watch_point, land_error_message
 use snowpack_mod, only : cpw, clw, csw
 
@@ -59,6 +59,7 @@ type, extends(snow_tile_type) :: cm_snow_tile_type
     procedure :: set_wsi => cm_snow_set_wsi
     procedure :: ice => cm_snow_get_total_ice
     procedure :: liq => cm_snow_get_total_liq
+    procedure :: get_depth_area => cm_snow_get_depth_area
 
     procedure :: sweep_tiny => cm_sweep_tiny_snow
     procedure :: partition_sw => cm_partition_sw
@@ -332,10 +333,26 @@ real function cm_snow_get_total_ice(snow) result(ice)
   ice = sum(snow%ws(:))
 end function
 
+
 real function cm_snow_get_total_liq(snow) result(liq)
   class(cm_snow_tile_type), intent(in) :: snow
   liq = sum(snow%wl(:))
 end function
+
+
+subroutine cm_snow_get_depth_area(snow, snow_depth, snow_area)
+  class(cm_snow_tile_type), intent(in) :: snow
+  real, intent(out) :: snow_depth, snow_area
+
+  integer :: l
+
+  snow_depth= 0.0
+  do l = 1, num_l
+     snow_depth = snow_depth + snow%ws(l)
+  enddo
+  snow_depth = snow_depth / snow_density
+  call snow_data_area (snow_depth, snow_area )
+end subroutine
 
 ! ============================================================================
 ! if snow amount is below specified limit, sweeps it into runoff
