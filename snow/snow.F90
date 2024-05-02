@@ -8,28 +8,18 @@ module snow_mod
 use fms_mod, only : error_mesg, FATAL, NOTE, lowercase
 
 use land_constants_mod, only : NBANDS
-
 use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
+use snow_tile_mod, only : snow_tile_type
+use cm_snow_tile_mod, only: cm_snow_tile_type
+use gl_snow_tile_mod, only: gl_snow_tile_type
 use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
-    cm_save_snow_restart, &
-    cm_snow_step_1
-
+    cm_save_snow_restart, cm_snow_step_1
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart
-
-use snow_tile_mod, only : snow_tile_type
+use snow_evolution_mod, only: gl_compute_snow_albedo, albedo_to_use
 use snow_base_mod, only : read_snow_model_namelist, snow_option, SNOW_CM, SNOW_GL
-
-use cm_snow_tile_mod, only: cm_snow_tile_type
-
-use gl_snow_tile_mod, only: gl_snow_tile_type
-
-use snow_evolution_mod, only: gl_compute_snow_albedo, &
-                              albedo_to_use
-
-use snow_constants_mod, only: NTRACERS
 
 implicit none
 private

@@ -11,17 +11,6 @@ use fms_mod, only : error_mesg, check_nml_error, &
      stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
-use land_constants_mod, only : NBANDS
-use snow_tile_mod, only : &
-     read_snow_data_namelist, &
-     snow_data_thermodynamics, snow_data_area, &
-     snow_data_hydraulics, max_lev, use_brdf
-use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
-     ! namelist variables:
-     snow_density, retro_heat_capacity, albedo_to_use, init_temp, &
-     init_pack_wl, init_pack_ws
-use snowpack_mod, only : clw, csw, read_snowpack_namelist
-
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
@@ -29,6 +18,15 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
+
+use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
+     ! namelist variables:
+     snow_density, retro_heat_capacity, albedo_to_use, init_temp, &
+     init_pack_wl, init_pack_ws
+use snow_tile_mod, only : read_snow_data_namelist, &
+     snow_data_thermodynamics, snow_data_area, &
+     max_lev, use_brdf
+use snowpack_mod, only : clw, csw, read_snowpack_namelist
 
 
 implicit none
@@ -172,14 +170,6 @@ subroutine cm_save_snow_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 
 end subroutine cm_save_snow_restart
-
-! ============================================================================
-! subroutine cm_snow_get_sfc_temp(snow, snow_T)
-!   type(cm_snow_tile_type), intent(in) :: snow
-!   real, intent(out) :: snow_T
-
-!   snow_T = snow%T(1)
-! end subroutine
 
 ! ============================================================================
 ! update snow properties explicitly for time step.

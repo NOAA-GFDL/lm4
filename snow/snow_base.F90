@@ -7,9 +7,9 @@ use fms_mod, only: check_nml_error, input_nml_file, lowercase, &
 use land_data_mod, only : log_version
 use land_debug_mod, only : land_error_message
 
+use snow_tile_mod, only: snow_tile_type
 use cm_snow_tile_mod, only : cm_snow_tile_ctor
 use gl_snow_tile_mod, only : gl_snow_tile_ctor
-use snow_tile_mod, only: snow_tile_type
 
 implicit none
 private

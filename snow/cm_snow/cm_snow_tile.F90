@@ -8,8 +8,9 @@ use time_manager_mod, only: time_type_to_real
 use constants_mod,only: tfreeze, hlf
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : lnd, log_version
-use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
 use land_debug_mod, only : is_watch_point, land_error_message
+
+use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
 use snowpack_mod, only : cpw, clw, csw
 
 implicit none
@@ -18,17 +19,6 @@ private
 ! ==== public interfaces =====================================================
 public :: cm_snow_tile_type
 public :: cm_snow_tile_ctor
-public :: cm_snow_tile_copy_ctor
-public :: cm_delete_snow_tile
-public :: cm_snow_tiles_can_be_merged
-public :: cm_merge_snow_tiles
-public :: cm_snow_is_selected
-public :: cm_get_snow_tile_tag
-public :: cm_snow_tile_stock_pe
-public :: cm_snow_tile_heat
-public :: cm_snow_active
-public :: cm_snow_roughness
-public :: cm_snow_get_sfc_temp
 
 public :: read_snow_cm_namelist
 ! ==== end of public interfaces ==============================================

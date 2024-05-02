@@ -10,10 +10,10 @@ use fms_mod, only : check_nml_error, &
    stdlog, read_data, error_mesg, FATAL, WARNING, NOTE, mpp_pe, mpp_root_pe
 use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message
 use land_data_mod, only : lnd, log_version
-use snow_constants_mod
 use constants_mod, only : PI
+
+use snow_constants_mod
 use snowpack_mod
-! use snow_evolution_mod, only: compute_snow_grain_shape
 
 implicit none
 private

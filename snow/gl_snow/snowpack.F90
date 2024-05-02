@@ -4,13 +4,12 @@ module snowpack_mod
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
 
-use mpp_mod, only: input_nml_file
-
-use fms_mod, only : error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
+use fms_mod, only : input_nml_file, error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
        FATAL, WARNING, NOTE
-use land_data_mod, only : lnd, log_version
+use land_data_mod,  only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
-use constants_mod,      only: tfreeze, hlv, hlf, PI
+use constants_mod,  only : tfreeze, hlv, hlf, PI
+
 use snow_constants_mod
 
 implicit none

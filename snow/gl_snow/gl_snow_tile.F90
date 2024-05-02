@@ -5,20 +5,19 @@ module gl_snow_tile_mod
 use mpp_mod, only: input_nml_file
 
 use fms_mod, only : FATAL, lowercase
-use constants_mod,only: tfreeze, hlf
+use constants_mod, only : tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
+use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
 
 use snow_constants_mod, only: NTRACERS
-
 use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
 use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &
      gl_snow_step_2_ev => gl_snow_step_2
 
-use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
 
 implicit none
 private
@@ -26,17 +25,6 @@ private
 ! ==== public interfaces =====================================================
 public :: gl_snow_tile_type
 public :: gl_snow_tile_ctor
-public :: gl_snow_tile_copy_ctor
-public :: gl_delete_snow_tile
-public :: gl_snow_tiles_can_be_merged
-public :: gl_merge_snow_tiles
-public :: gl_snow_is_selected
-public :: gl_get_snow_tile_tag
-public :: gl_snow_tile_stock_pe
-public :: gl_snow_tile_heat ! use that defined in snowpack
-public :: gl_snow_active
-public :: gl_snow_roughness
-public :: gl_snow_get_sfc_temp
 
 
 ! ==== module constants ======================================================

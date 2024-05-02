@@ -6,25 +6,24 @@ module gl_snow_mod
 use fms_mod, only : error_mesg, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze
-use snow_tile_mod, only : &
-     read_snow_data_namelist, snow_data_area, max_lev
-use gl_snow_tile_mod, only: gl_snow_tile_type
-use snicar_mod, only: read_snicar_optics_data, read_snow_snicar_namelist
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
-     land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
-     current_tile, operator(/=), nitems, loop_over_tiles
+     land_tile_enum_type, first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data, get_tile_by_idx, &
      add_int_tile_data, get_int_tile_data, field_exists
-use land_debug_mod, only : is_watch_point, check_var_range
+
+use snow_tile_mod, only : &
+     read_snow_data_namelist, snow_data_area, max_lev
+use gl_snow_tile_mod, only: gl_snow_tile_type
 use snowpack_mod, only: snowpack_init_lm4p2, read_snowpack_namelist, &
      snow_layer_type, csw
 use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
      add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
 use snow_evolution_mod, only : &
-     read_F06_data, gl_compute_snow_albedo, read_snow_evolution_namelist
+     read_F06_data, read_snow_evolution_namelist
+use snicar_mod, only: read_snicar_optics_data, read_snow_snicar_namelist
 
 
 implicit none
@@ -56,12 +55,6 @@ contains
 
 ! ============================================================================
 subroutine gl_read_snow_namelist()
-  ! ---- local vars
-  integer :: unit         ! unit for namelist i/o
-  integer :: io           ! i/o status for the namelist
-  integer :: ierr         ! error code, returned by i/o routines
-  integer :: l            ! layer iterator
-
   ! local variables only to satisfy interface of read_snow_data_namelist
   integer :: num_l    ! # of snow layers
   real    :: dz (max_lev) ! relative thicknesses of layers
@@ -76,14 +69,13 @@ end subroutine gl_read_snow_namelist
 subroutine gl_snow_init()
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: k
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   ! character(*), parameter :: restart_file_name='INPUT/snow.res.nc' ! OLD-VERSION
   character(*), parameter :: restart_file_name='INPUT/snow.nc' ! EZSNOW-2022SC
   type(land_restart_type) :: restart
   logical :: restart_exists
-  integer ib, ik, ic, counter
+  integer ik, ic, counter
 
   logical read_old_snow_restart
   real old_init_snow_density
@@ -257,7 +249,6 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   integer ::  i, j
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-!   integer :: n_accum, nmn_acm
 
   character(267) :: filename
   type(land_restart_type) :: restart1 ! restart file i/o object
@@ -318,23 +309,6 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   call free_land_restart(restart1)
 
 end subroutine gl_save_snow_restart
-
-! ============================================================================
-subroutine gl_get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
-  type(gl_snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_LMASS, snow_FMASS, snow_HEAT
-  snow_LMASS = snow%sp%liq()
-  snow_FMASS = snow%sp%ice()
-  snow_HEAT = snow%sp%heat()
-end subroutine gl_get_snow_integrals
-
-! ============================================================================
-subroutine gl_print_snow_integrals(snow)
-  type(gl_snow_tile_type), intent(in) :: snow
-  real    :: snow_LMASS, snow_FMASS, snow_HEAT
-  call gl_get_snow_integrals(snow, snow_LMASS, snow_FMASS, snow_HEAT)
-  __DEBUG3__(snow_LMASS, snow_FMASS, snow_HEAT)
-end subroutine gl_print_snow_integrals
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

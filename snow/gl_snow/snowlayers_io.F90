@@ -13,6 +13,7 @@ use land_tile_io_mod, only : land_restart_type, get_tile_by_idx
 use land_tile_mod,    only : land_tile_map, land_tile_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
      current_tile, operator(/=), loop_over_tiles
+
 use snowpack_mod, only : snow_layer_type
 
 
@@ -94,26 +95,26 @@ end subroutine get_snowlayer_by_idx
 ! ============================================================================
 subroutine read_create_snowlayers(restart)
    type(land_restart_type), intent(inout) :: restart
- 
+
    integer :: nsnowlayers ! total number of snowlayers in restart file
    integer :: ntiles   ! total number of tiles in restart file
    integer :: nlon, nlat ! size of respective dimensions
- 
+
    integer :: i,j,t,k,m, n, npts, g, l
    type(land_tile_enum_type) :: ce, te
    type(land_tile_type), pointer :: tile
    character(len=64) :: info ! for error message
- 
+
    if (.not.allocated(restart%cidx)) call error_mesg('read_create_snowlayers', &
        'snowlayer index not found in file "'//restart%filename//'"',FATAL)
- 
+
    ! get the size of dimensions
    nlon = lnd%nlon
    nlat = lnd%nlat
    ntiles   = restart%tile_dim_length
    nsnowlayers = size(restart%cidx)
    npts = nlon*nlat
- 
+
    do n = 1,nsnowlayers
       if(restart%cidx(n)<0) cycle ! skip illegal indices
       k = restart%cidx(n)
@@ -123,19 +124,19 @@ subroutine read_create_snowlayers(restart)
       k = k/npts
       t = modulo(k,ntiles)+1 ; k = k/ntiles
       k = k+1
- 
+
       ce = first_elmt(land_tile_map(l))
       do m = 1,t-1
          ce=next_elmt(ce)
       enddo
       tile=>current_tile(ce)
- 
+
       if (.not. associated(tile)) then
           call error_mesg("read_create_snowlayers", &
                           "current tile returned null pointer", &
                           FATAL)
       endif
- 
+
       if(.not.associated(tile%snow)) then
          info = ''
          write(info,'("(",3i3,")")')i,j,t
@@ -146,7 +147,7 @@ subroutine read_create_snowlayers(restart)
          tile%snow%sp%nlayers = tile%snow%sp%nlayers + 1
       endif
    enddo
- 
+
    ! go through all tiles in the domain and allocate requested numner of snowlayers
    ce = first_elmt(land_tile_map); te = tail_elmt(land_tile_map)
    do while (ce/=te)
@@ -163,7 +164,7 @@ subroutine create_snowlayer_dimension1(restart)
    type(land_restart_type), intent(inout) :: restart
    call create_snowlayer_dimension2(restart%rhandle,restart%cidx,restart%basename,restart%tile_dim_length)
  end subroutine create_snowlayer_dimension1
- 
+
  ! ============================================================================
  ! creates snowlayer dimension, if necessary, in the output restart file. NOTE
  ! that this subroutine should be called even if restart has not been created
@@ -175,12 +176,12 @@ subroutine create_snowlayer_dimension1(restart)
    integer, allocatable,    intent(out)   :: cidx(:) ! rank local tile index vector
    character(len=*),        intent(in)    :: name    ! name of the restart file
    integer,                 intent(in)    :: tile_dim_length ! length of tile axis
- 
+
    integer :: max_snowlayers
- 
+
    call gather_snowlayer_index(tile_dim_length,cidx)
    max_snowlayers = global_max_snowlayers()
- 
+
    call create_snowlayer_out_file_idx(rhandle,name,cidx,max(max_snowlayers,1))
  end subroutine create_snowlayer_dimension2
 
@@ -198,14 +199,14 @@ subroutine create_snowlayer_out_file_idx(rhandle,name,cidx,snowlayers_dim_length
    integer, dimension(:), allocatable :: npes_cidx_start !Offset of snowlayer index of each pe in file's pelist.
    integer, dimension(snowlayers_dim_length) :: buffer
    integer :: i
- 
+
    ! form the full name of the file
    call get_instance_filename(trim(name), file_name)
- 
+
    ! the size of tile dimension really does not matter for the output, but it does
    ! matter for uncompressing utility, since it uses it as a size of the array to
    ! unpack to create tile index dimension and variable.
- 
+
    call register_axis(rhandle, "snowlayer", snowlayers_dim_length)
    call register_field(rhandle, "snowlayer", "int", (/"snowlayer"/))
    call register_variable_string_attribute(rhandle, "snowlayer", "long_name", "snowlayer number within tile")
@@ -213,7 +214,7 @@ subroutine create_snowlayer_out_file_idx(rhandle,name,cidx,snowlayers_dim_length
      buffer(i) = i
    enddo
    call write_data(rhandle, "snowlayer", buffer)
- 
+
    ncidx =  size(cidx)
    call compressed_start_and_count(rhandle, ncidx, npes_cidx_start, npes_cidx)
    call register_axis(rhandle, trim(snowlayer_index_name), npes_corner=npes_cidx_start, npes_nelems=npes_cidx)
@@ -225,7 +226,7 @@ subroutine create_snowlayer_out_file_idx(rhandle,name,cidx,snowlayers_dim_length
    call register_variable_string_attribute(rhandle, trim(snowlayer_index_name), "long_name", "compressed vegetation snowlayer index")
    call register_variable_attribute(rhandle, trim(snowlayer_index_name), "valid_min", 0)
    call write_data(rhandle, trim(snowlayer_index_name), cidx)
- 
+
  end subroutine create_snowlayer_out_file_idx
 
 subroutine distrib_snowlayer_data_i0d(fptr,idx,ntiles,data)
@@ -370,9 +371,9 @@ subroutine add_snowlayer_data(restart,varname,fptr,longname,units)
    character(len=*), intent(in) :: varname ! name of the variable to write
    procedure(cptr_r0)           :: fptr ! subroutine returning pointer to the data
    character(len=*), intent(in), optional :: units, longname
- 
+
    real, pointer :: r(:)
- 
+
    allocate(r(size(restart%cidx)))
    call gather_snowlayer_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
    call register_field(restart%rhandle, varname, "double", (/snowlayer_index_name/))
@@ -380,13 +381,13 @@ subroutine add_snowlayer_data(restart,varname,fptr,longname,units)
    if (present(units)) then
      call register_variable_string_attribute(restart%rhandle, varname, "units", units)
    endif
- 
+
    if (present(longname)) then
      call register_variable_string_attribute(restart%rhandle, varname, "long_name", longname)
    endif
    call write_data(restart%rhandle, varname, r)
    deallocate(r)
- 
+
  end subroutine add_snowlayer_data
 
 
@@ -396,10 +397,10 @@ subroutine add_int_snowlayer_data(restart,varname,fptr,longname,units)
    character(len=*), intent(in) :: varname ! name of the variable to write
    procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
    character(len=*), intent(in), optional :: units, longname
- 
+
    integer, pointer :: r(:)
    integer :: id_restart
- 
+
    allocate(r(size(restart%cidx)))
    call gather_snowlayer_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
    call register_field(restart%rhandle, varname, "int", (/snowlayer_index_name/))
@@ -412,7 +413,7 @@ subroutine add_int_snowlayer_data(restart,varname,fptr,longname,units)
    endif
    call write_data(restart%rhandle, varname, r)
    deallocate(r)
- 
+
  end subroutine add_int_snowlayer_data
 
 
@@ -421,7 +422,7 @@ subroutine get_snowlayer_data(restart,varname,fptr)
    type(land_restart_type), intent(in) :: restart
    character(len=*), intent(in) :: varname ! name of the variable to write
    procedure(cptr_r0)           :: fptr ! subroutine returning pointer to the data
- 
+
    real, allocatable :: r(:)
    if (.not.allocated(restart%cidx)) call error_mesg('read_create_snowlayers', &
        'snowlayer index not found in file "'//restart%filename//'"',FATAL)
@@ -429,7 +430,7 @@ subroutine get_snowlayer_data(restart,varname,fptr)
    call read_data(restart%rhandle, varname, r)
    call distrib_snowlayer_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
    deallocate(r)
- 
+
  end subroutine get_snowlayer_data
 
 
@@ -438,9 +439,9 @@ subroutine get_int_snowlayer_data(restart,varname,fptr)
    type(land_restart_type), intent(in) :: restart
    character(len=*), intent(in) :: varname ! name of the variable to write
    procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
- 
+
    integer, allocatable :: r(:)
- 
+
    if (.not.allocated(restart%cidx)) call error_mesg('read_create_snowlayers', &
        'snowlayer index not found in file "'//restart%filename//'"',FATAL)
    allocate(r(size(restart%cidx)))

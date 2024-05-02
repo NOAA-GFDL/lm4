@@ -4,23 +4,22 @@ module snow_evolution_mod
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
 
-use mpp_mod, only: input_nml_file
-
-use fms_mod, only : check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
+use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
        FATAL, WARNING, NOTE
-use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message
-use snicar_mod, only: compute_snicar_albedo
-use snow_constants_mod
-use snowpack_mod
-use snow_tile_mod, only : distinct_snow_on_glacier
-
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
 use land_constants_mod, only : &
 ! MODIS BRDF model parameters
     g_iso, g0_iso, g1_iso, g2_iso, &
     g_vol, g0_vol, g1_vol, g2_vol, &
     g_geo, g0_geo, g1_geo, g2_geo
+use land_data_mod, only : lnd, log_version
+use land_debug_mod, only : is_watch_point, land_error_message
+
+use snicar_mod, only: compute_snicar_albedo
+use snow_constants_mod
+use snowpack_mod
+use snow_tile_mod, only : distinct_snow_on_glacier
+
 
 implicit none
 private
