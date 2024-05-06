@@ -15,7 +15,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_int_tile_data, get_int_tile_data, field_exists
 
 use snow_tile_mod, only : &
-     read_snow_data_namelist, snow_data_area, max_lev
+     read_snow_data_namelist, max_lev
 use gl_snow_tile_mod, only: gl_snow_tile_type
 use snowpack_mod, only: snowpack_init_lm4p2, read_snowpack_namelist, &
      snow_layer_type, csw

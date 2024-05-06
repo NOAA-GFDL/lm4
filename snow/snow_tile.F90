@@ -23,7 +23,6 @@ private
 ! ==== public interfaces =====================================================
 public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
-public :: snow_data_hydraulics
 public :: snow_data_area
 public :: snow_radiation
 public :: mc_fict, z0_momentum, k_over_B, num_l, dz, distinct_snow_on_glacier
@@ -411,23 +410,6 @@ subroutine snow_data_thermodynamics ( snow_rh, thermal_cond)
   thermal_cond  = thermal_cond_ref
 
 end subroutine snow_data_thermodynamics
-
-
-! ============================================================================
-! compute snow hydraulic properties (assumed dependent only on wl)
-subroutine snow_data_hydraulics (wl, ws, psi, hyd_cond )
-  real, intent(in),  dimension(:) :: wl, ws
-  real, intent(out), dimension(:) :: psi, hyd_cond
-
-  ! ---- local vars
-  integer :: l
-
-  do l = 1, num_l
-    psi     (l) = psi_sat *(w_sat/(wl(l)+ws(l)))**chb
-    hyd_cond(l) = k_sat*(wl(l)/w_sat)**(3+2*chb)
-  enddo
-
-end subroutine snow_data_hydraulics
 
 
 ! ============================================================================
