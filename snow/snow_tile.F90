@@ -53,26 +53,27 @@ type, abstract, public :: snow_tile_type
   real, allocatable :: T(:)
   real, allocatable :: e(:), f(:)
   type(snowpack_t) :: sp ! structure with data for glass snow model
-  contains
-  procedure(func_snow_is_selected),   deferred :: snow_is_selected
-  procedure(func_snow_roughness),   deferred :: snow_roughness
-  procedure(func_stock_pe),   deferred :: stock_pe
-  procedure(func_snow_active),   deferred :: snow_active
-  procedure(func_snow_tile_heat),   deferred :: snow_tile_heat
+contains
+  procedure(func_snow_is_selected),    deferred :: snow_is_selected
+  procedure(func_snow_roughness),      deferred :: snow_roughness
+  procedure(func_snow_rad_prop),       deferred :: radiative_properties
+  procedure(func_stock_pe),            deferred :: stock_pe
+  procedure(func_snow_active),         deferred :: snow_active
+  procedure(func_snow_tile_heat),      deferred :: snow_tile_heat
   procedure(func_snow_get_sfc_temp),   deferred :: snow_get_sfc_temp
-  procedure(func_merge_snow_tiles), deferred :: merge_snow_tiles
-  procedure(func_get_snow_tile_tag), deferred :: get_snow_tile_tag
-  procedure(func_snow_get_wsi), deferred :: get_wsi
-  procedure(func_snow_get_wli), deferred :: get_wli
-  procedure(func_snow_get_Ti), deferred :: get_Ti
-  procedure(func_snow_set_wsi), deferred :: set_wsi
-  procedure(func_snow_set_wli), deferred :: set_wli
-  procedure(func_snow_set_Ti), deferred :: set_Ti
-  procedure(func_get_snow_total_ice), deferred :: ice
-  procedure(func_get_snow_total_liq), deferred :: liq
-  procedure(func_get_depth_area), deferred :: get_depth_area
+  procedure(func_merge_snow_tiles),    deferred :: merge_snow_tiles
+  procedure(func_get_snow_tile_tag),   deferred :: get_snow_tile_tag
+  procedure(func_snow_get_wsi),        deferred :: get_wsi
+  procedure(func_snow_get_wli),        deferred :: get_wli
+  procedure(func_snow_get_Ti),         deferred :: get_Ti
+  procedure(func_snow_set_wsi),        deferred :: set_wsi
+  procedure(func_snow_set_wli),        deferred :: set_wli
+  procedure(func_snow_set_Ti),         deferred :: set_Ti
+  procedure(func_get_snow_total_ice),  deferred :: ice
+  procedure(func_get_snow_total_liq),  deferred :: liq
+  procedure(func_get_depth_area),      deferred :: get_depth_area
 
-  procedure(func_sweep_tiny), deferred :: sweep_tiny
+  procedure(func_sweep_tiny),   deferred :: sweep_tiny
   procedure(func_partition_sw), deferred :: partition_sw
 
   procedure(func_step1), deferred :: step1
@@ -106,6 +107,19 @@ abstract interface
     class(snow_tile_type), intent(in) :: snow
     real, intent(out):: snow_z0s, snow_z0m
   end subroutine func_snow_roughness
+
+  subroutine func_snow_rad_prop(snow, &
+    cosz, subs_refl_dif, p_atm, on_glacier, &
+    snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow ! slm: it is only inout because gl_snow stores something (intermediate results?)
+    real, intent(in) :: cosz
+    real, intent(in) :: subs_refl_dif(:)
+    real, intent(in) :: p_atm
+    logical, intent(in) :: on_glacier
+    real, intent(out) :: snow_refl_dir(:), snow_refl_dif(:)
+    real, intent(out) :: snow_refl_lw, snow_emis
+  end subroutine
 
   subroutine func_stock_pe(snow, twd_liq, twd_sol  )
     import :: snow_tile_type

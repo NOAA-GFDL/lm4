@@ -13,9 +13,9 @@ use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
 
 use snow_constants_mod, only: NTRACERS
 use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
-use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area
+use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area, snow_radiation
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
-     albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, &
+     albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
      gl_snow_step_2_ev => gl_snow_step_2, delta_time, do_mgimplicit
 
 
@@ -41,6 +41,7 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
 
     procedure :: snow_is_selected => gl_snow_is_selected
     procedure :: snow_roughness => gl_snow_roughness
+    procedure :: radiative_properties => gl_snow_rad_prop
     procedure :: stock_pe => gl_snow_tile_stock_pe
     procedure :: snow_active => gl_snow_active
     procedure :: snow_tile_heat => gl_snow_tile_heat
@@ -661,6 +662,35 @@ subroutine gl_snow_roughness(snow, snow_z0s, snow_z0m)
   snow_z0m =  z0_momentum
   snow_z0s =  z0_momentum * exp(-k_over_B)
 end subroutine gl_snow_roughness
+
+! returns snow radiative properties: short-wave refletances (by spectral band),
+! long-wave reflecatanc, emissivity
+subroutine gl_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
+                             snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  class(gl_snow_tile_type), intent(inout) :: snow
+  real, intent(in) :: cosz
+  real, intent(in) :: subs_refl_dif(:)
+  real, intent(in) :: p_atm
+  logical, intent(in) :: on_glacier
+  real, intent(out) :: snow_refl_dir(:), snow_refl_dif(:)
+  real, intent(out) :: snow_refl_lw, snow_emis
+
+  real :: snow_top_temp
+
+  if (snow%snow_active()) then
+      call snow%snow_get_sfc_temp(snow_top_temp)
+  else
+      snow_top_temp = TFREEZE ! NOT used in this case
+  endif
+  ! first run original albedo code in any case to get longwave opt properties [snow_refl_lw, snow_emis]
+  call snow_radiation ( snow_top_temp, cosz, on_glacier, &
+      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  ! slm: values of snow_refl_dir, snow_refl_dif calculated by snow_radiation are immediately
+  ! overwritten by gl_compute_snow_albedo. Perhaps we should split LW and SW
+  ! subroutines to avoid such confusion ?
+  call gl_compute_snow_albedo ( snow%sp, snow_top_temp, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
+                snow_refl_dir, snow_refl_dif)
+end subroutine
 
 ! ============================================================================
 subroutine gl_snow_tile_stock_pe (snow, twd_liq, twd_sol  )

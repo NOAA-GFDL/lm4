@@ -11,7 +11,7 @@ use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, &
-      snow_data_area, snow_data_thermodynamics
+      snow_data_area, snow_data_thermodynamics, snow_radiation
 use snowpack_mod, only : cpw, clw, csw
 
 implicit none
@@ -34,11 +34,12 @@ real, parameter :: heat_capacity_retro = 1.6e6
 
 type, extends(snow_tile_type) :: cm_snow_tile_type
    ! data structure already defined in parent snow type
-   contains
+contains
     procedure :: merge_snow_tiles => cm_merge_snow_tiles_wrapper
     procedure :: get_snow_tile_tag => cm_get_snow_tile_tag
     procedure :: snow_is_selected => cm_snow_is_selected
     procedure :: snow_roughness => cm_snow_roughness
+    procedure :: radiative_properties => cm_snow_rad_prop
     procedure :: stock_pe => cm_snow_tile_stock_pe
     procedure :: snow_active => cm_snow_active
     procedure :: snow_tile_heat => cm_snow_tile_heat
@@ -249,10 +250,32 @@ subroutine cm_snow_tile_stock_pe (snow, twd_liq, twd_sol  )
 
 end subroutine cm_snow_tile_stock_pe
 
+! returns snow radiative properties: short-wave refletances (by spectral band),
+! long-wave reflecatanc, emissivity
+subroutine cm_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
+                             snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+  class(cm_snow_tile_type), intent(inout) :: snow
+  real, intent(in) :: cosz
+  real, intent(in) :: subs_refl_dif(:) ! slm: not used?
+  real, intent(in) :: p_atm            ! not used
+  logical, intent(in) :: on_glacier
+  real, intent(out) :: snow_refl_dir(:), snow_refl_dif(:)
+  real, intent(out) :: snow_refl_lw, snow_emis
+
+  real :: snow_top_temp
+
+  if (snow%snow_active()) then
+      call snow%snow_get_sfc_temp(snow_top_temp)
+  else
+      snow_top_temp = TFREEZE ! NOT used in this case
+  endif
+  call snow_radiation ( snow_top_temp, cosz, on_glacier, &
+      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+end subroutine
+
 ! ============================================================================
 ! returns snow heat content, J/m2
 function cm_snow_tile_heat (snow) result(heat) ; real heat
-  ! type(cm_snow_tile_type), intent(in)  :: snow
   class(cm_snow_tile_type), intent(in)  :: snow
 
   integer :: i

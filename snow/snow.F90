@@ -29,7 +29,6 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: compute_snow_albedo
 
 ! re-export snow model selector
 public :: snow_option, SNOW_CM, SNOW_GL
@@ -99,29 +98,5 @@ subroutine save_snow_restart(tile_dim_length, timestamp)
   end select
 end subroutine save_snow_restart
 
-
-subroutine compute_snow_albedo(snow, snow_T, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
-                snow_refl_dir, snow_refl_dif)
-  class(snow_tile_type), intent(inout) :: snow !< state of snowpack
-  real, intent(in) :: p_atm  ! ! atm pressure [Pa] from forcing
-  real, intent(in) :: snow_T  ! snow temperature, deg K [get it from s instead?]
-  real, intent(in) :: cosz ! cosine of zenith angle
-  logical, intent(in) :: on_glacier ! TRUE if snow is on glacier
-  real, dimension(NBANDS), intent(IN) :: subs_refl_dif
-  real, dimension(NBANDS), intent(OUT) :: snow_refl_dir
-  real, dimension(NBANDS), intent(OUT) :: snow_refl_dif
-!   real, intent(OUT) :: snow_refl_lw, snow_emis
-
-  select type (snow)
-  type is (gl_snow_tile_type)
-      call gl_compute_snow_albedo ( snow%sp, snow_T, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
-                snow_refl_dir, snow_refl_dif)
-
-  class default
-      call error_mesg( &
-        'compute snow albedo in snow_mod', &
-        'type is incorrect: works only with gl_snow_tile_type!', FATAL)
-  end select
-end subroutine compute_snow_albedo
 
 end module snow_mod

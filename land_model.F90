@@ -44,11 +44,12 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 !!!! ================ EZSNOW ================
-use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
-    snow_option, SNOW_CM, SNOW_GL, &
-    save_snow_restart, compute_snow_albedo
-use snow_evolution_mod, only: use_internal_sources, do_mgimplicit, &
-    albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
+use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart, &
+    snow_option, SNOW_CM, SNOW_GL
+
+! use snow_evolution_mod, only: use_internal_sources, &
+!     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
+use snow_evolution_mod, only: gl_sweep_huge_snow
 use snow_tile_mod, only : snow_radiation
 use snow_constants_mod, only: NTRACERS
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
@@ -3769,8 +3770,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: i, j, m, tr
-  real :: snow_top_temp                                       ! EZSNOW added
-  real :: snow_refl_dir_cm(NBANDS), snow_refl_dif_cm(NBANDS)  ! EZSNOW added
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 
@@ -3802,24 +3801,13 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
 ! ======= EZSNOW updated snow albedo
   call tile%snow%get_depth_area ( snow_depth, snow_area )
-!   call tile%snow%snow_get_sfc_temp(snow_top_temp)
-  if (tile%snow%snow_active()) then
-      call tile%snow%snow_get_sfc_temp(snow_top_temp)
-   else
-      snow_top_temp = TFREEZE ! NOT used in this case
-   endif
-  ! first run original albedo code in any case to get longwave opt properties [snow_refl_lw, snow_emis]
-  call snow_radiation ( snow_top_temp, cosz, associated(tile%glac), snow_refl_dir_cm, snow_refl_dif_cm, snow_refl_lw, snow_emis)
-  if (snow_option == SNOW_GL) then
-      call compute_snow_albedo(tile%snow, snow_top_temp, cosz, associated(tile%glac), 87000.0, subs_refl_dif, & ! input
-                snow_refl_dir, snow_refl_dif)
-  else
-      snow_refl_dir = snow_refl_dir_cm
-      snow_refl_dif = snow_refl_dif_cm
-  endif
+
+  ! slm: why atmospheric pressure is hardcoded?
+  call tile%snow%radiative_properties(cosz, subs_refl_dif, 87000.0, associated(tile%glac), &
+            snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
+
   if(is_watch_point()) then
      write(*,*) "snow active:", tile%snow%snow_active()
-     __DEBUG1__(snow_top_temp)
      __DEBUG1__(snow_area)
      __DEBUG1__(snow_depth)
      write(*,*) "EZSNOW - state of snowpack in update_land_bc_fast"
