@@ -14,6 +14,7 @@ use land_constants_mod, only : NBANDS, &
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point
+use tile_diag_buff_mod, only : diag_buff_type
 
 use snowpack_mod, only : snowpack_t, use_mcm_masking, depth_crit
 
@@ -77,6 +78,9 @@ contains
 
   procedure(func_step1), deferred :: step1
   procedure(func_step2), deferred :: step2
+
+  procedure :: send_diag !< Send model-specific output to diagnostics.
+                         !! Default implementation does nothing.
 end type snow_tile_type
 
 abstract interface
@@ -499,5 +503,10 @@ subroutine snow_rad_calculations ( snow_T, cosz, &
   snow_refl_lw  = 1 - snow_emis
 end subroutine snow_rad_calculations
 
+subroutine send_diag(snow, diag)
+  class(snow_tile_type), intent(inout) :: snow
+  type(diag_buff_type),  intent(inout) :: diag !< diagnostic buffer
+  ! this default implementation does nothing
+end subroutine
 
 end module snow_tile_mod

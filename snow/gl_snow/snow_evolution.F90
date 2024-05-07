@@ -4007,7 +4007,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     if(allocated(s%f)) deallocate(s%f)
     if(allocated(s%swheat)) deallocate(s%swheat)
 
-    ! FIX TO FIX SURFACE TEMPERATURE:
+    ! FIX TO CORRECT SURFACE TEMPERATURE:
     ! SET T=Taverage up to a certain depth depth_taves
     if (correct_surface_T) then
         write(*,*) "Correcting surface T up to depth = ", depth_surface_T_corr

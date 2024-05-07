@@ -292,15 +292,8 @@ integer :: &
   id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1, &
 
   ! =============== EZSNOW New snowpack fields to add to diagnostics ===================
-  id_snow_avrg_optd,id_snow_avrg_sph,id_snow_avrg_age,id_snow_density,id_snow_avrg_T, &
-  id_snow_avrg_dendr, id_snow_avrg_bceq_tot,id_snow_avrg_bceq_im,id_snow_avrg_bceq_em,       &
-  id_snow_nearsurf_optd, id_snow_nearsurf_sph,id_snow_nearsurf_density,id_snow_nearsurf_age, &
-  id_snow_nearsurf_dendr, id_snow_nearsurf_bceq_tot,id_snow_nearsurf_bceq_im,id_snow_nearsurf_bceq_em,       &
-  id_snow_depth, id_snow_liq, id_snow_ice, &
-  id_snow_topwater,id_snow_topwheat,id_snow_topsnowdeficit,id_snow_topsnowheatdeficit, &
   id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om, &
-  id_snow_avrg_bc_tot, id_snow_avrg_md_tot, id_snow_avrg_om_tot, &
-  id_snow_refl_dir, id_snow_refl_dif
+  id_snow_refl_dir, id_snow_refl_dif, id_snow_avrg_T, id_snow_depth
   ! ==================            End of new snowpack diag fields      ===================
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
@@ -480,7 +473,7 @@ subroutine land_model_init &
   call vegn_init ( id_ug, id_band, id_cellarea )
   call lake_init ( id_ug )
   call glac_init ( id_ug )
-  call snow_init ()
+  call snow_init ( id_ug )
   call cana_init ( id_ug )
   call nitrogen_sources_init ( lnd%time, id_ug )
   call topo_rough_init( lnd%time, lnd%sg_lonb, lnd%sg_latb, lnd%sg_domain, lnd%ug_domain, id_ug)
@@ -2569,11 +2562,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (LM2) then
       ! tile%snow%T = subs_Ttop
       do il=1, tile%snow%nlayers
-      call tile%snow%set_Ti(il, subs_Ttop) ! EZSNOW added setter methods, do all layers
+         call tile%snow%set_Ti(il, subs_Ttop) ! EZSNOW added setter methods, do all layers
       enddo
       subs_G2 = 0.
   else
-     if (tile%snow%ice()>0)then ! EZSNOW
+     if (tile%snow%ice()>0) then ! EZSNOW
         new_T = (subs_Ctop*subs_Ttop +snow_Cbot*snow_Tbot) &
                         / (subs_Ctop+snow_Cbot)
         call tile%snow%set_Ti(tile%snow%nlayers, new_T) ! EZSNOW
@@ -2886,43 +2879,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! ------ what to do for quantities averaged monthly and regridded over snow partial cover?
   ! ------ Here they are saved weighted by the fractional snow cover
   ! recompute the snow area frac and near surface properties here to get that at end of snow processes calculations
-!   call snow_get_depth_area ( tile%snow, tile%snow%sp%depth(), snow_area )
-  if (snow_option == SNOW_GL) then
-  snow_area = tile%snow%sp%area()
-  call tile%snow%sp%nearsurf_properties()
-   ! if(tile%snow%nlayers > 0) then
-  call send_tile_data(id_snow_avrg_optd, snow_area * tile%snow%sp%avrg_optd(), tile%diag)
-  call send_tile_data(id_snow_avrg_sph, snow_area * tile%snow%sp%avrg_sph(), tile%diag)
-  call send_tile_data(id_snow_avrg_age, snow_area * tile%snow%sp%avrg_age(), tile%diag)
-  call send_tile_data(id_snow_avrg_dendr, snow_area * tile%snow%sp%avrg_dendr(), tile%diag)
-  call send_tile_data(id_snow_density, snow_area * tile%snow%sp%density(), tile%diag)
+  call tile%snow%send_diag(tile%diag)
+  call tile%snow%get_depth_area ( v0, snow_area ) ! slm: v0 is used as a dummy variable here, because we do not need depth that this subroutine returns
   call send_tile_data(id_snow_avrg_T, snow_area * snow_avrg_T, tile%diag)
-  call send_tile_data(id_snow_avrg_bceq_tot, snow_area * tile%snow%sp%avrg_bceq_tot(), tile%diag)
-  call send_tile_data(id_snow_avrg_bc_tot, snow_area * tile%snow%sp%avrg_bc_tot(), tile%diag)
-  call send_tile_data(id_snow_avrg_md_tot, snow_area * tile%snow%sp%avrg_md_tot(), tile%diag)
-  call send_tile_data(id_snow_avrg_om_tot, snow_area * tile%snow%sp%avrg_om_tot(), tile%diag)
-  call send_tile_data(id_snow_avrg_bceq_im, snow_area * tile%snow%sp%avrg_bceq_im(), tile%diag)
-  call send_tile_data(id_snow_avrg_bceq_em, snow_area * tile%snow%sp%avrg_bceq_em(), tile%diag)
-  call send_tile_data(id_snow_nearsurf_bceq_tot, snow_area * tile%snow%sp%nearsurf_bceq_tot, tile%diag)
-  call send_tile_data(id_snow_nearsurf_bceq_im, snow_area * tile%snow%sp%nearsurf_bceq_im, tile%diag)
-  call send_tile_data(id_snow_nearsurf_bceq_em, snow_area * tile%snow%sp%nearsurf_bceq_em, tile%diag)
-  call send_tile_data(id_snow_nearsurf_optd, snow_area * tile%snow%sp%nearsurf_optd, tile%diag)
-  call send_tile_data(id_snow_nearsurf_sph, snow_area * tile%snow%sp%nearsurf_sph, tile%diag)
-  call send_tile_data(id_snow_nearsurf_density, snow_area * tile%snow%sp%nearsurf_rho, tile%diag)
-  call send_tile_data(id_snow_nearsurf_age, snow_area * tile%snow%sp%nearsurf_age, tile%diag)
-  call send_tile_data(id_snow_nearsurf_dendr, snow_area * tile%snow%sp%nearsurf_dendr, tile%diag)
-  ! endif
-  ! snow-related quantities defined also when snow depth = 0 (= no snow layers)
-  ! do the follwing vars in update_land_bc_fast, as done in old model version
-  ! call send_tile_data(id_snow_area_frac,snow_area_frac,tile%snow%area())
-  ! call send_tile_data(id_snow_depth, tile%snow%sp%depth(), tile%diag)
-  call send_tile_data(id_snow_liq, tile%snow%sp%liq(), tile%diag)
-  call send_tile_data(id_snow_ice, tile%snow%sp%ice(), tile%diag)
-  call send_tile_data(id_snow_topwater, tile%snow%sp%topwater, tile%diag)
-  call send_tile_data(id_snow_topwheat, tile%snow%sp%topwheat, tile%diag)
-  call send_tile_data(id_snow_topsnowdeficit, tile%snow%sp%topsnowdeficit, tile%diag)
-  call send_tile_data(id_snow_topsnowheatdeficit, tile%snow%sp%topsnowheatdeficit, tile%diag)
-
 
   ! note: these diag fields are not quite the same as the wet lap deposited on snowpack because
   ! laps are note deposited when vegn_fprec or vegn_lprec are very small (< 1E-9 kg/m2/s)
@@ -2932,7 +2891,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_drydep_bc, drydep(1), tile%diag)
   call send_tile_data(id_drydep_md, drydep(2), tile%diag)
   call send_tile_data(id_drydep_om, drydep(3), tile%diag)
-   endif
   ! call send_tile_data(id_snow_nlayers, real(tile%snow%nlayers), tile%diag)
   ! ------ end snow additional fields
 
@@ -4600,87 +4558,26 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   ! ------------------------------------ EZSNOW new snowpack model added fields ----------
   ! // TODO fix missing values, and add fix for non-extensive variables [e.g., snow grain properties]
-  id_snow_avrg_optd = register_tiled_diag_field ( module_name, 'snow_avrg_optd', (/id_ug/), time, &
-     'Snowpack average optical diameter', 'm', missing_value=-9999.0) !
-  id_snow_avrg_sph = register_tiled_diag_field ( module_name, 'snow_avrg_sph', (/id_ug/), time, &
-     'Snowpack average sphericity', 'dimless', missing_value=-9999.0) !
-  id_snow_avrg_dendr = register_tiled_diag_field ( module_name, 'snow_avrg_dendr', (/id_ug/), time, &
-     'Snowpack average dendricity', 'dimless', missing_value=-9999.0) !
-  id_snow_density = register_tiled_diag_field ( module_name, 'snow_density', (/id_ug/), time, &
-     'Snowpack density', 'kg/m3', missing_value=-9999.0)
-  id_snow_avrg_age = register_tiled_diag_field ( module_name, 'snow_avrg_age', (/id_ug/), time, &
-     'Snowpack average age', 'days', missing_value=-9999.0) !
   id_snow_avrg_T = register_tiled_diag_field ( module_name, 'snow_avrg_T', (/id_ug/), time, &
      'Snowpack average temperature', 'degK', missing_value=-9999.0) !
      ! TODO: add axis = 3 impurities
-  ! id_snow_lai_im = register_tiled_diag_field ( module_name, 'snow_lai_im', (/id_ug/), time, &
-     ! 'Snowpack content of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
-  ! id_snow_lai_em = register_tiled_diag_field ( module_name, 'snow_lai_em', (/id_ug/), time, &
-     ! 'Snowpack content of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
-
-  id_snow_nearsurf_bceq_tot = register_tiled_diag_field ( module_name, 'snow_nearsurf_bceq_tot', (/id_ug/), time, &
-     'Snowpack total (im + em) near-surface conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
-  id_snow_nearsurf_bceq_im = register_tiled_diag_field ( module_name, 'snow_nearsurf_bceq_im', (/id_ug/), time, &
-     'Snowpack near-surface conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
-  id_snow_nearsurf_bceq_em = register_tiled_diag_field ( module_name, 'snow_nearsurf_bceq_em', (/id_ug/), time, &
-     'Snowpack near-surface conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
-  id_snow_avrg_bceq_tot = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_tot', (/id_ug/), time, &
-     'Snowpack total (im + em) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
-          id_snow_avrg_bc_tot = register_tiled_diag_field ( module_name, 'snow_avrg_bc_tot', (/id_ug/), time, &
-             'Snowpack total (im + em) average conc. of black carbon', 'ppm', missing_value=-9999.0)
-          id_snow_avrg_md_tot = register_tiled_diag_field ( module_name, 'snow_avrg_md_tot', (/id_ug/), time, &
-             'Snowpack total (im + em) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
-          id_snow_avrg_om_tot = register_tiled_diag_field ( module_name, 'snow_avrg_om_tot', (/id_ug/), time, &
-             'Snowpack total (im + em) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
-  id_snow_avrg_bceq_im = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_im', (/id_ug/), time, &
-     'Snowpack average conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
-  id_snow_avrg_bceq_em = register_tiled_diag_field ( module_name, 'snow_avrg_bceq_em', (/id_ug/), time, &
-     'Snowpack average conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
-
-  id_snow_nearsurf_optd = register_tiled_diag_field ( module_name, 'snow_nearsurf_optd', (/id_ug/), time, &
-     'Snowpack near-surface optical diameter', 'm', missing_value=-9999.0)
-  id_snow_nearsurf_sph = register_tiled_diag_field ( module_name, 'snow_nearsurf_sph', (/id_ug/), time, &
-     'Snowpack near-surface grain sphericity', 'dimless', missing_value=-9999.0)
-  id_snow_nearsurf_dendr = register_tiled_diag_field ( module_name, 'snow_nearsurf_dendr', (/id_ug/), time, &
-     'Snowpack near-surface grain dendricity', 'dimless', missing_value=-9999.0) !
-  id_snow_nearsurf_age = register_tiled_diag_field ( module_name, 'snow_nearsurf_age', (/id_ug/), time, &
-     'Snowpack near-surface age', 'days', missing_value=-9999.0) !
-  id_snow_nearsurf_density = register_tiled_diag_field ( module_name, 'snow_nearsurf_density', (/id_ug/), time, &
-     'Snowpack near-surface density', 'kg/m3', missing_value=-9999.0)
-
-  ! id_snow_area_frac = register_tiled_diag_field ( module_name, 'snow_area_frac', (/id_ug/), time, &
-     ! 'Frcational snow-covered area', 'dimless', missing_value=-9999.0)
   id_snow_depth = register_tiled_diag_field ( module_name, 'snow_depth', (/id_ug/), time, &
      'Snow depth', 'm', missing_value=-9999.0)
-  id_snow_liq = register_tiled_diag_field ( module_name, 'snow_liq', (/id_ug/), time, &
-     'Snowpack total liquid', 'kg/m2', missing_value=-9999.0)
-  id_snow_ice = register_tiled_diag_field ( module_name, 'snow_ice', (/id_ug/), time, &
-     'Snowpack total ice', 'kg/m2', missing_value=-9999.0)
 
-  id_snow_topwater = register_tiled_diag_field ( module_name, 'snow_topwater', (/id_ug/), time, &
-     'Snowpack topwater', 'kg/m2', missing_value=-1.0e+20)
-  id_snow_topsnowdeficit = register_tiled_diag_field ( module_name, 'snow_topsnowdeficit', (/id_ug/), time, &
-     'Snowpack topsnowdeficit', 'kg/m2', missing_value=-1.0e+20)
-  id_snow_topwheat = register_tiled_diag_field ( module_name, 'snow_topwheat', (/id_ug/), time, &
-     'Snowpack topwheat', 'J/m2', missing_value=-1.0e+20)
-  id_snow_topsnowheatdeficit = register_tiled_diag_field ( module_name, 'snow_topsnowheatdeficit', (/id_ug/), time, &
-     'Snowpack topsnowheatdeficit', 'J/m2', missing_value=-1.0e+20)
-
-         ! //TODO maybe it would be best to export these diag fields as kg/m2/s
-          id_wetdep_bc = register_tiled_diag_field ( module_name, 'wetdep_bc', (/id_ug/), time, &
-             'Wet deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20)
-          id_wetdep_md = register_tiled_diag_field ( module_name, 'wetdep_md', (/id_ug/), time, &
-             'Wet deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20)
-          id_wetdep_om = register_tiled_diag_field ( module_name, 'wetdep_om', (/id_ug/), time, &
-             'Wet deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20)
-          id_drydep_bc = register_tiled_diag_field ( module_name, 'drydep_bc', (/id_ug/), time, &
-             'Dry deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20)
-          id_drydep_md = register_tiled_diag_field ( module_name, 'drydep_md', (/id_ug/), time, &
-             'Dry deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20)
-          id_drydep_om = register_tiled_diag_field ( module_name, 'drydep_om', (/id_ug/), time, &
-             'Dry deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20)
-
-   ! ---------------------------------------- end new snow added fields ---------------------
+  ! //TODO maybe it would be best to export these diag fields as kg/m2/s
+  id_wetdep_bc = register_tiled_diag_field ( module_name, 'wetdep_bc', (/id_ug/), time, &
+     'Wet deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20)
+  id_wetdep_md = register_tiled_diag_field ( module_name, 'wetdep_md', (/id_ug/), time, &
+     'Wet deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20)
+  id_wetdep_om = register_tiled_diag_field ( module_name, 'wetdep_om', (/id_ug/), time, &
+     'Wet deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20)
+  id_drydep_bc = register_tiled_diag_field ( module_name, 'drydep_bc', (/id_ug/), time, &
+     'Dry deposition rate of BC', 'mg/m2/s', missing_value=-1.0e+20)
+  id_drydep_md = register_tiled_diag_field ( module_name, 'drydep_md', (/id_ug/), time, &
+     'Dry deposition rate of MD', 'mg/m2/s', missing_value=-1.0e+20)
+  id_drydep_om = register_tiled_diag_field ( module_name, 'drydep_om', (/id_ug/), time, &
+     'Dry deposition rate of OM', 'mg/m2/s', missing_value=-1.0e+20)
+  ! ---------------------------------------- end new snow added fields ---------------------
 
   id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_ug,id_band/), time, &
        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)

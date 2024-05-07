@@ -16,7 +16,7 @@ use land_tile_io_mod, only: land_restart_type, &
 
 use snow_tile_mod, only : &
      read_snow_data_namelist, max_lev
-use gl_snow_tile_mod, only: gl_snow_tile_type
+use gl_snow_tile_mod, only: gl_snow_tile_type, gl_snow_diag_init
 use snowpack_mod, only: snowpack_init_lm4p2, read_snowpack_namelist, &
      snow_layer_type, csw
 use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
@@ -65,7 +65,8 @@ end subroutine gl_read_snow_namelist
 
 ! ============================================================================
 ! initialize snow model
-subroutine gl_snow_init()
+subroutine gl_snow_init(id_ug)
+  integer,intent(in) :: id_ug    !< ID of unstructured diag axis (encoding lat and lon)
 
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: ce    ! tile list enumerator
@@ -78,6 +79,8 @@ subroutine gl_snow_init()
 
   logical read_old_snow_restart
   real old_init_snow_density
+
+  call gl_snow_diag_init( id_ug )
 
   old_init_snow_density = 250.0 ! kg/m3, density for old model snow to input ! // TODO read from nml?
   module_is_initialized = .TRUE.

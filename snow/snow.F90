@@ -58,12 +58,15 @@ end subroutine read_snow_namelist
 
 
 ! initialize snow model
-subroutine snow_init()
+subroutine snow_init(id_ug)
+  integer,intent(in) :: id_ug !< ID of "unstructured" diagnostic axis: it encodes
+                              !! latitude and longtude
+
   select case(snow_option)
   case(SNOW_CM)
-     call cm_snow_init()
+     call cm_snow_init(id_ug)
   case(SNOW_GL)
-     call gl_snow_init()
+     call gl_snow_init(id_ug)
   case default
      call land_error_message('snow_init: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select

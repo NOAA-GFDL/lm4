@@ -6,10 +6,15 @@ use mpp_mod, only: input_nml_file
 
 use fms_mod, only : FATAL, lowercase
 use constants_mod, only : tfreeze, hlf
+
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
-use land_data_mod, only : log_version
+use land_data_mod, only : log_version, lnd
 use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
+
+use tile_diag_buff_mod, only : diag_buff_type
+use tile_diag_base_mod, only : set_default_diag_filter, &
+        register_tiled_diag_field, send_tile_data
 
 use snow_constants_mod, only: NTRACERS
 use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
@@ -25,10 +30,11 @@ private
 ! ==== public interfaces =====================================================
 public :: gl_snow_tile_type
 public :: gl_snow_tile_ctor
+public :: gl_snow_diag_init
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'gl_snow_tile_mod'
+character(*), parameter :: module_name = 'gl_snow_tile_mod'
 #include "../../shared/version_variable.inc"
 
 
@@ -65,11 +71,101 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
 
     procedure :: step1 => gl_snow_step_1
     procedure :: step2 => gl_snow_step_2
+    procedure :: send_diag => gl_snow_send_diag
 end type gl_snow_tile_type
 
+! diagnostic field IDs
+integer :: id_snow_avrg_optd, id_snow_avrg_sph, id_snow_avrg_dendr, id_snow_density, &
+    id_snow_avrg_age, id_snow_nearsurf_bceq_tot, &
+    id_snow_nearsurf_bceq_im, id_snow_nearsurf_bceq_em, id_snow_avrg_bceq_tot, &
+    id_snow_avrg_bc_tot, id_snow_avrg_md_tot, id_snow_avrg_om_tot, &
+    id_snow_avrg_bceq_im, id_snow_avrg_bceq_em, id_snow_nearsurf_optd, &
+    id_snow_nearsurf_sph, id_snow_nearsurf_dendr, id_snow_nearsurf_age, &
+    id_snow_nearsurf_density, id_snow_liq, id_snow_ice, &
+    id_snow_topwater, id_snow_topsnowdeficit, id_snow_topwheat, &
+    id_snow_topsnowheatdeficit
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+! Register diagnostic fields
+subroutine gl_snow_diag_init(id_ug)
+  integer,intent(in)  :: id_ug    !< Unstructured axis id
+
+  character(*), parameter :: diag_mod_name = 'land' ! name of the component used for diagnostic fields
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+
+  ! ------------------------------------ EZSNOW new snowpack model added fields ----------
+  ! // TODO fix missing values, and add fix for non-extensive variables [e.g., snow grain properties]
+  id_snow_avrg_optd = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_optd', (/id_ug/), lnd%time, &
+     'Snowpack average optical diameter', 'm', missing_value=-9999.0) !
+  id_snow_avrg_sph = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_sph', (/id_ug/), lnd%time, &
+     'Snowpack average sphericity', 'dimless', missing_value=-9999.0) !
+  id_snow_avrg_dendr = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_dendr', (/id_ug/), lnd%time, &
+     'Snowpack average dendricity', 'dimless', missing_value=-9999.0) !
+  id_snow_density = register_tiled_diag_field ( diag_mod_name, 'snow_density', (/id_ug/), lnd%time, &
+     'Snowpack density', 'kg/m3', missing_value=-9999.0)
+  id_snow_avrg_age = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_age', (/id_ug/), lnd%time, &
+     'Snowpack average age', 'days', missing_value=-9999.0) !
+!   id_snow_avrg_T = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_T', (/id_ug/), lnd%time, &
+!      'Snowpack average temperature', 'degK', missing_value=-9999.0) !
+
+  ! TODO: add axis = 3 impurities
+  ! id_snow_lai_im = register_tiled_diag_field ( diag_mod_name, 'snow_lai_im', (/id_ug/), lnd%time, &
+     ! 'Snowpack content of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
+  ! id_snow_lai_em = register_tiled_diag_field ( diag_mod_name, 'snow_lai_em', (/id_ug/), lnd%time, &
+     ! 'Snowpack content of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
+
+  id_snow_nearsurf_bceq_tot = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_tot', (/id_ug/), lnd%time, &
+     'Snowpack total (im + em) near-surface conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+  id_snow_nearsurf_bceq_im = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_im', (/id_ug/), lnd%time, &
+     'Snowpack near-surface conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
+  id_snow_nearsurf_bceq_em = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_em', (/id_ug/), lnd%time, &
+     'Snowpack near-surface conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
+  id_snow_avrg_bceq_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_tot', (/id_ug/), lnd%time, &
+     'Snowpack total (im + em) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+  id_snow_avrg_bc_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bc_tot', (/id_ug/), lnd%time, &
+     'Snowpack total (im + em) average conc. of black carbon', 'ppm', missing_value=-9999.0)
+  id_snow_avrg_md_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_md_tot', (/id_ug/), lnd%time, &
+     'Snowpack total (im + em) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
+  id_snow_avrg_om_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_om_tot', (/id_ug/), lnd%time, &
+     'Snowpack total (im + em) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
+  id_snow_avrg_bceq_im = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_im', (/id_ug/), lnd%time, &
+     'Snowpack average conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
+  id_snow_avrg_bceq_em = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_em', (/id_ug/), lnd%time, &
+     'Snowpack average conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
+
+  id_snow_nearsurf_optd = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_optd', (/id_ug/), lnd%time, &
+     'Snowpack near-surface optical diameter', 'm', missing_value=-9999.0)
+  id_snow_nearsurf_sph = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_sph', (/id_ug/), lnd%time, &
+     'Snowpack near-surface grain sphericity', 'dimless', missing_value=-9999.0)
+  id_snow_nearsurf_dendr = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_dendr', (/id_ug/), lnd%time, &
+     'Snowpack near-surface grain dendricity', 'dimless', missing_value=-9999.0) !
+  id_snow_nearsurf_age = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_age', (/id_ug/), lnd%time, &
+     'Snowpack near-surface age', 'days', missing_value=-9999.0) !
+  id_snow_nearsurf_density = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_density', (/id_ug/), lnd%time, &
+     'Snowpack near-surface density', 'kg/m3', missing_value=-9999.0)
+
+  ! id_snow_area_frac = register_tiled_diag_field ( diag_mod_name, 'snow_area_frac', (/id_ug/), lnd%time, &
+     ! 'Frcational snow-covered area', 'dimless', missing_value=-9999.0)
+!   id_snow_depth = register_tiled_diag_field ( diag_mod_name, 'snow_depth', (/id_ug/), lnd%time, &
+!      'Snow depth', 'm', missing_value=-9999.0)
+  id_snow_liq = register_tiled_diag_field ( diag_mod_name, 'snow_liq', (/id_ug/), lnd%time, &
+     'Snowpack total liquid', 'kg/m2', missing_value=-9999.0)
+  id_snow_ice = register_tiled_diag_field ( diag_mod_name, 'snow_ice', (/id_ug/), lnd%time, &
+     'Snowpack total ice', 'kg/m2', missing_value=-9999.0)
+
+  id_snow_topwater = register_tiled_diag_field ( diag_mod_name, 'snow_topwater', (/id_ug/), lnd%time, &
+     'Snowpack topwater', 'kg/m2', missing_value=-1.0e+20)
+  id_snow_topsnowdeficit = register_tiled_diag_field ( diag_mod_name, 'snow_topsnowdeficit', (/id_ug/), lnd%time, &
+     'Snowpack topsnowdeficit', 'kg/m2', missing_value=-1.0e+20)
+  id_snow_topwheat = register_tiled_diag_field ( diag_mod_name, 'snow_topwheat', (/id_ug/), lnd%time, &
+     'Snowpack topwheat', 'J/m2', missing_value=-1.0e+20)
+  id_snow_topsnowheatdeficit = register_tiled_diag_field ( diag_mod_name, 'snow_topsnowheatdeficit', (/id_ug/), lnd%time, &
+     'Snowpack topsnowheatdeficit', 'J/m2', missing_value=-1.0e+20)
+
+end subroutine gl_snow_diag_init
 
 
 ! ============================================================================
@@ -1016,5 +1112,51 @@ subroutine gl_snow_step_2 ( snow, snow_subl,                     &
                      lost_wc_em_st, lost_wc_im_st, &
                      lost_wc_em, lost_wc_im)
 end subroutine
+
+! send the diagnostics
+subroutine gl_snow_send_diag(snow, diag)
+  class(gl_snow_tile_type),  intent(inout) :: snow !< snow data structure
+  type(diag_buff_type), intent(inout) :: diag !< diagnostic buffer
+
+  real :: snow_area
+
+  snow_area = snow%sp%area()
+  call snow%sp%nearsurf_properties() ! slm: this updates snow state somehow
+
+   ! if(snow%nlayers > 0) then
+  call send_tile_data(id_snow_avrg_optd, snow_area * snow%sp%avrg_optd(), diag)
+  call send_tile_data(id_snow_avrg_sph, snow_area * snow%sp%avrg_sph(), diag)
+  call send_tile_data(id_snow_avrg_age, snow_area * snow%sp%avrg_age(), diag)
+  call send_tile_data(id_snow_avrg_dendr, snow_area * snow%sp%avrg_dendr(), diag)
+  call send_tile_data(id_snow_density, snow_area * snow%sp%density(), diag)
+!   call send_tile_data(id_snow_avrg_T, snow_area * snow_avrg_T, diag)
+  call send_tile_data(id_snow_avrg_bceq_tot, snow_area * snow%sp%avrg_bceq_tot(), diag)
+  call send_tile_data(id_snow_avrg_bc_tot, snow_area * snow%sp%avrg_bc_tot(), diag)
+  call send_tile_data(id_snow_avrg_md_tot, snow_area * snow%sp%avrg_md_tot(), diag)
+  call send_tile_data(id_snow_avrg_om_tot, snow_area * snow%sp%avrg_om_tot(), diag)
+  call send_tile_data(id_snow_avrg_bceq_im, snow_area * snow%sp%avrg_bceq_im(), diag)
+  call send_tile_data(id_snow_avrg_bceq_em, snow_area * snow%sp%avrg_bceq_em(), diag)
+  call send_tile_data(id_snow_nearsurf_bceq_tot, snow_area * snow%sp%nearsurf_bceq_tot, diag)
+  call send_tile_data(id_snow_nearsurf_bceq_im, snow_area * snow%sp%nearsurf_bceq_im, diag)
+  call send_tile_data(id_snow_nearsurf_bceq_em, snow_area * snow%sp%nearsurf_bceq_em, diag)
+  call send_tile_data(id_snow_nearsurf_optd, snow_area * snow%sp%nearsurf_optd, diag)
+  call send_tile_data(id_snow_nearsurf_sph, snow_area * snow%sp%nearsurf_sph, diag)
+  call send_tile_data(id_snow_nearsurf_density, snow_area * snow%sp%nearsurf_rho, diag)
+  call send_tile_data(id_snow_nearsurf_age, snow_area * snow%sp%nearsurf_age, diag)
+  call send_tile_data(id_snow_nearsurf_dendr, snow_area * snow%sp%nearsurf_dendr, diag)
+  ! endif
+  ! snow-related quantities defined also when snow depth = 0 (= no snow layers)
+  ! do the follwing vars in update_land_bc_fast, as done in old model version
+  ! call send_tile_data(id_snow_area_frac,snow_area_frac,snow%area())
+  ! call send_tile_data(id_snow_depth, snow%sp%depth(), diag)
+  call send_tile_data(id_snow_liq, snow%sp%liq(), diag)
+  call send_tile_data(id_snow_ice, snow%sp%ice(), diag)
+  call send_tile_data(id_snow_topwater, snow%sp%topwater, diag)
+  call send_tile_data(id_snow_topwheat, snow%sp%topwheat, diag)
+  call send_tile_data(id_snow_topsnowdeficit, snow%sp%topsnowdeficit, diag)
+  call send_tile_data(id_snow_topsnowheatdeficit, snow%sp%topsnowheatdeficit, diag)
+
+end subroutine gl_snow_send_diag
+
 
 end module gl_snow_tile_mod

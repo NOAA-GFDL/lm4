@@ -83,7 +83,9 @@ end subroutine cm_read_snow_namelist
 
 ! ============================================================================
 ! initialize snow model
-subroutine cm_snow_init()
+subroutine cm_snow_init(id_ug)
+  integer,intent(in) :: id_ug    !< Unstructured axis id. Currently unused, but
+            !! can be used in the future to register model-specific diagnostics
 
   ! ---- local vars ----------------------------------------------------------
   integer :: k
