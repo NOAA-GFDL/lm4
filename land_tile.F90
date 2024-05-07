@@ -514,7 +514,7 @@ function land_tile_grnd_T(tile) result(T) ; real T
 !   if (snow_active(tile%snow)) then ! always associated
    !   T = tile%snow%T(1)
   if (tile%snow%snow_active()) then ! always associated
-     call tile%snow%snow_get_sfc_temp(T)  ! EZSNOW
+     T = tile%snow%sfc_temp()  ! EZSNOW
   else if (associated(tile%soil)) then
      T = tile%soil%T(1)
   else if (associated(tile%glac)) then

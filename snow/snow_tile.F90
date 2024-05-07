@@ -59,25 +59,25 @@ contains
   procedure(func_snow_rad_prop),       deferred :: radiative_properties
   procedure(func_stock_pe),            deferred :: stock_pe
   procedure(func_snow_active),         deferred :: snow_active
-  procedure(func_snow_tile_heat),      deferred :: snow_tile_heat
-  procedure(func_snow_get_sfc_temp),   deferred :: snow_get_sfc_temp
+  procedure(func_get_real_0D),         deferred :: snow_tile_heat
+  procedure(func_get_real_0D),         deferred :: sfc_temp
   procedure(func_merge_snow_tiles),    deferred :: merge_snow_tiles
   procedure(func_get_snow_tile_tag),   deferred :: get_snow_tile_tag
-  procedure(func_snow_get_wsi),        deferred :: get_wsi
-  procedure(func_snow_get_wli),        deferred :: get_wli
-  procedure(func_snow_get_Ti),         deferred :: get_Ti
-  procedure(func_snow_set_wsi),        deferred :: set_wsi
-  procedure(func_snow_set_wli),        deferred :: set_wli
-  procedure(func_snow_set_Ti),         deferred :: set_Ti
-  procedure(func_get_snow_total_ice),  deferred :: ice
-  procedure(func_get_snow_total_liq),  deferred :: liq
+  procedure(func_get_real_1D),         deferred :: get_wsi
+  procedure(func_get_real_1D),         deferred :: get_wli
+  procedure(func_get_real_1D),         deferred :: get_Ti
+  procedure(func_set_real_1D),         deferred :: set_wsi
+  procedure(func_set_real_1D),         deferred :: set_wli
+  procedure(func_set_real_1D),         deferred :: set_Ti
+  procedure(func_get_real_0D),         deferred :: ice
+  procedure(func_get_real_0D),         deferred :: liq
   procedure(func_get_depth_area),      deferred :: get_depth_area
 
-  procedure(func_sweep_tiny),   deferred :: sweep_tiny
-  procedure(func_partition_sw), deferred :: partition_sw
+  procedure(func_sweep_tiny),          deferred :: sweep_tiny
+  procedure(func_partition_sw),        deferred :: partition_sw
 
-  procedure(func_step1), deferred :: step1
-  procedure(func_step2), deferred :: step2
+  procedure(func_step1),               deferred :: step1
+  procedure(func_step2),               deferred :: step2
 
   procedure :: send_diag !< Send model-specific output to diagnostics.
                          !! Default implementation does nothing.
@@ -130,70 +130,28 @@ abstract interface
     real,                  intent(out)   :: twd_liq, twd_sol
   end subroutine func_stock_pe
 
-  real function func_snow_tile_heat(snow) result(heat)
+  real function func_get_real_0D(snow)
     import :: snow_tile_type
     class(snow_tile_type), intent(in)  :: snow
-  end function func_snow_tile_heat
+  end function
 
   logical function func_snow_active(snow) result(snow_active)
     import :: snow_tile_type
     class(snow_tile_type), intent(in)  :: snow
   end function func_snow_active
 
-  subroutine func_snow_get_sfc_temp(snow, snow_T)
+  real function func_get_real_1D(snow, i)
     import :: snow_tile_type
     class(snow_tile_type), intent(in) :: snow
-    real,                  intent(out)   :: snow_T
-  end subroutine func_snow_get_sfc_temp
+    integer,               intent(in) :: i
+  end function
 
-  real function func_snow_get_wli(snow, i) result(res)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-    integer, intent(in) :: i
-  end function func_snow_get_wli
-
-  real function func_snow_get_wsi(snow, i) result(res)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-    integer, intent(in) :: i
-  end function func_snow_get_wsi
-
-  real function func_snow_get_Ti(snow, i) result(res)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-    integer, intent(in) :: i
-  end function func_snow_get_Ti
-
-  subroutine func_snow_set_wli(snow, i, v)
+  subroutine func_set_real_1D(snow, i, v)
     import :: snow_tile_type
     class(snow_tile_type), intent(inout) :: snow
     integer, intent(in) :: i
-    real, intent(in) :: v
-  end subroutine func_snow_set_wli
-
-  subroutine func_snow_set_wsi(snow, i, v)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(inout) :: snow
-    integer, intent(in) :: i
-    real, intent(in) :: v
-  end subroutine func_snow_set_wsi
-
-  subroutine func_snow_set_Ti(snow, i, v)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(inout) :: snow
-    integer, intent(in) :: i
-    real, intent(in) :: v
-  end subroutine func_snow_set_Ti
-
-  real function func_get_snow_total_ice(snow) result(ice)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-  end function func_get_snow_total_ice
-
-  real function func_get_snow_total_liq(snow) result(liq)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-  end function func_get_snow_total_liq
+    real,    intent(in) :: v
+  end subroutine
 
   subroutine func_get_depth_area(snow, snow_depth, snow_area)
     import :: snow_tile_type

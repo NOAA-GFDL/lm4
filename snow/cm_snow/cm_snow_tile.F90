@@ -43,7 +43,7 @@ contains
     procedure :: stock_pe => cm_snow_tile_stock_pe
     procedure :: snow_active => cm_snow_active
     procedure :: snow_tile_heat => cm_snow_tile_heat
-    procedure :: snow_get_sfc_temp => cm_snow_get_sfc_temp
+    procedure :: sfc_temp => cm_snow_get_sfc_temp
     procedure :: get_Ti => cm_snow_get_Ti
     procedure :: get_wli => cm_snow_get_wli
     procedure :: get_wsi => cm_snow_get_wsi
@@ -265,7 +265,7 @@ subroutine cm_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
   real :: snow_top_temp
 
   if (snow%snow_active()) then
-      call snow%snow_get_sfc_temp(snow_top_temp)
+      snow_top_temp = snow%sfc_temp()
   else
       snow_top_temp = TFREEZE ! NOT used in this case
   endif
@@ -296,13 +296,12 @@ function cm_snow_active(snow) ; logical cm_snow_active
 end function cm_snow_active
 
 ! ============================================================================
-subroutine cm_snow_get_sfc_temp(snow, snow_T)
+real function cm_snow_get_sfc_temp(snow)
   ! type(cm_snow_tile_type), intent(in) :: snow
   class(cm_snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_T
 
-  snow_T = snow%T(1)
-end subroutine
+  cm_snow_get_sfc_temp = snow%T(1)
+end function
 
 real function cm_snow_get_Ti(snow, i) result(res)
   class(cm_snow_tile_type), intent(in) :: snow

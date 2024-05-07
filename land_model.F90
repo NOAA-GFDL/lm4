@@ -3906,7 +3906,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   if (associated(tile%glac)) call glac_get_sfc_temp(tile%glac, grnd_T)
   if (associated(tile%lake)) call lake_get_sfc_temp(tile%lake, grnd_T)
   if (associated(tile%soil)) call soil_get_sfc_temp(tile%soil, grnd_T)
-  if (snow_area > 0)         call tile%snow%snow_get_sfc_temp(grnd_T) ! EZSNOW
+  if (snow_area > 0)         grnd_T = tile%snow%sfc_temp() ! EZSNOW
 
   ! set the boundary conditions for the flux exchange
   land2cplr%mask           (l,k) = .TRUE.

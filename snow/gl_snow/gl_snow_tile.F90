@@ -51,7 +51,7 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
     procedure :: stock_pe => gl_snow_tile_stock_pe
     procedure :: snow_active => gl_snow_active
     procedure :: snow_tile_heat => gl_snow_tile_heat
-    procedure :: snow_get_sfc_temp => gl_snow_get_sfc_temp
+    procedure :: sfc_temp => gl_snow_get_sfc_temp
 
 
     procedure :: get_Ti => gl_snow_get_Ti
@@ -774,7 +774,7 @@ subroutine gl_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
   real :: snow_top_temp
 
   if (snow%snow_active()) then
-      call snow%snow_get_sfc_temp(snow_top_temp)
+      snow_top_temp = snow%sfc_temp()
   else
       snow_top_temp = TFREEZE ! NOT used in this case
   endif
@@ -821,17 +821,17 @@ function gl_snow_active(snow) ; logical gl_snow_active
   gl_snow_active = (snow%sp%nlayers > 0)
 end function gl_snow_active
 
-subroutine gl_snow_get_sfc_temp(snow, snow_T)
+real function gl_snow_get_sfc_temp(snow)
   class(gl_snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_T
+
   if (snow%sp%nlayers > 0) then
-    snow_T = snow%sp%snow(1)%T
+    gl_snow_get_sfc_temp = snow%sp%snow(1)%T
     ! call snow%sp%nearsurf_properties()
     ! snow_T = snow%sp%nearsurf_T
   else
     call land_error_message("gl_snow_get_sfc_temp in gl_snow_tile.F90:: sfc temperature requested, but no snow on the ground!", FATAL)
   endif
-end subroutine
+end function
 
 
 real function gl_snow_get_Ti(snow, i) result(res)
