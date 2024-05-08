@@ -49,7 +49,6 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart,
 
 ! use snow_evolution_mod, only: use_internal_sources, &
 !     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
-use snow_evolution_mod, only: gl_sweep_huge_snow
 use snow_tile_mod, only : snow_radiation
 use snow_constants_mod, only: NTRACERS
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
@@ -1637,6 +1636,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   character(*), parameter :: tag = 'update_land_model_fast_0d'
   real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
                                            ! heat swept with tiny snow
+  integer :: nlayers ! numer of snow layers
   integer, parameter :: max_fog_steps = 2
 
   ! ====== EZSNOW additional local variables
@@ -1650,8 +1650,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real snow_E_max ! max evap from snow (not used for now)
   integer il ! snow layer counter
   real, DIMENSION(NBANDS) :: fswg_dir, fswg_dif ! needed for SNICAR snow albedo option
-  real lswept_huge, fswept_huge, hlswept_huge, hfswept_huge
-  real, dimension(NTRACERS) :: lost_wc_em1_huge, lost_wc_im1_huge
   ! =======
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
@@ -1723,27 +1721,32 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   fswg_dif = tile%Sg_dif * ISa_dn_dif
   call tile%snow%partition_sw(fswg, fswg_dir, fswg_dif, fswg_substrate, fswg_surface)
 
-  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
+  ! if requested (in snow_nml), sweep tiny or huge snow before calling step_1 subroutines to
   ! avoid numerical issues.
-  call tile%snow%sweep_tiny(lswept, fswept, hlswept, hfswept, lost_wc_em1, lost_wc_im1)
-  if (snow_option == SNOW_GL) then
-      ! additionally sweep huge snow here in ez snow option
+  call tile%snow%sweep(lswept, fswept, hlswept, hfswept, lost_wc_em1, lost_wc_im1)
 
-      call gl_sweep_huge_snow(tile%snow%sp, lswept_huge, fswept_huge, hlswept_huge, hfswept_huge, lost_wc_em1_huge, lost_wc_im1_huge)
-      lswept = lswept + lswept_huge
-      fswept = fswept + fswept_huge
-      hlswept = hlswept + hlswept_huge
-      hfswept = hfswept + hfswept_huge
-      lost_wc_em1 = lost_wc_em1 + lost_wc_em1_huge
-      lost_wc_im1 = lost_wc_im1 + lost_wc_im1_huge
+!   call tile%snow%sweep_tiny(lswept, fswept, hlswept, hfswept, lost_wc_em1, lost_wc_im1)
+!   if (snow_option == SNOW_GL) then
+!       ! additionally sweep huge snow here in ez snow option
+!
+!       call gl_sweep_huge_snow(tile%snow%sp, lswept_huge, fswept_huge, hlswept_huge, hfswept_huge, lost_wc_em1_huge, lost_wc_im1_huge)
+!       lswept = lswept + lswept_huge
+!       fswept = fswept + fswept_huge
+!       hlswept = hlswept + hlswept_huge
+!       hfswept = hfswept + hfswept_huge
+!       lost_wc_em1 = lost_wc_em1 + lost_wc_em1_huge
+!       lost_wc_im1 = lost_wc_im1 + lost_wc_im1_huge
+!
+!       mass_lai_im1 = tile%snow%sp%lai_im() ! initialize LAIs mass cons check
+!       mass_lai_em1 = tile%snow%sp%lai_em() ! initialize LAIs mass cons check
+      call tile%snow%lai_im(mass_lai_im1) ! initialize LAIs mass cons check
+      call tile%snow%lai_em(mass_lai_em1) ! initialize LAIs mass cons check
 
-      mass_lai_im1 = tile%snow%sp%lai_im() ! initialize LAIs mass cons check
-      mass_lai_em1 = tile%snow%sp%lai_em() ! initialize LAIs mass cons check
-      hlswept = hlswept - lswept * HLF      ! switch to lm4p2 energy conv.
-
-      ! DO A RELAYERING HERE - BEST IF TILE MERGING OCCURRED AND THIN LAYERS HAVE BEEN PRODUCED
-      call tile%snow%sp%attempt_merge_layers() ! // TODO
-  endif
+!       hlswept = hlswept - lswept * HLF      ! switch to lm4p2 energy conv.
+!
+!       ! DO A RELAYERING HERE - BEST IF TILE MERGING OCCURRED AND THIN LAYERS HAVE BEEN PRODUCED
+!       call tile%snow%sp%attempt_merge_layers() ! // TODO
+!   endif
 
   soil_uptake_T(:) = tfreeze ! just to avoid using un-initialized values
   if (associated(tile%glac)) then
@@ -2221,8 +2224,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
          ! ! EZSNOW
          !   if (ALLOCATED(tile%snow%sp%swheat)) DEALLOCATE(tile%snow%sp%swheat)
-           begw_check = tile%snow%sp%SWE() ! init conservation checks
-           begh_check = tile%snow%sp%heat() ! init conservation checks
+           begw_check = tile%snow%ice()+tile%snow%liq() ! init conservation checks
+           begh_check = tile%snow%snow_tile_heat() ! init conservation checks
 
          !   if (snow_option == SNOW_GL) then
          !      if (trim(lowercase(albedo_to_use))=='snicar') then
@@ -2558,10 +2561,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
 ! TEMP FIX: MAIN PROG SHOULD NOT TOUCH CONTENTS OF PROG VARS. ******
 ! ALSO, DIAGNOSTICS IN COMPONENT MODULES SHOULD _FOLLOW_ THIS ADJUSTMENT******
-  if (snow_option == SNOW_GL) tile%snow%nlayers = tile%snow%sp%nlayers ! //TODO EZSNOW should make this cleaner
+  nlayers = tile%snow%n_layers() ! //TODO EZSNOW should make this cleaner
   if (LM2) then
       ! tile%snow%T = subs_Ttop
-      do il=1, tile%snow%nlayers
+      do il=1, nlayers
          call tile%snow%set_Ti(il, subs_Ttop) ! EZSNOW added setter methods, do all layers
       enddo
       subs_G2 = 0.
@@ -2569,7 +2572,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      if (tile%snow%ice()>0) then ! EZSNOW
         new_T = (subs_Ctop*subs_Ttop +snow_Cbot*snow_Tbot) &
                         / (subs_Ctop+snow_Cbot)
-        call tile%snow%set_Ti(tile%snow%nlayers, new_T) ! EZSNOW
+        call tile%snow%set_Ti(nlayers, new_T) ! EZSNOW
         if(associated(tile%glac)) tile%glac%T(1) = new_T
         if(associated(tile%lake)) tile%lake%T(1) = new_T
         if(associated(tile%soil)) tile%soil%T(1) = new_T
@@ -2579,7 +2582,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
             ! if (snow_option == SNOW_GL) call land_error_message("update_land_model_fast_0d: This option is not supported with new snow model EZSNOW", severity=FATAL)
            delta_T_snow = subs_Ctop*(subs_Ttop-snow_avrg_T)/&
                 (subs_Ctop*tau_snow_T_adj/delta_time+subs_Ctop+snow_C)
-           do il=1, tile%snow%nlayers
+           do il=1, nlayers
               call tile%snow%set_Ti(il, snow_avrg_T + delta_T_snow) ! EZSNOW
            enddo
 
@@ -2891,7 +2894,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_drydep_bc, drydep(1), tile%diag)
   call send_tile_data(id_drydep_md, drydep(2), tile%diag)
   call send_tile_data(id_drydep_om, drydep(3), tile%diag)
-  ! call send_tile_data(id_snow_nlayers, real(tile%snow%nlayers), tile%diag)
+  ! call send_tile_data(id_snow_nlayers, real(tile%snow%n_layers()), tile%diag)
   ! ------ end snow additional fields
 
 end subroutine update_land_model_fast_0d
@@ -3769,7 +3772,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      __DEBUG1__(snow_area)
      __DEBUG1__(snow_depth)
      write(*,*) "EZSNOW - state of snowpack in update_land_bc_fast"
-     call tile%snow%sp%print()
+!      call tile%snow%sp%print() slm: if needed we can make it a member of snow_tile_type
      write(*,*) "using snow option :: ", snow_option
      write(*,*) "snow_refl_dir ", snow_refl_dir
      write(*,*) "snow_refl_dif ", snow_refl_dif

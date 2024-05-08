@@ -38,6 +38,7 @@ contains
     procedure :: merge_snow_tiles => cm_merge_snow_tiles_wrapper
     procedure :: get_snow_tile_tag => cm_get_snow_tile_tag
     procedure :: snow_is_selected => cm_snow_is_selected
+    procedure :: n_layers => cm_snow_nlayers
     procedure :: snow_roughness => cm_snow_roughness
     procedure :: radiative_properties => cm_snow_rad_prop
     procedure :: stock_pe => cm_snow_tile_stock_pe
@@ -53,8 +54,10 @@ contains
     procedure :: ice => cm_snow_get_total_ice
     procedure :: liq => cm_snow_get_total_liq
     procedure :: get_depth_area => cm_snow_get_depth_area
+    procedure :: lai_im => cm_snow_lai  ! both lai_im and lai_em return zero
+    procedure :: lai_em => cm_snow_lai
 
-    procedure :: sweep_tiny => cm_sweep_tiny_snow
+    procedure :: sweep => cm_sweep_tiny_snow
     procedure :: partition_sw => cm_partition_sw
 
     procedure :: step1 => cm_snow_step_1
@@ -224,6 +227,11 @@ function cm_get_snow_tile_tag(snow) result(tag)
   tag = snow%tag
 end function cm_get_snow_tile_tag
 
+integer function cm_snow_nlayers(snow)
+  class(cm_snow_tile_type), intent(in) :: snow
+  cm_snow_nlayers = snow%nlayers
+end function
+
 ! ============================================================================
 subroutine cm_snow_roughness(snow, snow_z0s, snow_z0m)
   ! type(cm_snow_tile_type), intent(in) :: snow ! not used
@@ -367,6 +375,12 @@ subroutine cm_snow_get_depth_area(snow, snow_depth, snow_area)
   enddo
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
+end subroutine
+
+subroutine cm_snow_lai(snow, tracers)
+  class(cm_snow_tile_type), intent(in) :: snow
+  real,                     intent(out) :: tracers(:)
+  tracers(:) = 0.0
 end subroutine
 
 ! ============================================================================
