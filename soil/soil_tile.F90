@@ -52,7 +52,8 @@ public :: soil_ave_theta0! calculate average soil moisture, pcm based on availab
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
 public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
-public :: soil_theta     ! returns array of soil moisture, for all layers
+public :: soil_theta        ! returns array of soil moisture, for all layers
+public :: soil_porosity     ! returns array of soil porocity, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
 
 ! public data
@@ -1290,6 +1291,15 @@ function soil_theta(soil) result (theta1)
 
   theta1(:) = min(max(soil%wl(:)/(dens_h2o*dz(1:num_l)),0.0)/(soil%pars%vwc_sat),1.0)
 end function soil_theta
+
+! ============================================================================
+! returns array of soil porosity
+function soil_porosity(soil) result (porosity)
+  type(soil_tile_type), intent(in) :: soil
+  real :: porosity(num_l)
+
+  porosity(:) = soil%pars%vwc_sat
+end function soil_porosity
 
 
 ! ============================================================================
