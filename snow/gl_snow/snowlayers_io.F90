@@ -13,7 +13,7 @@ use land_tile_io_mod, only : land_restart_type, get_tile_by_idx
 use land_tile_mod,    only : land_tile_map, land_tile_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
      current_tile, operator(/=), loop_over_tiles
-
+use gl_snow_tile_mod, only : gl_snow_tile_type
 use snowpack_mod, only : snow_layer_type
 
 
@@ -86,7 +86,9 @@ subroutine get_snowlayer_by_idx(idx,ntiles,ptr)
    if(associated(tile)) then
       if (associated(tile%snow)) then
          k = idx/(lnd%nlon*lnd%nlat*ntiles) ! calculate snowlayer index within a tile
-         ptr=>tile%snow%sp%snow(k+1)
+         select type (s=>tile%snow); class is (gl_snow_tile_type)
+            ptr=>s%sp%snow(k+1)
+         end select
       endif
    endif
 end subroutine get_snowlayer_by_idx
@@ -144,7 +146,9 @@ subroutine read_create_snowlayers(restart)
               'snow tile'//trim(info)//' does not exist, but is necessary to create a snowlayer', &
               WARNING)
       else
-         tile%snow%sp%nlayers = tile%snow%sp%nlayers + 1
+         select type (s=>tile%snow); class is (gl_snow_tile_type)
+            s%sp%nlayers = s%sp%nlayers + 1
+         end select
       endif
    enddo
 
@@ -153,7 +157,12 @@ subroutine read_create_snowlayers(restart)
    do while (ce/=te)
       tile=>current_tile(ce); ce = next_elmt(ce)
       if(.not.associated(tile%snow))cycle
-      allocate(tile%snow%sp%snow(tile%snow%sp%nlayers))
+      select type (s=>tile%snow); class is (gl_snow_tile_type)
+         ! slm: we probably should not rely on snow%n_layers() function,
+         ! because in general it can be invalid until the tile is fully initialized
+         ! perhaps there is a better way, avoiding numerous "select type" constructs?
+         allocate(s%sp%snow(s%sp%nlayers))
+      end select
    enddo
  end subroutine read_create_snowlayers
 
@@ -282,7 +291,7 @@ integer function global_max_snowlayers()
   global_max_snowlayers = 0
   do while (loop_over_tiles(ce,tile))
      if(associated(tile%snow)) &
-        global_max_snowlayers = max(global_max_snowlayers,tile%snow%sp%nlayers)
+        global_max_snowlayers = max(global_max_snowlayers,tile%snow%n_layers())
   enddo
   call mpp_max(global_max_snowlayers)
 end function global_max_snowlayers
@@ -299,7 +308,7 @@ subroutine gather_snowlayer_index(ntiles, cidx)
   ce = first_elmt(land_tile_map)
   n = 0
   do while (loop_over_tiles(ce,tile))
-     if(associated(tile%snow)) n = n + tile%snow%sp%nlayers
+     if(associated(tile%snow)) n = n + tile%snow%n_layers()
   enddo
 
   ! calculate compressed snowlayer index to be written to the restart file
@@ -308,7 +317,7 @@ subroutine gather_snowlayer_index(ntiles, cidx)
   n = 1
   do while (loop_over_tiles(ce,tile,i=i,j=j,k=k))
      if(associated(tile%snow)) then
-        do c = 1,tile%snow%sp%nlayers
+        do c = 1,tile%snow%n_layers()
            cidx (n) = &
                 (c-1)*lnd%nlon*lnd%nlat*ntiles + &
                 (k-1)*lnd%nlon*lnd%nlat + &

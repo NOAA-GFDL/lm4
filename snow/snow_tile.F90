@@ -17,7 +17,7 @@ use land_debug_mod, only : is_watch_point
 use tile_diag_buff_mod, only : diag_buff_type
 
 ! use snow_constants_mod, only: NTRACERS
-use snowpack_mod, only : snowpack_t, use_mcm_masking, depth_crit
+use snowpack_mod, only : use_mcm_masking, depth_crit
 
 implicit none
 private
@@ -53,7 +53,6 @@ type, abstract, public :: snow_tile_type
   real, allocatable :: ws(:)
   real, allocatable :: T(:)
   real, allocatable :: e(:), f(:)
-  type(snowpack_t) :: sp ! structure with data for glass snow model
 contains
   procedure(func_snow_is_selected),    deferred :: snow_is_selected
   procedure(func_snow_roughness),      deferred :: snow_roughness

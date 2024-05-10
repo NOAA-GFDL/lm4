@@ -8,8 +8,8 @@ use land_data_mod, only : log_version
 use land_debug_mod, only : land_error_message
 
 use snow_tile_mod, only: snow_tile_type
-use cm_snow_tile_mod, only : cm_snow_tile_ctor
-use gl_snow_tile_mod, only : gl_snow_tile_ctor
+use cm_snow_tile_mod, only : cm_snow_tile_type, new_cm_snow_tile
+use gl_snow_tile_mod, only : gl_snow_tile_type, new_gl_snow_tile
 
 implicit none
 private
@@ -23,7 +23,7 @@ public :: snow_tiles_can_be_merged
 
 interface new_snow_tile
    module procedure snow_tile_ctor
-   module procedure snow_tile_copy_ctor
+   module procedure snow_tile_copy
 end interface
 
 ! ==== module constants ======================================================
@@ -72,32 +72,39 @@ function snow_tile_ctor(tag) result(ptr)
   integer, optional, intent(in) :: tag ! kind of tile
   select case(snow_option)
   case(SNOW_CM)
-     ptr => cm_snow_tile_ctor()
+     ptr => new_cm_snow_tile()
   case(SNOW_GL)
-     ptr => gl_snow_tile_ctor()
+     ptr => new_gl_snow_tile()
   case default
      call land_error_message('snow_tile_ctor: The value of snow_option is invalid. This should never happen. See developer', FATAL)
   end select
 end function snow_tile_ctor
 
 
-function snow_tile_copy_ctor(snow) result(ptr)
-  class(snow_tile_type), pointer :: ptr ! return value
+function snow_tile_copy(snow) result(ptr)
+  class(snow_tile_type), pointer    :: ptr  ! return value
   class(snow_tile_type), intent(in) :: snow ! tile to copy
 
   real liq1, liq2, ice1, ice2, heat1, heat2, dheat, dwat
 
-  allocate(ptr, source=snow)
-  ptr%sp = snow%sp
-  ptr%sp%snow = snow%sp%snow
+  select type (snow)
+  type is (cm_snow_tile_type)
+     ptr => new_cm_snow_tile(snow)
+  type is (gl_snow_tile_type)
+     ptr => new_gl_snow_tile(snow)
+  class default
+     call land_error_message('snow_tile_copy: The type of snow tile is invalid. This should never happen. See developer', FATAL)
+  end select
 
+  ! slm: why are these checks here? Why tolerances are so high? Copies must
+  ! be identical: ani discreapanc y is an error
   liq1 = snow%liq(); ice1 = snow%ice(); heat1 = snow%snow_tile_heat()
   liq2 = ptr%liq();  ice2 = ptr%ice();  heat2 = ptr%snow_tile_heat()
 
   if (abs(liq1-liq2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: liquid water non conserved!", FATAL)
   if (abs(ice1-ice2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: frozen water non conserved!", FATAL)
   if (abs(heat1-heat2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: heat non conserved!", FATAL)
-end function snow_tile_copy_ctor
+end function
 
 
 subroutine delete_snow_tile(snow)

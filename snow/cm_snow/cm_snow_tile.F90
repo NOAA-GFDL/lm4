@@ -19,10 +19,16 @@ private
 
 ! ==== public interfaces =====================================================
 public :: cm_snow_tile_type
-public :: cm_snow_tile_ctor
+public :: new_cm_snow_tile
 
 public :: read_snow_cm_namelist
 ! ==== end of public interfaces ==============================================
+
+! ---- module interfaces
+interface new_cm_snow_tile
+   module procedure cm_snow_tile_ctor
+   module procedure cm_snow_tile_copy
+end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'cm_snow_tile_mod'
@@ -126,7 +132,7 @@ function cm_snow_tile_ctor() result(ptr)
 end function cm_snow_tile_ctor
 
 ! ============================================================================
-function cm_snow_tile_copy_ctor(snow) result(ptr)
+function cm_snow_tile_copy(snow) result(ptr)
   type(cm_snow_tile_type), pointer :: ptr ! return value
   type(cm_snow_tile_type), intent(in) :: snow ! tile to copy
 
@@ -135,11 +141,10 @@ function cm_snow_tile_copy_ctor(snow) result(ptr)
   ptr = snow
   ! no need to allocate storage for allocatable components of the type, because
   ! F2003 takes care of that, and also takes care of copying data
-end function cm_snow_tile_copy_ctor
+end function
 
 ! ============================================================================
 subroutine cm_delete_snow_tile(snow)
-  ! type(cm_snow_tile_type), pointer :: snow
   class(cm_snow_tile_type), pointer :: snow
 
   ! no need to deallocate components of tile, because F2003 takes care of

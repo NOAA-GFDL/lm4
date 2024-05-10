@@ -29,7 +29,7 @@ private
 
 ! ==== public interfaces =====================================================
 public :: gl_snow_tile_type
-public :: gl_snow_tile_ctor
+public :: new_gl_snow_tile
 public :: gl_snow_diag_init
 
 
@@ -37,11 +37,16 @@ public :: gl_snow_diag_init
 character(*), parameter :: module_name = 'gl_snow_tile_mod'
 #include "../../shared/version_variable.inc"
 
+! ---- module interfaces
+interface new_gl_snow_tile
+   module procedure gl_snow_tile_ctor
+   module procedure gl_snow_tile_copy
+end interface
 
 ! ==== types =================================================================
 type, extends(snow_tile_type) :: gl_snow_tile_type
-
-   contains
+    type(snowpack_t) :: sp ! structure with data for glass snow model
+contains
     procedure :: merge_snow_tiles => gl_merge_snow_tiles_wrapper
 
     procedure :: n_layers => gl_snow_nlayers
@@ -195,7 +200,7 @@ function gl_snow_tile_ctor(tag) result(ptr)
 end function gl_snow_tile_ctor
 
 ! ============================================================================
-function gl_snow_tile_copy_ctor(snow) result(ptr)
+function gl_snow_tile_copy(snow) result(ptr)
   type(gl_snow_tile_type), pointer :: ptr ! return value
   type(gl_snow_tile_type), intent(in) :: snow ! tile to copy
 
@@ -204,7 +209,7 @@ function gl_snow_tile_copy_ctor(snow) result(ptr)
   ptr = snow
   ! no need to allocate storage for allocatable components of the type, because
   ! F2003 takes care of that, and also takes care of copying data
-end function gl_snow_tile_copy_ctor
+end function
 
 ! ============================================================================
 subroutine gl_delete_snow_tile(snow)
