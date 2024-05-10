@@ -181,21 +181,9 @@ function gl_snow_tile_ctor(tag) result(ptr)
 
   allocate(ptr)
   ptr%tag = 0 ; if(present(tag)) ptr%tag = tag
-
-  ! allocate also fields for old snow just in case we need to read them
-  ! from old restart - deallocate after reading restart
-  ! allocate(ptr%ws(num_l))
-  ! allocate(ptr%wl(num_l))
-  ! allocate(ptr%T(num_l))
-  ! ptr%nlayers = num_l
-
-  ! allocate(ptr)
   allocate(ptr%ws(num_l))
   allocate(ptr%wl(num_l))
   allocate(ptr%T(num_l))
-  allocate(ptr%e(num_l))
-  allocate(ptr%f(num_l))
-  ptr%nlayers = num_l
 
 end function gl_snow_tile_ctor
 
@@ -218,7 +206,7 @@ subroutine gl_delete_snow_tile(snow)
   ! no need to deallocate components of tile, because F2003 takes care of
   ! allocatable components deallocation when tile is deallocated
   ! deallocate(snow)
-  nullify(snow)
+  nullify(snow) ! slm: not sure why this is done. soes it not prevent tile from cleaning up?
 end subroutine gl_delete_snow_tile
 
 ! =============================================================================

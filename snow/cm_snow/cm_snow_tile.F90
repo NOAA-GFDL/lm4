@@ -39,7 +39,8 @@ real, parameter :: heat_capacity_retro = 1.6e6
 ! ==== types =================================================================
 
 type, extends(snow_tile_type) :: cm_snow_tile_type
-   ! data structure already defined in parent snow type
+    integer :: nlayers !< number of snow layers
+    real, allocatable :: e(:), f(:)
 contains
     procedure :: merge_snow_tiles => cm_merge_snow_tiles_wrapper
     procedure :: snow_is_selected => cm_snow_is_selected
