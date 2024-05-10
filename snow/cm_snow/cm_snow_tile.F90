@@ -36,12 +36,10 @@ type, extends(snow_tile_type) :: cm_snow_tile_type
    ! data structure already defined in parent snow type
 contains
     procedure :: merge_snow_tiles => cm_merge_snow_tiles_wrapper
-    procedure :: get_snow_tile_tag => cm_get_snow_tile_tag
     procedure :: snow_is_selected => cm_snow_is_selected
     procedure :: n_layers => cm_snow_nlayers
     procedure :: snow_roughness => cm_snow_roughness
     procedure :: radiative_properties => cm_snow_rad_prop
-    procedure :: stock_pe => cm_snow_tile_stock_pe
     procedure :: snow_active => cm_snow_active
     procedure :: snow_tile_heat => cm_snow_tile_heat
     procedure :: sfc_temp => cm_snow_get_sfc_temp
@@ -217,16 +215,6 @@ function cm_snow_is_selected(snow, sel)
   cm_snow_is_selected = .TRUE.
 end function cm_snow_is_selected
 
-! ============================================================================
-! retruns tag of the tile
-function cm_get_snow_tile_tag(snow) result(tag)
-  integer :: tag
-  ! type(cm_snow_tile_type), intent(in) :: snow
-  class(cm_snow_tile_type), intent(in) :: snow
-
-  tag = snow%tag
-end function cm_get_snow_tile_tag
-
 integer function cm_snow_nlayers(snow)
   class(cm_snow_tile_type), intent(in) :: snow
   cm_snow_nlayers = snow%nlayers
@@ -241,22 +229,6 @@ subroutine cm_snow_roughness(snow, snow_z0s, snow_z0m)
   snow_z0m =  z0_momentum
   snow_z0s =  z0_momentum * exp(-k_over_B)
 end subroutine cm_snow_roughness
-
-! ============================================================================
-subroutine cm_snow_tile_stock_pe (snow, twd_liq, twd_sol  )
-  ! type(cm_snow_tile_type),  intent(in)    :: snow
-  class(cm_snow_tile_type),  intent(in)    :: snow
-  real,                  intent(out)   :: twd_liq, twd_sol
-  integer n
-
-  twd_liq = 0.
-  twd_sol = 0.
-  do n=1, size(snow%wl)
-    twd_liq = twd_liq + snow%wl(n)
-    twd_sol = twd_sol + snow%ws(n)
-    enddo
-
-end subroutine cm_snow_tile_stock_pe
 
 ! returns snow radiative properties: short-wave refletances (by spectral band),
 ! long-wave reflecatanc, emissivity

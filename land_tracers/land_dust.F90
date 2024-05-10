@@ -591,7 +591,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real, parameter :: sigma = 1.0
   real, parameter :: beta = 100.0
   real :: soil_wetness, soil_iceness ! soil properties for dust source calculations
-  real :: snow_lmass, snow_fmass ! snow liquid and frozen water mass (kg/m2)
+  real :: snow_fmass ! snow (solid) water mass (kg/m2)
   real :: bareness ! barenes factor, unitless
   real :: lambda, drag
   real :: u_ts, u_thresh ! wind erosion threshold, m/s
@@ -609,8 +609,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
 
   irr_frac = 0.0
 
-  ! call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
-  call tile%snow%stock_pe(snow_lmass, snow_fmass) ! EZSNOW
+  snow_fmass = tile%snow%ice()
   if (associated(tile%soil)) then
     ! calculate soil average wetness and "iceness"
     call soil_ave_wetness(tile%soil, soil_depth, soil_wetness, soil_iceness)

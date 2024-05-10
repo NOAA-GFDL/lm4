@@ -43,13 +43,11 @@ type, extends(snow_tile_type) :: gl_snow_tile_type
 
    contains
     procedure :: merge_snow_tiles => gl_merge_snow_tiles_wrapper
-    procedure :: get_snow_tile_tag => gl_get_snow_tile_tag
 
     procedure :: n_layers => gl_snow_nlayers
     procedure :: snow_is_selected => gl_snow_is_selected
     procedure :: snow_roughness => gl_snow_roughness
     procedure :: radiative_properties => gl_snow_rad_prop
-    procedure :: stock_pe => gl_snow_tile_stock_pe
     procedure :: snow_active => gl_snow_active
     procedure :: snow_tile_heat => gl_snow_tile_heat
     procedure :: sfc_temp => gl_snow_get_sfc_temp
@@ -747,14 +745,6 @@ function gl_snow_is_selected(snow, sel)
 end function gl_snow_is_selected
 
 ! ============================================================================
-! retruns tag of the tile
-function gl_get_snow_tile_tag(snow) result(tag)
-  integer :: tag
-  class(gl_snow_tile_type), intent(in) :: snow
-  tag = snow%tag
-end function gl_get_snow_tile_tag
-
-! ============================================================================
 subroutine gl_snow_roughness(snow, snow_z0s, snow_z0m)
   class(gl_snow_tile_type), intent(in) :: snow ! not used
   real, intent(out):: snow_z0s, snow_z0m
@@ -790,15 +780,6 @@ subroutine gl_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
   call gl_compute_snow_albedo ( snow%sp, snow_top_temp, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
                 snow_refl_dir, snow_refl_dif)
 end subroutine
-
-! ============================================================================
-subroutine gl_snow_tile_stock_pe (snow, twd_liq, twd_sol  )
-  class(gl_snow_tile_type),  intent(in)    :: snow
-  real,                  intent(out)   :: twd_liq, twd_sol
-  twd_liq = snow%sp%liq()
-  twd_sol = snow%sp%ice()
-end subroutine gl_snow_tile_stock_pe
-
 
 real function gl_snow_tile_heat (snow) result(heat)
   class(gl_snow_tile_type),  intent(in)    :: snow

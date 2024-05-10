@@ -442,8 +442,7 @@ subroutine get_tile_water(tile, lmass, fmass)
      lmass = lmass+lm ; fmass = fmass + fm
   endif
   if (associated(tile%snow)) then
-     ! call snow_tile_stock_pe(tile%snow, lm, fm)
-     call tile%snow%stock_pe(lm, fm) ! EZSNOW
+     lm = tile%snow%liq() ; fm = tile%snow%ice()
      lmass = lmass+lm ; fmass = fmass + fm
   endif
   if (associated(tile%vegn)) then

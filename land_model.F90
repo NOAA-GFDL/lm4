@@ -1386,7 +1386,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          vegn_HEAT = vegn_tile_heat(tile%vegn)
      endif
      if(associated(tile%snow)) then
-         call tile%snow%stock_pe(snow_LMASS, snow_FMASS) ! EZSNOW changed
+         snow_LMASS = tile%snow%liq() ; snow_FMASS = tile%snow%ice()
          snow_HEAT = tile%snow%snow_tile_heat()          ! EZSNOW changed
      endif
      if (associated(tile%glac)) then
@@ -4094,7 +4094,7 @@ case(ISTOCK_WATER)
       if(associated(tile%soil)) &
          call soil_tile_stock_pe(tile%soil, twd_liq_soil, twd_sol_soil)
       if(associated(tile%snow)) &
-         call tile%snow%stock_pe(twd_liq_snow, twd_sol_snow) ! EZSNOW
+         twd_liq_snow = tile%snow%liq() ; twd_sol_snow = tile%snow%ice() ! EZSNOW
       if(associated(tile%vegn)) &
          call vegn_tile_stock_pe(tile%vegn, twd_liq_vegn, twd_sol_vegn)
       gcwd_cana = gcwd_cana +  twd_gas_cana                 * tile%frac

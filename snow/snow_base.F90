@@ -91,10 +91,8 @@ function snow_tile_copy_ctor(snow) result(ptr)
   ptr%sp = snow%sp
   ptr%sp%snow = snow%sp%snow
 
-  call snow%stock_pe(liq1, ice1)
-  call ptr%stock_pe(liq2, ice2)
-  heat1 =  snow%snow_tile_heat()
-  heat2 = ptr%snow_tile_heat()
+  liq1 = snow%liq(); ice1 = snow%ice(); heat1 = snow%snow_tile_heat()
+  liq2 = ptr%liq();  ice2 = ptr%ice();  heat2 = ptr%snow_tile_heat()
 
   if (abs(liq1-liq2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: liquid water non conserved!", FATAL)
   if (abs(ice1-ice2)>1E-2) call land_error_message("snow_tile_copy_ctor in snow_tile_mod: frozen water non conserved!", FATAL)

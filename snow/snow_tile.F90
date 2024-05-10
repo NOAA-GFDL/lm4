@@ -46,7 +46,7 @@ real, parameter :: t_range = 10.0 ! degK
 
 type, abstract, public :: snow_tile_type
   ! variables common to the two snow models:
-  integer :: tag ! kind of the tile
+  integer :: tag ! kind of the tile    slm: probably not needed for snow. Should we remove it altogether?
   integer :: nlayers !< number of snow layers
   ! variables needed for old snow model only:
   real, allocatable :: wl(:)
@@ -56,26 +56,24 @@ type, abstract, public :: snow_tile_type
   type(snowpack_t) :: sp ! structure with data for glass snow model
 contains
   procedure(func_snow_is_selected),    deferred :: snow_is_selected
-  procedure(func_get_int_0D),          deferred :: n_layers
   procedure(func_snow_roughness),      deferred :: snow_roughness
   procedure(func_snow_rad_prop),       deferred :: radiative_properties
-  procedure(func_stock_pe),            deferred :: stock_pe
-  procedure(func_snow_active),         deferred :: snow_active
+  procedure(func_get_logical_0D),      deferred :: snow_active
   procedure(func_get_real_0D),         deferred :: snow_tile_heat
   procedure(func_get_real_0D),         deferred :: sfc_temp
   procedure(func_merge_snow_tiles),    deferred :: merge_snow_tiles
-  procedure(func_get_snow_tile_tag),   deferred :: get_snow_tile_tag
-  procedure(func_get_real_1D),         deferred :: get_wsi
-  procedure(func_get_real_1D),         deferred :: get_wli
-  procedure(func_get_real_1D),         deferred :: get_Ti
-  procedure(func_set_real_1D),         deferred :: set_wsi
-  procedure(func_set_real_1D),         deferred :: set_wli
-  procedure(func_set_real_1D),         deferred :: set_Ti
+  procedure(func_get_int_0D),          deferred :: n_layers
+  procedure(func_get_real_0Di),        deferred :: get_wsi
+  procedure(func_get_real_0Di),        deferred :: get_wli
+  procedure(func_get_real_0Di),        deferred :: get_Ti
+  procedure(func_set_real_0Di),        deferred :: set_wsi
+  procedure(func_set_real_0Di),        deferred :: set_wli
+  procedure(func_set_real_0Di),        deferred :: set_Ti
   procedure(func_get_real_0D),         deferred :: ice
   procedure(func_get_real_0D),         deferred :: liq
   procedure(func_get_depth_area),      deferred :: get_depth_area
-  procedure(func_get_tracers),         deferred :: lai_im
-  procedure(func_get_tracers),         deferred :: lai_em
+  procedure(func_get_real_1D),         deferred :: lai_im
+  procedure(func_get_real_1D),         deferred :: lai_em
 
   procedure(func_sweep_snow),          deferred :: sweep ! sweep snow, because it is either tiny, or too big
   procedure(func_partition_sw),        deferred :: partition_sw
@@ -87,8 +85,63 @@ contains
                          !! Default implementation does nothing.
 end type snow_tile_type
 
+! Meaning of generi interfaces:
+! func_get_real_0D : returns a real scalar value for a given snow tile. Example:
+!     real :: ice_mass
+!     ice_mass = snow%ice()
+! func_get_int_0D : returns an integer scalar value for a given snow tile. Example:
+!     integer :: n_layers
+!     nlayers = snow%n_layers()
+! func_get_logical_0D : returns a single logical value or a given cnoe tile. Example:
+!     logical :: active
+!     active = snow%snow_active()
+! func_get_real_0Di : returns a real scalar value for a given snow tile and index. Example:
+!     real :: ice_mass_of_layer
+!     integer :: i
+!     ice_mass_of_layer = snow%wsi(i)
+! func_set_real_0Di : sets a value in given snow tile for given index. Example
+!     integer :: i
+!     call snow%set_wsi(i, 1.0)
+! func_get_real_1D : returns a 1D array of values. Example:
+!     real :: em(NTRACERS)
+!     call snow%lai_em(em)
+
 abstract interface
-  ! module procedures
+
+  logical function func_get_logical_0D(snow)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in)  :: snow
+  end function
+
+  integer function func_get_int_0D(snow)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in)  :: snow
+  end function
+
+  real function func_get_real_0D(snow)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in)  :: snow
+  end function
+
+  real function func_get_real_0Di(snow, i)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    integer,               intent(in) :: i
+  end function
+
+  subroutine func_set_real_0Di(snow, i, v)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(inout) :: snow
+    integer, intent(in) :: i
+    real,    intent(in) :: v
+  end subroutine
+
+  subroutine func_get_real_1D(snow, tracers)
+    import :: snow_tile_type
+    class(snow_tile_type), intent(in) :: snow
+    real,                  intent(out) :: tracers(:)
+  end subroutine
+
   subroutine func_merge_snow_tiles(snow2, w2, snow1, w1)
     import :: snow_tile_type
     real, intent(in) :: w1
@@ -97,16 +150,16 @@ abstract interface
     class(snow_tile_type), intent(inout) :: snow2
   end subroutine func_merge_snow_tiles
 
-  integer function func_get_snow_tile_tag(snow) result(tag)
+  integer function func_get_snow_tile_tag(snow)
     import :: snow_tile_type
     class(snow_tile_type), intent(in) :: snow
   end function func_get_snow_tile_tag
 
-  logical function func_snow_is_selected(snow, sel) result(cm1_snow_is_selected)
+  logical function func_snow_is_selected(snow, sel)
     import :: snow_tile_type
     import :: tile_selector_type
-    type(tile_selector_type),  intent(in) :: sel
     class(snow_tile_type), intent(in) :: snow
+    type(tile_selector_type),  intent(in) :: sel
   end function func_snow_is_selected
 
   subroutine func_snow_roughness(snow, snow_z0s, snow_z0m)
@@ -126,52 +179,6 @@ abstract interface
     logical, intent(in) :: on_glacier
     real, intent(out) :: snow_refl_dir(:), snow_refl_dif(:)
     real, intent(out) :: snow_refl_lw, snow_emis
-  end subroutine
-
-  subroutine func_stock_pe(snow, twd_liq, twd_sol  )
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-    real,                  intent(out)   :: twd_liq, twd_sol
-  end subroutine func_stock_pe
-
-  logical function func_snow_active(snow) result(snow_active)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in)  :: snow
-  end function func_snow_active
-
-  integer function func_get_int_0D(snow)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in)  :: snow
-  end function
-
-  real function func_get_real_0D(snow)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in)  :: snow
-  end function
-
-  real function func_get_real_1D(snow, i)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-    integer,               intent(in) :: i
-  end function
-
-  subroutine func_set_real_1D(snow, i, v)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(inout) :: snow
-    integer, intent(in) :: i
-    real,    intent(in) :: v
-  end subroutine
-
-!   function func_get_tracers(snow) result(tracers)
-!     import :: snow_tile_type
-!     class(snow_tile_type), intent(in) :: snow
-!     real, dimension(NTRACERS) :: func_get_tracers
-!   end function
-
-  subroutine func_get_tracers(snow, tracers)
-    import :: snow_tile_type
-    class(snow_tile_type), intent(in) :: snow
-    real,                  intent(out) :: tracers(:)
   end subroutine
 
   subroutine func_get_depth_area(snow, snow_depth, snow_area)
