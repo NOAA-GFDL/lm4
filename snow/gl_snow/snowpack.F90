@@ -103,7 +103,7 @@ contains
     procedure :: SWE   => snowpack_SWE  !< total water content of the snowpack
     procedure :: depth => snowpack_depth  !< total depth of the snowpack
     procedure :: area => snowpack_area  !< fractional area covered by snow (used only for albedo purposes)
-    procedure :: step1 => snowpack_step_1 !< forward elimination of tridiagonal solver
+!     procedure :: step1 => snowpack_step_1 !< forward elimination of tridiagonal solver
     procedure :: step1a => snowpack_step_1a !< forward elimination of tridiagonal solver
     procedure :: step1b => snowpack_step_1b !< forward elimination of tridiagonal solver
     procedure :: step2 => snowpack_step_2 !< back-substitution part of tridiagonal solver
@@ -1116,7 +1116,7 @@ subroutine snowpack_step_1(s, G0, DGDT, &
       snow_T1 = s%snow(1)%T
       snow_liq = s%snow(1)%wl ! set this to zero to turn off implicit melt in lm4p2
       snow_rh = 1.0
-      ! snow_ice = s%ice() ! set this to zero to turn off implicit melt in lm4p2
+!      snow_ice = s%ice() ! set this to zero to turn off implicit melt in lm4p2
       snow_ice = s%ice() ! set this to zero to turn off implicit melt in lm4p2
       snow_subl = 1.0
       snow_area = s%area()
@@ -1165,7 +1165,6 @@ subroutine snowpack_step_1a(s, &
   logical, intent(out) :: snow_active ! True if snowpack is there (nlayers >= 0)
   real, intent(out) :: snow_E_max ! max sublim flux from snowpack [kg/(m2 s)]
 
-      real snow_C, snow_avrg_H
       integer il
 
   ! N = s%nlayers
