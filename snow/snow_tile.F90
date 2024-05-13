@@ -288,10 +288,10 @@ logical, public :: use_brdf ! not protected because it is set in snow.F90
 
 !---- namelist ---------------------------------------------------------------
 ! logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
-real    :: w_sat                 = 670.
-real    :: psi_sat               = -0.06
-real    :: k_sat                 = 0.02
-real    :: chb                   = 3.5
+! real    :: w_sat                 = 670.
+! real    :: psi_sat               = -0.06
+! real    :: k_sat                 = 0.02
+! real    :: chb                   = 3.5
 real    :: thermal_cond_ref      = 0.3
 ! real    :: depth_crit            = 0.0167
 real    :: z0_momentum           = 0.001
@@ -333,9 +333,10 @@ real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 f
 real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 
-namelist /snow_data_nml/  w_sat,                    &
-     psi_sat,                k_sat,                 &
-     chb,                                           &
+namelist /snow_data_nml/  &
+! w_sat,                    &
+!      psi_sat,                k_sat,                 &
+!      chb,                                           &
      thermal_cond_ref,                              &
      z0_momentum,                                   &
      f_iso_cold, f_vol_cold, f_geo_cold, &
