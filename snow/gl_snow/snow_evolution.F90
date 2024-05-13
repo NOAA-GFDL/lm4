@@ -159,7 +159,8 @@ namelist /snow_evolution_nml/ &
          use_internal_sources, do_snow_check_cons, &
          min_snow_mass, min_snow_depth, max_snow, prevent_tiny_snow, do_mgimplicit, &
          metamor_model, file_data_F06, wlmax_to_use, albedo_to_use, &
-         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
+         albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, &
+         thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
 ! ---- end of namelist
 
 ! ---- module data

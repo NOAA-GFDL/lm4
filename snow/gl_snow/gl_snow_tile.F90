@@ -940,6 +940,7 @@ subroutine gl_partition_sw( &
 
    if (ALLOCATED(snow%sp%swheat)) DEALLOCATE(snow%sp%swheat)
 
+   ! slm: does the code below assume that there are always will be 2 bands?
    if (trim(lowercase(albedo_to_use))=='snicar') then
       if ((use_internal_sources) .and. ((snow%sp%depth() > thresh_snow_depth_swheat) &
                                  .and. (snow%sp%nlayers > 0))) then
