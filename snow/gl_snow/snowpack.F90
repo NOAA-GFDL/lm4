@@ -19,11 +19,11 @@ public :: snowpack_t
 public :: dzopt_t ! it is public only to test optimal thicknesses
 public :: snow_layer_type ! need public to update layers with new snowfall
 public :: merge_layers
-public :: merge_phases
+! public :: merge_phases
 public :: add_liquid_to_layer
-public :: snowpack_init
-public :: snowpack_end
-public :: MAX_OPT_LAYERS
+! public :: snowpack_init
+! public :: snowpack_end
+! public :: MAX_OPT_LAYERS
 public :: snowpack_init_lm4p2
 public :: read_snowpack_namelist
 public :: compute_snow_grain_shape
@@ -44,8 +44,8 @@ type :: snow_layer_type
     real :: dendr ! snow layer densdricity [dim.less number in [0,1] with 0 = Not dendritic]
     real :: age  !< age of snow layer, [days]
     real :: sph  !< snow grain sphericity [number in [0,1] with 1 = spherical grains]
-    real :: wc_em(NTRACERS) !< mass of impurities of each type (array, dim=NTRACERS) - internally mixed only (im) [mg/m2]
-    real :: wc_im(NTRACERS) !< mass of impurities of each type (array, dim=NTRACERS) - externally mixed only (em) [mg/m2]
+    real :: wc_em(NTRACERS) !< mass of impurities of each type (array, dim=NTRACERS) - externally mixed only (em) [mg/m2]
+    real :: wc_im(NTRACERS) !< mass of impurities of each type (array, dim=NTRACERS) - internally mixed only (im) [mg/m2]
 contains
     procedure :: hCap => snow_heat_capacity    !< heat capacity of the layer, J/m2/K
     procedure :: hCon => snow_heat_conductance !< heat conductance of snow, W/m/K
@@ -80,7 +80,7 @@ type :: snowpack_t
     real :: tag ! tag from lm4p2
     real :: preprec_surfT ! snow surface temperature after heat diffusion, but before evap/subl and new snowfall
 contains
-    procedure :: empty  => snowpack_empty !< empty snowpack (in case of complete melt / sublimation)
+!     procedure :: empty  => snowpack_empty !< empty snowpack (in case of complete melt / sublimation)
     procedure :: update_age  => snowpack_update_age !< update the age [in days] of existing snow layers
     procedure :: nearsurf_properties  => snowpack_nearsurf_properties !< compute some near-surface properties
     procedure :: sw_sources  => snowpack_sw_sources !< compute albedo of the snowpack
@@ -88,13 +88,13 @@ contains
     procedure :: ice   => snowpack_ice  !< solid phase water content of the snowpack
     procedure :: liq   => snowpack_liq  !< liquid phase water content of the snowpack
     procedure :: density   => snowpack_density  !< average density of the snow
-    procedure :: avrg_age   => snowpack_avrg_age  !< average density of the snow
+    procedure :: avrg_age   => snowpack_avrg_age  !< average age of the snow
     procedure :: avrg_sph   => snowpack_avrg_sph  !< average sphericity of the snow
     procedure :: avrg_optd   => snowpack_avrg_optd  !< average opt. diameter of the snow
-    procedure :: avrg_dendr   => snowpack_avrg_dendr  !< average opt. diameter of the snow
+    procedure :: avrg_dendr   => snowpack_avrg_dendr  !< average dendricity of the snow
     procedure :: avrg_bceq_im   => snowpack_avrg_bceq_im  !< average conc. of LAIS internally mixed (IM)
     procedure :: avrg_bceq_em   => snowpack_avrg_bceq_em  !< average conc. of LAIS externally mixed (EM)
-    procedure :: avrg_bceq_tot   => snowpack_avrg_bceq_tot  !< average conc. of LAIS (IM + EM)
+    procedure :: avrg_bceq_tot  => snowpack_avrg_bceq_tot  !< average conc. of LAIS (IM + EM)
     procedure :: avrg_bc_tot   => snowpack_avrg_bc_tot  !< average conc. of black carbon (IM + EM)
     procedure :: avrg_md_tot   => snowpack_avrg_md_tot  !< average conc. of mineral dust (IM + EM)
     procedure :: avrg_om_tot   => snowpack_avrg_om_tot  !< average conc. of organic carbon (IM + EM)
@@ -107,7 +107,7 @@ contains
     procedure :: step1a => snowpack_step_1a !< forward elimination of tridiagonal solver
     procedure :: step1b => snowpack_step_1b !< forward elimination of tridiagonal solver
     procedure :: step2 => snowpack_step_2 !< back-substitution part of tridiagonal solver
-    procedure :: check_bounds => snowpack_check_bounds !< back-substitution part of tridiagonal solver
+    procedure :: check_bounds => snowpack_check_bounds !< sanity check for snowpack variables
     procedure :: attempt_split_layers => attempt_split_layers
     procedure :: attempt_merge_layers => attempt_merge_layers
     procedure :: print => snowpack_print

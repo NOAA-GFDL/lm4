@@ -17,7 +17,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data
 
 use snow_constants_mod, only: NTRACERS
-use snowpack_mod, only : snow_layer_type, snowpack_t, merge_layers, cpw, clw, csw
+use snowpack_mod, only : snow_layer_type, snowpack_t, cpw, clw, csw
 use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area, snow_radiation
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &

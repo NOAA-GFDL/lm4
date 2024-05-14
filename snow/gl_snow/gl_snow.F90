@@ -6,7 +6,7 @@ module gl_snow_mod
 use fms_mod, only : error_mesg, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze
-use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
+use land_tile_mod,    only : land_tile_map, land_tile_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
