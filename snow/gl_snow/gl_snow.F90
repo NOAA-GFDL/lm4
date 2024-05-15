@@ -4,6 +4,7 @@ module gl_snow_mod
 #include "../../shared/debug.inc"
 
 use fms_mod, only : error_mesg, FATAL, NOTE
+use fms2_io_mod, only : get_dimension_size
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze
 use land_tile_mod,    only : land_tile_map, land_tile_type, &
@@ -75,10 +76,10 @@ subroutine gl_snow_init(id_ug)
   character(*), parameter :: restart_file_name='INPUT/snow.nc' ! EZSNOW-2022SC
   type(land_restart_type) :: restart
   logical :: restart_exists
-  integer ik, ic, counter
+  integer k, n, ic, nlayers
 
   logical read_old_snow_restart
-  real old_init_snow_density
+  real old_init_snow_density, ws
 
   call gl_snow_diag_init( id_ug )
 
@@ -105,14 +106,27 @@ subroutine gl_snow_init(id_ug)
 
    if (read_old_snow_restart) then
       write(*,*) "Snow GLASS :: reading old snow CM model restart"
+      ! read number of layers
+      call get_dimension_size(restart%rhandle,'zfull',nlayers)
+
+      ! create snowpack with specified number of layers in each land tile
+      ce = first_elmt(land_tile_map)
+      do while(loop_over_tiles(ce, tile))
+         if (.not.associated(tile%snow)) cycle
+         select type (s=>tile%snow)
+         class is (gl_snow_tile_type)
+            if (allocated(s%sp%snow)) deallocate(s%sp%snow)
+            allocate(s%sp%snow(nlayers))
+            s%sp%nlayers = nlayers
+         end select
+      enddo
+
+      ! read the Milly model data
       call get_tile_data(restart, 'temp', 'zfull', cm_snow_temp_ptr)
       call get_tile_data(restart, 'wl'  , 'zfull', cm_snow_wl_ptr)
       call get_tile_data(restart, 'ws'  , 'zfull', cm_snow_ws_ptr)
 
-
-
-
-      ! now pass snow variables to new snow structure
+      ! loop through the snow tiles, remove empty layers, initialize the variables
       ce = first_elmt(land_tile_map)
       do while(loop_over_tiles(ce, tile))
          if (.not.associated(tile%snow)) cycle
@@ -128,51 +142,39 @@ subroutine gl_snow_init(id_ug)
             s%sp%snow_refl_dir = (/0.9,   0.9/) ! //TODO clean up
             s%sp%snow_refl_dir = (/0.6,   0.6/)
             s%sp%beta_rad =      (/100.0, 40.0/)
-            if (sum(s%ws)<0.0) then
+
+            ws = sum(s%sp%snow(:)%ws)
+            if (ws<0.0) then
                s%sp%nlayers = 0
-               s%sp%topsnowdeficit = sum(s%ws)
-               s%sp%topsnowheatdeficit =CSW * sum(s%ws * (s%T-TFREEZE))
+               s%sp%topsnowdeficit     = ws
+               s%sp%topsnowheatdeficit = csw * sum(s%sp%snow(:)%ws * (s%sp%snow(:)%T-TFREEZE))
             else
-               s%sp%nlayers = 0
-               do ik=1,size(s%ws)
-                  if (s%ws(ik)>0.0) then
-                     s%sp%nlayers = s%sp%nlayers + 1
+               s%sp%topsnowdeficit = 0.0
+               s%sp%topsnowheatdeficit = 0.0
+               n = 0 ! number of layers with snow
+               do k = 1,s%sp%nlayers
+                  if (s%sp%snow(k)%ws>0.0) then
+                     n = n+1 ! increase current count of layers with snow
+                     s%sp%snow(n) = s%sp%snow(k)
+
+                     s%sp%snow(n)%dz    = s%sp%snow(n)%ws/300.0 ! div by rho // use 250, //TODO read from snow data
+                     s%sp%snow(n)%T     = s%sp%snow(n)%T
+                     s%sp%snow(n)%dendr = 0.5
+                     s%sp%snow(n)%optd  = 1E-4
+                     s%sp%snow(n)%sph   = 0.5
+                     s%sp%snow(n)%age   = 0.0
+                     do ic = 1, 3
+                        s%sp%snow(n)%wc_em(ic) = 0.0
+                        s%sp%snow(n)%wc_im(ic) = 0.0
+                     enddo
+                  else ! ws <0
+                     s%sp%topsnowdeficit     = s%sp%topsnowdeficit     + s%sp%snow(k)%ws
+                     s%sp%topsnowheatdeficit = s%sp%topsnowheatdeficit + csw * s%sp%snow(k)%ws * (s%sp%snow(k)%T - TFREEZE)
                   endif
                enddo
-
-               if (s%sp%nlayers  > 0) then
-                  if (allocated(s%sp%snow)) deallocate(s%sp%snow) ! EZSNOW
-                  allocate(s%sp%snow(s%sp%nlayers))
-                  s%sp%topsnowdeficit = 0.0
-                  s%sp%topsnowheatdeficit = 0.0
-
-                  counter = 1
-                  do ik = 1, size(s%ws)
-                     if (s%ws(ik) > 0.0) then
-                        s%sp%snow(counter)%dz = s%ws(ik)/300.0 ! div by rho // use 250, //TODO read from snow data
-                        s%sp%snow(counter)%ws = s%ws(ik)
-                        s%sp%snow(counter)%wl = s%wl(ik)
-                        s%sp%snow(counter)%T = s%T(ik)
-                        s%sp%snow(counter)%dendr = 0.5
-                        s%sp%snow(counter)%optd = 1E-4
-                        s%sp%snow(counter)%sph = 0.5
-                        s%sp%snow(counter)%age = 0.0
-                        do ic = 1, 3
-                           s%sp%snow(counter)%wc_em(ic) = 0.0
-                           s%sp%snow(counter)%wc_im(ic) = 0.0
-                        enddo
-                        counter = counter + 1
-                     else
-                        s%sp%topsnowdeficit = s%sp%topsnowdeficit + s%ws(ik)
-                        s%sp%topsnowheatdeficit = s%sp%topsnowheatdeficit + CSW * s%ws(ik) * (s%T(ik) - TFREEZE)
-                     endif
-                  enddo
-               endif
+               s%sp%nlayers = n
             endif
          end select
-         deallocate(tile%snow%ws)
-         deallocate(tile%snow%wl)
-         deallocate(tile%snow%T)
       enddo
    else
       write(*,*) "start reading new GLASS restart"
@@ -456,9 +458,12 @@ subroutine cm_snow_temp_ptr(tile, i, ptr)
    integer             , intent(in) :: i ! index in the array
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%T(i)
-   endif
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%T
+   end select
 end subroutine cm_snow_temp_ptr
 
 subroutine cm_snow_wl_ptr(tile, i, ptr)
@@ -466,9 +471,12 @@ subroutine cm_snow_wl_ptr(tile, i, ptr)
    integer             , intent(in) :: i ! index in the array
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%wl(i)
-   endif
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%wl
+   end select
 end subroutine cm_snow_wl_ptr
 
 subroutine cm_snow_ws_ptr(tile, i, ptr)
@@ -476,9 +484,12 @@ subroutine cm_snow_ws_ptr(tile, i, ptr)
    integer             , intent(in) :: i ! index in the array
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%ws(i)
-   endif
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%ws
+   end select
 end subroutine cm_snow_ws_ptr
 
 ! ============================================================================
