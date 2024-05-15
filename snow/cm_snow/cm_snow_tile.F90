@@ -40,6 +40,11 @@ real, parameter :: heat_capacity_retro = 1.6e6
 
 type, extends(snow_tile_type) :: cm_snow_tile_type
     integer :: nlayers !< number of snow layers
+    ! variables needed for old snow model only:
+    real, allocatable :: wl(:)
+    real, allocatable :: ws(:)
+    real, allocatable :: T(:)
+
     real, allocatable :: e(:), f(:)
 contains
     procedure :: merge_snow_tiles => cm_merge_snow_tiles_wrapper

@@ -181,9 +181,6 @@ function gl_snow_tile_ctor(tag) result(ptr)
 
   allocate(ptr)
   ptr%tag = 0 ; if(present(tag)) ptr%tag = tag
-  allocate(ptr%ws(num_l))
-  allocate(ptr%wl(num_l))
-  allocate(ptr%T(num_l))
 
 end function gl_snow_tile_ctor
 

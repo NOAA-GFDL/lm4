@@ -185,19 +185,25 @@ subroutine snow_temp_ptr(tile, i, ptr)
    integer             , intent(in) :: i ! index in the array
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%T(i)
-   endif
-end subroutine snow_temp_ptr
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type(s=>tile%snow)
+   class is (cm_snow_tile_type)
+      ptr => s%T(i)
+   end select
+end subroutine
 
 subroutine snow_wl_ptr(tile, i, ptr)
    type(land_tile_type), pointer :: tile ! input
    integer             , intent(in) :: i ! index in the array
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%wl(i)
-   endif
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type(s=>tile%snow)
+   class is (cm_snow_tile_type)
+      ptr => s%wl(i)
+   end select
 end subroutine snow_wl_ptr
 
 subroutine snow_ws_ptr(tile, i, ptr)
@@ -205,9 +211,12 @@ subroutine snow_ws_ptr(tile, i, ptr)
    integer             , intent(in) :: i ! index in the array
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%ws(i)
-   endif
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type(s=>tile%snow)
+   class is (cm_snow_tile_type)
+      ptr => s%ws(i)
+   end select
 end subroutine snow_ws_ptr
 
 

@@ -131,12 +131,13 @@ subroutine gl_snow_init(id_ug)
       do while(loop_over_tiles(ce, tile))
          if (.not.associated(tile%snow)) cycle
 
-         if (minval(tile%snow%wl) < -1E-7) then
-            write(*,*) "minval(tile%snow%wl) = ", minval(tile%snow%wl)
-            call error_mesg('gl_snow_init', 'Found wl < 0, routine should not be used in this case!', FATAL)
-         endif
          select type (s=>tile%snow)
          class is (gl_snow_tile_type)
+            if (minval(s%sp%snow(:)%wl) < -1E-7) then
+               write(*,*) "minval(tile%snow%wl) = ", minval(s%sp%snow(:)%wl)
+               call error_mesg('gl_snow_init', 'Found wl < 0, routine should not be used in this case!', FATAL)
+            endif
+
             s%sp%topwater = 0.0
             s%sp%topwheat = 0.0
             s%sp%snow_refl_dir = (/0.9,   0.9/) ! //TODO clean up

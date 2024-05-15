@@ -47,10 +47,6 @@ real, parameter :: t_range = 10.0 ! degK
 type, abstract, public :: snow_tile_type
   ! variables common to the two snow models:
   integer :: tag ! kind of the tile    slm: probably not needed for snow. Should we remove it altogether?
-  ! variables needed for old snow model only:
-  real, allocatable :: wl(:)
-  real, allocatable :: ws(:)
-  real, allocatable :: T(:)
 contains
   procedure(func_snow_is_selected),    deferred :: snow_is_selected
   procedure(func_snow_roughness),      deferred :: snow_roughness
