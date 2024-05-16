@@ -18,7 +18,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
 
 use snow_constants_mod, only: NTRACERS
 use snowpack_mod, only : snow_layer_type, snowpack_t, cpw, clw, csw
-use snow_tile_mod, only: snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, snow_data_area, snow_radiation
+use snow_tile_mod, only: snow_tile_type, z0_momentum, k_over_B, snow_data_area, snow_radiation
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
      gl_snow_step_2_ev => gl_snow_step_2, delta_time, do_mgimplicit, gl_sweep_huge_snow
@@ -791,7 +791,6 @@ end function gl_snow_tile_heat
 ! returns true if snow plays a role
 function gl_snow_active(snow) ; logical gl_snow_active
   class(gl_snow_tile_type), intent(in)  :: snow
-  ! snow_active = ( sum(snow%ws(1:num_l)) > 0 )
   gl_snow_active = (snow%sp%nlayers > 0)
 end function gl_snow_active
 

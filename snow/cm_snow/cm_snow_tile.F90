@@ -10,7 +10,7 @@ use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
-use snow_tile_mod, only : snow_tile_type, mc_fict, z0_momentum, k_over_B, num_l, dz, &
+use snow_tile_mod, only : snow_tile_type, z0_momentum, k_over_B, &
       snow_data_area, snow_data_thermodynamics, snow_radiation
 use snowpack_mod, only : cpw, clw, csw
 
@@ -33,8 +33,9 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'cm_snow_tile_mod'
 #include "../../shared/version_variable.inc"
-real, parameter :: heat_capacity_retro = 1.6e6
 
+integer, parameter, public :: max_lev = 10 ! maximum number of layers in snow
+real, parameter :: heat_capacity_retro = 1.6e6
 
 ! ==== types =================================================================
 
@@ -79,9 +80,14 @@ real :: delta_time ! fast (physical) time step [s]
 
 
 !---- namelist ---------------------------------------------------------------
-logical, public, protected :: retro_heat_capacity  = .false.
-logical, public, protected :: lm2  = .false.
-logical, public, protected :: steal = .false.
+integer, public, protected :: num_l       = 3         ! number of snow levels
+real, public, protected    :: dz(max_lev) = (/0.1,0.8,0.1,0.,0.,0.,0.,0.,0.,0./)
+                                              ! rel. thickness of model layers,
+                                              ! from top down
+real, public, protected    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
+logical :: retro_heat_capacity  = .false.
+logical :: lm2  = .false.
+logical :: steal = .false.
 character(16), public, protected :: albedo_to_use = ''  ! or 'brdf-params'
 real, public, protected :: max_snow       = 1000.
 real, public, protected :: wet_max        = 0.0  ! TEMP, move to snow_data
@@ -96,6 +102,7 @@ logical, public, protected :: prevent_tiny_snow = .FALSE. ! if true, tiny snow i
    ! turn it off.
 
 namelist /cm_snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
+                    num_l, dz, mc_fict, &
                     max_snow, wet_max, snow_density, &
                     init_temp, init_pack_ws, init_pack_wl, &
                     min_snow_mass, prevent_tiny_snow

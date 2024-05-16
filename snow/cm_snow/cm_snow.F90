@@ -18,12 +18,13 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
 
-use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, &
+use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, max_lev, &
      ! namelist variables:
-     snow_density, retro_heat_capacity, albedo_to_use, init_temp, &
+     num_l, dz, mc_fict, &
+     snow_density, albedo_to_use, init_temp, &
      init_pack_wl, init_pack_ws
 use snow_tile_mod, only : read_snow_data_namelist, &
-     max_lev, use_brdf
+     use_brdf
 use snowpack_mod, only : clw, csw, read_snowpack_namelist
 
 
@@ -45,12 +46,9 @@ character(len=*), parameter :: module_name = 'cm_snow_mod'
 ! ==== module variables ======================================================
 
 logical         :: module_is_initialized =.FALSE.
-integer         :: num_l    ! # of snow layers
 ! next three 'z' variables are all normalized by total snow pack depth
-real            :: dz (max_lev) ! relative thicknesses of layers
 real            :: z  (max_lev) ! relative depths of layer bounds
 real            :: zz (max_lev) ! relative depths of layer centers
-real            :: mc_fict
 
 ! ==== end of module variables ===============================================
 
@@ -65,7 +63,7 @@ subroutine cm_read_snow_namelist()
   integer :: ierr         ! error code, returned by i/o routines
   integer :: l            ! layer iterator
 
-  call read_snow_data_namelist(num_l,dz,mc_fict)
+  call read_snow_data_namelist()
   call read_snowpack_namelist()  ! need to read some variables from snowpack module
   call read_snow_cm_namelist()
 

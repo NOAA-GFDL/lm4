@@ -15,8 +15,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, get_tile_data, get_tile_by_idx, &
      add_int_tile_data, get_int_tile_data, field_exists
 
-use snow_tile_mod, only : &
-     read_snow_data_namelist, max_lev
+use snow_tile_mod, only : read_snow_data_namelist
 use gl_snow_tile_mod, only: gl_snow_tile_type, gl_snow_diag_init
 use snowpack_mod, only: snowpack_init_lm4p2, read_snowpack_namelist, &
      snow_layer_type, csw
@@ -55,12 +54,7 @@ contains
 
 ! ============================================================================
 subroutine gl_read_snow_namelist()
-  ! local variables only to satisfy interface of read_snow_data_namelist
-  integer :: num_l    ! # of snow layers
-  real    :: dz (max_lev) ! relative thicknesses of layers
-  real    :: mc_fict
-
-  call read_snow_data_namelist(num_l,dz,mc_fict)
+  call read_snow_data_namelist()
 end subroutine gl_read_snow_namelist
 
 

@@ -27,14 +27,12 @@ public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_area
 public :: snow_radiation
-public :: mc_fict, z0_momentum, k_over_B, num_l, dz, distinct_snow_on_glacier
+public :: z0_momentum, k_over_B, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
-
-integer, parameter, public :: max_lev = 10
 
 ! range of temperatures for ramp between "warm" and "cold" albedo
 real, parameter :: t_range = 10.0 ! degK
@@ -298,15 +296,10 @@ real    :: refl_snow_min_dif(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
 real    :: emis_snow_min         = 0.90      ! reset to 1 for MCM
 real    :: k_over_B              = 2         ! reset to 0 for MCM
-integer :: num_l                 = 3         ! number of snow levels
-real    :: dz(max_lev)           = (/0.1,0.8,0.1,0.,0.,0.,0.,0.,0.,0./)
-                                              ! rel. thickness of model layers,
-                                              ! from top down
 ! real, protected, public :: &
 !    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
 !    clw = 4218.0, &  ! specific heat of water (liquid)
 !    csw = 2106.0     ! specific heat of water (ice)
-real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
 ! from analysis of modis data (ignoring temperature dependence):
   real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
   real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
@@ -341,7 +334,6 @@ namelist /snow_data_nml/  &
      refl_snow_max_dif,    refl_snow_min_dif,   &
      emis_snow_max,          emis_snow_min,         &
      k_over_B,             &
-     num_l,                   dz, mc_fict, &
 ! snow radiative parameters on glacier
      distinct_snow_on_glacier, &
      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
@@ -355,11 +347,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
 ! ============================================================================
-subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
-  integer, intent(out) :: snow_num_l
-  real,    intent(out) :: snow_dz(:)
-  real,    intent(out) :: snow_mc_fict
-
+subroutine read_snow_data_namelist()
   ! ---- local vars
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
@@ -371,13 +359,6 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   ierr = check_nml_error(io, 'snow_data_nml')
   unit=stdlog()
   write(unit, nml=snow_data_nml)
-
-  ! initialize global module data here
-
-  ! set up output arguments
-  snow_num_l = num_l
-  snow_dz    = dz
-  snow_mc_fict = mc_fict
 end subroutine read_snow_data_namelist
 
 
