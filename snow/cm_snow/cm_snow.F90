@@ -18,14 +18,12 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
 
+use snow_tile_mod, only : read_snow_data_namelist, &
+     use_brdf, clw, csw! , read_snowpack_namelist
 use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, max_lev, &
      ! namelist variables:
-     num_l, dz, mc_fict, &
-     snow_density, albedo_to_use, init_temp, &
+     num_l, dz, mc_fict, snow_density, albedo_to_use, init_temp, &
      init_pack_wl, init_pack_ws
-use snow_tile_mod, only : read_snow_data_namelist, &
-     use_brdf
-use snowpack_mod, only : clw, csw, read_snowpack_namelist
 
 
 implicit none
@@ -64,7 +62,7 @@ subroutine cm_read_snow_namelist()
   integer :: l            ! layer iterator
 
   call read_snow_data_namelist()
-  call read_snowpack_namelist()  ! need to read some variables from snowpack module
+!   call read_snowpack_namelist()  ! need to read some variables from snowpack module
   call read_snow_cm_namelist()
 
   call log_version(version, module_name, &

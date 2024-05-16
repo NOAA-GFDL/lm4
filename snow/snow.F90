@@ -18,7 +18,6 @@ use cm_snow_mod, only: cm_read_snow_namelist, cm_snow_init, cm_snow_end, &
     cm_save_snow_restart
 use gl_snow_mod, only: gl_read_snow_namelist, gl_snow_init, gl_snow_end, &
     gl_save_snow_restart
-use snow_evolution_mod, only: gl_compute_snow_albedo, albedo_to_use
 use snow_base_mod, only : read_snow_model_namelist, snow_option, SNOW_CM, SNOW_GL
 
 implicit none

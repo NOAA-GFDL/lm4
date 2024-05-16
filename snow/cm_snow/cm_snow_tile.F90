@@ -11,8 +11,8 @@ use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use snow_tile_mod, only : snow_tile_type, z0_momentum, k_over_B, &
-      snow_data_area, snow_data_thermodynamics, snow_radiation
-use snowpack_mod, only : cpw, clw, csw
+      snow_data_area, snow_data_thermodynamics, snow_radiation, &
+      cpw, clw, csw
 
 implicit none
 private

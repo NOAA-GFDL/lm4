@@ -11,6 +11,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use constants_mod,  only : tfreeze, hlv, hlf, PI
 
 use snow_constants_mod
+use snow_tile_mod, only : csw, clw, use_mcm_masking, depth_crit
 
 implicit none
 private
@@ -30,8 +31,6 @@ public :: compute_snow_grain_shape
 public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
 public :: lap_albedo_include_om
-public :: use_mcm_masking
-public :: depth_crit
 
 
 !> \brief state of snow layer
@@ -149,23 +148,12 @@ real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle 
 logical :: lap_albedo_include_bc = .TRUE.
 logical :: lap_albedo_include_md = .TRUE.
 logical :: lap_albedo_include_om = .TRUE.
-logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
-real    :: depth_crit            = 0.0167
 character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
-
-real, protected, public :: &
-   cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
-   clw = 4218.0, &  ! specific heat of water (liquid)
-   csw = 2106.0     ! specific heat of water (ice)
-
-
-
 
 namelist /snowpack_nml/ &
          opt_layer_R, opt_layer_N, opt_layer_max, heat_cond_to_use, &
-         cpw, csw, clw, use_mcm_masking, depth_crit, &
          lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
-        !  opt_layer, opt_layer_R, opt_layer_N, opt_layer_max, use_cm_conductance
+
 ! ---- end of namelist
 
 ! real :: opt_layer_z(MAX_OPT_LAYERS+1) ! lower boundary of optimal layers, m

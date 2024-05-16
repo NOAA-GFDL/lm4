@@ -5,7 +5,7 @@ module snow_tile_mod
 use mpp_mod, only: input_nml_file
 
 use fms_mod, only : check_nml_error, stdlog, FATAL, NOTE
-use constants_mod,only: tfreeze, hlf
+use constants_mod,only: tfreeze
 use land_constants_mod, only : NBANDS, &
 ! MODIS BRDF model parameters
     g_iso, g0_iso, g1_iso, g2_iso, &
@@ -13,11 +13,7 @@ use land_constants_mod, only : NBANDS, &
     g_geo, g0_geo, g1_geo, g2_geo
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version
-use land_debug_mod, only : is_watch_point
 use tile_diag_buff_mod, only : diag_buff_type
-
-! use snow_constants_mod, only: NTRACERS
-use snowpack_mod, only : use_mcm_masking, depth_crit
 
 implicit none
 private
@@ -27,7 +23,8 @@ public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_area
 public :: snow_radiation
-public :: z0_momentum, k_over_B, distinct_snow_on_glacier
+public :: cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
+          k_over_B, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -38,10 +35,6 @@ character(len=*), parameter :: module_name = 'snow_tile_mod'
 real, parameter :: t_range = 10.0 ! degK
 
 ! ==== types =================================================================
-
-
-
-
 type, abstract, public :: snow_tile_type
   ! variables common to the two snow models:
   integer :: tag ! kind of the tile    slm: probably not needed for snow. Should we remove it altogether?
@@ -281,7 +274,7 @@ end interface
 logical, public :: use_brdf ! not protected because it is set in snow.F90
 
 !---- namelist ---------------------------------------------------------------
-! logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
+logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
 ! real    :: w_sat                 = 670.
 ! real    :: psi_sat               = -0.06
 ! real    :: k_sat                 = 0.02
@@ -296,10 +289,12 @@ real    :: refl_snow_min_dif(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
 real    :: emis_snow_min         = 0.90      ! reset to 1 for MCM
 real    :: k_over_B              = 2         ! reset to 0 for MCM
-! real, protected, public :: &
-!    cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
-!    clw = 4218.0, &  ! specific heat of water (liquid)
-!    csw = 2106.0     ! specific heat of water (ice)
+real    :: depth_crit            = 0.0167
+real    :: &
+   cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
+   clw = 4218.0, &  ! specific heat of water (liquid)
+   csw = 2106.0     ! specific heat of water (ice)
+
 ! from analysis of modis data (ignoring temperature dependence):
   real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
   real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
@@ -322,19 +317,16 @@ real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 f
 real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
 
-namelist /snow_data_nml/  &
-! w_sat,                    &
-!      psi_sat,                k_sat,                 &
-!      chb,                                           &
-     thermal_cond_ref,                              &
-     z0_momentum,                                   &
+namelist /snow_data_nml/  cpw, clw, csw, &
+     thermal_cond_ref, z0_momentum, k_over_B,                                  &
+     use_mcm_masking, depth_crit, &
+! snow radiative parameters over non-glaciated surfaces
      f_iso_cold, f_vol_cold, f_geo_cold, &
      f_iso_warm, f_vol_warm, f_geo_warm, &
      refl_snow_max_dir,    refl_snow_min_dir,   &
      refl_snow_max_dif,    refl_snow_min_dif,   &
-     emis_snow_max,          emis_snow_min,         &
-     k_over_B,             &
-! snow radiative parameters on glacier
+     emis_snow_max,        emis_snow_min,       &
+! snow radiative parameters over glaciers
      distinct_snow_on_glacier, &
      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
      f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &

@@ -19,13 +19,13 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use snicar_mod, only: compute_snicar_albedo
 use snow_constants_mod
 use snowpack_mod
-use snow_tile_mod, only : distinct_snow_on_glacier
+use snow_tile_mod, only : distinct_snow_on_glacier, cpw, clw, csw
 
 
 implicit none
 private
 
-public new_snow_density
+! public new_snow_density
 ! public snow_history_type
 public :: snow_evolution_init
 public :: read_F06_data
@@ -35,7 +35,7 @@ public :: gl_sweep_huge_snow
 public :: gl_compute_snow_albedo
 public :: read_snow_evolution_namelist
 public :: use_internal_sources
-public :: min_snow_depth
+! public :: min_snow_depth
 public :: do_mgimplicit
 public :: albedo_to_use
 public :: thresh_snow_depth_swheat
