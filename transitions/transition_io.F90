@@ -151,17 +151,24 @@ end subroutine transition_io_init
 !! \throws FATAL "file ... could not be opened"
 !!
 !! opens file; reads time axis from the file
-subroutine infile_t_open(this, path)
-  class(infile_t), intent(inout) :: this
+subroutine infile_t_open(this, path,static,data_type)
+  class(infile_latlon_t), intent(inout) :: this
   character(*),    intent(in)    :: path   !< file path
+  character(*),    intent(in)    :: static !< static file path
+  character(*),    intent(in)    :: data_type !< data type, LUH1 or LUH2
 
-  logical :: exists
+  logical :: exists,static_exists
 
   this%path = path ! store path for future reference
   exists = open_file(this%ncobj, this%path, mode="read")
   if(.not.exists) call mpp_error(FATAL, &
       'file "'//trim(this%path)//'" could not be opened because it does not exist', FATAL)
   ! get the time axis from file
+  static_exists = open_file(this%statobj, static, "read")
+  write (*,*) 'This datatype:',trim(lowercase(this%data_type))
+  if(trim(lowercase(this%data_type)) == 'luh2' .and. .not. static_exists) call &
+      error_mesg('land_transition_io_infile_init', &
+      trim(static)//'" could not be opened.', FATAL)
   call get_time_axis(this%ncobj,this%time_in)
 end subroutine infile_t_open
 
@@ -259,9 +266,9 @@ function new_infile_LUH1(path) result(ptr)
   character(*), intent(in) :: path
 
   allocate(ptr)
-  call infile_t_open(ptr,path)
-  ptr%static    = ''
-  ptr%data_type = 'luh1'
+  !call infile_t_open(ptr,path,)
+!   ptr%static    = ''
+!   ptr%data_type = 'luh1'
 end function new_infile_LUH1
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -271,7 +278,7 @@ function new_infile_LUH2(path,static) result(ptr)
   character(*), intent(in) :: static
 
   allocate(ptr)
-  call infile_t_open(ptr,path)
+  call infile_t_open(ptr,path,static,'luh2')
   ptr%static    = static
   ptr%data_type = 'luh2'
 end function new_infile_LUH2
@@ -337,6 +344,7 @@ subroutine infile_latlon_setup_hgrid(this,varname)
      ! read static file and calculate normalizing factor
      ! LUH2 data are in [fraction of cell area per year]
      call read_data(this%statobj, 'landfrac', buffer_in)
+     write(*,*) 'landfrac statobj is: ',this%statobj%path
      where (buffer_in > 0.0)
         this%norm_in = 1.0/buffer_in
      elsewhere
@@ -365,7 +373,6 @@ subroutine infile_latlon_to_ug(this, data2, data1)
   class(infile_latlon_t), intent(in)  :: this !< file object
   real,            intent(in)  :: data2(:,:) !< input 2D data
   real,            intent(out) :: data1(:) !< output data, on model's unstructured grid
-
   call horiz_interp_ug(this%interp,data2*this%norm_in,data1)
 end subroutine infile_latlon_to_ug
 
@@ -394,11 +401,11 @@ function new_infile_CS(path) result(ptr)
   if (.not.found_file) call mpp_error(FATAL, &
      'file "'//trim(path)//'" not found')
 
-  call infile_t_open(ptr,ptr%path)
+!   call infile_t_open(ptr,ptr%path)
 
-  ! data are suposed to be on SG grid compute domain
-  ptr%nlon_in   = lnd%ie-lnd%is+1
-  ptr%nlat_in   = lnd%je-lnd%js+1
+!   ! data are suposed to be on SG grid compute domain
+!   ptr%nlon_in   = lnd%ie-lnd%is+1
+!   ptr%nlat_in   = lnd%je-lnd%js+1
 end function new_infile_CS
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

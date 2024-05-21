@@ -17,7 +17,7 @@ use fms_io_mod, only : get_file_name
 
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
-     operator(//), operator(==), days_in_year, get_time
+     operator(//), operator(==), days_in_year, get_time, print_date
 use horiz_interp_mod, only : horiz_interp_init
 use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
@@ -180,7 +180,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   __FILE__)
 
   call horiz_interp_init()
-  call transition_io_init()
+!   call transition_io_init()
 
   ! read restart file, if any
   if (file_exists('INPUT/landuse.res')) then
@@ -305,6 +305,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
        FATAL)
 
   ! initialize arrays of input fields
+  allocate(ftran)
   select case (trim(lowercase(data_type)))
   case('luh1')
      ftran => new_infile_LUH1(input_file)
@@ -323,6 +324,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      ! therefore several transitions need to be aggregated on input to get
      ! the transitions among LM3 land use types
      ftran => new_infile_LUH2(input_file,static_file)
+
      do n1 = 1,size(luh2type)
      do n2 = 1,size(luh2type)
         k1 = luh2type(n1)
@@ -347,7 +349,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
 
         ! open state file
         fstate=>new_infile_LUH2(state_file,static_file)
-
         ! initialize state variable array
         do n2 = 1,size(luh2type)
            k2 = luh2type(n2)
@@ -718,7 +719,7 @@ subroutine land_transitions (time)
   do k1 = 1,N_LU_TYPES
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
-     tran(:,k1,k2) = 0.0
+     !tran(:,k1,k2) = 0.0
      if (time0==set_date(0001,01,01).and.fstate%ncobj%is_open) then
         ! read initial transition from state file
         call time_interp(time, fstate%time_in, w, i1,i2)
