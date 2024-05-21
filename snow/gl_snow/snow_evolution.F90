@@ -8,7 +8,7 @@ use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe
        FATAL, WARNING, NOTE
 use time_manager_mod, only: time_type_to_real
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
-use land_constants_mod, only : &
+use land_constants_mod, only : NBANDS, BAND_NIR, BAND_VIS, &
 ! MODIS BRDF model parameters
     g_iso, g0_iso, g1_iso, g2_iso, &
     g_vol, g0_vol, g1_vol, g2_vol, &
@@ -17,9 +17,9 @@ use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use snicar_mod, only: compute_snicar_albedo
-use snow_constants_mod
-use snowpack_mod
-use snow_tile_mod, only : distinct_snow_on_glacier, cpw, clw, csw
+use snowpack_mod, only : snowpack_t, snow_layer_type, rho_water, rho_ice, LAI_ext, LAI_ssa, eps, &
+    add_liquid_to_layer, compute_snow_grain_shape, merge_layers
+use snow_tile_mod, only : NTRACERS, distinct_snow_on_glacier, cpw, clw, csw
 
 
 implicit none
@@ -46,6 +46,11 @@ public :: assign_substrate_sw_to_surface
 ! ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_evolution_mod'
 #include "../../shared/version_variable.inc"
+
+!< scavenging coefficients for the tracters
+!                                        (BC,  MD,  OM)
+real, parameter :: SCAVENG(NTRACERS) = (/ 0.2, 0.0, 0.0 /)
+
 
 ! structure to store Flanner and Zender 2006 data
 type :: data_F06_type

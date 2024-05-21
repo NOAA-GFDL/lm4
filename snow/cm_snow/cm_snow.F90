@@ -19,7 +19,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use land_debug_mod, only : is_watch_point
 
 use snow_tile_mod, only : read_snow_data_namelist, &
-     use_brdf, clw, csw! , read_snowpack_namelist
+     use_brdf, clw, csw
 use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, max_lev, &
      ! namelist variables:
      num_l, dz, mc_fict, snow_density, albedo_to_use, init_temp, &
@@ -43,10 +43,10 @@ character(len=*), parameter :: module_name = 'cm_snow_mod'
 
 ! ==== module variables ======================================================
 
-logical         :: module_is_initialized =.FALSE.
-! next three 'z' variables are all normalized by total snow pack depth
-real            :: z  (max_lev) ! relative depths of layer bounds
-real            :: zz (max_lev) ! relative depths of layer centers
+logical :: module_is_initialized =.FALSE.
+! next two 'z' variables are all normalized by total snow pack depth
+real    :: z  (max_lev) ! relative depths of layer bounds
+real    :: zz (max_lev) ! relative depths of layer centers
 
 ! ==== end of module variables ===============================================
 
@@ -62,7 +62,6 @@ subroutine cm_read_snow_namelist()
   integer :: l            ! layer iterator
 
   call read_snow_data_namelist()
-!   call read_snowpack_namelist()  ! need to read some variables from snowpack module
   call read_snow_cm_namelist()
 
   call log_version(version, module_name, &
@@ -148,11 +147,10 @@ subroutine cm_save_snow_restart (tile_dim_length, timestamp)
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
 ! Note that filename is updated for tile & rank numbers during file creation
-  ! filename = trim(timestamp)//'snow.res.nc' ! OLD VERSION
-  filename = 'RESTART/'//trim(timestamp)//'snow.nc' ! EZSNOW-2022SC
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
-  ! call add_restart_axis(restart,'zfull',zz(1:num_l), 'Z',longname='depth of level centers',sense=-1) ! OLD VERSION
-  call add_restart_axis(restart,'zfull',zz(1:num_l),.false., 'Z',longname='depth of level centers',sense=-1) ! EZSNOW-2022SC
+  ! slm: I think zz is the depth of interfaces, per calculations in cm_read_snow_namelist
+  call add_restart_axis(restart,'zfull',zz(1:num_l),.false., 'Z',longname='depth of level centers',sense=-1)
 
   call add_tile_data(restart,'temp','zfull', snow_temp_ptr, 'snow temperature','degrees_K')
   call add_tile_data(restart,'wl'  ,'zfull', snow_wl_ptr,   'snow liquid water content','kg/m2')

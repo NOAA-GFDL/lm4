@@ -8,10 +8,10 @@ use fms_mod, only : input_nml_file, error_mesg, check_nml_error, stdlog, mpp_pe,
        FATAL, WARNING, NOTE
 use land_data_mod,  only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
+use land_constants_mod, only : NBANDS
 use constants_mod,  only : tfreeze, hlv, hlf, PI
 
-use snow_constants_mod
-use snow_tile_mod, only : csw, clw, use_mcm_masking, depth_crit
+use snow_tile_mod, only : NTRACERS, csw, clw, use_mcm_masking, depth_crit
 
 implicit none
 private
@@ -31,6 +31,25 @@ public :: compute_snow_grain_shape
 public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
 public :: lap_albedo_include_om
+
+public :: LAI_ext, LAI_ssa, eps, rho_water, rho_ice
+
+integer, parameter :: TR_BC = 1      !< Index of black carbon - tracer 1
+integer, parameter :: TR_MD = 2      !< Index of mineral dust - tracer 2
+integer, parameter :: TR_OM = 3      !< Index of organic carbon - tracer 3
+
+real, parameter :: rho_ice = 917.0 ! ice density [kg / m^3]
+real, parameter :: rho_water = 997.0 ! water density [kg / m^3]
+real, parameter :: rho_refrozen = 300.0 ! refrozen water assumed density [kg / m^3]
+real, parameter :: thickness_for_surface_optical_props = 0.03 ! [m] 3cm as in Vionnet et al., 2012 - updated to 5cm
+! optical properties od BC, MD and OC (respectively) from Veronica's paper
+! using the default value for Dust here - see paper for additional values
+! single scattering albedos
+real, parameter :: LAI_ssa(NTRACERS) = (/ 0.209, 0.857, 0.963   /) ! single scattering albedo [adim.]
+real, parameter :: LAI_ext(NTRACERS) = (/ 9267.0, 474.0, 3289.0 /) ! extinction cross section [m^2 kg^-1]
+real, parameter :: LAI_sca(NTRACERS) = (/ 1937.0, 406.0, 3167.0 /) ! scattering cross section [m^2 kg^-1]
+real, parameter :: LAI_abs(NTRACERS) = (/ 7330.0, 67.8, 122.0   /) ! absorption cross section [m^2 kg^-1]
+real, parameter :: eps = 1E-8 ! a small number
 
 
 !> \brief state of snow layer

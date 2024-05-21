@@ -7,13 +7,14 @@ module snicar_mod
 use mpp_mod, only: input_nml_file
 
 use fms_mod, only : check_nml_error, &
-   stdlog, read_data, error_mesg, FATAL, WARNING, NOTE, mpp_pe, mpp_root_pe
+    stdlog, read_data, error_mesg, FATAL, WARNING, NOTE, mpp_pe, mpp_root_pe
 use land_debug_mod, only:  is_watch_point, is_watch_cell,check_var_range, set_current_point, land_error_message
 use land_data_mod, only : lnd, log_version
+use land_constants_mod, only: NBANDS
 use constants_mod, only : PI
 
-use snow_constants_mod
-use snowpack_mod
+use snowpack_mod, only: snowpack_t, compute_snow_grain_shape, &
+    lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
 
 implicit none
 private

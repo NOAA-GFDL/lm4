@@ -23,7 +23,7 @@ public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_area
 public :: snow_radiation
-public :: cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
+public :: NTRACERS, cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
           k_over_B, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
@@ -32,7 +32,9 @@ character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
 
 ! range of temperatures for ramp between "warm" and "cold" albedo
-real, parameter :: t_range = 10.0 ! degK
+real,    parameter :: t_range = 10.0 ! degK
+integer, parameter :: NTRACERS = 3   !< Number of tracers tracked in snow
+
 
 ! ==== types =================================================================
 type, abstract, public :: snow_tile_type
