@@ -63,6 +63,7 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
         call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_availableC',litt_availableC_ptr,k)
         call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesR',litt_microbesR_ptr,k)
         call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesK',litt_microbesK_ptr,k)
+	call get_tile_data(restart,trim('sfc_'//l_shortname(k))//'_DOC',litt_DOC_ptr,k)
      enddo
 
      do k = 1, N_C_TYPES
@@ -81,6 +82,7 @@ subroutine soil_BGC_init_GIMICS( id_ug, id_zfull )
         call get_tile_data(restart, trim(s_part_name(k))//'_availableC','zfull', soil_availableC_ptr, k)
         call get_tile_data(restart, trim(s_part_name(k))//'_microbesR','zfull', soil_microbesR_ptr, k)
         call get_tile_data(restart, trim(s_part_name(k))//'_microbesK','zfull', soil_microbesK_ptr, k)
+	call get_tile_data(restart, trim(s_part_name(k))//'_DOC','zfull', soil_DOC_ptr, k)
      enddo
 
      call free_land_restart(restart)
@@ -139,6 +141,8 @@ subroutine soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
         litt_microbesR_ptr,k,'R microbes carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
      call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_microbesK',&
         litt_microbesK_ptr,k,'K microbes carbon density in '//trim(l_longname(k))//' surface litter','kg/m3')
+     call add_tile_data(restart,trim('sfc_'//l_shortname(k))//'_DOC',&
+        litt_DOC_ptr,k,'DOC density in '//trim(l_longname(k))//' surface litter','kg/m3')
   enddo
 
   ! soil data
@@ -158,6 +162,8 @@ subroutine soil_BGC_save_restart_GIMICS(tile_dim_length, timestamp)
          soil_microbesR_ptr, k, 'R microbes carbon density in '//trim(s_part_name(k)), 'kg/m3')
      call add_tile_data(restart, trim(s_part_name(k))//'_microbesK', 'zfull', &
          soil_microbesK_ptr, k, 'K microbes carbon density in '//trim(s_part_name(k)), 'kg/m3')
+     call add_tile_data(restart, trim(s_part_name(k))//'_DOC', 'zfull', &
+         soil_DOC_ptr, k, 'DOC density in '//trim(s_part_name(k)), 'kg/m3')
   enddo
 
   do k = 1, N_C_TYPES
@@ -282,6 +288,19 @@ subroutine litt_microbesK_ptr(t,i,p)
   select type(s=>t%soilc)
   class is (soil_BGC_GIMICS_t)
      p=>s%litt(i)%microbesK
+  end select
+end subroutine
+
+subroutine litt_DOC_ptr(t,i,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+     p=>s%litt(i)%DOC
   end select
 end subroutine
 
@@ -425,6 +444,23 @@ subroutine soil_microbesK_ptr(t,i,j,p)
     select case (j)
       case (S_PART_RHIZ); p=>s%rhiz(i)%microbesK
       case (S_PART_BULK); p=>s%bulk(i)%microbesK
+    end select
+  end select
+end subroutine
+
+subroutine soil_DOC_ptr(t,i,j,p)
+  type(land_tile_type), pointer :: t
+  integer, intent(in) :: i
+  integer, intent(in) :: j ! rhizosphere or bulk
+  real, pointer :: p
+  p=>NULL()
+  if(.not.associated(t))       return
+  if(.not.associated(t%soilc)) return
+  select type(s=>t%soilc)
+  class is (soil_BGC_GIMICS_t)
+    select case (j)
+      case (S_PART_RHIZ); p=>s%rhiz(i)%DOC
+      case (S_PART_BULK); p=>s%bulk(i)%DOC
     end select
   end select
 end subroutine
