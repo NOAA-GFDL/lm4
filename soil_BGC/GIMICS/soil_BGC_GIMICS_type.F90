@@ -245,7 +245,7 @@ namelist /soil_BGC_GIMICS_nml/ &
     litt_theta_mod, Vmod_Mr_Lm, Vmod_Mr_Ls, Vmod_Mr_Ca, Vmod_Mk_Lm, Vmod_Mk_Ls, Vmod_Mk_Ca, Vslope, Vint, aV, &
     Kmod_Mr_Lm, Kmod_Mr_Ls, Kmod_Mr_Ca, Kmod_Mk_Lm, Kmod_Mk_Ls, Kmod_Mk_Ca, Kslope_Lm, Kslope_Ls, Kslope_Ca, Kint, aK, &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
-    w_Lm, w_Ls, w_Ca, &
+    w_Lm, w_Ls, w_Ca, fMrTau_DOC, fMkTau_DOC, &
     ignore_theta, orchidee_theta, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, theta_func_orchidee_min, theta_func_orchidee_max, &
     tau_Tref, tau_calib, tau_beta, cw_r_cw, cw_z_cw, lf_f_cw, cw_r_lf, cw_z_lf, lf_f_lf, &
