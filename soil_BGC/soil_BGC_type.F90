@@ -1,6 +1,7 @@
 module soil_BGC_type_mod
 
 use land_data_mod, only : lnd ! only for deplete_pool
+use land_numerics_mod, only : tridiag
 use tile_diag_buff_mod, only : diag_buff_type
 use soil_tile_mod, only: soil_tile_type
 use vegn_tile_mod, only: vegn_tile_type
@@ -9,6 +10,7 @@ implicit none; private
 
 public :: soil_BGC_t
 public :: deplete_pool
+public :: tracer_advection
 
 ! abstract type representing soil carbon model
 type, abstract :: soil_BGC_t
@@ -224,5 +226,106 @@ subroutine deplete_pool(pool, rate, dest, accum)
    pool  = pool - delta
    if (present(accum)) accum = accum + delta ! increment accumulator
 end subroutine deplete_pool
+
+! ============================================================================
+!!!xz this following subroutine is adopted from CH's code using concentration over water; please note that the units of some input variables are different. I kept tracer_advection_ORI following this subroutine
+subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,wl)  ! wl was added here compared to the old version
+    real,intent(inout),dimension(:):: tracer_mass  ! Per layer (not per unit water)
+    real,intent(in),dimension(:)   :: flow  ! Total flow, not flow rate [mm]
+    real,intent(in),dimension(:)   :: div   ! Horizontal divergence (layer total, not rate) [mm]
+    real,intent(in),dimension(:)   :: dz    ! Layer thickness
+    real,intent(in),dimension(:)   :: wl    ! water content [kg/m^2] by layer before Richards (1:num_l)
+    real,intent(out),dimension(:)  :: del_tracer,divergence_loss ! Change in tracer mass, and divergence part
+
+    real,dimension(size(tracer_mass)) :: aaa,bbb,ccc,ddd,wl_litter    ! Matrix coefficients for aaa*dx[i-1] + bbb*dx[i] + ccc*dx[i+1] = ddd
+    real,dimension(size(tracer_mass)) :: u_minus,u_plus   ! For weighting of flow upstream/downstream
+    real,dimension(size(tracer_mass)) :: tracer_concentration ! [kg C/m^3 soil]
+    integer::ll,nlayers
+    ! real,dimension(size(tracer_mass)) ::flow_eff ! flow adjusted to be units of [m], weighted by 1/wl  ZACK'S CODE
+    real, parameter :: minwl = 0.1 ! [mm] minimum allowed wl
+    real, parameter :: dens_h2o=1000.   ! kg/m3
+!    real*8,parameter::porosity=0.3  !CH valore inventato  !xz volumn of water over volumn of soil; need to consider to change!!
+    !real,intent(in)::theta
+    !real*8::dt=1.0/(48.0*365.0)
+
+    nlayers=size(tracer_mass)
+    wl_litter(1)=dz(1)     ! m
+    do ll=2,nlayers
+       wl_litter(ll)=max(wl(ll-1), minwl)/dens_h2o  ! m
+    enddo
+
+    tracer_concentration=tracer_mass/wl_litter   ! kg/m3  ! concentration computed over the volume of water
+
+    u_minus = 1.
+    where (flow.lt.0.) u_minus = 0.
+    do ll = 1, nlayers-1
+        u_plus(ll) = 1. - u_minus(ll+1)
+    enddo
+
+    ! Top layer, uses upper bound concentration
+
+    ll=1
+    aaa(ll)= 0.0 ! flow(ll)*u_minus(ll)
+    bbb(ll)= flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
+  !   m           m                          m                           m
+
+    ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)   BEN CODE ORIGINAL
+    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+    ! [kg/m^2]         =       [m]        *    [kg/m^3]
+
+    ccc(ll)= -flow(ll+1)*u_plus(ll)
+    ! m
+
+    ddd(ll)= - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
+ !    kg/m2          kg/m3                       m                    kg/m3                 m
+
+    do ll=2,nlayers-1
+        !aaa(ll)=flow(ll)*u_minus(ll)     !BEN ORIGINAL
+        !bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - dz(ll)
+        !divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+        !ccc(ll)=-flow(ll+1)*u_plus(ll)
+        !ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll)) - tracer_concentration(ll+1)*ccc(ll)
+
+!Adapted from ZACK's CODE
+     aaa(ll)=flow(ll)*u_minus(ll)
+        bbb(ll)=flow(ll)*(1-u_minus(ll)) - flow(ll+1)*(1-u_plus(ll)) - wl_litter(ll)
+        divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)     ! [kg/m^3]
+!         kg/m2            =    m           *    kg/m3
+        ccc(ll)=-flow(ll+1)*u_plus(ll)   !m
+        ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll)) - tracer_concentration(ll+1)*ccc(ll)
+   !    kg/m2
+    enddo
+
+
+    !bottom layer, flow out is zero
+   ! ll=nlayers
+   ! aaa(ll)=flow(ll)*u_minus(ll)
+   ! bbb(ll)= flow(ll)*(1-u_minus(ll)) - dz(ll)
+   ! divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+   ! ccc(ll)= 0.0
+   ! ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+dz(ll))
+
+!Adapted from ZACK's CODE
+    ll=nlayers
+    aaa(ll)=flow(ll)*u_minus(ll)
+    bbb(ll)= flow(ll)*(1-u_minus(ll)) - wl_litter(ll)
+    divergence_loss(ll)=max(div(ll),0.0)*tracer_concentration(ll)
+    ccc(ll)= 0.0
+    ddd(ll)=-tracer_concentration(ll-1)*aaa(ll) - tracer_concentration(ll)*(bbb(ll)+wl_litter(ll))
+
+
+    !Solve the linear algebra problem
+    if(nlayers.gt.1) then
+        call tridiag(aaa,bbb,ccc,ddd,del_tracer)  !kg/m3
+    else
+        del_tracer=0.0
+    endif
+
+    del_tracer=del_tracer*wl_litter   !kg/m2   !variazione del tracer
+    tracer_mass=tracer_mass+del_tracer    !kg/m2
+    divergence_loss=divergence_loss
+
+    where(divergence_loss>tracer_mass) divergence_loss=tracer_mass
+end subroutine tracer_advection
 
 end module
