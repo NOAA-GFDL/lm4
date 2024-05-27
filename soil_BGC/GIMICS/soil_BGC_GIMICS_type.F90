@@ -1915,16 +1915,16 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
 
   ! ---- local vars
   real :: surf_DOC_loss ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
-  real :: DOC(num_l+1)  ! [kg C/m^2] amount of DOC per layer
-  real :: d_DOC(num_l+1)
-  real :: div_loss(num_l+1)!xz
+  real :: DOC(0:num_l)  ! [kg C/m^2] amount of DOC per layer
+  real :: d_DOC(0:num_l)
+  real :: div_loss(0:num_l)!xz
   real :: littPart(N_LITTER_POOLS) ! part oe every surface litter in total surface litter DOC. Dimensionless, between 0 and 1.
   real :: rhizPart(num_l) ! part of rhizosphere DOC in total OC of each layer Dimensionless, between 0 and 1.
 
   ! soil flow-related variables expanded to include litter layer
-  real :: flow_with_litter(num_l+1)
-  real :: div_with_litter (num_l+1)
-  real :: dz_with_litter  (num_l+1) ! water flow
+  real :: flow_with_litter(0:num_l)
+  real :: div_with_litter (0:num_l)
+  real :: dz_with_litter  (0:num_l) ! water flow
 
   real :: mass0, mass1 ! for mass conservation checks
   real :: totLittC ! total surface litter C, for partitioning DOC tendency among pools in
@@ -1940,17 +1940,17 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
   total_NH4_div = 0.0
 
 !!!!!!!xz note: please make sure the unit of flow is ????
-  flow_with_litter(1)=0.0
-  flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
+  flow_with_litter(0)=0.0
+  flow_with_litter(1:num_l)=flow(1:num_l)  !mm
   flow_with_litter = flow_with_litter/1000 !xz change the div unit from mm to m
 
-  div_with_litter(1)=0.0
-  div_with_litter(2:size(flow_with_litter))=div(:)*delta_time ! div is in mm/s
+  div_with_litter(0)=0.0
+  div_with_litter(1:num_l)=div(:)*delta_time ! div is in mm/s
   div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
 
-  dz_with_litter(1)=sum(soilc%litt(:)%dz) ! slm: total litter thickness is the sum of all
+  dz_with_litter(0)=sum(soilc%litt(:)%dz) ! slm: total litter thickness is the sum of all
                                           ! litter thicknesses. Is this reasonable?
-  dz_with_litter(2:size(dz_with_litter)) = dz(1:num_l) !!xz assume the unit of dz is m
+  dz_with_litter(1:num_l) = dz(1:num_l) !!xz assume the unit of dz is m
 
   surf_DOC_loss = 0.0
 
@@ -1965,15 +1965,15 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
 ! - sanity check
 
   ! calculate total DOC in surface litter
-  DOC(1) = 0.0
+  DOC(0) = 0.0
   do k = 1, size(soilc%litt)
-     DOC(1) = DOC(1) + soilc%litt(k)%DOC * soilc%litt(k)%dz
+     DOC(0) = DOC(0) + soilc%litt(k)%DOC * soilc%litt(k)%dz
   enddo
   ! calculate contribution of each litter pool to total surface litter DOC, to be used in
   ! DOC update later
-  if(DOC(1)>0) then
+  if(DOC(0)>0) then
      do k = 1, size(soilc%litt)
-        littPart(k) = soilc%litt(k)%DOC * soilc%litt(k)%dz/DOC(1)
+        littPart(k) = soilc%litt(k)%DOC * soilc%litt(k)%dz/DOC(0)
      enddo
   else
      totLittC = 0.0
@@ -1991,9 +1991,9 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
 
   ! calculate total DOC in soil
   do k = 1, num_l
-     DOC(k+1)=(soilc%rhiz(k)%DOC*soilc%fRhiz(k) + soilc%rhiz(k)%DOC*(1-soilc%fRhiz(k)))*dz(k)
-     if(DOC(k+1)>0) then
-        rhizPart(k) = soilc%rhiz(k)%DOC*soilc%fRhiz(k)*dz(k)/DOC(k+1)
+     DOC(k)=(soilc%rhiz(k)%DOC*soilc%fRhiz(k) + soilc%rhiz(k)%DOC*(1-soilc%fRhiz(k)))*dz(k)
+     if(DOC(k)>0) then
+        rhizPart(k) = soilc%rhiz(k)%DOC*soilc%fRhiz(k)*dz(k)/DOC(k)
      else
         rhizPart(k) = soilc%fRhiz(k)
      endif
@@ -2006,13 +2006,13 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
   call check_conservation('tracer_leaching_GIMICS','DOC(:)', mass0,mass1, carbon_cons_tol )
 
   if (gw_option == GW_TILED) then ! reset div_loss(2:num_l+1) according to values calculated in hlsp_hydrology
-     div_loss(2:num_l+1) = div_hlsp_DOC(1,:)*delta_time ! using only the first carbon type in GIMICS
+     div_loss(1:num_l) = div_hlsp_DOC(1,:)*delta_time ! slm: using only the first carbon type in GIMICS
      if (flow(1) < 0 .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
-        surf_DOC_loss = -DOC(2) * flow(1) / wl(1)
-        surf_DOC_loss = min(surf_DOC_loss, DOC(2))
+        surf_DOC_loss = -DOC(1) * flow(1) / wl(1)
+        surf_DOC_loss = min(surf_DOC_loss, DOC(1))
      end if
-     div_loss(2) = min(div_loss(2), DOC(2) - surf_DOC_loss)
-     do k=3,num_l+1
+     div_loss(1) = min(div_loss(1), DOC(1) - surf_DOC_loss)
+     do k=2,num_l
         div_loss(k) = min(div_loss(k), DOC(k))
      end do
      ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
@@ -2020,14 +2020,14 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
      ! situations, that could lead to a negative stream DOC flux.
   end if
   DOC(:)=DOC(:)-div_loss(:)
-  DOC(2)=DOC(2)-surf_DOC_loss !!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+  DOC(1)=DOC(1)-surf_DOC_loss !!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
   ! Xin says this line was a mistake
   ! update DOC concentrations in surface litter
   call check_var_range(DOC(:), 0.0, HUGE(1.0), 'tracer_leaching_GIMICS', 'DOC(:) checkpoint 1',FATAL)
   call check_var_range(littPart(:), 0.0, HUGE(1.0), 'tracer_leaching_GIMICS', 'littPart checkpoint 1',FATAL)
   do k = 1,size(soilc%litt)
      if (soilc%litt(k)%dz > 0) then
-        soilc%litt(k)%DOC = DOC(1)*littPart(k)/soilc%litt(k)%dz
+        soilc%litt(k)%DOC = DOC(0)*littPart(k)/soilc%litt(k)%dz
      endif
   enddo
   ! update DOC concentrations in soil layers
@@ -2035,14 +2035,14 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
      ! slm: distribute resulting DOC between bulk and rhizosphere in the same
      ! proportion as before advection. It seems reasonable at the first glance,
      ! but does this correctly describes what happens in advection?
-     soilc%rhiz(k)%DOC = DOC(k+1)*   rhizPart(k) /dz(k)
-     soilc%bulk(k)%DOC = DOC(k+1)*(1-rhizPart(k))/dz(k)
+     soilc%rhiz(k)%DOC = DOC(k)*   rhizPart(k) /dz(k)
+     soilc%bulk(k)%DOC = DOC(k)*(1-rhizPart(k))/dz(k)
   enddo
 
   ! sum up the totals
   total_DOC_div = surf_DOC_loss
   do k=1,num_l
-     total_DOC_div = total_DOC_div + div_loss(k+1)
+     total_DOC_div = total_DOC_div + div_loss(k)
   end do
 
 ! + sanity check
