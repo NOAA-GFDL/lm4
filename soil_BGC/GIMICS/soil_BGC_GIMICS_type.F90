@@ -21,10 +21,11 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data, add_tiled_diag_field_alias, CMOR_NAME, &
         CMOR_1M_DEPTH
 
-use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
+use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool, tracer_advection
 use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
-use soil_tile_mod, only : soil_tile_type, num_l, dz, zhalf, zfull, soil_theta, soil_porosity, soil_pClay
+use soil_tile_mod, only : soil_tile_type, gw_option, GW_TILED, &
+         num_l, dz, zhalf, zfull, soil_theta, soil_porosity, soil_pClay
 use vegn_data_mod, only : spdata
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : cohort_root_litter_profile
@@ -1907,15 +1908,155 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
   real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
   real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
   real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
-  real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+  real, intent(in) :: div_hlsp_NO3(:)   ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
+  real, intent(in) :: div_hlsp_NH4(:)   ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
 
   real, intent(out) :: total_DOC_div, total_DON_div, total_NO3_div, total_NH4_div
+
+  ! ---- local vars
+  real :: surf_DOC_loss ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
+  real :: DOC(num_l+1)  ! [kg C/m^2] amount of DOC per layer
+  real :: d_DOC(num_l+1)
+  real :: div_loss(num_l+1)!xz
+  real :: littPart(N_LITTER_POOLS) ! part oe every surface litter in total surface litter DOC. Dimensionless, between 0 and 1.
+  real :: rhizPart(num_l) ! part of rhizosphere DOC in total OC of each layer Dimensionless, between 0 and 1.
+
+  ! soil flow-related variables expanded to include litter layer
+  real :: flow_with_litter(num_l+1)
+  real :: div_with_litter (num_l+1)
+  real :: dz_with_litter  (num_l+1) ! water flow
+
+  real :: mass0, mass1 ! for mass conservation checks
+  real :: totLittC ! total surface litter C, for partitioning DOC tendency among pools in
+                   ! case initial DOC = 0
+
+  integer :: k
+
+  real, parameter :: minwl    = 0.1 ! [mm]
 
   total_DOC_div = 0.0
   total_DON_div = 0.0
   total_NO3_div = 0.0
   total_NH4_div = 0.0
-end subroutine
+
+!!!!!!!xz note: please make sure the unit of flow is ????
+  flow_with_litter(1)=0.0
+  flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)  !mm
+  flow_with_litter = flow_with_litter/1000 !xz change the div unit from mm to m
+
+  div_with_litter(1)=0.0
+  div_with_litter(2:size(flow_with_litter))=div(:)*delta_time ! div is in mm/s
+  div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
+
+  dz_with_litter(1)=sum(soilc%litt(:)%dz) ! slm: total litter thickness is the sum of all
+                                          ! litter thicknesses. Is this reasonable?
+  dz_with_litter(2:size(dz_with_litter)) = dz(1:num_l) !!xz assume the unit of dz is m
+
+  surf_DOC_loss = 0.0
+
+! + sanity check
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt before DOC advection')
+  enddo
+  do k=1,num_l
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') before DOC advection')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') before DOC advection')
+  enddo
+! - sanity check
+
+  ! calculate total DOC in surface litter
+  DOC(1) = 0.0
+  do k = 1, size(soilc%litt)
+     DOC(1) = DOC(1) + soilc%litt(k)%DOC * soilc%litt(k)%dz
+  enddo
+  ! calculate contribution of each litter pool to total surface litter DOC, to be used in
+  ! DOC update later
+  if(DOC(1)>0) then
+     do k = 1, size(soilc%litt)
+        littPart(k) = soilc%litt(k)%DOC * soilc%litt(k)%dz/DOC(1)
+     enddo
+  else
+     totLittC = 0.0
+     do k = 1, N_LITTER_POOLS
+        totLittC = totLittC + C_amount(soilc%litt(k))
+     enddo
+     if (totLittC > 0) then
+        do k = 1, N_LITTER_POOLS
+           littPart(k) = C_amount(soilc%litt(k))/totLittC
+        enddo
+     else
+        littPart(:) = 1.0/N_LITTER_POOLS
+     endif
+  endif
+
+  ! calculate total DOC in soil
+  do k = 1, num_l
+     DOC(k+1)=(soilc%rhiz(k)%DOC*soilc%fRhiz(k) + soilc%rhiz(k)%DOC*(1-soilc%fRhiz(k)))*dz(k)
+     if(DOC(k+1)>0) then
+        rhizPart(k) = soilc%rhiz(k)%DOC*soilc%fRhiz(k)*dz(k)/DOC(k+1)
+     else
+        rhizPart(k) = soilc%fRhiz(k)
+     endif
+  enddo
+  call check_var_range(DOC(:), 0.0, HUGE(1.0), 'tracer_leaching_GIMICS', 'DOC(:) before advection',FATAL)
+  mass0 = sum(DOC(:))
+  call tracer_advection(DOC(:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DOC(:),div_loss(:),wl(:))!xz
+  mass1 = sum(DOC(:))
+  call check_var_range(DOC(:), 0.0, HUGE(1.0), 'tracer_leaching_GIMICS', 'DOC(:) after advection',FATAL)
+  call check_conservation('tracer_leaching_GIMICS','DOC(:)', mass0,mass1, carbon_cons_tol )
+
+  if (gw_option == GW_TILED) then ! reset div_loss(2:num_l+1) according to values calculated in hlsp_hydrology
+     div_loss(2:num_l+1) = div_hlsp_DOC(1,:)*delta_time ! using only the first carbon type in GIMICS
+     if (flow(1) < 0 .and. wl(1) > minwl) then  ! Add loss from top layer to runoff
+        surf_DOC_loss = -DOC(2) * flow(1) / wl(1)
+        surf_DOC_loss = min(surf_DOC_loss, DOC(2))
+     end if
+     div_loss(2) = min(div_loss(2), DOC(2) - surf_DOC_loss)
+     do k=3,num_l+1
+        div_loss(k) = min(div_loss(k), DOC(k))
+     end do
+     ! Note: if these limits are imposed, there will be an imbalance between inter-tile fluxes
+     ! that will be effectively rectified by subtracting from the flux to stream. In rare
+     ! situations, that could lead to a negative stream DOC flux.
+  end if
+  DOC(:)=DOC(:)-div_loss(:)
+  DOC(2)=DOC(2)-surf_DOC_loss !!xz This line does not exist in CH's code ; consider to add similar line to Nitrogen part
+  ! Xin says this line was a mistake
+  ! update DOC concentrations in surface litter
+  call check_var_range(DOC(:), 0.0, HUGE(1.0), 'tracer_leaching_GIMICS', 'DOC(:) checkpoint 1',FATAL)
+  call check_var_range(littPart(:), 0.0, HUGE(1.0), 'tracer_leaching_GIMICS', 'littPart checkpoint 1',FATAL)
+  do k = 1,size(soilc%litt)
+     if (soilc%litt(k)%dz > 0) then
+        soilc%litt(k)%DOC = DOC(1)*littPart(k)/soilc%litt(k)%dz
+     endif
+  enddo
+  ! update DOC concentrations in soil layers
+  do k = 1,num_l
+     ! slm: distribute resulting DOC between bulk and rhizosphere in the same
+     ! proportion as before advection. It seems reasonable at the first glance,
+     ! but does this correctly describes what happens in advection?
+     soilc%rhiz(k)%DOC = DOC(k+1)*   rhizPart(k) /dz(k)
+     soilc%bulk(k)%DOC = DOC(k+1)*(1-rhizPart(k))/dz(k)
+  enddo
+
+  ! sum up the totals
+  total_DOC_div = surf_DOC_loss
+  do k=1,num_l
+     total_DOC_div = total_DOC_div + div_loss(k+1)
+  end do
+
+! + sanity check
+  do k = 1,N_LITTER_POOLS
+     call check_GIMICS_pool(soilc%litt(k), trim(l_diagname(k))//'litt after DOC advection')
+  enddo
+  do k=1,num_l
+     call check_GIMICS_pool(soilc%rhiz(k), 'rhiz('//string(k)//') after DOC advection')
+     call check_GIMICS_pool(soilc%bulk(k), 'bulk('//string(k)//') after DOC advection')
+  enddo
+! - sanity check
+
+  ! slm: add diagnostics
+end subroutine tracer_leaching_GIMICS
 
 ! ============================================================================
 subroutine get_zero_2D(soilC, values)
