@@ -104,7 +104,7 @@ contains
   procedure :: total_N => total_N_GIMICS ! returns total N [kgN/m2]
   procedure :: rav_C => rav_C_GIMICS ! returns amounts of C [kgC/m2]
                                                        ! for legacy surface resistance calculations
-  procedure :: get_DOC => get_zero_2D ! returns DOC, by type and by layer [slm: check with Minjin if we have (or can calculate) DOC in GIMICS]
+  procedure :: get_DOC => get_DOC_GIMICS ! returns DOC, by type and by layer
   procedure :: get_DON => get_zero_2D ! returns DON, by type and by layer
   procedure :: get_nit => get_zero_1D ! returns nitrate by layer, kgN/m2
   procedure :: get_amm => get_zero_1D ! returns ammonium by layer, kgN/m2
@@ -925,6 +925,25 @@ subroutine get_littC_GIMICS(soilc, values)
   do i = 1, N_LITTER_POOLS
      values(i) = C_amount(soilc%litt(i))
   enddo
+end subroutine
+
+! ============================================================================
+! @brief Given soil carbon state, returns amount of dissolved organic carbon (DOC) by
+! type and by layer. In GIMICS, there is only one type of DOC, so first element of the
+! first dimension is non-zero in the output values.
+subroutine get_DOC_GIMICS(soilc, values)
+  class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
+  real, intent(out) :: values(:,:) !< dissolved organic carbon (N_C_TYPES, num_l) [kg C/m^2]
+
+  integer :: k
+
+  values(:,:)=0.0
+  do k=1,num_l
+     values(1,k)=( &
+        soilc%rhiz(k)%DOC *    soilc%fRhiz(k) + &
+        soilc%bulk(k)%DOC * (1-soilc%fRhiz(k))  &
+        ) * dz(k)
+  end do
 end subroutine
 
 ! ============================================================================
