@@ -257,7 +257,7 @@ namelist /soil_BGC_GIMICS_nml/ &
 ! diag field IDs
 integer :: id_total_soil_C
 integer :: id_fRhiz, &
-   id_sturb_metabolicC, id_sturb_structuralC, id_sturb_chemResistantC, id_sturb_availableC, &
+   id_sturb_metabolicC, id_sturb_structuralC, id_sturb_chemResistantC, id_sturb_availableC, id_sturb_DOC,&
    id_sturb_microbesR, id_sturb_microbesK, &
    id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C
 ! diag fields for rhizosphere, bulk soil, and total
@@ -273,7 +273,7 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_theta
    id_litt_DecompMkLm, id_litt_DecompMkLs, id_litt_DecompMkCa, id_litt_DecompMkDOC, &
    id_litt_OxidMrCc, id_litt_OxidMkCc, id_litt_MrTau, id_litt_MkTau, id_litt_Resp, &
    ! turbation tendencies in surface litter pools
-   id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC, &
+   id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC, id_lturb_DOC,&
    id_lturb_microbesR, id_lturb_microbesK
 
 ! CMIP/CMOR diag fields
@@ -448,6 +448,8 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Tendency of chemically resistant C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
   id_sturb_availableC = register_tiled_diag_field( diag_mod_name, 'availableC_turb', axes(:), &
        lnd%time, 'Tendency of available C due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
+  id_sturb_DOC = register_tiled_diag_field( diag_mod_name, 'DOC_turb', axes(:), &
+       lnd%time, 'Tendency of DOC due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
   id_sturb_microbesR = register_tiled_diag_field( diag_mod_name, 'microbesR_turb', axes(:), &
        lnd%time, 'Tendency of R microbes due to turbation', 'kg C/(m3 yr)', missing_value = -1e20)
   id_sturb_microbesK = register_tiled_diag_field( diag_mod_name, 'microbesK_turb', axes(:), &
@@ -462,6 +464,8 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, '<ltype> litter tendency of chemically resistant C due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_availableC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_availableC_turb', axes(1:1), &
        lnd%time, '<ltype> litter tendency of available C due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
+  id_lturb_DOC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DOC_turb', axes(1:1), &
+       lnd%time, '<ltype> litter tendency of DOC due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_microbesR(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesR_turb', axes(1:1), &
        lnd%time, '<ltype> litter tendency of R microbes due to turbation', 'kg C/(m3 yr)', missing_value=-100.0 )
   id_lturb_microbesK(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_microbesK_turb', axes(1:1), &
@@ -725,13 +729,16 @@ subroutine combine_GIMICS_pools(p2,w2,p1,w1)
   __MERGE__(availableC)
   __MERGE__(microbesR)
   __MERGE__(microbesK)
+  __MERGE__(DOC)
 
   __MERGE__(DecompMrLm)
   __MERGE__(DecompMrLs)
   __MERGE__(DecompMrCa)
+  __MERGE__(DecompMrDOC)  
   __MERGE__(DecompMkLm)
   __MERGE__(DecompMkLs)
   __MERGE__(DecompMkCa)
+  __MERGE__(DecompMkDOC)
   __MERGE__(OxidMrCc)
   __MERGE__(OxidMkCc)
   __MERGE__(Desorb)
@@ -1010,7 +1017,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   call turbation(soilc%litt(:)%availableC, soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC, &
                  soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
   call turbation(soilc%litt(:)%DOC, soilc%rhiz(:)%DOC, soilc%bulk(:)%DOC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_diff, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
+                 soilc%fRhiz, soilc%litt(:)%dz, K_diff, id_sturb_DOC, id_lturb_DOC, diag, 'DOC')
 		 
   if (do_microbe_turb) then
      call turbation(soilc%litt(:)%microbesR, soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR, &
@@ -1246,17 +1253,20 @@ subroutine step3_GIMICS(soilc, diag)
   call send_3_tile_data(id_availableC,     soilc%rhiz(:)%availableC,        soilc%bulk(:)%availableC,        soilc%fRhiz(:), diag)
   call send_3_tile_data(id_microbesR,      soilc%rhiz(:)%microbesR,         soilc%bulk(:)%microbesR,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_microbesK,      soilc%rhiz(:)%microbesK,         soilc%bulk(:)%microbesK,         soilc%fRhiz(:), diag)
+  call send_3_tile_data(id_DOC,            soilc%rhiz(:)%DOC,               soilc%bulk(:)%DOC,               soilc%fRhiz(:), diag)
 
   ! decomposition rates
   call send_3_tile_data(id_DecompMrLm,     soilc%rhiz(:)%DecompMrLm,        soilc%bulk(:)%DecompMrLm,        soilc%fRhiz(:), diag)
   call send_3_tile_data(id_DecompMrLs,     soilc%rhiz(:)%DecompMrLs,        soilc%bulk(:)%DecompMrLs,        soilc%fRhiz(:), diag)
   call send_3_tile_data(id_DecompMrCa,     soilc%rhiz(:)%DecompMrCa,        soilc%bulk(:)%DecompMrCa,        soilc%fRhiz(:), diag)
+  call send_3_tile_data(id_DecompMrDOC,    soilc%rhiz(:)%DecompMrDOC,       soilc%bulk(:)%DecompMrDOC,       soilc%fRhiz(:), diag)
   call send_3_tile_data(id_OxidMrCc,       soilc%rhiz(:)%OxidMrCc,          soilc%bulk(:)%OxidMrCc,          soilc%fRhiz(:), diag)
   call send_3_tile_data(id_MrTau,          soilc%rhiz(:)%MrTau,             soilc%bulk(:)%MrTau,             soilc%fRhiz(:), diag)
 
   call send_3_tile_data(id_DecompMkLm,     soilc%rhiz(:)%DecompMkLm,        soilc%bulk(:)%DecompMkLm,        soilc%fRhiz(:), diag)
   call send_3_tile_data(id_DecompMkLs,     soilc%rhiz(:)%DecompMkLs,        soilc%bulk(:)%DecompMkLs,        soilc%fRhiz(:), diag)
   call send_3_tile_data(id_DecompMkCa,     soilc%rhiz(:)%DecompMkCa,        soilc%bulk(:)%DecompMkCa,        soilc%fRhiz(:), diag)
+  call send_3_tile_data(id_DecompMkDOC,    soilc%rhiz(:)%DecompMkDOC,       soilc%bulk(:)%DecompMkDOC,       soilc%fRhiz(:), diag)
   call send_3_tile_data(id_OxidMkCc,       soilc%rhiz(:)%OxidMkCc,          soilc%bulk(:)%OxidMkCc,          soilc%fRhiz(:), diag)
   call send_3_tile_data(id_MkTau,          soilc%rhiz(:)%MkTau,             soilc%bulk(:)%MkTau,             soilc%fRhiz(:), diag)
 
@@ -1276,17 +1286,20 @@ subroutine step3_GIMICS(soilc, diag)
      call send_tile_data(id_litt_availableC(k),     soilc%litt(k)%availableC,        diag)
      call send_tile_data(id_litt_microbesR(k),      soilc%litt(k)%microbesR,         diag)
      call send_tile_data(id_litt_microbesK(k),      soilc%litt(k)%microbesK,         diag)
+     call send_tile_data(id_litt_DOC(k),            soilc%litt(k)%DOC,               diag)
 
      ! decomposition rates
      call send_tile_data(id_litt_DecompMrLm(k), soilc%litt(k)%DecompMrLm, diag)
      call send_tile_data(id_litt_DecompMrLs(k), soilc%litt(k)%DecompMrLs, diag)
      call send_tile_data(id_litt_DecompMrCa(k), soilc%litt(k)%DecompMrCa, diag)
+     call send_tile_data(id_litt_DecompMrDOC(k),soilc%litt(k)%DecompMrDOC, diag)
      call send_tile_data(id_litt_OxidMrCc(k),   soilc%litt(k)%OxidMrCc,   diag)
      call send_tile_data(id_litt_MrTau(k),      soilc%litt(k)%MrTau,      diag)
 
      call send_tile_data(id_litt_DecompMkLm(k), soilc%litt(k)%DecompMkLm, diag)
      call send_tile_data(id_litt_DecompMkLs(k), soilc%litt(k)%DecompMkLs, diag)
      call send_tile_data(id_litt_DecompMkCa(k), soilc%litt(k)%DecompMkCa, diag)
+     call send_tile_data(id_litt_DecompMkDOC(k),soilc%litt(k)%DecompMkDOC, diag)
      call send_tile_data(id_litt_OxidMkCc(k),   soilc%litt(k)%OxidMkCc,   diag)
      call send_tile_data(id_litt_MkTau(k),      soilc%litt(k)%MkTau,      diag)
 
@@ -1505,8 +1518,8 @@ endif
 						  + ((1-fMrTau_Cp-fMrTau_Cc)*(fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(fMkTau_DOC)*pool%MkTau)*dt_fast_hr &
                                                   + ((pool%DecompMrLm+pool%DecompMkLm)*w_Lm + (pool%DecompMrLs+pool%DecompMkLs)*w_Ls + (pool%DecompMrCa+pool%DecompMkCa)*w_Ca)*dt_fast_hr
 
-  pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm*(1-w_Lm) + eLs_Mr*pool%DecompMrLs*(1-w_Ls) + eCa_Mr*pool%DecompMrCa*(1-w_Ca) - pool%MrTau)*dt_fast_hr ! kgC/m3
-  pool%microbesK = pool%microbesK + (eLm_Mk*pool%DecompMkLm*(1-w_Lm) + eLs_Mk*pool%DecompMkLs*(1-w_Ls) + eCa_Mk*pool%DecompMkCa*(1-w_Ca) - pool%MkTau)*dt_fast_hr
+  pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm*(1-w_Lm) + eLs_Mr*pool%DecompMrLs*(1-w_Ls) + eCa_Mr*pool%DecompMrCa*(1-w_Ca) + eCa_Mr*pool%DecompMrDOC - pool%MrTau)*dt_fast_hr ! kgC/m3
+  pool%microbesK = pool%microbesK + (eLm_Mk*pool%DecompMkLm*(1-w_Lm) + eLs_Mk*pool%DecompMkLs*(1-w_Ls) + eCa_Mk*pool%DecompMkCa*(1-w_Ca) + eCa_Mk*pool%DecompMkDOC - pool%MkTau)*dt_fast_hr
   
 end subroutine update_GIMICS_pool
 
@@ -1778,6 +1791,7 @@ subroutine debug_pool(pool, tag)
   call dpri('availableC',pool%availableC)
   call dpri('microbesR',pool%microbesR)
   call dpri('microbesK',pool%microbesK)
+  call dpri('DOC',pool%DOC)
   select type(pool)
   type is (GIMICS_BGC_litt)
      call dpri('dz',pool%dz)
@@ -1885,6 +1899,7 @@ subroutine burn_litter_frac_GIMICS(soilc, frac, burned_C, burned_N)
      pool%availableC        = f * pool%availableC
      pool%microbesR         = f * pool%microbesR
      pool%microbesK         = f * pool%microbesK
+     pool%DOC               = f * pool%DOC
 
      call update_litter_thickness(pool)
      end associate
