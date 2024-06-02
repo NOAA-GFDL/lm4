@@ -2485,10 +2485,18 @@ end subroutine soil_step_1
 
    if (is_watch_point()) then
       write(*,*)'##### soil_step_2 checkpoint 6 #####'
-      __DEBUG1__(flow)
-      __DEBUG1__(div)
-      __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
+      do l=1,num_l
+         write(*,'(i2.2)', advance='NO') l
+         call dpri('dz',dz(l))
+         call dpri('flow',flow(l))
+         call dpri('div',div(l))
+         call dpri('wl_before',wl_before(l))
+         call dpri('theta',wl_before(l)/(dens_h2o*dz(l)*soil%pars%vwc_sat))
+         call dpri('div_hlsp_DOC',soil%div_hlsp_DOC(:,l))
+         write(*,*)
+      enddo
+
       select type(soilc)
       class is (soil_BGC_CORPSE_t)
          do l = 1,N_LITTER_POOLS
@@ -2501,9 +2509,9 @@ end subroutine soil_step_1
       class default
          ! do nothing
       end select
-      do l = 1, size(soil%div_hlsp_DOC,2)
-         __DEBUG1__(soil%div_hlsp_DOC(:,l))
-      enddo
+!       do l = 1, size(soil%div_hlsp_DOC,2)
+!          __DEBUG1__(soil%div_hlsp_DOC(:,l))
+!       enddo
    endif
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
