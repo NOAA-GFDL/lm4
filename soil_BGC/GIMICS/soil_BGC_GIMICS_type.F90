@@ -2024,7 +2024,7 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
 
   ! calculate total DOC in soil
   do k = 1, num_l
-     DOC(k)=(soilc%rhiz(k)%DOC*soilc%fRhiz(k) + soilc%rhiz(k)%DOC*(1-soilc%fRhiz(k)))*dz(k)
+     DOC(k)=(soilc%rhiz(k)%DOC*soilc%fRhiz(k) + soilc%bulk(k)%DOC*(1-soilc%fRhiz(k)))*dz(k)
      if(DOC(k)>0) then
         rhizPart(k) = soilc%rhiz(k)%DOC*soilc%fRhiz(k)*dz(k)/DOC(k)
      else
