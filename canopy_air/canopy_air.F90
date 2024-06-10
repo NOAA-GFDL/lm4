@@ -75,8 +75,8 @@ real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
-character(32) :: roughness_to_use  = '' ! "lm3w" or "lm3v" or "Raupach"
-character(32) :: turbulence_to_use = '' ! "lm3w" or "lm3v" or "Raupach"
+character(32) :: roughness_to_use  = 'lm3v' ! "lm3w" or "lm3v" or "Raupach"
+character(32) :: turbulence_to_use = 'lm3v' ! "lm3w" or "lm3v" or "Raupach"
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
@@ -86,18 +86,26 @@ real :: loubet_lai_factor = 0.6 ! rate of ustar_sfc decay with LAI; Lobet et al.
 real :: c_r = 0.3, c_s = 0.003  ! slope and intercept of LAI+SAI dependence in u*/U(h) ratio
                                 ! i.e. roughness-element and surface drag coefficients
 real :: max_u_ratio = 0.3       ! imposed maximum value of u*/U(h) ratio
+real :: veg_threshold = 0.05    ! minimum vegn_dx (LAI+SAI) to apply some of Ghannam2022 parameterization
 real :: c_d1 = 7.5              ! LAI+SAI scale parameter in displacement height expression
 real :: rsl_factor = 2.0        ! ratio of roughness sublayer depth to vegetation height
                                 ! above displacement height (vegn_height - land_d)
 real :: stable_rsl_factor = 1.0 ! factor applied to z_RSL in stable case
 
-real :: cd_leaf = 0.25          ! leaf-level drag coefficient (appears in the formula Fd = Cd*LAD*U^2)
+real :: cd_leaf = 0.15          ! leaf-level drag coefficient (appears in the formula Fd = Cd*LAD*U^2)
                                 ! Typical of forests (need to add reference by Katul, Bonan, etc..)
+real :: usfc_factor = 1.0       ! empirical correction coefficient for the calculation of u_* at the ground for ghannam2022 parameterization
+                                ! (default is 1 ==> no correction, but typically 0.5 is good to allow some turbulence on soil surface)
+
+real :: max_wind_decay = 6.0    ! maximum \alpha (wind decay parameter within the canopy) for ghannam2022==> allows for some turbulence in dense canopies
+real :: min_wind_decay = 0.1    ! minimum \alpha (wind decay parameter within the canopy) for ghannam2022==> allows for some wind decay in sparse canopies
+
+
 ! resistance-related namelist variables
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
 logical :: use_HO2013_over_glac = .TRUE. ! if FALSE, HO2013 is not applied over glacier surfaces
 logical :: use_HO2013_over_lake = .TRUE. ! if FALSE, HO2013 is not applied over lake surfaces
-character(32) :: usfc_to_use = 'area-based' ! or 'Loubet'
+character(32) :: usfc_to_use = 'area-based' ! or 'Loubet' or 'ghannam_2022'
 
 real :: bare_rah_sca      = 0.01 ! bare-ground resistance between ground and canopy air, s/m
 
@@ -126,7 +134,7 @@ namelist /cana_nml/ &
   ! roughness sublayer parameters
   rsl_factor, stable_rsl_factor, &
   ! Ghannam (2022) parameters
-  cd_leaf, &
+  cd_leaf, usfc_factor, max_wind_decay, min_wind_decay, &
   ! soil/laminar resistance parameters
   soil_resistance_to_use, usfc_to_use, use_HO2013_over_glac, use_HO2013_over_lake, &
   d_visc_max, &
@@ -166,6 +174,15 @@ subroutine read_cana_namelist()
      unit = stdlog()
      write (unit, nml=cana_nml)
   endif
+
+! Errors related to the inconsistency of using one part of Ghannam2022 canopy parametrization but not (dependent) others
+if (trim(lowercase(roughness_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
+call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use=ghannam2022', FATAL)
+endif
+
+if (trim(lowercase(usfc_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
+call error_mesg('cana_init', 'Ghannam2022 parameterization of of friction velocity on the soil surface requires: turbulence_to_use=ghannam2022', FATAL)
+endif
 
   ! initialize options, to avoid expensive string comparisons during
   ! run-time
@@ -457,15 +474,15 @@ subroutine cana_v_turb (ustar, &
   ! well behaved in the limit vegn_idx \to 0. This is evident in the expression for L_c below,
   ! which tends to infinity in the limit vegn_idx \to 0, and then L_m \to infinity,
   ! and then the wind parameter 'a' \to 0
-  ! We need an upper bound for L_c when vegn_idx <0.001, say, or any other very small lai value
-  ! Choosing vegn_idx = 0.001 as a threshold, and given that L_c = ztop/(cd_leaf*vegn_idx),
-  ! then L_c = ztop/(0.25*0.001) = 4000*ztop. This makes L_m large, and hence wind decay very small
-  ! vegn_idx threshold shoud be consistent with the value in cana_roughness for ROUGH_KMG2022
-  if(vegn_idx>0.001) then
-    L_c = ztop/(cd_leaf*vegn_idx)
-  else
-    L_c =4000*ztop
-  end if
+  ! We need an upper bound for L_c when vegn_idx <veg_threshold, say, or any other very small lai value
+  ! Choosing veg_threshold = 0.05 as a threshold, and given that L_c = ztop/(cd_leaf*vegn_idx),
+  ! then L_c = ztop/(0.15*0.05) = 133*ztop. This should make L_m large, and hence wind decay very small, which is what we want
+   if(vegn_idx > veg_threshold) then
+     L_c = ztop/(cd_leaf*vegn_idx)
+   else
+     L_c =ztop/(cd_leaf*veg_threshold)
+   endif
+
   ! Calculate mixing length L_m (needed for Ghannam 2022)
   L_m = 2*(u_ratio**3)*L_c
 
@@ -529,14 +546,19 @@ subroutine cana_v_turb (ustar, &
   case(TURB_KMG2022)
      ! Ghannam et al. 2022
      ztop    = max(aerodyn_height,min_height)
-
-     ! For now, we use Raupach's parameterization for u*/Uh (u_ratio calculated above)
-     !u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994)
      utop    = ustar/u_ratio
 
-     ! exponent of wind profile within canopy
-     a       = max(1.0,(ztop*u_ratio)/L_m)
-     a       = min(10.0,(ztop*u_ratio)/L_m)
+     !a = (ztop*u_ratio)/L_m
+     a = 0.5*cd_leaf*vegn_idx/(u_ratio**2) ! same formula as: a = (ztop*u_ratio)/L_m above, but well behaved in the limit vegn_idx \to 0
+     a = min(max_wind_decay,a) ! impose a maximum wind decay
+     a = max(min_wind_decay,a) ! impose a minimum wind decay when there is vegetation
+ !     if (vegn_idx > veg_threshold) then
+!          a = max(min_wind_decay,a) ! impose a minimum wind decay when there is vegetation
+!      else
+!          a = a_max                 ! return to TURB_LM3V formulation when there is no vegetation
+!        endif
+
+
 
      if (is_watch_point()) then
         __DEBUG5__(vegn_idx, ztop, u_ratio, L_c, L_m)
@@ -586,7 +608,7 @@ subroutine cana_v_turb (ustar, &
   case (USFC_KMG2022)
      ! Ghannam et al. (2022)
      u_sfc     = utop
-     ustar_sfc = ustar*exp(-0.5*cd_leaf*vegn_idx/(u_ratio**2))
+     ustar_sfc = ustar*exp(-0.5*usfc_factor*cd_leaf*vegn_idx/(u_ratio**2))
   end select
 
   if (is_watch_point()) then
@@ -638,7 +660,7 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
      h1 = min(Hb,Ha); h2 = min(Ht,Ha)
      gb1 = 0; gb2 = 0
      if (h1<Ha) then
-        gb1 = 2*leaf_co*sqrt(utop/d_leaf)*Ha/(Ht-Hb)&
+        gb1 = 2*leaf_co*sqrt(Utop/d_leaf)*Ha/(Ht-Hb)&
             *(exp(-a/2*(Ha-h2)/Ha)-exp(-a/2*(Ha-h1)/Ha))/a
      endif
      h3 = max(Hb,Ha); h4 = max(Ht,Ha)
@@ -648,9 +670,10 @@ subroutine cohort_gb(Ha, Hb, Ht, Utop, ustar, d, a, d_leaf, gb)
                         (func((h4-d)/(Ha-d),b)-func((h3-d)/(Ha-d),b))
      endif
      gb = gb1+gb2
-!      if (is_watch_point()) then
-!         __DEBUG3__(Ht,gb1,gb2)
-!      endif
+      if (is_watch_point()) then
+         __DEBUG5__(Ht, Hb, Ha, gb1, gb2)
+         __DEBUG4__(Utop, a, h1, h2)
+      endif
   else
      ! thin cohort canopy limit
      if (Ht > Ha) then
@@ -744,20 +767,24 @@ subroutine cana_g_turb (ustar, a, &
   case(TURB_KMG2022)
 
      ztop = max(aerodyn_height,min_height)
-
+     vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
      ! In pricinple, we have Km (not Kh), and assuming they are equal is essentially invoking
      ! the Reynolds analogy, but one can also use a turbulent Prandtl.Schmidt number
      ! to relate the two. Pr_t = Km/Kh, where Pr_t is typically 0.7
-     Kh_top = ustar*L_m
+     if (land_d > 0.06 .and. vegn_idx > veg_threshold) then
+       Kh_top = ustar*L_m
+     else
+       Kh_top = VONKARM*ustar*(ztop-land_d)
+     endif
 
      rah_sca = ztop/a/Kh_top * &
-          (exp(a*(1-d_visc/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
+          (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
      ! rah_sca can be very small or even negative depending on the vegetation
      ! roughness properties and d_visc; for example for very small vegetation
      ! and little wind. Therefore we need to impose some minimum value that would
      ! limit conductance to reasonable range
      rah_sca = max(rah_sca,bare_rah_sca)
-     rah_sca = min(rah_sca,1000.0)
+     rah_sca = min(rah_sca,1250.0)
      con_g_h = 1.0/rah_sca
      if(is_watch_point()) then
         write(*,*)'### TURB_KMG2022 ###'
@@ -898,7 +925,7 @@ subroutine cana_roughness(lm2, &
      ! For now, using u*/Uh from Raupach ()
      u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h)
 
-     if (u_ratio**2<cd_leaf*vegn_idx.and.vegn_idx>0.001) then
+     if (u_ratio**2 < (cd_leaf*vegn_idx) .and. vegn_idx>veg_threshold) then
         ! vegn_idx threshold should be consistent with L_c calculations
         ! in cana_v_turb
         x = (u_ratio**2)/(cd_leaf*vegn_idx)
@@ -907,7 +934,8 @@ subroutine cana_roughness(lm2, &
         ! quantity x may be larger than 1 so need to make sure d is always positive
         land_d = 0.7*vegn_height
      endif
-     land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
+     !land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio-rsl_corr)
+     land_z0m = (vegn_height-land_d)*exp(-VONKARM/u_ratio)
      land_z0m = max(land_z0m,grnd_z0m)
      land_z0s = land_z0m*exp(-k_over_B)
      land_rsl = max(0.0,3*vegn_height-2*land_d)
