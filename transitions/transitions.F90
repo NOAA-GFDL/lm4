@@ -3,10 +3,8 @@ module land_transitions_mod
 
 #include "../shared/debug.inc"
 
-use netcdf, only: nf90_max_name
 use constants_mod, only : PI
 
-use mpp_mod, only: input_nml_file
 use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
@@ -171,8 +169,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
   logical :: exists
-  character(len=nf90_max_name) :: name
-  integer :: ndims
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
@@ -180,7 +176,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   __FILE__)
 
   call horiz_interp_init()
-!   call transition_io_init()
+  call transition_io_init()
 
   ! read restart file, if any
   if (file_exists('INPUT/landuse.res')) then
@@ -305,7 +301,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
        FATAL)
 
   ! initialize arrays of input fields
-  allocate(ftran)
   select case (trim(lowercase(data_type)))
   case('luh1')
      ftran => new_infile_LUH1(input_file)

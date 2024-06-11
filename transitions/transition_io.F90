@@ -83,7 +83,7 @@ end type infile_t
 !> container for information about input file on regular lat-lon grid
 type, extends(infile_t) :: infile_latlon_t
   character(1024) :: static    = '' !< static file path
-  type(FmsNetcdfFile_t) :: statobj  !< netcdf fms_io2 file object for static file
+!  type(FmsNetcdfFile_t) :: statobj  !< netcdf fms_io2 file object for static file
 
   character(16)   :: data_type = '' !< type of input data (LUH1 or LUH2). Due to differences
       !! in the normalization in the input data sets (per unit area of land or per unit area
@@ -151,11 +151,11 @@ end subroutine transition_io_init
 !! \throws FATAL "file ... could not be opened"
 !!
 !! opens file; reads time axis from the file
-subroutine infile_t_open(this, path,static,data_type)
-  class(infile_latlon_t), intent(inout) :: this
+subroutine infile_t_open(this, path)
+  class(infile_t), intent(inout) :: this
   character(*),    intent(in)    :: path   !< file path
-  character(*),    intent(in)    :: static !< static file path
-  character(*),    intent(in)    :: data_type !< data type, LUH1 or LUH2
+!   character(*),    intent(in)    :: static !< static file path
+!   character(*),    intent(in)    :: data_type !< data type, LUH1 or LUH2
 
   logical :: exists,static_exists
 
@@ -164,12 +164,13 @@ subroutine infile_t_open(this, path,static,data_type)
   if(.not.exists) call mpp_error(FATAL, &
       'file "'//trim(this%path)//'" could not be opened because it does not exist', FATAL)
   ! get the time axis from file
-  static_exists = open_file(this%statobj, static, "read")
-  write (*,*) 'This datatype:',trim(lowercase(this%data_type))
-  if(trim(lowercase(this%data_type)) == 'luh2' .and. .not. static_exists) call &
-      error_mesg('land_transition_io_infile_init', &
-      trim(static)//'" could not be opened.', FATAL)
   call get_time_axis(this%ncobj,this%time_in)
+
+!   static_exists = open_file(this%statobj, static, "read")
+!   write (*,*) 'This datatype:',trim(lowercase(this%data_type))
+!   if(trim(lowercase(this%data_type)) == 'luh2' .and. .not. static_exists) call &
+!       error_mesg('land_transition_io_infile_init', &
+!       trim(static)//'" could not be opened.', FATAL)
 end subroutine infile_t_open
 
 ! ============================================================================
@@ -266,9 +267,9 @@ function new_infile_LUH1(path) result(ptr)
   character(*), intent(in) :: path
 
   allocate(ptr)
-  !call infile_t_open(ptr,path,)
-!   ptr%static    = ''
-!   ptr%data_type = 'luh1'
+  call infile_t_open(ptr,path)
+  ptr%static    = ''
+  ptr%data_type = 'luh1'
 end function new_infile_LUH1
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -278,7 +279,7 @@ function new_infile_LUH2(path,static) result(ptr)
   character(*), intent(in) :: static
 
   allocate(ptr)
-  call infile_t_open(ptr,path,static,'luh2')
+  call infile_t_open(ptr,path)
   ptr%static    = static
   ptr%data_type = 'luh2'
 end function new_infile_LUH2
@@ -298,7 +299,9 @@ subroutine infile_latlon_setup_hgrid(this,varname)
   integer, allocatable :: dimlens(:)
   integer :: ndims
 
+  type(FmsNetcdfFile_t) :: statobj  !< netcdf fms_io2 file object for static file
   type(Valid_t) :: v
+  logical :: static_exists
 
   if (this%grid_initialized) return ! do nothing if grid is already set up
   ! TODO: possibly check that variable size is the same
@@ -343,15 +346,18 @@ subroutine infile_latlon_setup_hgrid(this,varname)
   case ('luh2')
      ! read static file and calculate normalizing factor
      ! LUH2 data are in [fraction of cell area per year]
-     call read_data(this%statobj, 'landfrac', buffer_in)
-     write(*,*) 'landfrac statobj is: ',this%statobj%path
+     static_exists = open_file(statobj, this%static, "read")
+     if(.not. static_exists) call error_mesg('infile_latlon_setup_hgrid', &
+                '"'//trim(this%static)//'" could not be opened.', FATAL)
+     call read_data(statobj, 'landfrac', buffer_in)
+!      write(*,*) 'landfrac statobj is: ',this%statobj%path
      where (buffer_in > 0.0)
         this%norm_in = 1.0/buffer_in
      elsewhere
         this%norm_in = 0.0
         mask_in = 0
      end where
-     call close_file(this%statobj)
+     call close_file(statobj)
   case default
      call error_mesg('land_transitions_init','unknown data_type "'&
                     //trim(this%data_type)//'", use "luh1" or "luh2"', FATAL)
@@ -401,11 +407,11 @@ function new_infile_CS(path) result(ptr)
   if (.not.found_file) call mpp_error(FATAL, &
      'file "'//trim(path)//'" not found')
 
-!   call infile_t_open(ptr,ptr%path)
+  call infile_t_open(ptr,ptr%path)
 
-!   ! data are suposed to be on SG grid compute domain
-!   ptr%nlon_in   = lnd%ie-lnd%is+1
-!   ptr%nlat_in   = lnd%je-lnd%js+1
+  ! data are suposed to be on SG grid compute domain
+  ptr%nlon_in   = lnd%ie-lnd%is+1
+  ptr%nlat_in   = lnd%je-lnd%js+1
 end function new_infile_CS
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

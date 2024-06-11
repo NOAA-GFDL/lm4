@@ -2183,7 +2183,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
-    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*sum(litter_total_C)/0.45
+    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45 ! AP Adjusted to add max of (0 | litter) to avoid neg values of litter
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
 
     SH_parameter = F_parameter * (fire_intensity**0.6667)
