@@ -3095,7 +3095,7 @@ subroutine update_vegn_slow( )
      endif
   enddo
 
-  if (do_ppa.and.year1 /= year0) then
+  if (year1 /= year0) then
     if (do_ppa) then
        call vegn_reproduction_ppa(seed_transport_option) ! includes seed transport.
     else
