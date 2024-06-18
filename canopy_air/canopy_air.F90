@@ -1,4 +1,3 @@
-
 ! ============================================================================
 ! canopy air
 ! ============================================================================
@@ -53,9 +52,17 @@ character(len=*), parameter :: diag_mod_name = 'cana'
 #include "../shared/version_variable.inc"
 
 ! options for turbulence parameter calculations
-integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2, TURB_R1996 = 3, TURB_KMG2022 = 4
+integer, parameter ::  &
+    TURB_LM3W     = 1, &
+    TURB_LM3V     = 2, & ! LM3V formulation -- default for LM4.0, LM4.1 and LM4.2
+    TURB_R1996    = 3, & ! Raupach (1994) formulation
+    TURB_KMG2022  = 4    ! Ghannam et al. (2022) formulation
 ! options for roughness parameter calculations
-integer, parameter :: ROUGH_LM3W = 1, ROUGH_LM3V = 2, ROUGH_R1994 = 3, ROUGH_KMG2022 = 4
+integer, parameter ::  &
+    ROUGH_LM3W    = 1, & !
+    ROUGH_LM3V    = 2, & ! LM3V formulation -- default for LM4.0, LM4.1 and LM4.2
+    ROUGH_R1994   = 3, & ! Raupach (1994) formulation
+    ROUGH_KMG2022 = 4    ! Ghannam et al. (2022) formulation
 
 ! options of soil surface resistance calculations
 integer, parameter :: &
@@ -66,7 +73,7 @@ integer, parameter :: &
    USFC_LOUBET   = 1, & ! Loubet et al. (2006) formulation
    USFC_KMG2022  = 2    ! Ghannam et al. (2022) formulation
 
-real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
+real, parameter :: min_height = 0.1 ! min height of the canopy for some turbulence options, m
 
 ! ==== module variables ======================================================
 
@@ -75,8 +82,8 @@ real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
-character(32) :: roughness_to_use  = 'lm3v' ! "lm3w" or "lm3v" or "Raupach"
-character(32) :: turbulence_to_use = 'lm3v' ! "lm3w" or "lm3v" or "Raupach"
+character(32) :: roughness_to_use  = 'lm3v' ! or "lm3w", or "Raupach", or "Ghannam2022"
+character(32) :: turbulence_to_use = 'lm3w' ! or "lm3v", or "Raupach", or "Ghannam2022"
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
@@ -105,7 +112,7 @@ real :: min_wind_decay = 0.1    ! minimum \alpha (wind decay parameter within th
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
 logical :: use_HO2013_over_glac = .TRUE. ! if FALSE, HO2013 is not applied over glacier surfaces
 logical :: use_HO2013_over_lake = .TRUE. ! if FALSE, HO2013 is not applied over lake surfaces
-character(32) :: usfc_to_use = 'area-based' ! or 'Loubet' or 'ghannam_2022'
+character(32) :: usfc_to_use = 'area-based' ! or 'Loubet' or 'Ghannam2022'
 
 real :: bare_rah_sca      = 0.01 ! bare-ground resistance between ground and canopy air, s/m
 
@@ -175,14 +182,13 @@ subroutine read_cana_namelist()
      write (unit, nml=cana_nml)
   endif
 
-! Errors related to the inconsistency of using one part of Ghannam2022 canopy parametrization but not (dependent) others
-if (trim(lowercase(roughness_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
-call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use=ghannam2022', FATAL)
-endif
-
-if (trim(lowercase(usfc_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
-call error_mesg('cana_init', 'Ghannam2022 parameterization of of friction velocity on the soil surface requires: turbulence_to_use=ghannam2022', FATAL)
-endif
+  ! Check for inconsistency of using one part of Ghannam2022 canopy parametrization but not (dependent) others
+  if (trim(lowercase(roughness_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
+     call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use=ghannam2022', FATAL)
+  endif
+  if (trim(lowercase(usfc_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
+     call error_mesg('cana_init', 'Ghannam2022 parameterization of friction velocity on the soil surface requires: turbulence_to_use=ghannam2022', FATAL)
+  endif
 
   ! initialize options, to avoid expensive string comparisons during
   ! run-time
@@ -457,7 +463,7 @@ subroutine cana_v_turb (ustar, &
 
   ! The below are now moved as output to the subroutine cana_v_turb to be available elsewhere
   real :: u_ratio  ! ratio u*/U(h)
-  real :: L_c      ! adjustment lengthscale in meters L_c=1/(cd_leaf*lad) modeled as h/(cd_leaf*vegn_idx)
+  real :: L_c      ! adjustment length scale in meters L_c=1/(cd_leaf*lad) modeled as h/(cd_leaf*vegn_idx)
 !  real :: L_m      ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
 
 
@@ -469,7 +475,7 @@ subroutine cana_v_turb (ustar, &
 
   u_ratio = min(sqrt(c_s+c_r*vegn_idx/2),max_u_ratio) ! u*/U(h), Raupach (1994) (now available regardless of case)
   ztop = max(aerodyn_height,min_height)
-  ! Calculate adjustment lengthscale L_c (needed for Ghannam 2022)
+  ! Calculate adjustment length scale L_c (needed for Ghannam 2022)
   ! Note: the model is built on the premise that a canopy exists, and so it may not be
   ! well behaved in the limit vegn_idx \to 0. This is evident in the expression for L_c below,
   ! which tends to infinity in the limit vegn_idx \to 0, and then L_m \to infinity,
@@ -477,11 +483,11 @@ subroutine cana_v_turb (ustar, &
   ! We need an upper bound for L_c when vegn_idx <veg_threshold, say, or any other very small lai value
   ! Choosing veg_threshold = 0.05 as a threshold, and given that L_c = ztop/(cd_leaf*vegn_idx),
   ! then L_c = ztop/(0.15*0.05) = 133*ztop. This should make L_m large, and hence wind decay very small, which is what we want
-   if(vegn_idx > veg_threshold) then
+  if(vegn_idx > veg_threshold) then
      L_c = ztop/(cd_leaf*vegn_idx)
-   else
+  else
      L_c =ztop/(cd_leaf*veg_threshold)
-   endif
+  endif
 
   ! Calculate mixing length L_m (needed for Ghannam 2022)
   L_m = 2*(u_ratio**3)*L_c
@@ -552,18 +558,16 @@ subroutine cana_v_turb (ustar, &
      a = 0.5*cd_leaf*vegn_idx/(u_ratio**2) ! same formula as: a = (ztop*u_ratio)/L_m above, but well behaved in the limit vegn_idx \to 0
      a = min(max_wind_decay,a) ! impose a maximum wind decay
      a = max(min_wind_decay,a) ! impose a minimum wind decay when there is vegetation
- !     if (vegn_idx > veg_threshold) then
+!      if (vegn_idx > veg_threshold) then
 !          a = max(min_wind_decay,a) ! impose a minimum wind decay when there is vegetation
 !      else
 !          a = a_max                 ! return to TURB_LM3V formulation when there is no vegetation
-!        endif
-
-
-
+!      endif
      if (is_watch_point()) then
         __DEBUG5__(vegn_idx, ztop, u_ratio, L_c, L_m)
         __DEBUG4__(ustar, utop, land_d, a)
      endif
+
      do i = 1,size(vegn_lai)
         call cohort_gb(ztop, vegn_bottom(i), vegn_height(i), utop, ustar, land_d, a, vegn_d_leaf(i), gb)
 
@@ -768,7 +772,7 @@ subroutine cana_g_turb (ustar, a, &
 
      ztop = max(aerodyn_height,min_height)
      vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
-     ! In pricinple, we have Km (not Kh), and assuming they are equal is essentially invoking
+     ! In principle, we have Km (not Kh), and assuming they are equal is essentially invoking
      ! the Reynolds analogy, but one can also use a turbulent Prandtl.Schmidt number
      ! to relate the two. Pr_t = Km/Kh, where Pr_t is typically 0.7
      if (land_d > 0.06 .and. vegn_idx > veg_threshold) then
@@ -977,7 +981,7 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
      write(*,*) '#### end of surface resistance input ####'
   endif
 
-  theta_sfc = 1.0 ! to avoid sending undefined values to diagnotics
+  theta_sfc = 1.0 ! to avoid sending undefined values to diagnostics
   ! set up initial (zero) values of resistances
   r_sv_evap = 0
   r_bl_evap = 0
