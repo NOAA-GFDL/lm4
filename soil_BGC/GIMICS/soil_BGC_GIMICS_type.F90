@@ -39,7 +39,7 @@ public :: init_GIMICS_state
 public :: read_soil_BGC_GIMICS_namelist, soil_BGC_diag_init_GIMICS
 public :: save_equilibration_data ! logical flag triggering writing the data needed for equilibration of soil carbon
 
-! ---- interfces
+! ---- interfaces
 interface new_soilc_GIMICS
    module procedure soilc_GIMICS_ctor
    module procedure soilc_GIMICS_copy
@@ -113,7 +113,7 @@ contains
   procedure :: add_soil_matter => add_soil_matter_GIMICS ! add new surface and sub-surface litter to soil carbon and nitrogen
   procedure :: add_root_litter => add_root_litter_GIMICS ! add new root litter to soil carbon and nitrogen
   procedure :: add_root_exudates => add_root_exudates_GIMICS ! add root exudates to soil carbon
-  procedure :: burn_litter_frac => burn_litter_frac_GIMICS  ! burn a fraction of sfc litter and retuen amounts of burned carbon and nitrogen
+  procedure :: burn_litter_frac => burn_litter_frac_GIMICS  ! burn a fraction of sfc litter and return amounts of burned carbon and nitrogen
   procedure :: tracer_leaching => tracer_leaching_GIMICS
 
   procedure :: deposit_N => deposit_N_GIMICS
@@ -160,8 +160,8 @@ real :: Kint      = 3.19     ! Regression intercept (ln(mgC/cm3)) (Eq 2 in Wiede
 real :: aK        = 10.0     ! Tuning coefficient (unitless) (Eq 2 in Wieder et al., 2015)
 
 ! ml: need to fix this fraction in consistent with inputs from vegetation module
-!     this fraction should be differrent for leaf litter, coarse wood litter, rhizosphere, and bulk soil respectively
-!     This fraction is used when calculating microbe turnover rantes and fractions of dead microbe inputs to Cc pools
+!     this fraction should be different for leaf litter, coarse wood litter, rhizosphere, and bulk soil respectively
+!     This fraction is used when calculating microbe turnover rates and fractions of dead microbe inputs to Cc pools
 real :: fI_Lm = 0.38464225   ! Partitioning of litter inputs to Lm (unitless)
 
 real :: eLm_Mr = 0.55       ! Microbial growth efficiency for fluxes from Lm to Mr (mg/mg)
@@ -174,9 +174,9 @@ real :: eCa_Mk = 0.75       ! Microbial growth efficiency for fluxes from Ca to 
 real :: Kmod_oxid_Mr = 4.0  ! Further modifies Km for oxidation of Cc
 real :: Kmod_oxid_Mk = 4.0  ! Further modifies Km for oxidation of Cc
 
-real :: w_Lm = 0.1          ! Fluxes from Lm decompostion to DOC (mg/mg)
-real :: w_Ls = 0.1          ! Fluxes from Ls decompostion to DOC (mg/mg)
-real :: w_Ca = 0.1          ! Fluxes from Ca decompostion to DOC (mg/mg)
+real :: w_Lm = 0.1          ! Fluxes from Lm decomposition to DOC (mg/mg)
+real :: w_Ls = 0.1          ! Fluxes from Ls decomposition to DOC (mg/mg)
+real :: w_Ca = 0.1          ! Fluxes from Ca decomposition to DOC (mg/mg)
 
 real :: fMrTau_DOC = 0.5
 real :: fMkTau_DOC = 0.5
@@ -195,7 +195,7 @@ real :: substrate_diffusion_exp = 3.0  ! Exponent for theta dependence at low th
 
 real :: tau_Tref = 10.0
 real :: tau_calib = 1.0   ! Microbial turnover rate calibration factor
-real :: tau_beta = 1.66   ! Microbial turnover rate increases with grouwing microbila biomass density
+real :: tau_beta = 1.66   ! Microbial turnover rate increases with growing microbial biomass density
                           ! Density-dependence exponent
 
 real :: cw_r_cw = 30.0   !< coarse wood radius [cm]
@@ -228,7 +228,7 @@ real :: K_turb(MAX_SOIL_LEV) = (/ &
 ! ml:  I assume bioturbation coefficient between litter and the first soil layer the same as the one for the 1st and 2nd soil layers
 !      We could test sensitivity
 real :: K_sfc_turb = 1.0e-4 ! coefficient of exchange between surface litter and soil, [m2/yr]
-! ml: for diffusion of DOC, the coefficinet should be much larger like 38.8e-4
+! ml: for diffusion of DOC, the coefficient should be much larger like 38.8e-4
 real :: K_diff(MAX_SOIL_LEV) = (/ &
     38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, &
     38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4, 38.8e-4,    &
@@ -277,6 +277,8 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_theta
    ! turbation tendencies in surface litter pools
    id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC, id_lturb_DOC,&
    id_lturb_microbesR, id_lturb_microbesK
+
+integer :: id_surf_DOC_loss, id_total_DOC_div_loss, id_sadvec_DOC, id_ladvec_DOC(N_LITTER_POOLS)
 
 ! CMIP/CMOR diag fields
 integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
@@ -481,6 +483,17 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   enddo
   id_tot_negative_litter_C = register_tiled_diag_field(diag_mod_name, 'total_negative_litter_C', axes(1:1), &
        lnd%time, 'Total cumulative negative carbon litter input', 'kg C/m2', missing_value = +1e20)
+
+  ! DOC-related fields
+  id_total_DOC_div_loss = register_tiled_diag_field ( diag_mod_name, 'tot_DOC_div', axes(1:1), &
+       lnd%time, 'total rate of DOC divergence loss', 'kg C/(m2 yr)', missing_value=-100.0)
+  id_surf_DOC_loss = register_tiled_diag_field ( diag_mod_name, 'surf_DOC_loss', axes(1:1), &
+       lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/(m2 yr)', &
+       missing_value=-100.0)
+  id_sadvec_DOC = register_tiled_diag_field ( diag_mod_name, 'DOC_advec', axes, &
+       lnd%time, 'Tendency of DOC due to all advective processes',  'kg C/(m3 yr)', missing_value=-100.0)
+  id_ladvec_DOC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_DOC_advec', axes(1:1), &
+       lnd%time, 'Tendency of <ltype> litter DOC due to all advective processes',  'kg C/(m3 yr)', missing_value=-100.0)
 
   ! CMOR fields
   ! set the default sub-sampling filter for the CMOR fields below
@@ -1403,7 +1416,7 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
         !CORPSE moisture function
         !pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
 
-        !ORCHIDEE moisture fucnction
+        !ORCHIDEE moisture function
         if (orchidee_theta) then
            pool%thetaF = theta_func_orchidee(moist,theta_func_orchidee_min,theta_func_orchidee_max)
         else
@@ -1938,7 +1951,7 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
   class(soil_BGC_GIMICS_t), intent(inout) :: soilC
   type(diag_buff_type), intent(inout) :: diag
   !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/delta_time unit.!!! I assume here the unit is mm/yr
-  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (should be mm)
   real, intent(in) :: div_hlsp_DOC(:,:) ! dim(N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
   real, intent(in) :: div_hlsp_DON(:,:) ! dim(N_C_TYPES, num_l) [kg N/m^2/s] net divergence
   real, intent(in) :: div_hlsp_NO3(:)   ! dim(num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
@@ -1948,7 +1961,8 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
 
   ! ---- local vars
   real :: surf_DOC_loss ! [kg C/m^2] loss from top layer to surface runoff loss from tile calculated in hlsp_hydrology
-  real :: DOC0(0:num_l)  ! [kg C/m^2] initial amount of DOC per layer
+  real :: DOC0(0:num_l)  ! [kg C/m^2] initial amount of DOC per layer; layer 0 is surface litter
+  real :: litt_DOC0(N_LITTER_POOLS) ! [kg C/m3] initial concentration of DOC per litter pool, for diagnostics of tendencies
   real :: DOC(0:num_l)  ! [kg C/m^2] amount of DOC per layer
   real :: DOC1(0:num_l)  ! [kg C/m^2] amount of DOC per layer
   real :: d_DOC(0:num_l)
@@ -2036,6 +2050,7 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
   total_DOC_div = surf_DOC_loss + sum(div_loss(1:))
 
   ! update DOC concentrations in the surface litter
+  litt_DOC0(:) = soilc%litt(:)%DOC ! save old values by litter type, for tendency diagnostics
   if(DOC0(0)>0) then
      ! there was some DOC in surface litter initially: scale concentrations in pools
      ! proportionally
@@ -2110,7 +2125,16 @@ subroutine tracer_leaching_GIMICS(soilc, diag, &
   carbon1 = soilc%total_C() + total_DOC_div
   call check_conservation('tracer_leaching_GIMICS','carbon', carbon0, carbon1, carbon_cons_tol )
 
-  ! slm: add diagnostics
+  ! diagnostics
+  call send_tile_data(id_total_DOC_div_loss,total_DOC_div/dt_fast_yr, diag)
+  ! it appears that surf_DOC_loss will be zero except in GW_TILED (hydroblocks) hydrology
+  call send_tile_data(id_surf_DOC_loss, surf_DOC_loss/dt_fast_yr, diag)
+  do k = 1, N_LITTER_POOLS
+     call send_tile_data(id_ladvec_DOC(k), (soilc%litt(k)%DOC-litt_DOC0(k))/dt_fast_yr, diag)
+  enddo
+  if (id_sadvec_DOC>0) then
+     call send_tile_data(id_sadvec_DOC, (DOC(1:num_l)-DOC0(1:num_l))/(dz(:)*dt_fast_yr), diag)
+  endif
 end subroutine tracer_leaching_GIMICS
 
 ! ============================================================================
@@ -2139,7 +2163,7 @@ end subroutine
 !> @brief Calculate volumetric fraction of rhizosphere in each layer
 subroutine rhizosphere_frac(vegn, rFrac)
   type(vegn_tile_type), intent(in)  :: vegn !< vegetation state
-  real                , intent(out) :: rFrac(:)!< volumentric fraction of rhizosphere
+  real                , intent(out) :: rFrac(:)!< volumetric fraction of rhizosphere
 
 !   rFrac = rhiz_frac
 ! slm: perhaps we should have a possibility to use constant rhizosphere fraction?
