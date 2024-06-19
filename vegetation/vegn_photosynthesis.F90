@@ -364,7 +364,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   stomatal_cond=w_scale*stomatal_cond
   if(psyn > 0) psyn = psyn*w_scale
   if(psyn < 0.and.stomatal_cond>b) stomatal_cond=b
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      __DEBUG4__(w_scale, stomatal_cond, psyn, b)
      __DEBUG2__(gs,stomatal_cond)
   endif
@@ -474,7 +474,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   associate(sp=>spdata(pft))
 
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      write(*,*) '####### gs_leuning input #######'
      __DEBUG2__(rad_top, rad_net)
      __DEBUG1__(tl)
@@ -753,7 +753,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   T_inhib_P = 1.0/TempFuncP
   T_inhib_R = 1.0/TempFuncR
 
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      __DEBUG4__(gs, apot, acl, ds)
   endif
   end associate ! sp
@@ -801,7 +801,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   ! to the region of non-zero derivatives w.r.t. psi_r
 
   associate(sp=>spdata(cc%species), vegn_T=>cc%Tv)
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      write(*,*)'######### vegn_hydraulics input ###########'
      __DEBUG3__(cana_T, cana_q, p_surf)
      __DEBUG3__(gb,gs0,fdry)
@@ -839,7 +839,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
 
   Et0 = rho * fdry * gs*gb/(gs+gb) * (qsat*RHi-cana_q)
 
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      __DEBUG2__(RHi,cc%Tv)
      __DEBUG2__(gb,gs0)
      __DEBUG2__(gs,DgsDpl)
@@ -861,7 +861,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      ! do not reset psi_l in case of water flow toward the leaf, otherwise in case of
      ! frozen soil and leaves present stomata shut down and never open again.
      ! cc%psi_l = cc%psi_r
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         write (*,*)'###### Water flux is toward the plant, bypassing calculations #####'
         __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
      endif
@@ -887,7 +887,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
         ! In this case, we solve for Darcy-flow uptake, find the root water potential
         ! to satisfy transpiration by the vegetation, use resulting psi as initial
         ! condition
-        if (is_watch_point()) then
+        if (is_watch_point(2)) then
            write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
         endif
         call darcy2d_uptake_solver     (soil, max(Et0,small_Et0), vegn%root_distance, &
@@ -905,7 +905,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
         call darcy2d_uptake ( soil, psi_r/m2pa, vegn%root_distance, cc%root_length, &
             cc%K_r, cc%r_r, ur0_, DurDpr_ )
         ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
-        if (is_watch_point()) then
+        if (is_watch_point(2)) then
            write (*,*)'###### finished adjusting psi_r #####'
            __DEBUG1__(psi_r)
         endif
@@ -975,7 +975,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      cc%psi_r = min(psi_r    + delta_pr,0.0)
      cc%psi_x = min(cc%psi_x + delta_px,cc%psi_r)
      cc%psi_l = min(cc%psi_l + delta_pl,cc%psi_x)
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
    !     __DEBUG1__(ur0_)
    !     __DEBUG1__(DurDpr_)
         __DEBUG3__(cc%Kli, cc%Kxi, CSAsw)
@@ -1001,7 +1001,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   else
      w_scale = exp(-(cc%psi_l/sp%dl)**sp%cl)
   endif
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      write (*,*)'###### vegn_hydraulics output #####'
      __DEBUG1__(w_scale)
   endif

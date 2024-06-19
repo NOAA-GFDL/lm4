@@ -114,6 +114,10 @@ character(len=*), parameter :: module_name = 'vegn'
 ! size of cohort initial condition array
 integer, parameter :: MAX_INIT_COHORTS = 10
 
+! vegetation aerodynamic height options:
+integer, parameter :: AERODYN_HEIGHT_TALLEST = 1  ! tallest cohort
+integer, parameter :: AERODYN_HEIGHT_AVE_TOP = 2  ! average over exposed tops of canopies
+
 abstract interface
   ! the following interface describes the "detector function", which is passed
   ! through the argument list and must return TRUE for any cohort that meets
@@ -181,6 +185,9 @@ real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
    ! dormancy calculations, day. Zero turns off smoothing: average temperature from
    ! will be used previous day
+character(32) :: aerodyn_height_to_use = 'tallest' ! or 'top-crowns'
+   ! how to calculate vegetation height for aerodynamic calculations (i.e. roughness,
+   ! displacement height, etc.)
 
 logical :: do_peat_redistribution = .FALSE.
 
@@ -199,7 +206,7 @@ namelist /vegn_nml/ &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
     min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
-    do_peat_redistribution, do_intercept_melt
+    do_peat_redistribution, do_intercept_melt, aerodyn_height_to_use
 
 !---- end of namelist --------------------------------------------------------
 
@@ -210,9 +217,10 @@ real    :: dt_slow_yr      ! slow time step in years
 real    :: steps_per_day   ! number of fast time steps per day
 real    :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 integer :: seed_transport_option = -1 ! type of requested seed transport algorithm
+integer :: aerodyn_height_option    = -1 ! aerodynamic height calculation option
 
 ! diagnostic field ids
-integer :: id_vegn_type, id_height, id_height_ave, &
+integer :: id_vegn_type, id_height_tallest, id_height_ave, id_height_aerodyn, &
    id_temp, id_wl, id_ws, &
    id_lai, id_sai, id_leafarea, id_leaf_size, id_laii, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
@@ -242,7 +250,9 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
    id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
    id_age_since_disturbance, id_age_since_landuse, &
-   id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C
+   id_litterfall_C, id_litterfall_lf_C, id_litterfall_cw_C, &
+   id_amount_wood_harv_C, id_amount_wood_harv_N, &
+   id_amount_wood_cleared_C, id_amount_wood_cleared_N
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -303,6 +313,16 @@ subroutine read_vegn_namelist()
 
   if (mpp_pe() == mpp_root_pe()) then
      write(unit, nml=vegn_nml)
+  endif
+
+  ! parse aerodynamic height options
+  if (trim(lowercase(aerodyn_height_to_use))=='tallest') then
+     aerodyn_height_option = AERODYN_HEIGHT_TALLEST
+  else if (trim(lowercase(aerodyn_height_to_use))=='top-crowns') then
+     aerodyn_height_option = AERODYN_HEIGHT_AVE_TOP
+  else
+     call error_mesg('read_vegn_namleist', 'aerodyn_height_to_use="'// &
+          trim(aerodyn_height_to_use)//'" is invalid, use "tallest", or "top-crowns"', FATAL)
   endif
 
   ! ---- initialize vegetation radiation options
@@ -885,10 +905,12 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'canopy solid water content', 'kg/m2', missing_value=-1.0)
 
 
-  id_height = register_tiled_diag_field ( module_name, 'height',  &
+  id_height_tallest = register_tiled_diag_field ( module_name, 'height_tallest',  &
        (/id_ug/), time, 'height of tallest vegetation', 'm', missing_value=-1.0)
   id_height_ave = register_cohort_diag_field ( module_name, 'height_ave',  &
        (/id_ug/), time, 'average height of the trees', 'm', missing_value=-1.0)
+  id_height_aerodyn = register_tiled_diag_field ( module_name, 'height_aerodyn',  &
+       (/id_ug/), time, 'effective height of vegetation', 'm', missing_value=-1.0)
 
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
@@ -1102,6 +1124,16 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
            'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
 
+  ! amounts of wood harvested (or cleared) in the last event
+  id_amount_wood_harv_C = register_tiled_diag_field( module_name, 'amount_wood_harv_C', (/id_ug/), &
+       time, 'wood carbon harvested in the last event', 'kg C/m2', missing_value=-999.0)
+  id_amount_wood_harv_N = register_tiled_diag_field( module_name, 'amount_wood_harv_N', (/id_ug/), &
+       time, 'wood nitrogen harvested in the last event', 'kg N/m2', missing_value=-999.0)
+  id_amount_wood_cleared_C = register_tiled_diag_field( module_name, 'amount_wood_cleared_C', (/id_ug/), &
+       time, 'wood carbon cleared in the last event', 'kg C/m2', missing_value=-999.0)
+  id_amount_wood_cleared_N = register_tiled_diag_field( module_name, 'amount_wood_cleared_N', (/id_ug/), &
+       time, 'wood nitrogen cleared in the last event', 'kg N/m2', missing_value=-999.0)
+
   ! intermediate carbon pools for CORPSE soil carbon configurations
   id_litter_buff_C(:,:) = register_litter_soilc_diag_fields('soil', '<ltype>litt_buff_C_<ctype>', (/id_ug/), &
        time, 'intermediate pool of <ltype> <ctype> litter carbon', 'kg C/m2', missing_value=-999.0)
@@ -1220,7 +1252,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_mass_content_of_carbon', fill_missing=.TRUE.)
 
-  call add_tiled_diag_field_alias(id_height, cmor_name, 'vegHeight', (/id_ug/), &
+  call add_tiled_diag_field_alias(id_height_tallest, cmor_name, 'vegHeight', (/id_ug/), &
        time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
        'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
 
@@ -1555,11 +1587,11 @@ end subroutine save_vegn_restart
 ! ============================================================================
 ! given vegetation state and snow depth, calculate integral diffusion-related
 ! properties
-subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, vegn_sai)
+subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_lai, vegn_sai)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: snow_depth
   real, intent(out) :: &
-       vegn_cover, vegn_height, vegn_lai, vegn_sai
+       vegn_cover, vegn_lai, vegn_sai
 
   real :: gaps,      & ! fraction of gaps in the canopy, =1-cover
           layer_gaps   ! fraction of gaps in the canopy in a single layer, accumulator value
@@ -1569,7 +1601,6 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
   ! calculate integral parameters of vegetation
   gaps = 1.0; vegn_lai = 0; vegn_sai = 0
   current_layer = cc(1)%layer ; layer_gaps = 1.0
-  vegn_height = 0.0
   do i = 1,vegn%n_cohorts
     call vegn_data_cover(cc(i), snow_depth)
     vegn_lai = vegn_lai + cc(i)%lai*cc(i)%layerfrac
@@ -1579,14 +1610,12 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
        gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
     endif
     layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
-    vegn_height = max(vegn_height,cc(i)%height)
   enddo
   gaps = gaps*layer_gaps ! take the last layer into account
   vegn_cover  = 1 - gaps
   end associate ! F2003
 
 end subroutine vegn_diffusion
-
 
 ! ============================================================================
 subroutine vegn_step_1 ( vegn, soil, diag, &
@@ -1700,7 +1729,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      __DEBUG1__(cc%leaf_size)
      __DEBUG1__(cc%Tv)
      __DEBUG1__(cc%Wl)
+     __DEBUG1__(cc%Ws)
      __DEBUG1__(cc%Wl_max)
+     __DEBUG1__(cc%Ws_max)
   endif
   ! TODO: check array sizes
 
@@ -2030,7 +2061,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      endif
      ! vegn_melt is per individual here
 
-     if(is_watch_point()) then
+     if(is_watch_point(2)) then
         write (*,*)'#### vegn_step_2 #### 1'
         write(*,'("cohort ",i2.2)',advance='NO') i
         __DEBUG4__(cc%Tv, cc%Wl, cc%Ws, vegn_melt)
@@ -2048,7 +2079,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      cc%Wl = cc%Wl - vegn_ovfl_l*delta_time
      cc%Ws = cc%Ws - vegn_ovfl_s*delta_time
 
-     if(is_watch_point()) then
+     if(is_watch_point(2)) then
         write(*,*)'#### vegn_step_2 output #####'
         __DEBUG3__(vegn_melt, vegn_ovfl_l, vegn_ovfl_s)
         __DEBUG2__(vegn_ovfl_Hl,vegn_ovfl_Hs)
@@ -2075,15 +2106,17 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! root_zeta -- perhaps averaged with root density as weight?
   ! snow_crit???
   associate(c=>vegn%cohorts)
-  call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity
   call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%Ws, weight=c(1:N)%nindivs, op=OP_SUM)
 
-  call send_tile_data(id_height, maxval(c(1:N)%height), diag) ! tallest
+  call send_tile_data(id_height_tallest, maxval(c(1:N)%height), diag) ! tallest
   ! in principle, the first cohort must be the tallest, but since cohorts are
-  ! rearranged only once a year, that may not be true for part of the year
+  ! rearranged infrequently, that may not be true for part of the time
+  call send_tile_data(id_height_aerodyn, vegn%aerodyn_height, diag)
+  call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_AVERAGE)
+
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
   call send_cohort_data(id_sai,     diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
@@ -2279,10 +2312,10 @@ subroutine update_derived_vegn_data(vegn, soil)
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
   integer :: k  ! cohort index
   integer :: sp ! shorthand for the vegetation species
-  integer :: n_layers ! number of layers in cohort
+  integer :: n_layers ! number of vegetation layers
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
-  real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in the layer
-  real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in the layer
+  real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in each layer
+  real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in each layer
   integer :: current_layer
   real, allocatable :: layer_top(:) ! height of the tallest vegeattion in layer, for zbot calculations
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
@@ -2340,6 +2373,18 @@ subroutine update_derived_vegn_data(vegn, soil)
      endif
   enddo
 
+  if (is_watch_point()) then
+     ! print layer scaling factors
+     do k = 1,n_layers
+        write(*,'("layer ",i2.2)',advance='NO') k
+        call dpri('area_t',area_t(k))
+        call dpri('area_g',area_g(k))
+        call dpri('area',layer_area(k))
+        call dpri('scale_t',scale_t(k))
+        call dpri('scale_g',scale_g(k))
+        write(*,*)
+     enddo
+  endif
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
   do k = 1,vegn%n_cohorts
@@ -2356,7 +2401,7 @@ subroutine update_derived_vegn_data(vegn, soil)
     ! TODO: check that Pl, Pr, Psw, Psw_alphasw are not used in PPA, move the
     ! above call inside "if (.not.do_ppa)" statement
 
-    if(sp<NSPECIES) then ! LM3V species
+    if(sp<NSPECIES) then ! LM3V species (as opposed to LM2)
        ! calculate area fraction that the cohort occupies in its layer
 !       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
 !          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL)
@@ -2409,6 +2454,9 @@ subroutine update_derived_vegn_data(vegn, soil)
   endif
 
   call check_var_range(vegn%cohorts(1:vegn%n_cohorts)%layerfrac, 0.0, 1.0, 'update_derived_vegn_data', 'layerfrac', FATAL)
+
+  ! calculate effective aerodynamic height of the whole vegetation canopy
+  vegn%aerodyn_height = vegn_aerodyn_height(vegn)
 
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
   if(zbot_assumption_bug) then
@@ -2465,7 +2513,7 @@ subroutine update_derived_vegn_data(vegn, soil)
         call dpri('frac',cc%layerfrac)
         call dpri('height',cc%height)
         call dpri('zbot',cc%zbot)
-        call dpri('LAI',cc%lai)
+        ! call dpri('LAI',cc%lai)
         ! call dpri('bl',cc%bl)
         ! call dpri('leafarea',cc%leafarea)
         call dpri('crownarea',cc%crownarea)
@@ -2475,11 +2523,79 @@ subroutine update_derived_vegn_data(vegn, soil)
         call dpri('species',spdata(cc%species)%name)
         write(*,*)
      enddo
+     call dpri('aerodyn_height', vegn%aerodyn_height); write(*,*)
   endif
 
   deallocate(layer_area,area_t,area_g,scale_t,scale_g)
 end subroutine update_derived_vegn_data
 
+! ============================================================================
+! calculate the effective height of vegetation for aerodynamic calculations
+real function vegn_aerodyn_height(vegn) result(height)
+  type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
+
+  integer :: n_layers ! number of layers in vegetation
+  real, allocatable :: &
+        layer_area(:), & ! area of _all_ cohorts in the layer
+        visible(:)       ! fraction of layer visible from top
+  integer :: k, l
+  real    :: area
+
+  select case (aerodyn_height_option)
+  case (AERODYN_HEIGHT_TALLEST)
+     ! maximum of cohort heights
+     height = 0.0
+     do k = 1,vegn%n_cohorts
+        height = max(height, vegn%cohorts(k)%height)
+     enddo
+  case(AERODYN_HEIGHT_AVE_TOP)
+     ! average height of all cohorts exposed to the atmosphere, proportional to thear
+     ! exposed area.
+     n_layers = maxval(vegn%cohorts(:)%layer)
+     allocate(layer_area(n_layers),visible(n_layers))
+
+     ! calculate fraction of tile area occupied by canopies in each of the layers
+     ! note that using crownarea would be inaccurate/incorrect, because of squeezing
+     ! or stretching of cohort crowns, allow_external_gaps and tree/grass competition
+     ! options.
+     ! Also note that in case of TREES_SQUEEZE_GRASS, cohort layers are not necessarily
+     ! monotonically increasing with cohort index, depending on the
+     ! in ordr
+     layer_area(:) = 0.0
+     do k = 1, vegn%n_cohorts
+        associate(cc=>vegn%cohorts(k), sp=>spdata(vegn%cohorts(k)%species))
+        l = cc%layer
+        layer_area(l) = layer_area(l) + cc%layerfrac/(1-sp%internal_gap_frac)
+        end associate
+     enddo
+
+     ! calculate the fraction of each layer that is visible from above
+     visible(1) = 1.0
+     do l = 2,n_layers
+        visible(l) = visible(l-1)*(max(1.0-layer_area(l-1), 0.0))
+     enddo
+
+     ! calculate average height of visible canopies
+     height = 0.0; area = 0.0
+     do k = 1, vegn%n_cohorts
+        associate(cc=>vegn%cohorts(k), sp=>spdata(vegn%cohorts(k)%species))
+        l = cc%layer
+        height = height + cc%layerfrac/(1-sp%internal_gap_frac)*visible(l)*cc%height
+        area   = area   + cc%layerfrac/(1-sp%internal_gap_frac)*visible(l)
+        end associate
+     enddo
+
+     if (area > 0) then
+        height = height/area
+     else
+        height = 0
+     endif
+
+     deallocate (layer_area,visible)
+  case default
+     call error_mesg('vegn_aerodyn_height','invalid height option, contact developer',FATAL)
+  end select
+end function vegn_aerodyn_height
 
 ! ============================================================================
 ! update slow components of the vegetation model
@@ -2855,6 +2971,17 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_tile_nitrogen_gain,tile%soil%gross_nitrogen_flux_into_tile, tile%diag)
      call send_tile_data(id_tile_nitrogen_loss,tile%soil%gross_nitrogen_flux_out_of_tile, tile%diag)
 
+     ! send the amounts of wood harvested in last event
+     call send_tile_data(id_amount_wood_harv_C,    tile%vegn%amount_wood_harv_C,    tile%diag)
+     call send_tile_data(id_amount_wood_harv_N,    tile%vegn%amount_wood_harv_N,    tile%diag)
+     call send_tile_data(id_amount_wood_cleared_C, tile%vegn%amount_wood_cleared_C, tile%diag)
+     call send_tile_data(id_amount_wood_cleared_N, tile%vegn%amount_wood_cleared_N, tile%diag)
+     ! reset diagnostic variables for the next period
+     tile%vegn%amount_wood_harv_C    = 0.0
+     tile%vegn%amount_wood_harv_N    = 0.0
+     tile%vegn%amount_wood_cleared_C = 0.0
+     tile%vegn%amount_wood_cleared_N = 0.0
+
 
      ! CMOR/CMIP variables
      if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(cc(1:N)%bl*cc(1:N)%nindivs), tile%diag)
@@ -2963,7 +3090,7 @@ subroutine update_vegn_slow( )
      endif
   enddo
 
-  if (do_ppa.and.year1 /= year0) then
+  if (year1 /= year0) then
     if (do_ppa) then
        call vegn_reproduction_ppa(seed_transport_option) ! includes seed transport.
     else

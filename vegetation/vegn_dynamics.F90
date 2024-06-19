@@ -1051,14 +1051,14 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      resg(i) = cc%growth_previous_day_tmp ! kg C per individual per year
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
 
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         write(*,'("####### vegn_carbon_int_ppa #0, cohort ",i2.2)') i
         __DEBUG1__(cc%nindivs)
         __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bwood, cc%nsc)
         __DEBUG5__(cc%leaf_N, cc%root_N, cc%sapwood_N, cc%wood_N, cc%stored_N)
      endif
      cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         __DEBUG1__(cc%carbon_gain)
      endif
 
@@ -1085,7 +1085,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      if (soil_carbon_option==SOILC_CORPSE_N) &
          cc%stored_N = cc%stored_N + deltaNL*sp%leaf_N_retrans_frac   &
                                    + deltaNR*sp%root_N_retrans_frac
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaNR)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
      endif

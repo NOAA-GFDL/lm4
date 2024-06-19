@@ -446,7 +446,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
         exit
      endif
 
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         write(*,*)'##### solution iteration iter=',n_iter
         __DEBUG5__(f,DfDx,xl,xh,x2)
         __DEBUG2__((x2-xl)*DfDx,(x2-xh)*DfDx)
@@ -472,7 +472,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
         xh = x2
      endif
 
-     if(is_watch_point()) then
+     if(is_watch_point(2)) then
         write(*,*)'#### After iteration',n_iter
         __DEBUG2__(vegn_uptk,sum(uptake))
      endif

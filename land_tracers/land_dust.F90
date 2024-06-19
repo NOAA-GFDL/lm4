@@ -269,6 +269,10 @@ subroutine land_dust_init (id_ug, mask)
         call virrig%addvar(firrig,trim(cropName(i))//'_irrig')
      enddo
 
+     write(*,*)'land_dust_init: summary of irrigation input fields'
+     write(*,'(a)') vstate%descr()
+     write(*,'(a)') virrig%descr()
+
      call read_irrigation_fraction(lnd%time,irrigation_fraction)
   endif
 
@@ -685,6 +689,8 @@ subroutine update_dust_slow (time)
 
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   logical :: used
+
+  if (.not.do_dust) return ! nothing to do
 
   call get_date(time,             year0,month0,day0,hour,minute,second)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
