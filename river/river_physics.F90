@@ -165,10 +165,10 @@ contains
     ! The flag can be removed if using the old diag manager
     id_ice  = register_diag_field ( 'river', 'rv_ice', (/id_lon, id_lat/), &
          River%Time, 'river ice mass fraction', '-', missing_value=missing, &
-         mask_variant=.TRUE., multiple_send_data=.True. )
+         mask_variant=.TRUE.)
     id_temp = register_diag_field ( 'river', 'rv_T', (/id_lon, id_lat/), &
          River%Time, 'river temperature', 'K', missing_value=missing, &
-         mask_variant=.TRUE., multiple_send_data=.True. )
+         mask_variant=.TRUE.)
   end subroutine river_physics_init
 
 !#####################################################################
