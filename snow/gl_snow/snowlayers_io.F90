@@ -1,11 +1,9 @@
 module snowlayers_io_mod
 
 use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
-
 use fms_mod,          only : error_mesg, FATAL, WARNING
-use fms_io_mod,       only : get_instance_filename
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, compressed_start_and_count, &
-     register_axis, register_field, register_variable_attribute, read_data, write_data
+     register_axis, register_field, register_variable_attribute, read_data, write_data, get_instance_filename
 use mpp_mod,          only : mpp_max
 use land_data_mod, only    : lnd
 use land_io_mod,      only : register_variable_string_attribute
