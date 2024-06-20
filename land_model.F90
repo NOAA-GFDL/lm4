@@ -2917,8 +2917,6 @@ subroutine land_turbulence(tile, &
       ustar,       & ! friction velocity above canopy, m/s
       grnd_T         ! surface temperature, degK
   logical, intent(in) :: snow_active
-
-
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), con_v_stem(:),  & ! one-sided foliage-CAS conductance per unit ground area
        con_g_h   , con_g_v, &       ! ground-CAS turbulent conductance per unit ground area
@@ -2940,7 +2938,6 @@ subroutine land_turbulence(tile, &
        u_ratio,&  ! ratio u*/U(h)
        L_c,    &  ! adjustment lengthscale in meters L_c=1/(cd_leaf*lad) modeled as h/(cd_leaf*vegn_idx)
        L_m        ! within-canopy mixing length (m). L_m = 2*beta^3*L_c, where beta=u*/Uh (u_ratio)
-
 
   if(associated(tile%vegn)) then
      cc => tile%vegn%cohorts(1:tile%vegn%n_cohorts) ! note that the size of cc is always N

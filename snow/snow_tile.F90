@@ -3,7 +3,7 @@ module snow_tile_mod
 #include "../shared/debug.inc"
 
 use mpp_mod, only: input_nml_file
-
+use mpp_mod, only: input_nml_file
 use fms_mod, only : check_nml_error, stdlog, FATAL, NOTE
 use constants_mod,only: tfreeze
 use land_constants_mod, only : NBANDS, &
@@ -347,8 +347,8 @@ subroutine read_snow_data_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
+
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
   unit=stdlog()

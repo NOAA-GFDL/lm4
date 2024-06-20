@@ -4,8 +4,8 @@ module lake_tile_mod
 
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug
-
-use fms_mod, only : file_exist, input_nml_file, check_nml_error, read_data, stdlog
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog
 use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS, &
 ! MODIS BRDF model parameters
@@ -13,7 +13,7 @@ use land_constants_mod, only : NBANDS, &
     g_vol, g0_vol, g1_vol, g2_vol, &
     g_geo, g0_geo, g1_geo, g2_geo
 use land_data_mod, only : lnd, log_version
-use land_io_mod, only : init_cover_field
+use land_io_mod, only : init_cover_field, domain_read_data
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 
 implicit none
@@ -225,8 +225,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
   integer :: i
   real    :: z
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=lake_data_nml, iostat=io)
   ierr = check_nml_error(io, 'lake_data_nml')
@@ -352,17 +351,17 @@ end subroutine init_lake_data_0d
 function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
 ! creates and initializes a field of fractional lake coverage
   logical, intent(in) :: land_mask(:)    ! land mask
-  real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
+  real,    intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
   real,    pointer    :: lake_frac (:,:) ! output: map of lake fractional coverage
   type(domain2d), intent(in) :: domain
   real :: lake_frac_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
-  allocate( lake_frac(size(land_mask(:)),n_dim_lake_types))
+  logical :: river_data_exists
+
+  allocate(lake_frac(size(land_mask(:)), n_dim_lake_types))
 
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
-     if (file_exist('INPUT/river_data.nc', domain)) then
-         call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, &
-                        domain=domain)
+     if (domain_read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, domain)) then
          call mpp_pass_sg_to_ug(lnd%ug_domain, lake_frac_sg, lake_frac(:,1))
      endif
      ! make sure 'missing values' don't get into the result

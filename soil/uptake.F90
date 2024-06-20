@@ -5,10 +5,10 @@ module uptake_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, input_nml_file, check_nml_error, &
-     stdlog, mpp_pe, mpp_root_pe, FATAL
+use mpp_mod, only: input_nml_file
+use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, &
+                   FATAL
 use constants_mod, only: PI
-
 use soil_tile_mod, only : soil_tile_type, max_lev, psi_wilt
 use land_debug_mod, only : is_watch_point
 use land_data_mod, only : log_version
@@ -78,8 +78,7 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
        zfull_in(:)  ! layer centers
 
   integer :: unit, ierr, io
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=uptake_nml, iostat=io)
   ierr = check_nml_error(io, 'uptake_nml')

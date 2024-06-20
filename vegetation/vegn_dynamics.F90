@@ -5,10 +5,9 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: check_nml_error, input_nml_file, &
-     check_nml_error, stdlog, error_mesg, FATAL, WARNING
+use fms_mod, only: check_nml_error, stdlog, error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
-use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
+use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe, input_nml_file
 use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
 use constants_mod, only : PI

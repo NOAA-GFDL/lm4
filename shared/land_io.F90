@@ -5,23 +5,21 @@ use mpp_domains_mod, only : mpp_pass_sg_to_ug
 
 use constants_mod, only : PI
 use fms_mod, only: error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, string, check_nml_error
+     mpp_root_pe, string, check_nml_error, lowercase
 use mpp_mod, only: input_nml_file
-use mpp_io_mod, only: axistype, mpp_get_axis_data
-use axis_utils_mod, only : get_axis_bounds
 use fms2_io_mod, only: open_file, close_file, read_data, FmsNetcdfFile_t, get_valid, &
      get_variable_num_dimensions, get_variable_dimension_names, get_variable_size, &
-     Valid_t, is_valid, variable_exists, register_variable_attribute
+     Valid_t, is_valid, variable_exists, register_variable_attribute, FmsNetcdfDomainFile_t, &
+     variable_att_exists, get_variable_attribute, register_axis
 use axis_utils2_mod, only: axis_edges
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
-use time_interp_external_mod, only: time_interp_external_init, &
-     time_interp_external, init_external_field
+use time_interp_external2_mod, only: time_interp_external_init, &
+     time_interp_external, init_external_field, get_external_fileobj, SUCCESS
 use time_manager_mod, only: time_type
 use mpp_domains_mod, only : domain2d
 use land_numerics_mod, only : nearest, bisect
 use land_data_mod, only : log_version, lnd, horiz_interp_ug
-
 
 implicit none
 private
@@ -35,6 +33,7 @@ public :: init_external_ts, del_external_ts
 public :: read_external_ts
 public :: input_buf_size
 public :: register_variable_string_attribute
+public :: domain_read_data
 ! ==== end of public interface ===============================================
 
 interface read_field
@@ -653,11 +652,12 @@ end subroutine read_field_N_3D
 ! simplified interface for the time_inerp_external: takes care of creating
 ! the horizntal interpolator
 ! ==============================================================================
-subroutine init_external_ts(ts, filename, fieldname, interp, fill)
+subroutine init_external_ts(ts, filename, fieldname, interp, fill, ierr)
   type(external_ts_type), intent(inout) :: ts
   character(*), intent(in) :: filename, fieldname
   character(*), intent(in) :: interp ! interpolation method
   real,         intent(in), optional :: fill ! fill value for missing data
+  integer,      intent(out), optional :: ierr ! Error code returned by init_external_field
 
 ! NOTE: filling missing data is not really implemented yet. It is not clear how to get
 ! the input data to determine the input valid data mask. Besides, missing input data mask
@@ -665,25 +665,31 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
 ! at all.
 ! TODO: really implement missing data masking and filling
 
-  integer :: axis_sizes(4)
-  type(axistype) :: axis_centers(4), axis_bounds(4)
   real, allocatable :: lon_in(:), lat_in(:)
+  type(FmsNetcdfFile_t)          :: fileobj       !< FMS2io fileobj
+  character(len=20)              :: axis_names(4) !< Array of axis names
+  integer                        :: axis_sizes(4) !< Size of each axis
 
   ! initialize external field
   call time_interp_external_init()
   ts%filename = filename
   ts%fieldname = fieldname
-  ts%id = init_external_field(filename,fieldname, domain=lnd%sg_domain, &
-       axis_centers=axis_centers, axis_sizes=axis_sizes, &
-       use_comp_domain=.TRUE., override=.TRUE.)
+  ts%id = init_external_field(filename, fieldname, domain=lnd%sg_domain, &
+                            & axis_names=axis_names, axis_sizes=axis_sizes, &
+                            & use_comp_domain=.TRUE., override=.TRUE., ierr=ierr)
+
+  if (present(ierr)) then
+    if (ierr .ne. SUCCESS) return
+  endif
+
   !  get lon and lat of the input (source) grid, assuming that axis%data contains
   !  lat and lon of the input grid (in degrees)
-  call get_axis_bounds(axis_centers(1),axis_bounds(1),axis_centers)
-  call get_axis_bounds(axis_centers(2),axis_bounds(2),axis_centers)
-  allocate(lon_in(axis_sizes(1)+1))
-  allocate(lat_in(axis_sizes(2)+1))
-  call mpp_get_axis_data(axis_bounds(1),lon_in)
-  call mpp_get_axis_data(axis_bounds(2),lat_in)
+
+  if (get_external_fileobj(filename, fileobj)) then
+    allocate(lon_in(axis_sizes(1) + 1), lat_in(axis_sizes(2) + 1))
+    call axis_edges(fileobj, axis_names(1), lon_in)
+    call axis_edges(fileobj, axis_names(2), lat_in)
+  endif
 
   select case (trim(interp))
   case ('bilinear')
@@ -695,7 +701,7 @@ subroutine init_external_ts(ts, filename, fieldname, interp, fill)
   case default
      call error_mesg('init_external_ts','Unknown interpolation method "'//trim(interp)//'". use "bilinear" or "conservative"', FATAL)
   end select
-  deallocate(lon_in,lat_in)
+  deallocate(lon_in, lat_in)
   ts%fill = DEFAULT_FILL_REAL
   if (present(fill)) ts%fill = fill
 end subroutine init_external_ts
@@ -734,5 +740,42 @@ subroutine register_variable_string_attribute(fileobj, variable_name, attribute_
   call register_variable_attribute(fileobj, variable_name, attribute_name, attribute_value, &
            str_len = len(attribute_value))
 end subroutine register_variable_string_attribute
+
+logical function domain_read_data(filename, variable_name, variable_data, domain)
+  character(len=*), intent(in)    :: filename
+  character(len=*), intent(in)    :: variable_name
+  real,             intent(inout) :: variable_data(:,:)
+  type(domain2d)  , intent(in)    :: domain
+
+  type(FmsNetcdfDomainFile_t)    :: fileobj            !< fms2io fileobj for domain decomposed
+  character(len=20), allocatable :: dimnames(:)        !< Array of strings to store dimension names
+  integer                        :: i                  !< For do loops
+  character(len=1)               :: cart_axis          !< The cartisian axis
+  integer                        :: ndim               !< Nuber of dimensions in the variable
+
+  domain_read_data = .false.
+  if (.not. open_file(fileobj, filename, "read", domain)) return
+  ndim = get_variable_num_dimensions(fileobj, variable_name)
+  allocate(dimnames(ndim))
+  call get_variable_dimension_names(fileobj, variable_name, dimnames)
+
+  !< FMS2io requires the domain decomposed dimensions before reading them
+  do i = 1, ndim
+    if (variable_att_exists(fileobj, dimnames(i), "cartesian_axis")) then
+      call get_variable_attribute(fileobj, dimnames(i), "cartesian_axis", cart_axis)
+    else if (variable_att_exists(fileobj, dimnames(i), "axis")) then
+      call get_variable_attribute(fileobj, dimnames(i), "axis", cart_axis)
+    endif
+    if (lowercase(cart_axis) .eq. "x" .or. lowercase(cart_axis) .eq. "y" ) then
+      call register_axis(fileobj, dimnames(i), cart_axis)
+    endif
+  enddo
+
+  call read_data(fileobj, variable_name, variable_data)
+
+  domain_read_data = .true.
+  call close_file(fileobj)
+
+end function domain_read_data
 
 end module

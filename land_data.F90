@@ -73,7 +73,6 @@ type :: atmos_land_boundary_type
         p_surf    => NULL(), &   ! surface pressure, Pa
         con_atm   => NULL()      ! conductance between atmosphere and canopy, m/s
 
-
    real, dimension(:,:,:), pointer :: & ! (grid index, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
         dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value,

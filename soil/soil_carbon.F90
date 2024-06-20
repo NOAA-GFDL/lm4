@@ -6,18 +6,18 @@ module soil_carbon_mod
 #include "../shared/debug.inc"
 
 use land_constants_mod, only : Rugas
-use fms_mod, only: check_nml_error, input_nml_file, &
-            stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
+use mpp_mod, only: input_nml_file
+use fms_mod, only: check_nml_error, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
+                 & FATAL, NOTE
 use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range
-#endif
 
+#endif
 
 implicit none
 
 private
-
 
 ! ==== public interfaces =====================================================
 public :: soil_pool
@@ -275,8 +275,7 @@ subroutine read_soil_carbon_namelist
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')
