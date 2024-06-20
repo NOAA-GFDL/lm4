@@ -1,7 +1,8 @@
 module snow_base_mod
 #include <fms_platform.h>
 
-use fms_mod, only: check_nml_error, input_nml_file, lowercase, &
+use mpp_mod, only: input_nml_file
+use fms_mod, only: check_nml_error, lowercase, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 
 use land_data_mod, only : log_version

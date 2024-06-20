@@ -3,7 +3,6 @@ module gl_snow_tile_mod
 #include "../../shared/debug.inc"
 
 use mpp_mod, only: input_nml_file
-
 use fms_mod, only : FATAL, lowercase
 use constants_mod, only : tfreeze, hlf
 

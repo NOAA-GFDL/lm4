@@ -2,8 +2,8 @@ module cm_snow_tile_mod
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
 
-
-use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, FATAL
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog, mpp_pe, mpp_root_pe, FATAL
 use time_manager_mod, only: time_type_to_real
 use constants_mod,only: tfreeze, hlf
 use land_tile_selectors_mod, only : tile_selector_type

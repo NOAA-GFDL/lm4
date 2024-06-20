@@ -4,7 +4,8 @@ module snow_evolution_mod
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
 
-use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
        FATAL, WARNING, NOTE
 use time_manager_mod, only: time_type_to_real
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
