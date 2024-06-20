@@ -15,7 +15,8 @@ use constants_mod, only : PI
 use snowpack_mod, only: snowpack_t, compute_snow_grain_shape, &
     lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
 
-use fms2_io_mod, only: read_data
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
+                       open_file, read_data, get_variable_num_dimensions
 
 
 implicit none
@@ -59,6 +60,7 @@ logical :: is_BC_internal_mixing = .TRUE.   ! FOR NOW FORCE IT
 integer :: snicar_atm_type = 0 ! default (midlatitude winter)
 real :: fraction_philic = 0.5 ! fraction of hydrophilic carbon tracers
 CHARACTER(LEN=22) :: ncid = "snicar_optics.nc"
+
 
 namelist /snow_snicar_nml/ &
    snow_shape_defined , use_snicar_ad, is_BC_internal_mixing, is_dust_internal_mixing, snicar_atm_type, fraction_philic, ncid
@@ -470,60 +472,71 @@ end subroutine read_snow_snicar_namelist
 
      integer :: ier
      logical :: readvar
+     logical :: exists
+     type(FmsNetcdfFile_t) :: fileobj
+
+     exists = open_file(fileobj, ncid, "read")
+     if (.not. exists) then
+       call error_mesg("read_snicar_optics_data", &
+                       "file does not exist.", &
+                       FATAL)
+     endif
       ! write(*,*) "Reading SNICAR optics data"
       ! LM4p2 READ:
       ! direct-beam snow Mie parameters:
-      call read_data( ncid, 'ss_alb_ice_drc', ss_alb_snw_drc)
-      call read_data( ncid, 'asm_prm_ice_drc', asm_prm_snw_drc)
-      call read_data( ncid, 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc)
+      call read_data( fileobj, 'ss_alb_ice_drc', ss_alb_snw_drc)
+      call read_data( fileobj, 'asm_prm_ice_drc', asm_prm_snw_drc)
+      call read_data( fileobj, 'ext_cff_mss_ice_drc', ext_cff_mss_snw_drc)
       ! diffuse snow Mie parameters:
-      call read_data( ncid, 'ss_alb_ice_dfs', ss_alb_snw_dfs)
-      call read_data( ncid, 'asm_prm_ice_dfs', asm_prm_snw_dfs)
-      call read_data( ncid, 'ext_cff_mss_ice_dfs', ext_cff_mss_snw_dfs)
+      call read_data( fileobj, 'ss_alb_ice_dfs', ss_alb_snw_dfs)
+      call read_data( fileobj, 'asm_prm_ice_dfs', asm_prm_snw_dfs)
+      call read_data( fileobj, 'ext_cff_mss_ice_dfs', ext_cff_mss_snw_dfs)
 
       if (snicar_atm_type > 0)then
-         call read_data( ncid, 'flx_wgt_dir', flx_wgt_dir) ! direct-beam incident spectral flux:
-         call read_data( ncid, 'flx_wgt_dif', flx_wgt_dif) ! diffuse incident spectral flux:
+         call read_data( fileobj, 'flx_wgt_dir', flx_wgt_dir) ! direct-beam incident spectral flux:
+         call read_data( fileobj, 'flx_wgt_dif', flx_wgt_dif) ! diffuse incident spectral flux:
       endif
 
       ! BC species 1 Mie parameters
-      call read_data( ncid, 'ss_alb_bcphil', ss_alb_bc1)
-      call read_data( ncid, 'asm_prm_bcphil', asm_prm_bc1)
-      call read_data( ncid, 'ext_cff_mss_bcphil', ext_cff_mss_bc1)
+      call read_data( fileobj, 'ss_alb_bcphil', ss_alb_bc1)
+      call read_data( fileobj, 'asm_prm_bcphil', asm_prm_bc1)
+      call read_data( fileobj, 'ext_cff_mss_bcphil', ext_cff_mss_bc1)
       ! ! BC species 2 Mie parameters
-      call read_data( ncid, 'ss_alb_bcphob', ss_alb_bc2)
-      call read_data( ncid, 'asm_prm_bcphob', asm_prm_bc2)
-      call read_data( ncid, 'ext_cff_mss_bcphob', ext_cff_mss_bc2)
+      call read_data( fileobj, 'ss_alb_bcphob', ss_alb_bc2)
+      call read_data( fileobj, 'asm_prm_bcphob', asm_prm_bc2)
+      call read_data( fileobj, 'ext_cff_mss_bcphob', ext_cff_mss_bc2)
 
       ! OC species 1 Mie parameters
-      call read_data( ncid, 'ss_alb_ocphil',      ss_alb_oc1)
-      call read_data( ncid, 'asm_prm_ocphil',     asm_prm_oc1)
-      call read_data( ncid, 'ext_cff_mss_ocphil', ext_cff_mss_oc1)
+      call read_data( fileobj, 'ss_alb_ocphil',      ss_alb_oc1)
+      call read_data( fileobj, 'asm_prm_ocphil',     asm_prm_oc1)
+      call read_data( fileobj, 'ext_cff_mss_ocphil', ext_cff_mss_oc1)
       !
       ! OC species 2 Mie parameters
-      call read_data( ncid, 'ss_alb_ocphob', ss_alb_oc2)
-      call read_data( ncid, 'asm_prm_ocphob', asm_prm_oc2)
-      call read_data( ncid, 'ext_cff_mss_ocphob', ext_cff_mss_oc2)
+      call read_data( fileobj, 'ss_alb_ocphob', ss_alb_oc2)
+      call read_data( fileobj, 'asm_prm_ocphob', asm_prm_oc2)
+      call read_data( fileobj, 'ext_cff_mss_ocphob', ext_cff_mss_oc2)
       !
       ! dust species 1 Mie parameters
-      call read_data( ncid, 'ss_alb_dust01', ss_alb_dst1)
-      call read_data( ncid, 'asm_prm_dust01', asm_prm_dst1)
-      call read_data( ncid, 'ext_cff_mss_dust01', ext_cff_mss_dst1)
+      call read_data( fileobj, 'ss_alb_dust01', ss_alb_dst1)
+      call read_data( fileobj, 'asm_prm_dust01', asm_prm_dst1)
+      call read_data( fileobj, 'ext_cff_mss_dust01', ext_cff_mss_dst1)
       !
       ! dust species 2 Mie parameters
-      call read_data( ncid, 'ss_alb_dust02', ss_alb_dst2)
-      call read_data( ncid, 'asm_prm_dust02', asm_prm_dst2)
-      call read_data( ncid, 'ext_cff_mss_dust02', ext_cff_mss_dst2)
+      call read_data( fileobj, 'ss_alb_dust02', ss_alb_dst2)
+      call read_data( fileobj, 'asm_prm_dust02', asm_prm_dst2)
+      call read_data( fileobj, 'ext_cff_mss_dust02', ext_cff_mss_dst2)
       !
       ! dust species 3 Mie parameters
-      call read_data( ncid, 'ss_alb_dust03', ss_alb_dst3)
-      call read_data( ncid, 'asm_prm_dust03', asm_prm_dst3)
-      call read_data( ncid, 'ext_cff_mss_dust03', ext_cff_mss_dst3)
+      call read_data( fileobj, 'ss_alb_dust03', ss_alb_dst3)
+      call read_data( fileobj, 'asm_prm_dust03', asm_prm_dst3)
+      call read_data( fileobj, 'ext_cff_mss_dust03', ext_cff_mss_dst3)
       !
       ! dust species 4 Mie parameters
-      call read_data( ncid, 'ss_alb_dust04', ss_alb_dst4)
-      call read_data( ncid, 'asm_prm_dust04', asm_prm_dst4)
-      call read_data( ncid, 'ext_cff_mss_dust04', ext_cff_mss_dst4)
+      call read_data( fileobj, 'ss_alb_dust04', ss_alb_dst4)
+      call read_data( fileobj, 'asm_prm_dust04', asm_prm_dst4)
+      call read_data( fileobj, 'ext_cff_mss_dust04', ext_cff_mss_dst4)
+
+   call close_file(fileobj)
 
 
 
