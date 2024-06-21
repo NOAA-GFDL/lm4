@@ -99,6 +99,10 @@ subroutine gl_snow_diag_init(id_ug)
 
   character(*), parameter :: diag_mod_name = 'land' ! name of the component used for diagnostic fields
 
+
+  call log_version(version, module_name, &
+  __FILE__)
+
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
 
