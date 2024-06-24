@@ -38,7 +38,7 @@ public :: read_snow_evolution_namelist
 public :: use_internal_sources
 ! public :: min_snow_depth
 public :: do_mgimplicit
-public :: albedo_to_use
+public :: albedo_option, ALBEDO_SNICAR
 public :: thresh_snow_depth_swheat
 public :: assign_substrate_sw_to_surface
 
@@ -172,6 +172,29 @@ namelist /snow_evolution_nml/ &
 ! ---- module data
 real, public, protected :: delta_time ! model physics time step, s
 
+integer, protected :: albedo_option = -1
+integer, parameter ::  &
+    ALBEDO_BRDF   = 1, &
+    ALBEDO_HE     = 2, &
+    ALBEDO_CROCUS = 3, &
+    ALBEDO_SNICAR = 4
+
+integer :: albedo_correction_option = -1
+integer, parameter :: &
+    ALBEDO_CORRECTION_HE     = 1, &
+    ALBEDO_CORRECTION_CROCUS = 2, &
+    ALBEDO_CORRECTION_NONE   = 3
+
+integer :: wlmax_option = -1
+integer, parameter ::   &
+    WLMAX_CROCUS   = 1, &
+    WLMAX_ANDERSON = 2
+
+integer :: metamor_option = -1
+integer, parameter :: &
+    METAMOR_C13 = 1,  &
+    METAMOR_F06 = 2
+
 contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 
@@ -192,6 +215,55 @@ subroutine read_snow_evolution_namelist()
      unit=stdlog()
      write(unit, nml=snow_evolution_nml)
   endif
+
+  ! parse namelist textual options for efficiency and ease of possible future changes
+
+  if (trim(lowercase(albedo_to_use))=='brdf') then
+     albedo_option = ALBEDO_BRDF
+  else if (trim(lowercase(albedo_to_use)) == 'he') then
+     albedo_option = ALBEDO_HE
+  else if (trim(lowercase(albedo_to_use)) == 'crocus') then
+     albedo_option = ALBEDO_CROCUS
+  else if (trim(lowercase(albedo_to_use)) == 'snicar') then
+     albedo_option = ALBEDO_SNICAR
+  else
+     call error_mesg('read_snow_evolution_namelist', &
+        'albedo_to_use='//trim(albedo_to_use)//' in snow_evolution_nml in incorrect: valid options are "BRDF", "He", "CROCUS" or "SNICAR"', FATAL)
+  endif
+
+  if (trim(lowercase(albedo_correction_to_use))=='he') then
+     albedo_correction_option = ALBEDO_CORRECTION_HE
+  else if (trim(lowercase(albedo_correction_to_use))=='crocus') then
+     albedo_correction_option = ALBEDO_CORRECTION_CROCUS
+  else if (trim(lowercase(albedo_correction_to_use))=='none') then
+     albedo_correction_option = ALBEDO_CORRECTION_NONE
+  else
+     call error_mesg('read_snow_evolution_namelist', &
+        'albedo_correction_to_use='//trim(albedo_correction_to_use)//' in snow_evolution_nml in incorrect: valid options are "He", "CROCUS" or "none"', FATAL)
+  endif
+
+  if (trim(lowercase(wlmax_to_use)) == 'crocus') then
+     ! MODEL BY VIONNET ET AL., 2012
+     wlmax_option = WLMAX_CROCUS
+  else if (trim(lowercase(wlmax_to_use)) == 'anderson') then
+     ! MODEL BY ANDERSON 1976 [Used e.g., by Shresta et al., 2006 and Arduini et al., 2019]
+     wlmax_option = WLMAX_ANDERSON
+  else
+     call error_mesg('read_snow_evolution_namelist', &
+        'wlmax_to_use='//trim(wlmax_to_use)//' in snow_evolution_nml in incorrect: valid options are "CROCUS" or "Anderson"', FATAL)
+  endif
+
+  if (trim(lowercase(metamor_model)) == 'c13') then
+     ! use Carmagnola 2013 formulation
+     metamor_option = METAMOR_C13
+  else if (trim(lowercase(metamor_model)) == 'f06') then
+     ! Flanner and Zender, 2006
+     metamor_option = METAMOR_F06
+  else
+     call error_mesg('read_snow_evolution_namelist', &
+        'metamor_model='//trim(metamor_model)//' in snow_evolution_nml in incorrect: valid options are "C13" or "F06"', FATAL)
+  endif
+
 
   delta_time = time_type_to_real(lnd%dt_fast) ! [s]
 end subroutine read_snow_evolution_namelist
@@ -544,14 +616,15 @@ real Crmax, Crmin, gamma_e
 ! not used for now
 ! theta_englesson = -0.0735*(rho_snow_layer/rho_water)+2.67*10.0**(-4)*(rho_snow_layer**2/rho_water)
 ! write(*,*) "theta englesson", theta_englesson
-    if (trim(lowercase(wlmax_to_use)) == "crocus") then
+    select case(wlmax_option)
+    case(WLMAX_CROCUS)
         ! MODEL BY VIONNET ET AL., 2012
         theta_crocus = 0.05
         theta = theta_crocus
         wlmax = theta * rho_water * depth_snow_layer * (1.0 - rho_snow_layer/rho_ice)
         ! wlmax = theta * rho_water * depth_snow_layer
         ! write(*,*) "wlmax2", wlmax
-    else if (trim(lowercase(wlmax_to_use)) == "anderson") then
+    case(WLMAX_ANDERSON)
         ! MODEL BY ANDERSON 1976 [Used e.g., by Shresta et al., 2006 and Arduini et al., 2019]
         Crmin = 0.03
         Crmax = 0.1
@@ -563,11 +636,9 @@ real Crmax, Crmin, gamma_e
         endif
         wlmax = wlmax * rho_water * depth_snow_layer
         ! print("psurf, Tsurf, wlmax = ")
-
-    else
+    case default
         call land_error_message("Error in compute_wlmax in snow_evolution_mod: Must specify a valid snow liquid holding capacity model!", FATAL)
-        wlmax = 0.0
-    endif
+    end select
 
 end function compute_wlmax
 
@@ -662,7 +733,8 @@ subroutine snow_metamorph(snowpack, dt, verbose)
         ! Updated: F06 routine includes wet snow aging from Brun now
         ! Note in the C13 case is selected, dendriticy is not a prognostic model variable
         ! It is recomputed each time based on (sph, dendr values)
-        if (trim(lowercase(metamor_model)) == 'c13') then ! use Carmagnola 2013 formulation
+        select case (metamor_option)
+        case (METAMOR_C13) ! use Carmagnola 2013 formulation
 
             if (theta_i > eps) then ! wet snow metamorphism
                 is_wet = .TRUE.
@@ -682,7 +754,7 @@ subroutine snow_metamorph(snowpack, dt, verbose)
             ! if (ddopt < 0.0) then
             ! error stop "dry metamo - Found decrease in optical diameter!"
             endif
-        else if (trim(lowercase(metamor_model)) == 'f06') then
+        case (METAMOR_F06)
             if (verbose) write(*,*) "Computing dry snow metamorphism according to Flanner and Zender, 2006 [f06]"
             dt_hours = dt_days*24.0
             call metamorph_FlannerZender2006( &
@@ -696,11 +768,10 @@ subroutine snow_metamorph(snowpack, dt, verbose)
             else
                 call dry_metamorph_brun(dsph, ddendr, snowpack%snow(il)%sph,snowpack%snow(il)%dendr, Ti, Gi, rho_i, dt_days)
             endif
-
-        else
+        case default
             ! error stop "ERROR snow_metamorph in snow_evolution module: specify a valid snow metamorphism model!"
             call land_error_message("ERROR snow_metamorph in snow_evolution module: specify a valid snow metamorphism model!", FATAL)
-        endif
+        end select
 
         ! update sphericity, optical diameter and dendriticy for current time step
         snowpack%snow(il)%sph = snowpack%snow(il)%sph + dsph
@@ -711,9 +782,9 @@ subroutine snow_metamorph(snowpack, dt, verbose)
         ! update dendriticy here because this is done only for F06 formaulation
         ! in C13 it is a derived quantity from optical diameter and sphericity
         ! else in F06 case evolve it dynamically using Brun 1992 laws
-        if (trim(lowercase(metamor_model)) == 'c13') then
+        if (metamor_option == METAMOR_C13) then
             snowpack%snow(il)%dendr = den_from_dopt(snowpack%snow(il)%sph, snowpack%snow(il)%optd)
-        else if (trim(lowercase(metamor_model)) == 'f06') then
+        else if (metamor_option == METAMOR_F06) then
             snowpack%snow(il)%dendr = snowpack%snow(il)%dendr + ddendr
         else
             ! error stop "ERROR snow_metamorph in snow_evolution module: specify a valid snow metamorphism model!"
@@ -2693,18 +2764,19 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
 
         call compute_beta_rad_crocus(s, p_atm) ! first call is used only for the light penetration depth
         ! call compute_albedo_lm4p2(s, cosz, on_glacier) ! first call only for longwave snow propertie
-        if (trim(lowercase(albedo_to_use))=='brdf') then
+        select case (albedo_option)
+        case (ALBEDO_BRDF)
             call compute_albedo_lm4p2(s, snow_T, cosz, on_glacier)
-        else if (trim(lowercase(albedo_to_use)) == 'he') then
+        case (ALBEDO_HE)
             call compute_albedo_he(s, cosz) ! only for the penetration depth
-        else if (trim(lowercase(albedo_to_use)) == 'crocus') then
+        case (ALBEDO_CROCUS)
             call compute_albedo_crocus(s, p_atm) ! add to it cos dependence through modificed snow grain?
-        else if (trim(lowercase(albedo_to_use)) == 'snicar') then
+        case (ALBEDO_SNICAR)
             call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modified snow grain?
-        else
+        case default
             ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
             call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
-        endif
+        end select
            ! TODO: compute these from crocus regardless of the albedo model chosen
            snow_refl_dif = s%snow_refl_dif ! arrays of size 2 = (VIS, NIR)
            snow_refl_dir = s%snow_refl_dir ! arrays of size 2 = (VIS, NIR)
@@ -3198,29 +3270,30 @@ call compute_snow_grain_shape(s%nearsurf_dendr, s%nearsurf_sph, idxshp)
     ! write(*,*) "ceqnc_em [ppb] = ", ceqns_em
 
     ! pass concetration from [ppm] to [ppb]
-    if (trim(lowercase(albedo_correction_to_use))=='he') then
+    select case(albedo_correction_option)
+    case (ALBEDO_CORRECTION_HE)
         delta_albedo_vis_im = D0_IM(idxshp,1)*(ceqns_im*1E3)**(D1_IM(idxshp, 1)*effR**D2_IM(idxshp, 1))
         delta_albedo_nir_im = D0_IM(idxshp,2)*(ceqns_im*1E3)**(D1_IM(idxshp, 2)*effR**D2_IM(idxshp, 2))
         delta_albedo_vis_em = D0_EM(idxshp,1)*(ceqns_em*1E3)**(D1_EM(idxshp, 1)*effR**D2_EM(idxshp, 1))
         delta_albedo_nir_em = D0_EM(idxshp,2)*(ceqns_em*1E3)**(D1_EM(idxshp, 2)*effR**D2_EM(idxshp, 2))
 
-    else if (trim(lowercase(albedo_correction_to_use))=='crocus') then
+    case (ALBEDO_CORRECTION_CROCUS)
         delta_albedo_vis_em = min(0.2, 0.2 * s%nearsurf_age / 60.0)
         delta_albedo_nir_em = 0.0
         delta_albedo_vis_im = 0.0
         delta_albedo_nir_im = 0.0
-    else if (trim(lowercase(albedo_correction_to_use))=='none') then
 
-    ! delta_albedo_vis_em = D0_IM(idxshp,1)*((ceqns_im+ceqns_em)*1E3)**(D1_IM(idxshp, 1)*effR**D2_IM(idxshp, 1))
-    ! delta_albedo_nir_em = D0_IM(idxshp,2)*((ceqns_im+ceqns_em)*1E3)**(D1_IM(idxshp, 2)*effR**D2_IM(idxshp, 2))
-    delta_albedo_vis_em = 0.0
-    delta_albedo_nir_em = 0.0
-    delta_albedo_vis_im = 0.0
-    delta_albedo_nir_im = 0.0
+    case (ALBEDO_CORRECTION_NONE)
+        ! delta_albedo_vis_em = D0_IM(idxshp,1)*((ceqns_im+ceqns_em)*1E3)**(D1_IM(idxshp, 1)*effR**D2_IM(idxshp, 1))
+        ! delta_albedo_nir_em = D0_IM(idxshp,2)*((ceqns_im+ceqns_em)*1E3)**(D1_IM(idxshp, 2)*effR**D2_IM(idxshp, 2))
+        delta_albedo_vis_em = 0.0
+        delta_albedo_nir_em = 0.0
+        delta_albedo_vis_im = 0.0
+        delta_albedo_nir_im = 0.0
 
-    else
+    case default
         call land_error_message("Error in compute_albedo_he in snow_evolution_mod :: must specify a valid albedo_correction_to_use!", FATAL)
-    endif
+    end select
 
     ! apply albedo reduction due to impurities
     snow_refl_vis_dir = snow_refl_vis_dir - delta_albedo_vis_im - delta_albedo_vis_em

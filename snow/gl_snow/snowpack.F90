@@ -176,6 +176,12 @@ namelist /snowpack_nml/ &
 
 ! ---- end of namelist
 
+integer :: heat_cond_option = -1
+integer, parameter :: &
+    HEAT_COND_CAL   = 1, &
+    HEAT_COND_VAPOR = 2, &
+    HEAT_COND_YEN   = 3
+
 ! real :: opt_layer_z(MAX_OPT_LAYERS+1) ! lower boundary of optimal layers, m
 
 contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -378,6 +384,17 @@ subroutine read_snowpack_namelist()
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=snowpack_nml)
+  endif
+
+  if (trim(lowercase(heat_cond_to_use))=='cal') then
+     heat_cond_option = HEAT_COND_CAL
+  else if (trim(lowercase(heat_cond_to_use))=='vapor') then
+     heat_cond_option = HEAT_COND_VAPOR
+  else if (trim(lowercase(heat_cond_to_use))=='yen') then
+     heat_cond_option = HEAT_COND_YEN
+  else
+     call error_mesg('read_snowpack_namelist', &
+        'heat_cond_to_use='//trim(heat_cond_to_use)//' in snowpack_nml in incorrect: valid options are "Cal", "vapor", or "Yen"', FATAL)
   endif
 
   ! write(*,*) "after reading snowpack nml:"
@@ -590,13 +607,14 @@ real function snow_heat_conductance(snow, surfT, surfP) result(res)
 ! //TODO: remove surfT as input, not needed
 
   ! if (use_cm_conductance) then
-  if (trim(lowercase(heat_cond_to_use))=='cal') then
+  select case(heat_cond_option)
+  case (HEAT_COND_CAL)
     rho_snow = (snow%ws + snow%wl)/snow%dz ! [kg m^-3]
     a1 = 2.5E-6
     a2 = 1.23E-4
     a3 = 0.024
     res = a1*rho_snow**2 - a2*rho_snow + a3
-  else if (trim(lowercase(heat_cond_to_use))=='vapor') then
+  case (HEAT_COND_VAPOR)
       ! res = 0.0005 ! as in CM model
       ! res = 50.0 ! as in CM model
       ! res = 0.0003 ! as in CM model
@@ -629,15 +647,14 @@ real function snow_heat_conductance(snow, surfT, surfP) result(res)
         write(*,*) "surfT, surfP = ", surfT, surfP
         write(*,*) "kc, kwv, kc+kwv = ", kc, kwv, res
       endif
-
-    else if (trim(lowercase(heat_cond_to_use))=='yen') then
+  case (HEAT_COND_YEN)
       rho_snow = (snow%ws + snow%wl)/snow%dz ! [kg m^-3]
       res = max(lmin, al*(rho_snow/rho_water)**expon) ! YEN 1981, CROCUS
       ! res = 0.023 + (7.75*1E-5 * rho_snow + 1.105 * 1E-6 * rho_snow**2) * (2.29 - 0.023) ! JORDAN 1991, SHRESTA 2006
 
-    else
+  case default
       call land_error_message("Error in snow_heat_conductance in snowpack_mod: Must specify a valid snow_heat_cond_to_use!", FATAL)
-  endif
+  end select
   ! write(*,*) "snow heat conductance = ", res
   ! parameterization by Yen (1981), used by default in CROCUS
   ! see Lafaysse et al., 2017

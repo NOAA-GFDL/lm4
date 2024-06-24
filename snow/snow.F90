@@ -5,7 +5,7 @@ module snow_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : error_mesg, FATAL, NOTE, lowercase
+use fms_mod, only : error_mesg, FATAL, NOTE
 
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : log_version

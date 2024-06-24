@@ -76,6 +76,9 @@ subroutine gl_snow_init(id_ug)
 
   call gl_snow_diag_init( id_ug )
 
+  call log_version(version, module_name, &
+  __FILE__)
+
   old_init_snow_density = 250.0 ! kg/m3, density for old model snow to input ! // TODO read from nml?
   module_is_initialized = .TRUE.
 

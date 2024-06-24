@@ -3,7 +3,8 @@ module gl_snow_tile_mod
 #include "../../shared/debug.inc"
 
 use mpp_mod, only: input_nml_file
-use fms_mod, only : FATAL, lowercase
+
+use fms_mod, only : FATAL
 use constants_mod, only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
@@ -19,7 +20,7 @@ use snowpack_mod, only : snow_layer_type, snowpack_t
 use snow_tile_mod, only: snow_tile_type, NTRACERS, z0_momentum, &
      k_over_B, cpw, clw, csw, snow_data_area, snow_radiation
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
-     albedo_to_use, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
+     albedo_option, ALBEDO_SNICAR, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
      gl_snow_step_2_ev => gl_snow_step_2, delta_time, do_mgimplicit, gl_sweep_huge_snow
 
 
@@ -97,6 +98,10 @@ subroutine gl_snow_diag_init(id_ug)
   integer,intent(in)  :: id_ug    !< Unstructured axis id
 
   character(*), parameter :: diag_mod_name = 'land' ! name of the component used for diagnostic fields
+
+
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
@@ -936,7 +941,7 @@ subroutine gl_partition_sw( &
    if (ALLOCATED(snow%sp%swheat)) DEALLOCATE(snow%sp%swheat)
 
    ! slm: does the code below assume that there are always will be 2 bands?
-   if (trim(lowercase(albedo_to_use))=='snicar') then
+   if (albedo_option==ALBEDO_SNICAR) then
       if ((use_internal_sources) .and. ((snow%sp%depth() > thresh_snow_depth_swheat) &
                                  .and. (snow%sp%nlayers > 0))) then
          ALLOCATE(snow%sp%swheat(snow%sp%nlayers))
