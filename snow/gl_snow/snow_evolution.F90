@@ -6,7 +6,7 @@ module snow_evolution_mod
 
 use mpp_mod, only: input_nml_file
 use fms_mod, only : check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
-       FATAL, WARNING, NOTE
+       FATAL, WARNING, NOTE, error_mesg
 use time_manager_mod, only: time_type_to_real
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
 use land_constants_mod, only : NBANDS, BAND_NIR, BAND_VIS, &
@@ -227,7 +227,7 @@ subroutine read_snow_evolution_namelist()
   else if (trim(lowercase(albedo_to_use)) == 'snicar') then
      albedo_option = ALBEDO_SNICAR
   else
-     call land_error_message('read_snow_evolution_namelist', &
+     call error_mesg('read_snow_evolution_namelist', &
         'albedo_to_use='//trim(albedo_to_use)//' in snow_evolution_nml in incorrect: valid options are "BRDF", "He", "CROCUS" or "SNICAR"', FATAL)
   endif
 
@@ -238,7 +238,7 @@ subroutine read_snow_evolution_namelist()
   else if (trim(lowercase(albedo_correction_to_use))=='none') then
      albedo_correction_option = ALBEDO_CORRECTION_NONE
   else
-     call land_error_message('read_snow_evolution_namelist', &
+     call error_mesg('read_snow_evolution_namelist', &
         'albedo_correction_to_use='//trim(albedo_correction_to_use)//' in snow_evolution_nml in incorrect: valid options are "He", "CROCUS" or "none"', FATAL)
   endif
 
@@ -249,7 +249,7 @@ subroutine read_snow_evolution_namelist()
      ! MODEL BY ANDERSON 1976 [Used e.g., by Shresta et al., 2006 and Arduini et al., 2019]
      wlmax_option = WLMAX_ANDERSON
   else
-     call land_error_message('read_snow_evolution_namelist', &
+     call error_mesg('read_snow_evolution_namelist', &
         'wlmax_to_use='//trim(wlmax_to_use)//' in snow_evolution_nml in incorrect: valid options are "CROCUS" or "Anderson"', FATAL)
   endif
 
@@ -260,7 +260,7 @@ subroutine read_snow_evolution_namelist()
      ! Flanner and Zender, 2006
      metamor_option = METAMOR_F06
   else
-     call land_error_message('read_snow_evolution_namelist', &
+     call error_mesg('read_snow_evolution_namelist', &
         'metamor_model='//trim(metamor_model)//' in snow_evolution_nml in incorrect: valid options are "C13" or "F06"', FATAL)
   endif
 
