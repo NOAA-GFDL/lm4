@@ -49,7 +49,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart,
 
 ! use snow_evolution_mod, only: use_internal_sources, &
 !     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
-use snow_tile_mod, only : NTRACERS, snow_radiation
+use snow_tile_mod, only : NTRACERS
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &

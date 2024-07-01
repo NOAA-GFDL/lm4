@@ -18,7 +18,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
 
 use snowpack_mod, only : snow_layer_type, snowpack_t
 use snow_tile_mod, only: snow_tile_type, NTRACERS, z0_momentum, &
-     k_over_B, cpw, clw, csw, snow_data_area, snow_radiation
+     k_over_B, cpw, clw, csw, snow_data_area, snow_lw_properties
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_option, ALBEDO_SNICAR, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
      gl_snow_step_2_ev => gl_snow_step_2, delta_time, do_mgimplicit, gl_sweep_huge_snow
@@ -765,15 +765,11 @@ subroutine gl_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
   else
       snow_top_temp = TFREEZE ! NOT used in this case
   endif
-  ! first run original albedo code in any case to get longwave opt properties [snow_refl_lw, snow_emis]
-  call snow_radiation ( snow_top_temp, cosz, on_glacier, &
-      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
-  ! slm: values of snow_refl_dir, snow_refl_dif calculated by snow_radiation are immediately
-  ! overwritten by gl_compute_snow_albedo. Perhaps we should split LW and SW
-  ! subroutines to avoid such confusion ?
-  call gl_compute_snow_albedo ( snow%sp, snow_top_temp, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
-                snow_refl_dir, snow_refl_dif)
-end subroutine
+  call snow_lw_properties ( snow_top_temp, snow_refl_lw, snow_emis )
+  call gl_compute_snow_albedo ( &
+             snow%sp, snow_top_temp, cosz, on_glacier, p_atm, subs_refl_dif, & ! input
+             snow_refl_dir, snow_refl_dif )
+end subroutine gl_snow_rad_prop
 
 real function gl_snow_tile_heat (snow) result(heat)
   class(gl_snow_tile_type),  intent(in)    :: snow
