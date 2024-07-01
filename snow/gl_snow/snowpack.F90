@@ -23,10 +23,7 @@ public :: snow_layer_type ! need public to update layers with new snowfall
 public :: merge_layers
 ! public :: merge_phases
 public :: add_liquid_to_layer
-! public :: snowpack_init
-! public :: snowpack_end
-! public :: MAX_OPT_LAYERS
-public :: snowpack_init_lm4p2
+public :: snowpack_init
 public :: read_snowpack_namelist
 public :: compute_snow_grain_shape
 public :: lap_albedo_include_bc
@@ -332,44 +329,6 @@ subroutine dzopt_print(dzopt)
   enddo
 end subroutine dzopt_print
 
-!> initialize snowpack module, in particular read namelist parameters
-subroutine snowpack_init()
-  integer :: io, k, n
-  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
-
-  open (701, file='nml/input.nml')
-  read (701, snowpack_nml, iostat=io)
-  if (io /= 0) call land_error_message('Error reading input namelist "snowpack_nml"', FATAL)
-  close (701)
-  write(*,snowpack_nml)
-
-  ! initialize optimal layer distribution for infinite lower bound
-  ! using prescribed thicknesses for the shallow snow depths, and
-  ! limited exponential increase of each sequential layer thickness below
-
-  ! check that there are positive values in layer thickness array
-  n = count(opt_layer(:)>0)
-  if (n == 0) &
-     call land_error_message( 'No positive values in layer thickness array "opt_layer"', FATAL)
-  if (count(opt_layer(1:n)>0) < n) &
-     call land_error_message( 'Positive layer thickness values "opt_layer" are intermingled with negatives', FATAL)
-
-  opt_layer_z(1) = 0.0
-  do k = 1, size(opt_layer)
-     if (opt_layer(k) > 0) then
-        dz = opt_layer(k)
-     else
-        dz = min(dz*opt_layer_R, opt_layer_max)
-        opt_layer(k) = dz ! store for future use
-     endif
-     opt_layer_z(k+1) = opt_layer_z(k) + dz
-  enddo
-
-!   write(*,'(99(i8.2,:,","))') (k, k=1,size(opt_layer))
-!   write(*,'(99(f8.3,:,","))') opt_layer
-end subroutine snowpack_init
-
-
 subroutine read_snowpack_namelist()
   ! ---- local vars
   integer :: unit         ! unit for namelist i/o
@@ -414,7 +373,7 @@ end subroutine read_snowpack_namelist
 
 !> initialize snowpack module, in particular read namelist parameters
 ! version for lm4p2
-subroutine snowpack_init_lm4p2()
+subroutine snowpack_init()
   integer i
   integer :: io, k, n
   real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
@@ -467,7 +426,7 @@ subroutine snowpack_init_lm4p2()
 
 !   write(*,'(99(i8.2,:,","))') (k, k=1,size(opt_layer))
 !   write(*,'(99(f8.3,:,","))') opt_layer
-end subroutine snowpack_init_lm4p2
+end subroutine snowpack_init
 
 ! if snowpack is too thick, increase number of layers in dzopt
 subroutine update_dzopt_size(snow_depth)
@@ -543,13 +502,6 @@ subroutine update_dzopt_size(snow_depth)
   endif
 
 end subroutine update_dzopt_size
-
-
-!> finalize snowpack module, e.g. free all memory that is no longer needed
-subroutine snowpack_end()
-  ! do nothing
-end subroutine snowpack_end
-
 
 
 !> update age of existing snow layers [in days]

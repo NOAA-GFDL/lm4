@@ -17,7 +17,7 @@ use land_tile_io_mod, only: land_restart_type, &
 
 use snow_tile_mod, only : read_snow_data_namelist, csw
 use gl_snow_tile_mod, only: gl_snow_tile_type, gl_snow_diag_init
-use snowpack_mod, only: snow_layer_type, snowpack_init_lm4p2, read_snowpack_namelist
+use snowpack_mod, only: snow_layer_type, snowpack_init, read_snowpack_namelist
 use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
      add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
 use snow_evolution_mod, only : &
@@ -84,7 +84,7 @@ subroutine gl_snow_init(id_ug)
 
   ! initialize snowpack -> namelist moved to snowpack_init
   call read_snowpack_namelist()
-  call snowpack_init_lm4p2()
+  call snowpack_init()
 
   call read_snow_evolution_namelist() ! read snow evolution namelist parameters
   call read_snow_snicar_namelist() ! read SNICAR namelist parameters
