@@ -22,6 +22,7 @@ private
 public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_area
+public :: snow_refl_kernel, snow_emis_kernel
 public :: snow_BRDF_properties, snow_lw_properties
 public :: NTRACERS, cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
           k_over_B, distinct_snow_on_glacier
@@ -410,14 +411,14 @@ subroutine snow_BRDF_properties ( snow_T, cosz, on_glacier, &
   real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS)
 
   if (on_glacier.and.distinct_snow_on_glacier) then
-     call snow_BRDF_calculations ( snow_T, cosz, &
+     call snow_refl_kernel ( snow_T, cosz, use_brdf, &
         f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
         f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
         refl_snow_min_dir_on_glacier, refl_snow_max_dir_on_glacier, &
         refl_snow_min_dif_on_glacier, refl_snow_max_dif_on_glacier, &
         snow_refl_dir, snow_refl_dif )
   else
-     call snow_BRDF_calculations ( snow_T, cosz, &
+     call snow_refl_kernel ( snow_T, cosz, use_brdf, &
         f_iso_warm, f_vol_warm, f_geo_warm, &
         f_iso_cold, f_vol_cold, f_geo_cold, &
         refl_snow_min_dir, refl_snow_max_dir, &
@@ -427,7 +428,7 @@ subroutine snow_BRDF_properties ( snow_T, cosz, on_glacier, &
 end subroutine snow_BRDF_properties
 
 ! ============================================================================
-subroutine snow_BRDF_calculations ( snow_T, cosz, &
+subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &
      f_iso_warm, f_vol_warm, f_geo_warm, &
      f_iso_cold, f_vol_cold, f_geo_cold, &
      refl_snow_min_dir, refl_snow_max_dir, &
@@ -435,6 +436,7 @@ subroutine snow_BRDF_calculations ( snow_T, cosz, &
      snow_refl_dir, snow_refl_dif)
   real, intent(in) :: snow_T  ! snow temperature, deg K
   real, intent(in) :: cosz ! cosine of zenith angle
+  logical, intent(in) :: use_brdf ! true to use BRDF, fals efor simple reflectance parameters
   real, intent(in), dimension(NBANDS) :: &
      f_iso_warm, f_vol_warm, f_geo_warm, &
      f_iso_cold, f_vol_cold, f_geo_cold, &
@@ -468,10 +470,12 @@ subroutine snow_BRDF_calculations ( snow_T, cosz, &
   endif
   snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
-end subroutine snow_BRDF_calculations
+end subroutine snow_refl_kernel
 
-subroutine snow_lw_properties(snow_T, snow_refl_lw, snow_emis)
+subroutine snow_emis_kernel(snow_T, emis_snow_min, emis_snow_max, &
+    snow_refl_lw, snow_emis)
   real, intent(in)  :: snow_T  ! snow temperature, deg K
+  real, intent(in)  :: emis_snow_min, emis_snow_max ! min and max values of snow emissivity
   real, intent(out) :: snow_refl_lw ! snow reflectance for long-wave band
   real, intent(out) :: snow_emis    ! snow emissivity
 
@@ -480,6 +484,14 @@ subroutine snow_lw_properties(snow_T, snow_refl_lw, snow_emis)
   blend = max(0.,min(1.,1.-(tfreeze-snow_T)/t_range))
   snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
   snow_refl_lw  = 1 - snow_emis
+end subroutine snow_emis_kernel
+
+subroutine snow_lw_properties(snow_T, snow_refl_lw, snow_emis)
+  real, intent(in)  :: snow_T  ! snow temperature, deg K
+  real, intent(out) :: snow_refl_lw ! snow reflectance for long-wave band
+  real, intent(out) :: snow_emis    ! snow emissivity
+
+  call snow_emis_kernel(snow_T, emis_snow_min, emis_snow_max, snow_refl_lw, snow_emis)
 end subroutine snow_lw_properties
 
 subroutine send_diag(snow, diag)
