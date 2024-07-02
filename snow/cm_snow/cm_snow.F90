@@ -18,11 +18,10 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
 
-use snow_tile_mod, only : read_snow_data_namelist, &
-     use_brdf, clw, csw
+use snow_tile_mod, only : read_snow_data_namelist, clw, csw
 use cm_snow_tile_mod, only : cm_snow_tile_type, read_snow_cm_namelist, max_lev, &
      ! namelist variables:
-     num_l, dz, mc_fict, snow_density, albedo_to_use, init_temp, &
+     num_l, dz, mc_fict, snow_density, init_temp, &
      init_pack_wl, init_pack_ws
 
 
@@ -113,17 +112,6 @@ subroutine cm_snow_init(id_ug)
      enddo
   endif
   call free_land_restart(restart)
-
-  if (trim(albedo_to_use)=='') then
-     use_brdf = .false.
-  elseif (trim(albedo_to_use)=='brdf-params') then
-     use_brdf = .true.
-  else
-     call error_mesg('snow_init',&
-          'option albedo_to_use="'//&
-          trim(albedo_to_use)//'" is invalid, use "" or "brdf-params"',&
-          FATAL)
-  endif
 
 end subroutine cm_snow_init
 

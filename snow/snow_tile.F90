@@ -4,7 +4,7 @@ module snow_tile_mod
 
 use mpp_mod, only: input_nml_file
 use mpp_mod, only: input_nml_file
-use fms_mod, only : check_nml_error, stdlog, FATAL, NOTE
+use fms_mod, only : check_nml_error, stdlog, error_mesg, FATAL, NOTE
 use constants_mod,only: tfreeze
 use land_constants_mod, only : NBANDS, &
 ! MODIS BRDF model parameters
@@ -273,7 +273,7 @@ end interface
 
 
 ! ==== module data ===========================================================
-logical, public :: use_brdf ! not protected because it is set in snow.F90
+logical :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
@@ -297,6 +297,7 @@ real    :: &
    clw = 4218.0, &  ! specific heat of water (liquid)
    csw = 2106.0     ! specific heat of water (ice)
 
+character(16) :: albedo_to_use = ''  ! or 'brdf-params'
 ! from analysis of modis data (ignoring temperature dependence):
   real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
   real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
@@ -322,6 +323,7 @@ real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 
 namelist /snow_data_nml/  cpw, clw, csw, &
      thermal_cond_ref, z0_momentum, k_over_B,                                  &
      use_mcm_masking, depth_crit, &
+     albedo_to_use, &
 ! snow radiative parameters over non-glaciated surfaces
      f_iso_cold, f_vol_cold, f_geo_cold, &
      f_iso_warm, f_vol_warm, f_geo_warm, &
@@ -353,6 +355,18 @@ subroutine read_snow_data_namelist()
   ierr = check_nml_error(io, 'snow_data_nml')
   unit=stdlog()
   write(unit, nml=snow_data_nml)
+
+  if (trim(albedo_to_use)=='') then
+     use_brdf = .false.
+  elseif (trim(albedo_to_use)=='brdf-params') then
+     use_brdf = .true.
+  else
+     call error_mesg('snow_init',&
+          'option albedo_to_use="'//&
+          trim(albedo_to_use)//'" is invalid, use "" or "brdf-params"',&
+          FATAL)
+  endif
+
 end subroutine read_snow_data_namelist
 
 

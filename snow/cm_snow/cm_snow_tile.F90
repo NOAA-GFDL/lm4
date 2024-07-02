@@ -87,7 +87,6 @@ real, public, protected    :: mc_fict = 10. * 4218 ! additional (fictitious) soi
 logical :: retro_heat_capacity  = .false.
 logical :: lm2  = .false.
 logical :: steal = .false.
-character(16), public, protected :: albedo_to_use = ''  ! or 'brdf-params'
 real, public, protected :: max_snow       = 1000.
 real, public, protected :: wet_max        = 0.0  ! TEMP, move to snow_data
 real, public, protected :: snow_density   = 300. ! TEMP, move to snow_data and generalize
@@ -100,7 +99,7 @@ logical, public, protected :: prevent_tiny_snow = .FALSE. ! if true, tiny snow i
    ! in doing that, but it changes answers, so for compatibility with older code
    ! turn it off.
 
-namelist /cm_snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
+namelist /cm_snow_nml/ retro_heat_capacity, lm2, steal, &
                     num_l, dz, mc_fict, &
                     max_snow, wet_max, snow_density, &
                     init_temp, init_pack_ws, init_pack_wl, &
