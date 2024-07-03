@@ -151,8 +151,6 @@ real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, ye
 real    :: init_cohort_height(MAX_INIT_COHORTS)  = 0.1  ! initial cohort height, m
 real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as fraction of max. bl
 real    :: init_cohort_nsn_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSN, as fraction of max. bl
-character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
-character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 logical :: do_intercept_melt  = .FALSE. ! if true, calculate phase changes of intercepted
    ! water/snow. USE WITH EXTREME CAUTION (or better never use it): it is known to fix Tv
    ! at freezing point for long periods of time. See more details in vegn_step_2 and in
@@ -178,7 +176,7 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
 real    :: min_lai = 0.0 ! minimum allowed LAI. If cohort lai calculated in update_derived_vegn_data
    ! falls below this limit, then LAI and leafarea are set to zero. This is to avoid
    ! numerical problems if bl is extremely small, and calculations of intercepted water
-   ! fractions, teir derivatives, and evap_demand give nonsensical values. Note that there
+   ! fractions, their derivatives, and evap_demand give nonsensical values. Note that there
    ! is also min_lai_pheno in vegn_data_nml, which works only in ppa phenology.
 real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0 retrieves previous behavior (no smoothing)
@@ -200,7 +198,6 @@ namelist /vegn_nml/ &
     init_cohort_height, &
     init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
     init_cohort_stored_N_mult, &
-    rad_to_use, snow_rad_to_use, &
     allow_external_gaps, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
@@ -272,14 +269,15 @@ subroutine read_vegn_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   logical :: use_static_veg ! if true, switch off vegetation dynamics
+  character(256) :: message
 
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
   call log_version(version, module_name, __FILE__)
 
-  read (input_nml_file, nml=vegn_nml, iostat=io)
-  ierr = check_nml_error(io, 'vegn_nml')
+  read (input_nml_file, nml=vegn_nml, iostat=io, iomsg=message)
+  ierr = check_nml_error(io, 'vegn_nml : '//trim(message))
 
   unit=stdlog()
 
@@ -291,11 +289,11 @@ subroutine read_vegn_namelist()
   else if (trim(lowercase(seed_transport_to_use))=='diffuse') then
      seed_transport_option = SEED_TRANSPORT_DIFFUSE
   else
-     call error_mesg('read_vegn_namleist', 'option seed_transport_to_use="'// &
+     call error_mesg('read_vegn_namelist', 'option seed_transport_to_use="'// &
           trim(seed_transport_to_use)//'" is invalid, use "none","spread", or "diffuse"', FATAL)
   end if
   if (.not.do_ppa.and.seed_transport_option==SEED_TRANSPORT_DIFFUSE) then
-     call error_mesg('read_vegn_namleist', 'option seed_transport_to_use="'// &
+     call error_mesg('read_vegn_namelist', 'option seed_transport_to_use="'// &
           trim(seed_transport_to_use)//'" is only valid in PPA mode.', FATAL)
   endif
 
@@ -321,12 +319,12 @@ subroutine read_vegn_namelist()
   else if (trim(lowercase(aerodyn_height_to_use))=='top-crowns') then
      aerodyn_height_option = AERODYN_HEIGHT_AVE_TOP
   else
-     call error_mesg('read_vegn_namleist', 'aerodyn_height_to_use="'// &
+     call error_mesg('read_vegn_namelist', 'aerodyn_height_to_use="'// &
           trim(aerodyn_height_to_use)//'" is invalid, use "tallest", or "top-crowns"', FATAL)
   endif
 
   ! ---- initialize vegetation radiation options
-  call vegn_radiation_init(rad_to_use, snow_rad_to_use)
+  call vegn_radiation_init()
 
   ! ---- initialize vegetation photosynthesis options
   call vegn_photosynthesis_init()
@@ -2317,7 +2315,7 @@ subroutine update_derived_vegn_data(vegn, soil)
   real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in each layer
   real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in each layer
   integer :: current_layer
-  real, allocatable :: layer_top(:) ! height of the tallest vegeattion in layer, for zbot calculations
+  real, allocatable :: layer_top(:) ! height of the tallest vegetation in layer, for zbot calculations
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
   real :: scale
@@ -2549,7 +2547,7 @@ real function vegn_aerodyn_height(vegn) result(height)
         height = max(height, vegn%cohorts(k)%height)
      enddo
   case(AERODYN_HEIGHT_AVE_TOP)
-     ! average height of all cohorts exposed to the atmosphere, proportional to thear
+     ! average height of all cohorts exposed to the atmosphere, proportional to their
      ! exposed area.
      n_layers = maxval(vegn%cohorts(:)%layer)
      allocate(layer_area(n_layers),visible(n_layers))

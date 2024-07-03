@@ -4,7 +4,7 @@ module snow_tile_mod
 
 use mpp_mod, only: input_nml_file
 use mpp_mod, only: input_nml_file
-use fms_mod, only : check_nml_error, stdlog, error_mesg, FATAL, NOTE
+use fms_mod, only : check_nml_error, lowercase, stdlog, error_mesg, FATAL, NOTE
 use constants_mod,only: tfreeze
 use land_constants_mod, only : NBANDS, &
 ! MODIS BRDF model parameters
@@ -79,7 +79,7 @@ end type snow_tile_type
 ! func_get_int_0D : returns an integer scalar value for a given snow tile. Example:
 !     integer :: n_layers
 !     nlayers = snow%n_layers()
-! func_get_logical_0D : returns a single logical value or a given cnoe tile. Example:
+! func_get_logical_0D : returns a single logical value or a given snow tile. Example:
 !     logical :: active
 !     active = snow%snow_active()
 ! func_get_real_0Di : returns a real scalar value for a given snow tile and index. Example:
@@ -187,7 +187,7 @@ abstract interface
   ! as well its direct and diffuse components (fswg_dir, fswg_dif)
   ! partition it between surface of snow (where it was absorbed entirely in old cm snow model)
   ! and, if requested, absorption within the snowpack
-  ! and absoirption in the underlying substrate (lake/soil/glacier)
+  ! and absorption in the underlying substrate (lake/soil/glacier)
   subroutine func_partition_sw( snow, &
     fswg, fswg_dir, fswg_dif,    & ! input
     fswg_substrate, fswg_surface ) ! output
@@ -285,12 +285,6 @@ logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
 real    :: thermal_cond_ref      = 0.3
 ! real    :: depth_crit            = 0.0167
 real    :: z0_momentum           = 0.001
-real    :: refl_snow_max_dir(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
-real    :: refl_snow_max_dif(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
-real    :: refl_snow_min_dir(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
-real    :: refl_snow_min_dif(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
-real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
-real    :: emis_snow_min         = 0.90      ! reset to 1 for MCM
 real    :: k_over_B              = 2         ! reset to 0 for MCM
 real    :: depth_crit            = 0.0167
 real    :: &
@@ -298,14 +292,26 @@ real    :: &
    clw = 4218.0, &  ! specific heat of water (liquid)
    csw = 2106.0     ! specific heat of water (ice)
 
-character(16) :: albedo_to_use = ''  ! or 'brdf-params'
+! the snow radiative parameters below (including selection between brdf-params and
+! refl-params) control albedo of the snowpack for CM snow model, and for GLASS snow
+! model if in snow_evolution_nml albedo_to_use='BRDF'
+character(16) :: albedo_to_use = 'default'  ! must be 'refl-params' or 'brdf-params'
+! for 'brdf-params' option
 ! from analysis of modis data (ignoring temperature dependence):
-  real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
-  real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
-  real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
-  real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
-  real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
-  real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
+real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_cold(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_cold(NBANDS) = (/ 0.054, 0.064 /)
+real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
+real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
+real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
+! for 'refl-params' option
+real :: refl_snow_max_dir(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real :: refl_snow_max_dif(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
+real :: refl_snow_min_dir(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+real :: refl_snow_min_dif(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
+! long-wave properties
+real :: emis_snow_max         = 0.95      ! reset to 1 for MCM
+real :: emis_snow_min         = 0.90      ! reset to 1 for MCM
 
 logical :: distinct_snow_on_glacier = .FALSE. ! if TRUE, the following parameters define
            ! reflectance of snow on glaciers, otherwise snow reflectance does not depend
@@ -357,14 +363,14 @@ subroutine read_snow_data_namelist()
   unit=stdlog()
   write(unit, nml=snow_data_nml)
 
-  if (trim(albedo_to_use)=='') then
+  if (trim(lowercase(albedo_to_use))=='refl-params') then
      use_brdf = .false.
-  elseif (trim(albedo_to_use)=='brdf-params') then
+  elseif (trim(lowercase(albedo_to_use))=='brdf-params') then
      use_brdf = .true.
   else
      call error_mesg('snow_init',&
           'option albedo_to_use="'//&
-          trim(albedo_to_use)//'" is invalid, use "" or "brdf-params"',&
+          trim(albedo_to_use)//'" is invalid, use "refl-params" or "brdf-params"',&
           FATAL)
   endif
 
@@ -372,7 +378,7 @@ end subroutine read_snow_data_namelist
 
 
 ! ============================================================================
-! compute snow thermodynmamic properties.
+! compute snow thermodynamic properties.
 subroutine snow_data_thermodynamics ( snow_rh, thermal_cond)
   real, intent(out) :: snow_rh
   real, intent(out) :: thermal_cond(:)
@@ -404,11 +410,12 @@ end subroutine snow_data_area
 ! ============================================================================
 ! compute snow properties needed to do soil-canopy-atmos energy balance
 subroutine snow_BRDF_properties ( snow_T, cosz, on_glacier, &
-     snow_refl_dir, snow_refl_dif )
+     snow_refl_dir, snow_refl_dif,  debug )
   real, intent(in) :: snow_T  ! snow temperature, deg K
   real, intent(in) :: cosz ! cosine of zenith angle
   logical, intent(in) :: on_glacier ! TRUE if snow is on glacier
   real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS)
+  logical, intent(in), optional :: debug
 
   if (on_glacier.and.distinct_snow_on_glacier) then
      call snow_refl_kernel ( snow_T, cosz, use_brdf, &
@@ -416,14 +423,14 @@ subroutine snow_BRDF_properties ( snow_T, cosz, on_glacier, &
         f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
         refl_snow_min_dir_on_glacier, refl_snow_max_dir_on_glacier, &
         refl_snow_min_dif_on_glacier, refl_snow_max_dif_on_glacier, &
-        snow_refl_dir, snow_refl_dif )
+        snow_refl_dir, snow_refl_dif, debug )
   else
      call snow_refl_kernel ( snow_T, cosz, use_brdf, &
         f_iso_warm, f_vol_warm, f_geo_warm, &
         f_iso_cold, f_vol_cold, f_geo_cold, &
         refl_snow_min_dir, refl_snow_max_dir, &
         refl_snow_min_dif, refl_snow_max_dif, &
-        snow_refl_dir, snow_refl_dif)
+        snow_refl_dir, snow_refl_dif, debug )
   endif
 end subroutine snow_BRDF_properties
 
@@ -433,7 +440,7 @@ subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &
      f_iso_cold, f_vol_cold, f_geo_cold, &
      refl_snow_min_dir, refl_snow_max_dir, &
      refl_snow_min_dif, refl_snow_max_dif, &
-     snow_refl_dir, snow_refl_dif)
+     snow_refl_dir, snow_refl_dif, debug)
   real, intent(in) :: snow_T  ! snow temperature, deg K
   real, intent(in) :: cosz ! cosine of zenith angle
   logical, intent(in) :: use_brdf ! true to use BRDF, fals efor simple reflectance parameters
@@ -442,6 +449,7 @@ subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &
      f_iso_cold, f_vol_cold, f_geo_cold, &
      refl_snow_min_dir, refl_snow_max_dir, refl_snow_min_dif, refl_snow_max_dif
   real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS)
+  logical, intent(in), optional :: debug
 
   ! ---- local vars
   real :: blend
@@ -449,7 +457,16 @@ subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &
   real :: warm_value_dif(NBANDS), cold_value_dif(NBANDS)
   real :: zenith_angle, zsq, zcu
 
+  logical :: debug_
+
+  debug_ = .FALSE.
+  if (present(debug)) debug_ = debug
+
   blend = max(0.,min(1.,1.-(tfreeze-snow_T)/t_range))
+  if (debug_) then
+     write(*,*) "#### snow_refl_kernel"
+     __DEBUG4__(snow_t, cosz, use_brdf, blend)
+  endif
   if (use_brdf) then
      zenith_angle = acos(cosz)
      zsq = zenith_angle*zenith_angle
@@ -462,6 +479,11 @@ subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &
                     + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
      cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
      warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
+     if (debug_) then
+        __DEBUG3__(zenith_angle,zsq,zcu)
+        __DEBUG3__(f_iso_warm,f_vol_warm,f_geo_warm)
+        __DEBUG3__(f_iso_cold,f_vol_cold,f_geo_cold)
+     endif
   else
      warm_value_dir = refl_snow_min_dir
      cold_value_dir = refl_snow_max_dir
@@ -470,20 +492,36 @@ subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &
   endif
   snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
+  if (debug_) then
+     __DEBUG2__(cold_value_dir,cold_value_dif)
+     __DEBUG2__(warm_value_dir,warm_value_dif)
+     __DEBUG2__(snow_refl_dir,snow_refl_dif)
+  endif
 end subroutine snow_refl_kernel
 
 subroutine snow_emis_kernel(snow_T, emis_snow_min, emis_snow_max, &
-    snow_refl_lw, snow_emis)
+    snow_refl_lw, snow_emis, debug)
   real, intent(in)  :: snow_T  ! snow temperature, deg K
   real, intent(in)  :: emis_snow_min, emis_snow_max ! min and max values of snow emissivity
   real, intent(out) :: snow_refl_lw ! snow reflectance for long-wave band
   real, intent(out) :: snow_emis    ! snow emissivity
+  logical, intent(in), optional :: debug
 
   real :: blend
+  logical :: debug_
+
+  debug_ = .FALSE.
+  if (present(debug)) debug_ = debug
 
   blend = max(0.,min(1.,1.-(tfreeze-snow_T)/t_range))
   snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
   snow_refl_lw  = 1 - snow_emis
+
+  if (debug_) then
+     write(*,*) "#### snow_lw_properties"
+     __DEBUG3__(snow_T,emis_snow_min,emis_snow_max)
+     __DEBUG2__(snow_emis,snow_refl_lw)
+  endif
 end subroutine snow_emis_kernel
 
 subroutine snow_lw_properties(snow_T, snow_refl_lw, snow_emis)
