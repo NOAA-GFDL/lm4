@@ -23,7 +23,7 @@ public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_area
 public :: snow_refl_kernel, snow_emis_kernel
-public :: snow_BRDF_properties, snow_lw_properties
+public :: snow_sw_properties, snow_lw_properties
 public :: NTRACERS, cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
           k_over_B, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
@@ -409,7 +409,7 @@ end subroutine snow_data_area
 
 ! ============================================================================
 ! compute snow properties needed to do soil-canopy-atmos energy balance
-subroutine snow_BRDF_properties ( snow_T, cosz, on_glacier, &
+subroutine snow_sw_properties ( snow_T, cosz, on_glacier, &
      snow_refl_dir, snow_refl_dif,  debug )
   real, intent(in) :: snow_T  ! snow temperature, deg K
   real, intent(in) :: cosz ! cosine of zenith angle
@@ -432,7 +432,7 @@ subroutine snow_BRDF_properties ( snow_T, cosz, on_glacier, &
         refl_snow_min_dif, refl_snow_max_dif, &
         snow_refl_dir, snow_refl_dif, debug )
   endif
-end subroutine snow_BRDF_properties
+end subroutine snow_sw_properties
 
 ! ============================================================================
 subroutine snow_refl_kernel ( snow_T, cosz, use_brdf, &

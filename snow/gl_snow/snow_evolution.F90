@@ -19,7 +19,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use snicar_mod, only: compute_snicar_albedo
 use snowpack_mod, only : snowpack_t, snow_layer_type, rho_water, rho_ice, LAI_ext, LAI_ssa, eps, &
     add_liquid_to_layer, compute_snow_grain_shape, merge_layers
-use snow_tile_mod, only : NTRACERS, snow_BRDF_properties, cpw, clw, csw
+use snow_tile_mod, only : NTRACERS, snow_sw_properties, cpw, clw, csw
 
 
 implicit none
@@ -2762,7 +2762,7 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
       call compute_beta_rad_crocus(s, p_atm) ! first call is used only for the light penetration depth
       select case (albedo_option)
       case (ALBEDO_BRDF)
-          call snow_BRDF_properties(snow_T, cosz, on_glacier, &
+          call snow_sw_properties(snow_T, cosz, on_glacier, &
                 s%snow_refl_dir, s%snow_refl_dif)
       case (ALBEDO_HE)
           call compute_albedo_he(s, cosz) ! only for the penetration depth

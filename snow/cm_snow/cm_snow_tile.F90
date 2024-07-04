@@ -11,7 +11,7 @@ use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use snow_tile_mod, only : snow_tile_type, z0_momentum, k_over_B, cpw, clw, csw, &
-      snow_data_area, snow_data_thermodynamics, snow_BRDF_properties, snow_lw_properties
+      snow_data_area, snow_data_thermodynamics, snow_sw_properties, snow_lw_properties
 
 implicit none
 private
@@ -265,7 +265,7 @@ subroutine cm_snow_rad_prop (snow, cosz, subs_refl_dif, p_atm, on_glacier, &
   else
       snow_top_temp = TFREEZE ! NOT used in this case
   endif
-  call snow_BRDF_properties ( snow_top_temp, cosz, on_glacier, &
+  call snow_sw_properties ( snow_top_temp, cosz, on_glacier, &
       snow_refl_dir, snow_refl_dif)
   call snow_lw_properties ( snow_top_temp, snow_refl_lw, snow_emis)
 end subroutine
