@@ -12,7 +12,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use land_constants_mod, only : NBANDS
 use constants_mod,  only : tfreeze, hlv, hlf, PI
 
-use snow_tile_mod, only : NTRACERS, csw, clw, use_mcm_masking, depth_crit
+use snow_tile_mod, only : NTRACERS, csw, clw, snow_data_area
 
 implicit none
 private
@@ -936,6 +936,13 @@ real function snowpack_depth(s)
   endif
 end function snowpack_depth
 
+!> \compute snow area - used only for albedo purposes for now
+real function snowpack_area(snowpack)
+  class(snowpack_t), intent(in) :: snowpack !< state of snowpack
+
+  call snow_data_area (snowpack%depth(), snowpack_area)
+end function snowpack_area
+
 
 !> \Print some summary information about the state of the snowpack
 subroutine snowpack_print(s)
@@ -970,20 +977,6 @@ endif
   write(*,'("topsnow def, topsnow heat def = ", 99(f15.4,:))') s%topsnowdeficit, s%topsnowheatdeficit
 write(*,*) "___________<< end state of snowpack >>______________"
 end subroutine snowpack_print
-
-!> \compute snow area - used only for albedo purposes for now
-real function snowpack_area(snowpack)
-    class(snowpack_t), intent(in) :: snowpack !< state of snowpack
-    real :: snow_depth
-  snowpack_area = 0.
-  snow_depth = snowpack%depth()
-  if (use_mcm_masking) then
-     snowpack_area = min(1., 0.5*sqrt(max(0.,snow_depth)/depth_crit))
-  else
-     snowpack_area = max(0.,snow_depth) / (max(0.,snow_depth) + depth_crit)
-  endif
-end function snowpack_area
-
 
 !> \Check that relevant variables are within physical bounds, if not throw an error
 subroutine snowpack_check_bounds(s, message)
