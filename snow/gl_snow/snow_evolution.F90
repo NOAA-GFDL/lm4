@@ -4,8 +4,7 @@ module snow_evolution_mod
 #include <fms_platform.h>
 #include "../../shared/debug.inc"
 
-use mpp_mod, only: input_nml_file
-use fms_mod, only : check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
+use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
        FATAL, WARNING, NOTE, error_mesg
 use time_manager_mod, only: time_type_to_real
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
@@ -20,7 +19,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use snicar_mod, only: compute_snicar_albedo
 use snowpack_mod, only : snowpack_t, snow_layer_type, rho_water, rho_ice, LAI_ext, LAI_ssa, eps, &
     add_liquid_to_layer, compute_snow_grain_shape, merge_layers
-use snow_tile_mod, only : NTRACERS, distinct_snow_on_glacier, cpw, clw, csw
+use snow_tile_mod, only : NTRACERS, snow_BRDF_properties, cpw, clw, csw
 
 
 implicit none
@@ -2730,69 +2729,66 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
   real, dimension(NBANDS), intent(OUT) :: snow_refl_dif
 !   real, intent(OUT) :: snow_refl_lw, snow_emis
 
-    call s%nearsurf_properties()
+  call s%nearsurf_properties()
 
-    ! snow_emis = 0.0
-    ! snow_refl_lw  = 1 - snow_emis
+  ! snow_emis = 0.0
+  ! snow_refl_lw  = 1 - snow_emis
 
-    ! write(*,*) "computing snow albedo:"
-    ! write(*,*) "albedo to use = ", albedo_to_use
-    ! write(*,*) "albedo correction to use = ", albedo_correction_to_use
-    ! write(*,*) "use internal sources = ", use_internal_sources
-    ! write(*,*) "checking snowpack nml parameters"
-    ! write(*,*) "opt_layer_N = ", opt_layer_N
-    ! write(*,*) "opt_layer_R = ", opt_layer_R
-    ! write(*,*) "opt_layer_max = ", opt_layer_max
+  ! write(*,*) "computing snow albedo:"
+  ! write(*,*) "albedo to use = ", albedo_to_use
+  ! write(*,*) "albedo correction to use = ", albedo_correction_to_use
+  ! write(*,*) "use internal sources = ", use_internal_sources
+  ! write(*,*) "checking snowpack nml parameters"
+  ! write(*,*) "opt_layer_N = ", opt_layer_N
+  ! write(*,*) "opt_layer_R = ", opt_layer_R
+  ! write(*,*) "opt_layer_max = ", opt_layer_max
 
-    if (.not. s%nlayers > 0) then
-        snow_refl_dir = (/ -9999.9, -9999.9 /)
-        snow_refl_dif = (/ -9999.9, -9999.9 /)
-        ! snow_emis = -9999.9
-        ! snow_refl_lw = -9999.9
-        s%beta_rad(BAND_VIS) = -9999.9
-        s%beta_rad(BAND_NIR) = -9999.9
-    else
+  if (.not. s%nlayers > 0) then
+      snow_refl_dir = (/ -9999.9, -9999.9 /)
+      snow_refl_dif = (/ -9999.9, -9999.9 /)
+      ! snow_emis = -9999.9
+      ! snow_refl_lw = -9999.9
+      s%beta_rad(BAND_VIS) = -9999.9
+      s%beta_rad(BAND_NIR) = -9999.9
+  else
+      ! write(*,*) "compute snow albedo:"
+      ! write(*,*) "albedo_to_use = ", albedo_to_use
+      ! write(*,*) "albedo_correction_to_use = ", albedo_correction_to_use
 
+      ! if (albedo_correction_to_use == 'HE') then
+      !     call land_error_message("ERROR compute_snow_albedo in snow_evolution module: LAI Albedo correction still needs to be implemented!", FATAL)
+      ! endif
 
-    ! write(*,*) "compute snow albedo:"
-    ! write(*,*) "albedo_to_use = ", albedo_to_use
-    ! write(*,*) "albedo_correction_to_use = ", albedo_correction_to_use
+      call compute_beta_rad_crocus(s, p_atm) ! first call is used only for the light penetration depth
+      select case (albedo_option)
+      case (ALBEDO_BRDF)
+          call snow_BRDF_properties(snow_T, cosz, on_glacier, &
+                s%snow_refl_dir, s%snow_refl_dif)
+      case (ALBEDO_HE)
+          call compute_albedo_he(s, cosz) ! only for the penetration depth
+      case (ALBEDO_CROCUS)
+          call compute_albedo_crocus(s, p_atm) ! add to it cos dependence through modificed snow grain?
+      case (ALBEDO_SNICAR)
+          call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modified snow grain?
+      case default
+          ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
+          call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
+      end select
+         ! TODO: compute these from crocus regardless of the albedo model chosen
+         snow_refl_dif = s%snow_refl_dif ! arrays of size 2 = (VIS, NIR)
+         snow_refl_dir = s%snow_refl_dir ! arrays of size 2 = (VIS, NIR)
 
-        ! if (albedo_correction_to_use == 'HE') then
-        !     call land_error_message("ERROR compute_snow_albedo in snow_evolution module: LAI Albedo correction still needs to be implemented!", FATAL)
-        ! endif
-
-        call compute_beta_rad_crocus(s, p_atm) ! first call is used only for the light penetration depth
-        ! call compute_albedo_lm4p2(s, cosz, on_glacier) ! first call only for longwave snow propertie
-        select case (albedo_option)
-        case (ALBEDO_BRDF)
-            call compute_albedo_lm4p2(s, snow_T, cosz, on_glacier)
-        case (ALBEDO_HE)
-            call compute_albedo_he(s, cosz) ! only for the penetration depth
-        case (ALBEDO_CROCUS)
-            call compute_albedo_crocus(s, p_atm) ! add to it cos dependence through modificed snow grain?
-        case (ALBEDO_SNICAR)
-            call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modified snow grain?
-        case default
-            ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
-            call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
-        end select
-           ! TODO: compute these from crocus regardless of the albedo model chosen
-           snow_refl_dif = s%snow_refl_dif ! arrays of size 2 = (VIS, NIR)
-           snow_refl_dir = s%snow_refl_dir ! arrays of size 2 = (VIS, NIR)
-
-    if (is_watch_point()) then
-        write(*,*) "snow  - gl_compute_snow_albedo:: computed albedo values:"
-        write(*,*) "albedo_to_use = ", albedo_to_use
-        write(*,*) "albedo_correction_to_use = ", albedo_correction_to_use
-        write(*,*) snow_refl_dif
-        write(*,*) snow_refl_dir
-        write(*,*) s%beta_rad
-    endif
-    endif
+     if (is_watch_point()) then
+         write(*,*) "snow  - gl_compute_snow_albedo:: computed albedo values:"
+         write(*,*) "albedo_to_use = ", albedo_to_use
+         write(*,*) "albedo_correction_to_use = ", albedo_correction_to_use
+         write(*,*) snow_refl_dif
+         write(*,*) snow_refl_dir
+         write(*,*) s%beta_rad
+     endif
+  endif
 
 end subroutine gl_compute_snow_albedo
-
 
 
 subroutine compute_beta_rad_crocus(s, patm)
@@ -2961,150 +2957,6 @@ subroutine compute_albedo_crocus(s, patm)
 !    s%beta_rad(BAND_NIR) = beta_nir! todo: use correct weights
 
 end subroutine compute_albedo_crocus
-
-
-
-
-! compute snow properties needed to do soil-canopy-atmos energy balance
-subroutine compute_albedo_lm4p2(s, snow_T, cosz, on_glacier)
-
-   class(snowpack_t), intent(inout) :: s !< state of snowpack
-!    real snow_T  ! snow temperature, deg K
-   real, intent(in) :: cosz ! cosine of zenith angle
-   real, intent(in) :: snow_T ! snow surf T [K]
-   logical, intent(in) :: on_glacier ! TRUE if snow is on glacier
-!    logical, intent(in) :: brdf_distinct_snow_on_glacier
-   ! real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
-   real :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
-
-
-
-   real :: f_iso_cold(NBANDS) = (/ 0.92, 0.58  /) ! VERONICA'S PAPER VALUES - VIS
-   real :: f_vol_cold(NBANDS) = (/ 0.06, 0.08 /) ! VERONICA'S PAPER VALUES - VIS
-   real :: f_geo_cold(NBANDS) = (/ 0.0,  0.0 /) ! VERONICA'S PAPER VALUES - VIS
-   real :: f_iso_warm(NBANDS) = (/ 0.77, 0.43 /) ! VERONICA'S PAPER VALUES - VIS
-   real :: f_vol_warm(NBANDS) = (/ 0.06, 0.08 /) ! VERONICA'S PAPER VALUES - VIS
-   real :: f_geo_warm(NBANDS) = (/ 0.0,  0.0 /) ! VERONICA'S PAPER VALUES - VIS
-
-
-            ! reflectance of snow on glaciers, otherwise snow reflectance does not depend
-            ! on the underlying surface (except overlap).
-   real :: f_iso_cold_on_glacier(NBANDS) = (/ 0.92, 0.73 /)
-   real :: f_vol_cold_on_glacier(NBANDS) = (/ 0.06, 0.08 /)
-   real :: f_geo_cold_on_glacier(NBANDS) = (/ 0.0, 0.0 /)
-   real :: f_iso_warm_on_glacier(NBANDS) = (/ 0.77, 0.580 /)
-   real :: f_vol_warm_on_glacier(NBANDS) = (/ 0.06, 0.08 /)
-   real :: f_geo_warm_on_glacier(NBANDS) = (/ 0.0, 0.0 /)
-
-   real    :: refl_snow_max_dir(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
-   real    :: refl_snow_max_dif(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
-   real    :: refl_snow_min_dir(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
-   real    :: refl_snow_min_dif(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
-
-   real :: refl_snow_max_dir_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
-   real :: refl_snow_max_dif_on_glacier(NBANDS) = (/ 0.8,  0.8  /) ! reset to 0.6 for MCM
-   real :: refl_snow_min_dir_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
-   real :: refl_snow_min_dif_on_glacier(NBANDS) = (/ 0.65, 0.65 /) ! reset to 0.45 for MCM
-   ! real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
-   ! real    :: emis_snow_min         = 0.90      ! reset to 1 for MCM
-   ! ########### END PARAMETERS FOR THE ALBEDO MODEL CURRENTLY USED IN LM4P2 #############
-
-
-!    if (s%nlayers == 0) then
-!         ! write(*,*) "albedo lm4p2 warning: there is no snow on the ground! can't compute albedo"
-!         ! snow_T = 273.15 - 10.0
-!         call land_error_message("ERROR in compute_albedo_lm4p2 in snow_evolution module: There is no snow on the ground when routine was called!", FATAL)
-!    else
-!         ! snow_T = 273.15 - 10.0
-!        snow_T = s%snow(1)%T
-!    endif
-
-
-
-if (on_glacier.and.distinct_snow_on_glacier) then
-   call snow_rad_calculations_lm4p2 ( snow_T, cosz, &
-      f_iso_warm_on_glacier, f_vol_warm_on_glacier, f_geo_warm_on_glacier, &
-      f_iso_cold_on_glacier, f_vol_cold_on_glacier, f_geo_cold_on_glacier, &
-      refl_snow_min_dir_on_glacier, refl_snow_max_dir_on_glacier, &
-      refl_snow_min_dif_on_glacier, refl_snow_max_dif_on_glacier, &
-      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
-else
-   call snow_rad_calculations_lm4p2 ( snow_T, cosz, &
-      f_iso_warm, f_vol_warm, f_geo_warm, &
-      f_iso_cold, f_vol_cold, f_geo_cold, &
-      refl_snow_min_dir, refl_snow_max_dir, &
-      refl_snow_min_dif, refl_snow_max_dif, &
-      snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
-
-
-endif
-
-      s%snow_refl_dif = snow_refl_dif
-      s%snow_refl_dir = snow_refl_dir
-   ! if need snow_refl_lw or snow_emis just add them fields the the snowpack structure
-      ! update using T average ove thickness?
-      ! add if needed the penetration length computed as in CROCUS?
-
-end subroutine compute_albedo_lm4p2
-
-! ============================================================================
-subroutine snow_rad_calculations_lm4p2 ( snow_T, cosz, &
-   f_iso_warm, f_vol_warm, f_geo_warm, &
-   f_iso_cold, f_vol_cold, f_geo_cold, &
-   refl_snow_min_dir, refl_snow_max_dir, &
-   refl_snow_min_dif, refl_snow_max_dif, &
-   snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
-real, intent(in) :: snow_T  ! snow temperature, deg K
-real, intent(in) :: cosz ! cosine of zenith angle
-real, intent(in), dimension(NBANDS) :: &
-   f_iso_warm, f_vol_warm, f_geo_warm, &
-   f_iso_cold, f_vol_cold, f_geo_cold, &
-   refl_snow_min_dir, refl_snow_max_dir, refl_snow_min_dif, refl_snow_max_dif
-real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
-
-! ---- local vars
-real :: blend
-real :: warm_value_dir(NBANDS), cold_value_dir(NBANDS)
-real :: warm_value_dif(NBANDS), cold_value_dif(NBANDS)
-real :: zenith_angle, zsq, zcu
-
-   logical, parameter :: use_brdf = .true. ! in lm4p2 this is set in nml, can change
-!    logical, parameter :: use_brdf = .false. ! in lm4p2 this is set in nml, can change
-   real, parameter :: t_range = 10.0 ! degK ! range of temperatures for ramp between "warm" and "cold" albedo
-
-!    real    :: emis_snow_max         = 0.95      ! reset to 1 for MCM
-!    real    :: emis_snow_min         = 0.90      ! reset to 1 for M
-   real    :: emis_snow_max         = 1.0      ! reset to 1 for MCM
-   real    :: emis_snow_min         = 1.0      ! reset to 1 for M
-
-blend = max(0.,min(1.,1.-(tfreeze-snow_T)/t_range))
-if (use_brdf) then
-   zenith_angle = acos(cosz)
-   zsq = zenith_angle*zenith_angle
-   zcu = zenith_angle*zsq
-   warm_value_dir = f_iso_warm*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                  + f_vol_warm*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                  + f_geo_warm*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-   cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                  + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                  + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-   cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
-   warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
-else
-   warm_value_dir = refl_snow_min_dir
-   cold_value_dir = refl_snow_max_dir
-   warm_value_dif = refl_snow_min_dif
-   cold_value_dif = refl_snow_max_dif
-endif
-! write(*,*) "cold value dir = ", cold_value_dir
-! write(*,*) "cold value dif = ", cold_value_dif
-snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
-snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
-snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
-snow_refl_lw  = 1 - snow_emis
-! write(*,*) "snow_emis  = ", snow_emis
-! write(*,*) "snow_refl_lw  = ", snow_refl_lw
-end subroutine snow_rad_calculations_lm4p2
 
 
 subroutine compute_albedo_he(s, cosz)
