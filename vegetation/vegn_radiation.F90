@@ -55,7 +55,9 @@ character(32) :: vegn_rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore'   ! or 'paint-leaves'
 
 ! short-wave radiative properties of intercepted snow
-character(32) :: snow_albedo_to_use   = 'default' !  'brdf-params' or 'refl-params'
+! The defaults are set to match the (historical) defaults in CM snow model,
+! and not modern best settings.
+character(32) :: snow_albedo_to_use   = 'refl-params' ! or 'brdf-params'.
 ! - for BRDF option
 real :: snow_f_iso_cold(NBANDS)   = (/ 0.354, 0.530 /)
 real :: snow_f_vol_cold(NBANDS)   = (/ 0.200, 0.252 /)

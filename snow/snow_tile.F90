@@ -295,7 +295,7 @@ real    :: &
 ! the snow radiative parameters below (including selection between brdf-params and
 ! refl-params) control albedo of the snowpack for CM snow model, and for GLASS snow
 ! model if in snow_evolution_nml albedo_to_use='BRDF'
-character(16) :: albedo_to_use = 'default'  ! must be 'refl-params' or 'brdf-params'
+character(16) :: albedo_to_use = 'refl-params'  ! or 'brdf-params'
 ! for 'brdf-params' option
 ! from analysis of modis data (ignoring temperature dependence):
 real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
