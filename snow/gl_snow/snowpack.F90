@@ -10,7 +10,7 @@ use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, low
 use land_data_mod,  only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 use land_constants_mod, only : NBANDS
-use constants_mod,  only : tfreeze, hlv, hlf, PI
+use constants_mod,  only : tfreeze, hlv, hlf, PI, dens_h2o
 
 use snow_tile_mod, only : NTRACERS, csw, clw, snow_data_area
 
@@ -37,7 +37,8 @@ integer, parameter :: TR_MD = 2      !< Index of mineral dust - tracer 2
 integer, parameter :: TR_OM = 3      !< Index of organic carbon - tracer 3
 
 real, parameter :: rho_ice = 917.0 ! ice density [kg / m^3]
-real, parameter :: rho_water = 997.0 ! water density [kg / m^3]
+! real, parameter :: rho_water = 997.0 ! water density [kg / m^3]
+real, parameter :: rho_water = dens_h2o ! water density [kg / m^3]
 real, parameter :: rho_refrozen = 300.0 ! refrozen water assumed density [kg / m^3]
 real, parameter :: thickness_for_surface_optical_props = 0.03 ! [m] 3cm as in Vionnet et al., 2012 - updated to 5cm
 ! optical properties od BC, MD and OC (respectively) from Veronica's paper
