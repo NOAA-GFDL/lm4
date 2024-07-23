@@ -4,7 +4,8 @@ module land_tracer_driver_mod
 
 use constants_mod,      only: rdgas,wtmair,grav,pi,pstd_mks,avogno,DENS_H2O,epsln
 use field_manager_mod , only: MODEL_ATMOS, MODEL_LAND, parse   
-use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, FATAL   
+use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, FATAL 
+use fms_mod,            only: mpp_clock_id, mpp_clock_begin, mpp_clock_end , CLOCK_MODULE
 use ieee_arithmetic      
 use mpp_mod,            only: input_nml_file   
 use table_printer_mod
@@ -169,9 +170,9 @@ real           :: reactivity    = 0.0      ! normalized reactivity factor
 real           :: alpha         = 0.0      ! scaling factor relative to SO2
 real           :: r_mx          = 1e-5     ! negligible resistance
 real           :: mw            = -9999.9  ! kg/mol
-real           :: diff_ratio    = 1.6      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
+real           :: diff_ratio    = 0      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
 real           :: scale_stom    = 1.       ! additional
-
+real           :: diff_ratio23  = 1
 integer        :: nb_n_ox  = 0
 integer        :: nb_n_red = 0
 !for aerosol
@@ -221,6 +222,8 @@ integer :: nomphilic, nbcphilic, nomphobic, nbcphobic,nh2
 logical :: module_is_initialized = .FALSE.
 real, save :: dt ! fast time step, s
 type(tracer_data_type), allocatable :: trdata(:)
+
+integer :: land_tracer_clock, land_tracer_ddep_clock, land_tracer_ddep_aerosol_clock, land_tracer_ddep_gas_clock, land_tracer_ddep_gas_h2_clock
    
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
    
@@ -323,25 +326,29 @@ subroutine land_tracer_driver_init(id_ug)
                trdata(tr)%parameterization = AEROSOL_DEFAULT
             elseif (trim(method).eq."gas_bertagni") then
                trdata(tr)%parameterization = GAS_BERTAGNI   
+            else 
+               call error_mesg("land_tracer_driver_init", 'unrecognized ddep scheme for '//trim(trdata(tr)%name), FATAL)
             end if
                
             if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
             if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
                
-            !ratio of h2o to tracer diffusivity
+            !ratio of tracer diffusivity to h2o
             if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
                trdata(tr)%diff_ratio  = value
             else
                if (trdata(tr)%mw.gt.0.) then
                   !graham law
-                  trdata(tr)%diff_ratio  = sqrt(trdata(tr)%mw/18e-3)
+                  trdata(tr)%diff_ratio  = sqrt(18e-3/trdata(tr)%mw)
                end if
             end if
+
+            if (trdata(tr)%diff_ratio>0) trdata(tr)%diff_ratio23 = trdata(tr)%diff_ratio ** (2./3.)
             
             if (parse(parameters, 'scale_stom', value) > 0) then
                trdata(tr)%scale_stom = value
             else
-               trdata(tr)%scale_stom = 1./trdata(tr)%diff_ratio
+               trdata(tr)%scale_stom = trdata(tr)%diff_ratio
             end if
             if ( parse(parameters, 'r_mx',  value) > 0 )   trdata(tr)%r_mx    = max(value,epsln)
             if ( parse(parameters, 'radius', value) > 0 )  trdata(tr)%radius  = value
@@ -658,6 +665,17 @@ subroutine land_tracer_driver_init(id_ug)
       (/id_ug/),  lnd%time,'canopy avg dry fraction', &
       "unitless", missing_value=-1.0)
 
+   land_tracer_clock = mpp_clock_id( 'land_tracer', &
+                           grain=CLOCK_MODULE )
+   land_tracer_ddep_clock = mpp_clock_id( 'land_tracer:ddep', &
+                            grain=CLOCK_MODULE )
+   land_tracer_ddep_aerosol_clock = mpp_clock_id( 'land_tracer:ddep_aerosol', &
+                            grain=CLOCK_MODULE )
+   land_tracer_ddep_gas_clock = mpp_clock_id( 'land_tracer:ddep_gas', &
+                           grain=CLOCK_MODULE )
+   land_tracer_ddep_gas_h2_clock = mpp_clock_id( 'land_tracer:ddep_gas_h2', &
+                           grain=CLOCK_MODULE )
+
    module_is_initialized = .TRUE.         
 
 end subroutine land_tracer_driver_init
@@ -733,8 +751,10 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    real    :: fw_avg, fs_avg, rh
    
    real    :: ddep_oa,ddep_bc,ddep_noy,ddep_nhx
+   real    :: ustar_mod, tcond
    
-   
+   call mpp_clock_begin (land_tracer_clock)
+
    if (is_watch_point()) then
       write(*,*) 'update_cana_tracers input'
       __DEBUG1__(tr_flux)
@@ -750,6 +770,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    precip_l, precip_s, pressure, ustar, con_g, con_v_v )
    ! wind10 is not passed to this subroutine yet
    
+   call mpp_clock_begin (land_tracer_ddep_clock)
+
    ! update generic tracers
    ! calculate tracers sources
    emis(:) = 0.0
@@ -780,7 +802,9 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
          end if
       end do
    end if
-   
+
+   !precalculate a few quantities
+   ustar_mod = ustar**e_ustar   
    
    ! loop for generic tracers only
    do tr = 1, ntcana
@@ -813,7 +837,10 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
 !               if (trdata(tr)%map_to_index .gt. 0) then !reuse tot con
 !                  tot_con(tr) = tot_con(trdata(tr)%map_to_index)              
 !               else
-         if (trdata(tr)%parameterization.eq.GAS_DEFAULT .or. trdata(tr)%parameterization.eq.GAS_BERTAGNI) then                  
+         if (trdata(tr)%parameterization.eq.GAS_DEFAULT .or. trdata(tr)%parameterization.eq.GAS_BERTAGNI) then     
+            
+            call mpp_clock_begin (land_tracer_ddep_gas_clock)
+
             !conductance to the vegetation
             if (associated(tile%vegn)) then                     
                !get fraction of ground covered with snow
@@ -821,8 +848,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                   associate(c=>tile%vegn%cohorts(k),sp=>spdata(tile%vegn%cohorts(k)%species))
                   call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
                      
-                  con_cu_dry  = ft * ustar**e_ustar * c%lai**e_lai_dry * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
-                  con_cu_wet  = fw * ustar**e_ustar * c%lai**e_lai_wet * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
+                  con_cu_dry  = ft * ustar_mod * c%lai**e_lai_dry * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
+                  con_cu_wet  = fw * ustar_mod * c%lai**e_lai_wet * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
                   con_cu_frz  = fs * c%lai**e_lai_frz * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
                   
                   !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
@@ -844,8 +871,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                   
                   !calculate contribution of this cohort to the overall vegetation conductance
                   !con_v_v and con_stem are for H2O, we need to scale by (Di/Dw)**(2./3.)
-                  con_v_v_tr     = con_v_v(k)*1./trdata(tr)%diff_ratio**(2./3.)
-                  con_v_stem_tr  = con_v_stem(k)*1./trdata(tr)%diff_ratio**(2./3.)
+                  con_v_v_tr     = con_v_v(k)*trdata(tr)%diff_ratio23
+                  con_v_stem_tr  = con_v_stem(k)*trdata(tr)%diff_ratio23
                   
                   econ_mx_st       = econ_mx_st + c%layerfrac*con_mx_st/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
                   
@@ -874,7 +901,10 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             !note that for the ground we are calculating the tile average
             if (tr==nh2 .and. trdata(tr)%parameterization.eq.GAS_BERTAGNI) then
                !for now set constant conductance
+               call mpp_clock_begin (land_tracer_ddep_gas_h2_clock)
                con_gr_dry = con_h2(trdata(tr),tile,pressure)
+               call mpp_clock_end (land_tracer_ddep_gas_h2_clock)
+
             else
                con_gr_dry = gfrac_dry     * get_conductance_tracer(trdata(tr),r_gs_dry,r_go_dry) * 1./scale_r_T(land_tile_grnd_T(tile),c_dry) * 1./scale_biomass(frac_desert)
             end if
@@ -888,7 +918,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                end if
             end if
                                     
-            con_bl_tr  = 1./(r_bl_h2o+epsln)   * 1./trdata(tr)%diff_ratio**(2./3.)
+            con_bl_tr  = 1./(r_bl_h2o+epsln)   * trdata(tr)%diff_ratio23
             
             con_g_tr = conductance_series(con_g,con_bl_tr)
             
@@ -902,8 +932,12 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             call send_tile_data(trdata(tr)%id_con_v_v, con_v_v_tr_diag, tile%diag)
             call send_tile_data(trdata(tr)%id_con_v_stem, con_v_stem_tr_diag,  tile%diag)
             call send_tile_data(trdata(tr)%id_con_v_g, con_g_tr, tile%diag)
+
+            call mpp_clock_end(land_tracer_ddep_gas_clock)
                
-         else
+         elseif (trdata(tr)%parameterization.eq.AEROSOL_DEFAULT) then  
+
+            call mpp_clock_begin(land_tracer_ddep_aerosol_clock)
             !aerosol
             alpha_aere   = 0.
             gamma_aere   = 0.
@@ -950,46 +984,57 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             call send_tile_data(trdata(tr)%id_Eim,Eim, tile%diag)
             call send_tile_data(trdata(tr)%id_Ein,Ein, tile%diag)                     
                
+            call mpp_clock_end(land_tracer_ddep_aerosol_clock)
+
          endif
          !end if
          
          rho = pressure/(rdgas*tile%cana%T *(1+d608*tile%cana%tr(isphum)))
+
+         if (tile%cana%tr(tr).lt.0.) then 
+            tcond = 0
+         else 
+            tcond = (cv+cg)            
+         end if
          
          ! update tracer concentration -- this needs to be done even when do_deposition
          ! is FALSE, because source might be non-zero
-         dq = (-tr_flux(tr)-rho*(cv+cg)*tile%cana%tr(tr)+emis(tr)) &
-            / (canopy_air_mass_for_tracers/dt + dfdtr(tr) + rho*(cv+cg))
+         dq = (-tr_flux(tr)-rho*tcond*tile%cana%tr(tr)+emis(tr)) &
+            / (canopy_air_mass_for_tracers/dt + dfdtr(tr) + rho*tcond)
 
          if (is_watch_point()) then
             write(*,*) 'update_cana_tracers : ', trim(trdata(tr)%name)
             __DEBUG4__(tile%cana%tr(tr), tr_flux(tr), dfdtr(tr), emis(tr))
-            __DEBUG3__(rho,cv,cg)
+            __DEBUG4__(rho,cv,cg,tcond)
             __DEBUG2__(dq,tile%cana%tr(tr) + dq)
          endif
 
          tile%cana%tr(tr) = tile%cana%tr(tr) + dq
          ! ---- final values of the fluxes, for diagnostics
-         ddep  = rho*(cv+cg)*tile%cana%tr(tr)*trdata(tr)%conv_flux
+         ddep  = rho*tcond*tile%cana%tr(tr)*trdata(tr)%conv_flux
          f_atm = tr_flux(tr)+dfdtr(tr)*dq*trdata(tr)%conv_flux
          ! ---- diagnostic section
          if (con_atm.gt.epsln) then
-            dvel = con_atm*(cv+cg)/(con_atm+cv+cg)
+            dvel = con_atm*tcond/(con_atm+tcond)
          else
             dvel = 0.
          end if
-         if (dfdtr(tr).gt.epsln) then
-            dvel_new =  dfdtr(tr)*(cv+cg)/(dfdtr(tr)+rho*(cv+cg))
-         else
-            dvel_new = 0.
+         if (trdata(tr)%id_tcond_new>0) then
+            if (dfdtr(tr).gt.epsln) then
+               dvel_new =  dfdtr(tr)*tcond/(dfdtr(tr)+rho*tcond)
+            else
+               dvel_new = 0.
+            end if
+            call send_tile_data(trdata(tr)%id_tcond_new,dvel_new, tile%diag)
          end if
-         
+
          call send_tile_data(trdata(tr)%id_con_v,      cv,         tile%diag)
          call send_tile_data(trdata(tr)%id_con_g,      cg,         tile%diag)
          call send_tile_data(trdata(tr)%id_emis,       emis(tr),   tile%diag)
          call send_tile_data(trdata(tr)%id_ddep,       ddep,       tile%diag)
          call send_tile_data(trdata(tr)%id_flux_atm,   f_atm,      tile%diag)
          call send_tile_data(trdata(tr)%id_tcond,dvel, tile%diag)
-         call send_tile_data(trdata(tr)%id_tcond_new,dvel_new, tile%diag)
+         
             
          !save temporary array for 
          if (id_ddep_noy.gt.0 .and. trdata(tr)%nb_n_ox.gt.0)  ddep_noy = ddep_noy + ddep*trdata(tr)%nb_n_ox
@@ -1017,37 +1062,37 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
          
          !save deposition to the vegetation and ground
          fdiag = min(max(cv/(cv+cg+epsln),0.),1.)
-         call send_tile_data(trdata(tr)%id_econ_g, (1.-fdiag)*dvel,tile%diag)
-         call send_tile_data(trdata(tr)%id_econ_v, fdiag*dvel,     tile%diag)
-         call send_tile_data(trdata(tr)%id_ddep_g, (1.-fdiag)*ddep,tile%diag)
-         call send_tile_data(trdata(tr)%id_ddep_v, fdiag*ddep,     tile%diag)
+         if (trdata(tr)%id_econ_g>0)  call send_tile_data(trdata(tr)%id_econ_g, (1.-fdiag)*dvel,tile%diag)
+         if (trdata(tr)%id_econ_v>0)  call send_tile_data(trdata(tr)%id_econ_v, fdiag*dvel,     tile%diag)
+         if (trdata(tr)%id_ddep_g>0)  call send_tile_data(trdata(tr)%id_ddep_g, (1.-fdiag)*ddep,tile%diag)
+         if (trdata(tr)%id_ddep_v>0)  call send_tile_data(trdata(tr)%id_ddep_v, fdiag*ddep,     tile%diag)
             
             
          !the following diagnostics are not (yet) defined if the tracer is an aerosol species
          if (trdata(tr)%parameterization .eq. GAS_BERTAGNI .or. trdata(tr)%parameterization.eq.GAS_DEFAULT) then
-            call send_tile_data(trdata(tr)%id_econ_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
-            call send_tile_data(trdata(tr)%id_econ_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
-            call send_tile_data(trdata(tr)%id_econ_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+            if (trdata(tr)%id_econ_g_wet>0)  call send_tile_data(trdata(tr)%id_econ_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+            if (trdata(tr)%id_econ_g_dry>0)  call send_tile_data(trdata(tr)%id_econ_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
+            if (trdata(tr)%id_econ_g_frz>0)  call send_tile_data(trdata(tr)%id_econ_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
             
-            call send_tile_data(trdata(tr)%id_ddep_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
-            call send_tile_data(trdata(tr)%id_ddep_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
-            call send_tile_data(trdata(tr)%id_ddep_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+            if (trdata(tr)%id_ddep_g_wet>0)  call send_tile_data(trdata(tr)%id_ddep_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+            if (trdata(tr)%id_ddep_g_dry>0)  call send_tile_data(trdata(tr)%id_ddep_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
+            if (trdata(tr)%id_ddep_g_frz>0)  call send_tile_data(trdata(tr)%id_ddep_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*ddep,     tile%diag)
             
-            call send_tile_data(trdata(tr)%id_econ_cu,       fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-            call send_tile_data(trdata(tr)%id_econ_cu_wet,   fdiag*dvel*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-            call send_tile_data(trdata(tr)%id_econ_cu_dry,   fdiag*dvel*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-            call send_tile_data(trdata(tr)%id_econ_cu_frz,   fdiag*dvel*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_econ_cu>0)     call send_tile_data(trdata(tr)%id_econ_cu,       fdiag*dvel*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_econ_cu_wet>0) call send_tile_data(trdata(tr)%id_econ_cu_wet,   fdiag*dvel*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_econ_cu_dry>0) call send_tile_data(trdata(tr)%id_econ_cu_dry,   fdiag*dvel*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_econ_cu_frz>0) call send_tile_data(trdata(tr)%id_econ_cu_frz,   fdiag*dvel*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
             
-            call send_tile_data(trdata(tr)%id_econ_stem, fdiag*dvel*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
-            call send_tile_data(trdata(tr)%id_econ_stom, fdiag*dvel*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
+            if (trdata(tr)%id_econ_stem>0)   call send_tile_data(trdata(tr)%id_econ_stem, fdiag*dvel*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
+            if (trdata(tr)%id_econ_stom>0)   call send_tile_data(trdata(tr)%id_econ_stom, fdiag*dvel*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
             
-            call send_tile_data(trdata(tr)%id_ddep_cu,       fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-            call send_tile_data(trdata(tr)%id_ddep_cu_wet,   fdiag*ddep*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-            call send_tile_data(trdata(tr)%id_ddep_cu_dry,   fdiag*ddep*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
-            call send_tile_data(trdata(tr)%id_ddep_cu_frz,   fdiag*ddep*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_ddep_cu>0)     call send_tile_data(trdata(tr)%id_ddep_cu,       fdiag*ddep*econ_cu/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_ddep_cu_wet>0) call send_tile_data(trdata(tr)%id_ddep_cu_wet,   fdiag*ddep*econ_cu_wet/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_ddep_cu_dry>0) call send_tile_data(trdata(tr)%id_ddep_cu_dry,   fdiag*ddep*econ_cu_dry/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
+            if (trdata(tr)%id_ddep_cu_frz>0) call send_tile_data(trdata(tr)%id_ddep_cu_frz,   fdiag*ddep*econ_cu_frz/(econ_cu+econ_stem+econ_mx_st+epsln),     tile%diag)
             
-            call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
-            call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
+            if (trdata(tr)%id_ddep_stem>0) call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
+            if (trdata(tr)%id_ddep_stom>0) call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
          end if
             
       endif
@@ -1070,6 +1115,9 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    call send_tile_data(id_gfrac_wet,    gfrac_wet,    tile%diag)
    call send_tile_data(id_gfrac_frz,    gfrac_frz,   tile%diag)
    call send_tile_data(id_frac_desert,  frac_desert,  tile%diag)
+
+   call mpp_clock_end(land_tracer_ddep_clock)
+   call mpp_clock_end(land_tracer_clock)
          
 end subroutine update_cana_tracers
             
@@ -1294,9 +1342,6 @@ real function con_h2(tr_data,tile,p) result(con)
    real    :: psi_sat_ref, beta1, beta2, norm, s_ws, s_opt, b
    real    :: litterC, depth_litter, grnd_T
 
-   logical :: top_layer = .FALSE.
-
-
    con = 0.
 
    if (associated(tile%soil)) then
@@ -1328,21 +1373,17 @@ real function con_h2(tr_data,tile,p) result(con)
       R_bact     = 1.e20
       dz_tot     = 0.
       inactive_layer  = 0.
-      top_layer = .TRUE.
-      
+
       !loop over soil layers
       do while (zhalf(isoil).lt.h2_depth)
          dz = min(zhalf(isoil+1),h2_depth)-zhalf(isoil)
          if (frac_water_pores(isoil).lt.s_ws) then
-            if (TOP_LAYER) then
-               !there is no uptake of h2 in this layer (too dry)
-               R_inactive = R_inactive + dz/max(diff_H2_soil(tile%soil%T(isoil),p,                             &
-                            tile%soil%pars%vwc_sat,                           &
-                            frac_water_pores(isoil)+frac_ice_pores(isoil),    &
-                            tile%soil%pars%chb),1.e-20)
-               
-               inactive_layer = inactive_layer + dz
-            end if
+            !there is no uptake of h2 in this layer (too dry)
+            R_inactive = R_inactive + dz/max(diff_H2_soil(tile%soil%T(isoil),p,                             &
+                           tile%soil%pars%vwc_sat,                           &
+                           frac_water_pores(isoil)+frac_ice_pores(isoil),    &
+                           tile%soil%pars%chb),1.e-20)            
+            inactive_layer = inactive_layer + dz
          else
             T_avg                = T_avg                + dz*tile%soil%T(isoil)
             frac_water_pores_avg = frac_water_pores_avg + dz*frac_water_pores(isoil)
@@ -1352,17 +1393,14 @@ real function con_h2(tr_data,tile,p) result(con)
             if (h2_soilC_mod) then
                !get C for modulation
                select case (soil_carbon_option)
-               case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-                  soil_C(isoil) =(tile%soil%fast_soil_C(isoil)+tile%soil%slow_soil_C(isoil))
-               case (SOILC_CORPSE, SOILC_CORPSE_N)
-                  call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C(isoil))
-               case default
-                  call error_mesg("land_tracer_driver","soil carbon parameterization not recognized (h2_con)",FATAL)
+                  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+                     soil_C(isoil) =(tile%soil%fast_soil_C(isoil)+tile%soil%slow_soil_C(isoil))
+                  case (SOILC_CORPSE, SOILC_CORPSE_N)
+                     call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C(isoil))
+                  case default
+                     call error_mesg("land_tracer_driver","soil carbon parameterization not recognized (h2_con)",FATAL)
                end select
-            end if               
-            
-            top_layer            = .FALSE.
-            
+            end if                                       
          end if
          isoil                = isoil+1
       end do
@@ -1397,7 +1435,7 @@ real function con_h2(tr_data,tile,p) result(con)
          diff_H2 = diff_H2_soil( T_avg,                                            &
                                  p,                                                &
                                  tile%soil%pars%vwc_sat,                           &
-                                 frac_water_pores_avg,                             &
+                                 frac_ice_pores_avg+frac_water_pores_avg,          &
                                  b )
                                     
          if (h2_soilC_mod) then
@@ -1438,17 +1476,15 @@ real function con_h2(tr_data,tile,p) result(con)
       call send_tile_data(id_h2_sdiff,diff_h2,                tile%diag)
       call send_tile_data(id_h2_R_bact,R_bact,                tile%diag)
       call send_tile_data(id_h2_R_litter,R_litter,            tile%diag)
+      call send_tile_data(id_h2_R_snow,R_snow,                tile%diag)      
       call send_tile_data(id_h2_R_inactive,R_inactive,        tile%diag)
       call send_tile_data(id_h2_ilayer,inactive_layer,        tile%diag)
-      call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)
-
+      call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)      
                         
       call send_tile_data(id_h2_norm,   norm,  tile%diag)
       call send_tile_data(id_h2_sws,    s_ws,  tile%diag)
       call send_tile_data(id_h2_beta2,  beta2, tile%diag)
       call send_tile_data(id_h2_sopt,   s_opt, tile%diag)
-      call send_tile_data(id_h2_sopt,   s_opt, tile%diag)
-
 
       call send_tile_data(id_frac_water_pores_avg,frac_water_pores_avg, tile%diag)
          
