@@ -152,6 +152,11 @@ real      :: wet_diag_thr(nwet_diag) = (/ 0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0
 character(len=5) :: wet_str(nwet_diag)
 data wet_str/'wet05','wet10','wet20','wet30','wet40','wet50','wet60','wet70','wet80','wet90','wet95'/
 
+!parameterization
+integer, parameter :: AEROSOL_DEFAULT = 1
+integer, parameter :: GAS_DEFAULT     = 2
+integer, parameter :: GAS_BERTAGNI    = 3
+
 
 ! ---- data types -----------------------------------------------------------
 type :: tracer_data_type
@@ -171,7 +176,7 @@ integer        :: nb_n_ox  = 0
 integer        :: nb_n_red = 0
 !for aerosol
 real           :: radius = 0.25e-6, rho = 1500.
-logical        :: is_aerosol = .false.
+integer        :: parameterization = -1
 
 real           :: conv_flux
 
@@ -312,10 +317,12 @@ subroutine land_tracer_driver_init(id_ug)
          if(query_method('dry_deposition', MODEL_LAND, tr, method, parameters)) then
             if (trdata(tr)%do_deposition==.FALSE.) call error_mesg("land_tracer_driver","missmatch between atm and land configuration for "//trim(trdata(tr)%name), FATAL)
             if (trim(method).eq."gas") then
-               trdata(tr)%is_aerosol = .FALSE.
+               trdata(tr)%parameterization = GAS_DEFAULT
                if (trdata(tr)%mw<0) call error_mesg("land_tracer_driver","mw is not defined for "//trim(trdata(tr)%name), FATAL)
             elseif (trim(method).eq."aerosol") then
-               trdata(tr)%is_aerosol = .TRUE.
+               trdata(tr)%parameterization = AEROSOL_DEFAULT
+            elseif (trim(method).eq."gas_bertagni") then
+               trdata(tr)%parameterization = GAS_BERTAGNI   
             end if
                
             if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
@@ -356,19 +363,17 @@ subroutine land_tracer_driver_init(id_ug)
    
    call init_with_headers(table, trdata(:)%name)
    call add_row(table, 'do_deposition',    trdata(:)%do_deposition)
-   call add_row(table, 'diff_ratio',       trdata(:)%diff_ratio)
+   call add_row(table, 'parameterization', trdata(:)%parameterization)   
    call add_row(table, 'mw',               trdata(:)%mw)    
    call add_row(table, 'alpha',            trdata(:)%alpha)
    call add_row(table, 'reactivity',       trdata(:)%reactivity)
-   call add_row(table, 'scale_stom',       trdata(:)%scale_stom)
-   call add_row(table, 'is_aerosol',       trdata(:)%is_aerosol)
    call add_row(table, 'radius',           trdata(:)%radius)
    call add_row(table, 'rho',              trdata(:)%rho)
    !         call add_row(table, 'map_to',           trdata(:)%map_to)         
    !         call add_row(table, 'map_to_index',     trdata(:)%map_to_index)
    
-   call print(table,stdlog())
-   call print(table,stdout())
+   call print(table,stdlog(),transposed=.TRUE.)
+   call print(table,stdout(),transposed=.TRUE.)
       
    ! register diag fields for generic tracers
    call set_default_diag_filter('land')
@@ -420,7 +425,7 @@ subroutine land_tracer_driver_init(id_ug)
                'm/s', missing_value=-1.0)
          
          !only available for aerosols
-         if (trdata(tr)%is_aerosol) then
+         if (trdata(tr)%parameterization .eq. AEROSOL_DEFAULT) then
             trdata(tr)%id_Eb =                register_tiled_diag_field(diag_name, trim(name)//'_Eb',     &
                (/id_ug/),  lnd%time, 'Eb collection efficiency from Brownian diffusion for '//trim(name), &
                'm/s', missing_value=-1.0)
@@ -808,7 +813,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
 !               if (trdata(tr)%map_to_index .gt. 0) then !reuse tot con
 !                  tot_con(tr) = tot_con(trdata(tr)%map_to_index)              
 !               else
-         if (.not. trdata(tr)%is_aerosol) then                  
+         if (trdata(tr)%parameterization.eq.GAS_DEFAULT .or. trdata(tr)%parameterization.eq.GAS_BERTAGNI) then                  
             !conductance to the vegetation
             if (associated(tile%vegn)) then                     
                !get fraction of ground covered with snow
@@ -867,7 +872,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             end if
                
             !note that for the ground we are calculating the tile average
-            if (tr==nh2) then
+            if (tr==nh2 .and. trdata(tr)%parameterization.eq.GAS_BERTAGNI) then
                !for now set constant conductance
                con_gr_dry = con_h2(trdata(tr),tile,pressure)
             else
@@ -1019,7 +1024,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             
             
          !the following diagnostics are not (yet) defined if the tracer is an aerosol species
-         if (.not. trdata(tr)%is_aerosol) then
+         if (trdata(tr)%parameterization .eq. GAS_BERTAGNI .or. trdata(tr)%parameterization.eq.GAS_DEFAULT) then
             call send_tile_data(trdata(tr)%id_econ_g_wet,   con_gr_wet/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
             call send_tile_data(trdata(tr)%id_econ_g_dry,   con_gr_dry/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
             call send_tile_data(trdata(tr)%id_econ_g_frz,   con_gr_frz/(con_gr_wet+con_gr_dry+con_gr_frz+epsln)*(1.-fdiag)*dvel,     tile%diag)
