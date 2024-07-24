@@ -144,9 +144,6 @@ real, parameter  :: mw_air = WTMAIR/1000
 real, parameter  :: rgas  = (rdgas*mw_air)
 real, parameter  :: kb     = rgas/avogno
 
-!H2 km mod
-integer :: H2_KM_MOD_C = 1
-
 !for wetness diag
 integer, parameter :: nwet_diag = 11
 real      :: wet_diag_thr(nwet_diag) = (/ 0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.95/)
@@ -154,55 +151,58 @@ character(len=5) :: wet_str(nwet_diag)
 data wet_str/'wet05','wet10','wet20','wet30','wet40','wet50','wet60','wet70','wet80','wet90','wet95'/
 
 !parameterization
-integer, parameter :: AEROSOL_DEFAULT = 1
-integer, parameter :: GAS_DEFAULT     = 2
-integer, parameter :: GAS_BERTAGNI    = 3
+integer, parameter :: AEROSOL_DEFAULT = -1
+integer, parameter :: GAS_DEFAULT     = 1
+integer, parameter :: GAS_BERTAGNI    = 2
 
 
 ! ---- data types -----------------------------------------------------------
 type :: tracer_data_type
-character(32)  :: name = ''          ! tracer name
-integer        :: tr_atm  = NO_TRACER      ! index of this tracer in atmos tracer array
-logical        :: is_generic    = .TRUE.   ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
-logical        :: do_deposition = .FALSE.  ! if true, generic dry deposition is used
-! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)
-real           :: reactivity    = 0.0      ! normalized reactivity factor
-real           :: alpha         = 0.0      ! scaling factor relative to SO2
-real           :: r_mx          = 1e-5     ! negligible resistance
-real           :: mw            = -9999.9  ! kg/mol
-real           :: diff_ratio    = 0      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
-real           :: scale_stom    = 1.       ! additional
-real           :: diff_ratio23  = 1
-integer        :: nb_n_ox  = 0
-integer        :: nb_n_red = 0
-!for aerosol
-real           :: radius = 0.25e-6, rho = 1500.
-integer        :: parameterization = -1
+   character(32)  :: name = ''          ! tracer name
+   integer        :: tr_atm  = NO_TRACER      ! index of this tracer in atmos tracer array
+   logical        :: is_generic    = .TRUE.   ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
+   logical        :: do_deposition = .FALSE.  ! if true, generic dry deposition is used
+   ! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)
+   real           :: reactivity    = 0.0      ! normalized reactivity factor
+   real           :: alpha         = 0.0      ! scaling factor relative to SO2
+   real           :: r_mx          = 1e-5     ! negligible resistance
+   real           :: mw            = -9999.9  ! kg/mol
+   real           :: diff_ratio    = 0      ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
+   real           :: scale_stom    = 1.       ! additional
+   real           :: diff_ratio23  = 1
+   integer        :: nb_n_ox  = 0
+   integer        :: nb_n_red = 0
+   !for aerosol
+   real           :: radius = 0.25e-6, rho = 1500.
+   integer        :: parameterization = 0
 
-real           :: conv_flux
+   real           :: conv_flux
 
-integer        :: km_mod=-1
+   integer        :: km_mod=-1
 
-integer        :: & ! diag field IDs
-                  id_emis,      id_ddep,  &
-                  id_flux_atm,  id_dfdtr, &
-                  id_con_v,     id_con_g, &
-                  id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
-                  id_conc,      id_tcond, id_tcond_wet(nwet_diag), id_tcond_new, &
-                  id_econ_v,    id_econ_g, &
-                  id_ddep_v,    id_ddep_g, &
-                  id_econ_g_dry,id_econ_g_wet, id_econ_g_frz, &
-                  id_ddep_g_dry,id_ddep_g_wet, id_ddep_g_frz, &
-                  id_econ_stem, id_econ_stom, id_econ_cu, &
-                  id_ddep_stem, id_ddep_stom, id_ddep_cu, &
-                  id_econ_cu_dry,id_econ_cu_wet, id_econ_cu_frz, &
-                  id_ddep_cu_dry,id_ddep_cu_wet, id_ddep_cu_frz, &
-                  id_con_v_v, id_con_v_stem, id_con_v_g, &
-                  id_Eb, id_Ein, id_Eim
+   integer        :: & ! diag field IDs
+                     id_emis,      id_ddep,  &
+                     id_flux_atm,  id_dfdtr, &
+                     id_con_v,     id_con_g, &
+                     id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
+                     id_conc,      id_tcond, id_tcond_wet(nwet_diag), id_tcond_new, &
+                     id_econ_v,    id_econ_g, &
+                     id_ddep_v,    id_ddep_g, &
+                     id_econ_g_dry,id_econ_g_wet, id_econ_g_frz, &
+                     id_ddep_g_dry,id_ddep_g_wet, id_ddep_g_frz, &
+                     id_econ_stem, id_econ_stom, id_econ_cu, &
+                     id_ddep_stem, id_ddep_stom, id_ddep_cu, &
+                     id_econ_cu_dry,id_econ_cu_wet, id_econ_cu_frz, &
+                     id_ddep_cu_dry,id_ddep_cu_wet, id_ddep_cu_frz, &
+                     id_con_v_v, id_con_v_stem, id_con_v_g, &
+                     id_Eb, id_Ein, id_Eim
 
-!for some compounds, we use the same exact parameterization. This a
-!integer        :: map_to_index
-!character*32   :: map_to
+   !for some compounds, we use the same exact parameterization. This a
+   !integer        :: map_to_index
+   !character*32   :: map_to          
+   real, allocatable:: con_cu_dry(:), con_cu_wet(:), con_cu_frz(:),  con_stem(:), con_mx(:)                            
+   real             :: con_gr_lake, con_gr_frz, con_gr_dry, con_gr_wet
+
 end type tracer_data_type
 
 integer :: id_fw_avg, id_fs_avg, id_fd_avg
@@ -210,7 +210,7 @@ integer :: id_fw_wet(nwet_diag)
 integer :: id_con_atm
 integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert
 integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km, id_h2_depth_litter
-integer :: id_frac_water_pores_avg, id_frac_water_pores, id_frac_ice_pores
+integer :: id_h2_frac_water_pores_avg, id_h2_frac_ice_pores_avg
 integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter
 integer :: id_h2_norm, id_h2_sws, id_h2_beta2, id_h2_sopt
 
@@ -232,6 +232,7 @@ subroutine land_tracer_driver_init(id_ug)
    integer,intent(in) :: id_ug !<Unstructured axis id.
    
    integer                  :: tr, ttr ! tracer index
+   integer                  :: spc !species index
    real                     :: value ! temporary storage for parsing input
    character(32)            :: value_str
    character(32)            :: name, units, funits ! name and units of the tracer and flux
@@ -332,6 +333,29 @@ subroutine land_tracer_driver_init(id_ug)
                
             if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
             if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
+
+            if ( trdata(tr)%parameterization .gt. 0) then
+               allocate(trdata(tr)%con_cu_dry(0:size(spdata)-1))
+               allocate(trdata(tr)%con_cu_wet(0:size(spdata)-1))
+               allocate(trdata(tr)%con_cu_frz(0:size(spdata)-1))    
+               allocate(trdata(tr)%con_stem(0:size(spdata)-1))                              
+               allocate(trdata(tr)%con_mx(0:size(spdata)-1))                              
+
+               do spc = 1,size(spdata)
+                  associate(sp=>spdata(spc-1))
+                     trdata(tr)%con_cu_dry(spc-1) = get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo)
+                     trdata(tr)%con_cu_wet(spc-1) = get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet)
+                     trdata(tr)%con_cu_frz(spc-1) = get_conductance_tracer(trdata(tr),r_snows,r_snowo)
+                     trdata(tr)%con_stem(spc-1)   = get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo)                     
+                     trdata(tr)%con_mx(spc-1)     = get_conductance_tracer(trdata(tr),1.,100.)
+                  end associate
+               end do
+
+               trdata(tr)%con_gr_dry  = get_conductance_tracer(trdata(tr),r_gs_dry,r_go_dry)
+               trdata(tr)%con_gr_frz  = get_conductance_tracer(trdata(tr),r_snows,r_snowo)
+               trdata(tr)%con_gr_wet  = get_conductance_tracer(trdata(tr),r_gs_wet,r_go_wet)
+               trdata(tr)%con_gr_lake = get_conductance_tracer(trdata(tr),r_gs_lake,r_go_lake)               
+            end if
                
             !ratio of tracer diffusivity to h2o
             if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
@@ -592,9 +616,12 @@ subroutine land_tracer_driver_init(id_ug)
    
    call set_default_diag_filter('soil')
    
-   id_frac_water_pores_avg  = register_tiled_diag_field(diag_name, 'frac_water_pores_avg', &
-      (/id_ug/),  lnd%time, 'frac_water_pores_avg', &
+   id_h2_frac_water_pores_avg  = register_tiled_diag_field(diag_name, 'h2_frac_lw_pores_avg', &
+      (/id_ug/),  lnd%time, 'liquid water fraction used for H2 soil removal', &
       'm', missing_value=-1.0)
+   id_h2_frac_ice_pores_avg  = register_tiled_diag_field(diag_name, 'h2_frac_iw_pores_avg', &
+      (/id_ug/),  lnd%time, 'ice water fraction used for H2 soil removal', &
+      'm', missing_value=-1.0)      
    id_h2_ilayer  = register_tiled_diag_field(diag_name, 'h2_ilayer', &
       (/id_ug/),  lnd%time, 'h2_ilayer', &
       'm', missing_value=-1.0)
@@ -631,11 +658,11 @@ subroutine land_tracer_driver_init(id_ug)
    id_h2_norm = register_tiled_diag_field(diag_name, 'h2_norm', &
       (/id_ug/),  lnd%time, 'normalization constant for the modified beta distribution of the biological sink', &
       'unitless', missing_value=-1.0)
-   id_h2_sws = register_tiled_diag_field(diag_name, 'h2_sws', &
+   id_h2_sws = register_tiled_diag_field(diag_name, 'h2_s_ws', &
       (/id_ug/),  lnd%time, 'soil moisture threshold for bacterial activity', &
       'unitless', missing_value=-1.0)
-   id_h2_sopt = register_tiled_diag_field(diag_name, 'h2_sopt', &
-      (/id_ug/),  lnd%time, 'soil moisture threshold for bacterial activity', &
+   id_h2_sopt = register_tiled_diag_field(diag_name, 'h2_s_opt', &
+      (/id_ug/),  lnd%time, 'soil moisture optimum for bacterial activity', &
       'unitless', missing_value=-1.0)
    id_h2_beta2 = register_tiled_diag_field(diag_name, 'h2_beta2', &
       (/id_ug/),  lnd%time, 'second exponent of the beta distribution', &
@@ -846,53 +873,52 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                !get fraction of ground covered with snow
                do k = 1, tile%vegn%n_cohorts
                   associate(c=>tile%vegn%cohorts(k),sp=>spdata(tile%vegn%cohorts(k)%species))
-                  call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
+                     call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
+                        
+                     con_cu_dry  = ft * ustar_mod * c%lai**e_lai_dry * trdata(tr)%con_cu_dry(tile%vegn%cohorts(k)%species) / scale_r_T(c%Tv,c_dry) * exp(RH)
+                     con_cu_wet  = fw * ustar_mod * c%lai**e_lai_wet * trdata(tr)%con_cu_wet(tile%vegn%cohorts(k)%species) / scale_r_T(c%Tv,c_wet)
+                     con_cu_frz  = fs * c%lai**e_lai_frz * trdata(tr)%con_cu_frz(tile%vegn%cohorts(k)%species)
                      
-                  con_cu_dry  = ft * ustar_mod * c%lai**e_lai_dry * get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo) / scale_r_T(c%Tv,c_dry) * exp(RH)
-                  con_cu_wet  = fw * ustar_mod * c%lai**e_lai_wet * get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet) / scale_r_T(c%Tv,c_wet)
-                  con_cu_frz  = fs * c%lai**e_lai_frz * get_conductance_tracer(trdata(tr),r_snows,r_snowo)
-                  
-                  !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
-                  con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
-                  
-                  !comment-out temperature dependence based on Clifton (2020)
-                  !con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo) / scale_r_T(c%Tv)
-                  con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo)
-                  
-                  con_st_tr    = stomatal_cond(k) * trdata(tr)%scale_stom
-                  
-                  if (trdata(tr)%r_mx .gt. 0) then
-                     con_mx    = 1./trdata(tr)%r_mx
-                  else
-                     con_mx    = c%lai * get_conductance_tracer(trdata(tr),1.,100.)
-                  end if
-                  
-                  con_mx_st = conductance_series(con_mx,con_st_tr)
-                  
-                  !calculate contribution of this cohort to the overall vegetation conductance
-                  !con_v_v and con_stem are for H2O, we need to scale by (Di/Dw)**(2./3.)
-                  con_v_v_tr     = con_v_v(k)*trdata(tr)%diff_ratio23
-                  con_v_stem_tr  = con_v_stem(k)*trdata(tr)%diff_ratio23
-                  
-                  econ_mx_st       = econ_mx_st + c%layerfrac*con_mx_st/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
-                  
-                  tmp              = c%layerfrac * con_cu/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
-                  
-                  econ_cu          = econ_cu     + tmp
-                  econ_cu_wet      = econ_cu_wet + tmp * con_cu_wet/(con_cu+epsln)
-                  econ_cu_frz      = econ_cu_frz + tmp * con_cu_frz/(con_cu+epsln)
-                  econ_cu_dry      = econ_cu_dry + tmp * con_cu_dry/(con_cu+epsln)
-                  
-                  econ_stem        = econ_stem   + c%layerfrac*conductance_series(con_v_stem_tr,con_stem)
-                  
-                  !for diagnostics
-                  con_mx_st_diag   = con_mx_st_diag + c%layerfrac*con_mx_st
-                  con_cu_diag      = con_cu_diag    + c%layerfrac*con_cu
-                  con_stem_diag    = con_stem_diag  + c%layerfrac*con_stem
-                  
-                  con_v_v_tr_diag     = con_v_v_tr_diag + c%layerfrac*con_v_v_tr
-                  con_v_stem_tr_diag  = con_v_stem_tr_diag + c%layerfrac*con_v_stem_tr
+                     !here we use the bulk leaf property for the cohort. This is different from the LM3 implementation.
+                     con_cu   = con_cu_dry+con_cu_wet+con_cu_frz
                      
+                     !comment-out temperature dependence based on Clifton (2020)
+                     !con_stem = c%sai * get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo) / scale_r_T(c%Tv)
+                     con_stem = c%sai * trdata(tr)%con_stem(tile%vegn%cohorts(k)%species)
+                     
+                     con_st_tr    = stomatal_cond(k) * trdata(tr)%scale_stom
+                     
+                     if (trdata(tr)%r_mx .gt. 0) then
+                        con_mx    = 1./trdata(tr)%r_mx
+                     else
+                        con_mx    = c%lai * trdata(tr)%con_mx(tile%vegn%cohorts(k)%species)
+                     end if
+                     
+                     con_mx_st = conductance_series(con_mx,con_st_tr)
+                     
+                     !calculate contribution of this cohort to the overall vegetation conductance
+                     !con_v_v and con_stem are for H2O, we need to scale by (Di/Dw)**(2./3.)
+                     con_v_v_tr     = con_v_v(k)*trdata(tr)%diff_ratio23
+                     con_v_stem_tr  = con_v_stem(k)*trdata(tr)%diff_ratio23
+                     
+                     econ_mx_st       = econ_mx_st + c%layerfrac*con_mx_st/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
+                     
+                     tmp              = c%layerfrac * con_cu/(con_mx_st+con_cu+epsln)*conductance_series(con_v_v_tr,con_mx_st+con_cu)
+                     
+                     econ_cu          = econ_cu     + tmp
+                     econ_cu_wet      = econ_cu_wet + tmp * con_cu_wet/(con_cu+epsln)
+                     econ_cu_frz      = econ_cu_frz + tmp * con_cu_frz/(con_cu+epsln)
+                     econ_cu_dry      = econ_cu_dry + tmp * con_cu_dry/(con_cu+epsln)
+                     
+                     econ_stem        = econ_stem   + c%layerfrac*conductance_series(con_v_stem_tr,con_stem)
+                     
+                     !for diagnostics
+                     con_mx_st_diag   = con_mx_st_diag + c%layerfrac*con_mx_st
+                     con_cu_diag      = con_cu_diag    + c%layerfrac*con_cu
+                     con_stem_diag    = con_stem_diag  + c%layerfrac*con_stem
+                     
+                     con_v_v_tr_diag     = con_v_v_tr_diag + c%layerfrac*con_v_v_tr
+                     con_v_stem_tr_diag  = con_v_stem_tr_diag + c%layerfrac*con_v_stem_tr                        
                   end associate
                end do                        
                cv = econ_mx_st + econ_cu + econ_stem
@@ -906,15 +932,15 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                call mpp_clock_end (land_tracer_ddep_gas_h2_clock)
 
             else
-               con_gr_dry = gfrac_dry     * get_conductance_tracer(trdata(tr),r_gs_dry,r_go_dry) * 1./scale_r_T(land_tile_grnd_T(tile),c_dry) * 1./scale_biomass(frac_desert)
+               con_gr_dry = gfrac_dry     * trdata(tr)%con_gr_dry  * 1./scale_r_T(land_tile_grnd_T(tile),c_dry) * 1./scale_biomass(frac_desert)
             end if
             
-            con_gr_frz =    gfrac_frz     * get_conductance_tracer(trdata(tr),r_snows,r_snowo) * 1./scale_r_T(land_tile_grnd_T(tile),c_snow)                  
-            con_gr_wet =    gfrac_wet     * get_conductance_tracer(trdata(tr),r_gs_wet,r_go_wet)  * 1./scale_r_T(land_tile_grnd_T(tile),c_wet)
+            con_gr_frz =    gfrac_frz     * trdata(tr)%con_gr_frz  * 1./scale_r_T(land_tile_grnd_T(tile),c_snow)                  
+            con_gr_wet =    gfrac_wet     * trdata(tr)%con_gr_wet  * 1./scale_r_T(land_tile_grnd_T(tile),c_wet)
             
             if (associated(tile%lake)) then
                if (tile%lake%ws(1).le.ws_min) then
-                  con_gr_wet = get_conductance_tracer(trdata(tr),r_gs_lake,r_go_lake)
+                  con_gr_wet = trdata(tr)%con_gr_lake
                end if
             end if
                                     
@@ -1330,7 +1356,7 @@ real function con_h2(tr_data,tile,p) result(con)
 
    real    :: delta !inactive layer
    integer :: isoil, soil_tag
-   real    :: frac_water_pores_avg, frac_ice_pores_avg, frac_air_pores_avg
+   real    :: frac_water_pores_avg, frac_ice_pores_avg
    real,dimension(num_l) :: frac_water_pores, frac_ice_pores, soil_C
    real    :: dz, T_avg, T_avgC, dz_tot, soil_C_avg
    real    :: diff_h2
@@ -1438,7 +1464,7 @@ real function con_h2(tr_data,tile,p) result(con)
                                  frac_ice_pores_avg+frac_water_pores_avg,          &
                                  b )
                                     
-         if (h2_soilC_mod) then
+         if (h2_soilC_mod) then         
             h2_km = h2_km*soil_C_avg/(soil_C_avg+7.)
          end if
             
@@ -1479,14 +1505,15 @@ real function con_h2(tr_data,tile,p) result(con)
       call send_tile_data(id_h2_R_snow,R_snow,                tile%diag)      
       call send_tile_data(id_h2_R_inactive,R_inactive,        tile%diag)
       call send_tile_data(id_h2_ilayer,inactive_layer,        tile%diag)
-      call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)      
+      call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)               
                         
       call send_tile_data(id_h2_norm,   norm,  tile%diag)
       call send_tile_data(id_h2_sws,    s_ws,  tile%diag)
       call send_tile_data(id_h2_beta2,  beta2, tile%diag)
       call send_tile_data(id_h2_sopt,   s_opt, tile%diag)
 
-      call send_tile_data(id_frac_water_pores_avg,frac_water_pores_avg, tile%diag)
+      call send_tile_data(id_h2_frac_water_pores_avg,frac_water_pores_avg, tile%diag)
+      call send_tile_data(id_h2_frac_ice_pores_avg,frac_water_pores_avg, tile%diag)
          
    end if
    
