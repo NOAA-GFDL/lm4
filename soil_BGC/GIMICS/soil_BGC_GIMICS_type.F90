@@ -80,6 +80,11 @@ type GIMICS_BGC_pool
     real :: MkTau             = 0.0
     real :: Resp              = 0.0
     real :: thetaF            = 0.0 ! soil moisture factor for decomposition [for diagnostics]
+    ! since deposition of matter can come from multiple processes, for the diagnostics of tendencies
+    ! we accumulate the deposition over time step, then send the data and reset accumulators to zero
+    real :: InputStrC = 0.0 ! deposition of structural litter C during time step, kgC/m3/hr
+    real :: InputMtbC = 0.0 ! deposition of metabolic litter C during time step, kgC/m3/hr
+    real :: InputExdC = 0.0 ! deposition of exudate C during time step, kgC/m3/hr
 end type
 
 ! GIMICS BGC surface litter pool: it is the same as the soil pool data structure,
@@ -266,7 +271,9 @@ integer :: id_fRhiz, &
 integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC, &
    id_chemResistantC, id_availableC, id_microbesR, id_microbesK, id_DOC, id_DecompMrLm, &
    id_DecompMrLs, id_DecompMrCa, id_DecompMkLm, id_DecompMkLs, id_DecompMkCa, id_DecompMrDOC, id_DecompMkDOC, &
-   id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF
+   id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF, &
+   ! inpur rates
+   id_InputStrC, id_InputMtbC, id_InputExdC
 
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
@@ -274,6 +281,8 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_theta
    id_litt_DecompMrLm, id_litt_DecompMrLs, id_litt_DecompMrCa, id_litt_DecompMrDOC, &
    id_litt_DecompMkLm, id_litt_DecompMkLs, id_litt_DecompMkCa, id_litt_DecompMkDOC, &
    id_litt_OxidMrCc, id_litt_OxidMkCc, id_litt_MrTau, id_litt_MkTau, id_litt_Resp, &
+   ! input rates for surface litter pools
+   id_litt_InputStrC, id_litt_InputMtbC, &
    ! turbation tendencies in surface litter pools
    id_lturb_metabolicC, id_lturb_structuralC, id_lturb_chemResistantC, id_lturb_availableC, id_lturb_DOC,&
    id_lturb_microbesR, id_lturb_microbesK
@@ -377,6 +386,13 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_MkTau = register_3_diag_fields ( diag_mod_name, 'MkTau', axes(:),  &
        lnd%time, 'Rate of K microbes overturning', 'kg C/m3/h', missing_value=-100.0 )
 
+  id_InputStrC = register_3_diag_fields ( diag_mod_name, 'InputStrC', axes(:),  &
+       lnd%time, 'Rate of input to structural C', 'kg C/m3/h', missing_value=-100.0 )
+  id_InputMtbC = register_3_diag_fields ( diag_mod_name, 'InputMtbC', axes(:),  &
+       lnd%time, 'Rate of input to metabolic C', 'kg C/m3/h', missing_value=-100.0 )
+  id_InputExdC = register_3_diag_fields ( diag_mod_name, 'InputExdC', axes(:),  &
+       lnd%time, 'Rate of C exudate input', 'kg C/m3/h', missing_value=-100.0 )
+
   id_Resp = register_3_diag_fields ( diag_mod_name, 'Resp', axes(:),  &
        lnd%time, 'Rate of respiration', 'kg C/m3/h', missing_value=-100.0 )
   id_Desorb = register_3_diag_fields ( diag_mod_name, 'Desorb', axes(:),  &
@@ -438,6 +454,11 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Rate of chemically resistant C oxidation by K microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
   id_litt_MkTau(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_MkTau', axes(1:1),  &
        lnd%time, 'Rate of K microbes overturning in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+
+  id_litt_InputStrC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_InputStrC', axes(1:1),  &
+       lnd%time, 'Rate of input to structural C in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_InputMtbC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_InputMtbC', axes(1:1),  &
+       lnd%time, 'Rate of input to metabolic C in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
 
   id_litt_Resp(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_Resp', axes(1:1),  &
        lnd%time, 'Rate of respiration in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
@@ -761,6 +782,9 @@ subroutine combine_GIMICS_pools(p2,w2,p1,w1)
   __MERGE__(MrTau)
   __MERGE__(MkTau)
   __MERGE__(Resp)
+  __MERGE__(InputStrC)
+  __MERGE__(InputMtbC)
+  __MERGE__(InputExdC)
 #undef __MERGE__
 end subroutine
 
@@ -1308,6 +1332,15 @@ subroutine step3_GIMICS(soilc, diag)
   call send_3_tile_data(id_Desorb,         soilc%rhiz(:)%Desorb,            soilc%bulk(:)%Desorb,            soilc%fRhiz(:), diag)
   call send_3_tile_data(id_thetaF,         soilc%rhiz(:)%thetaF,            soilc%bulk(:)%thetaF,            soilc%fRhiz(:), diag)
 
+  call send_3_tile_data(id_InputStrC,      soilc%rhiz(:)%InputStrC,         soilc%bulk(:)%InputStrC,         soilc%fRhiz(:), diag)
+  call send_3_tile_data(id_InputMtbC,      soilc%rhiz(:)%InputMtbC,         soilc%bulk(:)%InputMtbC,         soilc%fRhiz(:), diag)
+  call send_3_tile_data(id_InputExdC,      soilc%rhiz(:)%InputExdC,         soilc%bulk(:)%InputExdC,         soilc%fRhiz(:), diag)
+  ! reset input accumulators for the next time step
+  soilc%rhiz(:)%InputStrC = 0.0; soilc%bulk(:)%InputStrC = 0.0
+  soilc%rhiz(:)%InputMtbC = 0.0; soilc%bulk(:)%InputMtbC = 0.0
+  soilc%rhiz(:)%InputExdC = 0.0; soilc%bulk(:)%InputExdC = 0.0
+
+
   do k = 1, N_LITTER_POOLS
      if (id_litt_total_C(k)>0) call send_tile_data(id_litt_total_C(k), C_amount(soilc%litt(k)),  diag)
      if (id_litt_allC(k)>0)    call send_tile_data(id_litt_allC(k),    C_density(soilc%litt(k)), diag)
@@ -1339,6 +1372,11 @@ subroutine step3_GIMICS(soilc, diag)
 
      call send_tile_data(id_litt_Resp(k),       soilc%litt(k)%Resp,       diag)
      call send_tile_data(id_litt_thetaF(k),     soilc%litt(k)%thetaF,     diag)
+
+     call send_tile_data(id_litt_InputStrC(k),  soilc%litt(k)%InputStrC,  diag)
+     call send_tile_data(id_litt_InputMtbC(k),  soilc%litt(k)%InputMtbC,  diag)
+     ! reset input accumulators for the nect timestep
+     soilc%litt(k)%InputStrC = 0.0; soilc%litt(k)%InputMtbC = 0.0
   enddo
 
   do k = 1,num_l
@@ -1610,6 +1648,7 @@ subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate
 
 !   real, dimension(size(soilc%org_matter)) :: NH4,NO3
   integer :: k
+  real    :: deltaBulk, deltaRhiz
 
 !   NH4(:)=0.0
 !   NO3(:)=0.0
@@ -1618,12 +1657,20 @@ subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate
 
   do k=1,num_l
      if (soilc%fRhiz(k)>0) then
-         soilC%rhiz(k)%metabolicLitterC = soilc%rhiz(k)%metabolicLitterC + exudateC(k)/(dz(k)*soilc%fRhiz(k)) ! kgC/m3 of rhizosphere
+         deltaRhiz = exudateC(k)/(dz(k)*soilc%fRhiz(k)) ! kgC/m3 of rhizosphere
+         deltaBulk = 0.0
          ! slm: should we add some protection from very small rhizosphere fractions that may
          !      result in huge per-volume input?
      else ! rhizosphere does not exist, add exudates to bulk
-         soilC%bulk(k)%metabolicLitterC = soilc%bulk(k)%metabolicLitterC + exudateC(k)/dz(k) ! kgC/m3
+         deltaRhiz = 0.0
+         deltaBulk = exudateC(k)/dz(k) ! kgC/m3 of bulk soil == kgC/m3 of all soil, since there is no rhizosphere
      endif
+     soilC%rhiz(k)%metabolicLitterC = soilc%rhiz(k)%metabolicLitterC + deltaRhiz
+     soilC%bulk(k)%metabolicLitterC = soilc%bulk(k)%metabolicLitterC + deltaBulk
+
+     ! save exudate inputs for diagnostics
+     soilC%rhiz(k)%InputExdC = soilc%rhiz(k)%InputExdC + deltaRhiz/dt_fast_hr
+     soilC%bulk(k)%InputExdC = soilc%bulk(k)%InputExdC + deltaBulk/dt_fast_hr
   enddo
 end subroutine
 
@@ -1802,9 +1849,16 @@ subroutine add_matter_GIMICS1(pool, C, N)
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
+  real :: deltaMtb, deltaStr
   if (present(C)) then
-     pool%metabolicLitterC  = pool%metabolicLitterC  + (C(C_FAST) + C(C_MIC))/pool%dz ! kgC/m3
-     pool%structuralLitterC = pool%structuralLitterC + C(C_SLOW)/pool%dz
+     deltaMtb = (C(C_FAST) + C(C_MIC))/pool%dz ! kgC/m3
+     deltaStr = C(C_SLOW)/pool%dz ! kgC/m3
+
+     pool%metabolicLitterC  = pool%metabolicLitterC  + deltaMtb
+     pool%structuralLitterC = pool%structuralLitterC + deltaStr
+     ! update the deposition accumulators, for diagnostics
+     pool%InputMtbC   = pool%InputMtbC + deltaMtb/dt_fast_hr
+     pool%InputStrC   = pool%InputStrC + deltaStr/dt_fast_hr
   endif
 !   if (present(N)) then
 !      ....
@@ -1845,12 +1899,25 @@ subroutine add_matter_GIMICS2(bulk, rhiz, dz, rhiz_frac, C, N)
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
-  if (present(C)) then
-     bulk%metabolicLitterC  = bulk%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
-     bulk%structuralLitterC = bulk%structuralLitterC + C(C_SLOW)/dz
+  real :: deltaMtb, deltaStr
 
-     rhiz%metabolicLitterC  = rhiz%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
-     rhiz%structuralLitterC = rhiz%structuralLitterC + C(C_SLOW)/dz
+  if (present(C)) then
+     deltaMtb = (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
+     deltaStr = C(C_SLOW)/dz             ! kgC/m3
+
+     ! bulk soil
+     bulk%metabolicLitterC  = bulk%metabolicLitterC  + deltaMtb
+     bulk%structuralLitterC = bulk%structuralLitterC + deltaStr
+     ! update the deposition accumulators, for diagnostics
+     bulk%InputMtbC   = bulk%InputMtbC + deltaMtb/dt_fast_hr
+     bulk%InputStrC   = bulk%InputStrC + deltaStr/dt_fast_hr
+
+     ! rhizosphere
+     rhiz%metabolicLitterC  = rhiz%metabolicLitterC  + deltaMtb
+     rhiz%structuralLitterC = rhiz%structuralLitterC + deltaStr
+     ! update the deposition accumulators, for diagnostics
+     rhiz%InputMtbC  = rhiz%InputMtbC + deltaMtb/dt_fast_hr
+     rhiz%InputStrC  = rhiz%InputStrC + deltaStr/dt_fast_hr
   endif
 !   if (present(N)) then
 !      ....
