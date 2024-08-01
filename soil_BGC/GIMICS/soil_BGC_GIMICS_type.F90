@@ -183,11 +183,15 @@ real :: w_Lm = 0.1          ! Fluxes from Lm decomposition to DOC (mg/mg)
 real :: w_Ls = 0.1          ! Fluxes from Ls decomposition to DOC (mg/mg)
 real :: w_Ca = 0.1          ! Fluxes from Ca decomposition to DOC (mg/mg)
 
-real :: fMrTau_DOC = 0.5
-real :: fMkTau_DOC = 0.5
+real :: fMrTau_DOC = 0.5    ! Partition between Ca and DOC for Mr turnover Fluxes excluding those to Cc and Cp 
+real :: fMkTau_DOC = 0.5    ! Partition between Ca and DOC for Mk turnover Fluxes excluding those to Cc and Cp 
 
-logical :: ignore_theta = .FALSE. ! if TRUE, effect of soil moisture on soil BGC are ignored.
-logical :: orchidee_theta = .FALSE. ! if FALSE, yan et al. (2018)'s theta function is used
+logical :: ignore_theta = .FALSE.   ! if TRUE, effect of soil moisture on soil BGC are ignored.
+logical :: orchidee_theta = .FALSE. ! if FALSE, yan et al. (2018)'s or corpse's theta function is used for litter
+logical :: yan_theta = .FALSE.      ! if FALSE, corpse's theta function is used for litter
+logical :: yan_theta_soil = .FALSE. ! if FALSE, corpse's theta function is used for soil
+logical :: highT_limit = .FALSE.    ! if FALSE, no limitation on decompostion for high temperature
+logical :: DOC_cycling = .FALSE.    ! if FALSE, no doc cycling
 
 real :: min_anaerobic_resp_factor = 0.05
 real :: theta_func_orchidee_min = 0.25
@@ -198,7 +202,7 @@ real :: gas_diffusion_exp = 2.5 ! Exponent for gas diffusion power law dependenc
 real :: substrate_diffusion_exp = 3.0  ! Exponent for theta dependence at low theta.
                             ! See Davison et al DAMM model paper
 
-real :: tau_Tref = 10.0
+
 real :: tau_calib = 1.0   ! Microbial turnover rate calibration factor
 real :: tau_beta = 1.66   ! Microbial turnover rate increases with growing microbial biomass density
                           ! Density-dependence exponent
@@ -252,9 +256,9 @@ namelist /soil_BGC_GIMICS_nml/ &
     Kmod_Mr_Lm, Kmod_Mr_Ls, Kmod_Mr_Ca, Kmod_Mk_Lm, Kmod_Mk_Ls, Kmod_Mk_Ca, Kslope_Lm, Kslope_Ls, Kslope_Ca, Kint, aK, &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     w_Lm, w_Ls, w_Ca, fMrTau_DOC, fMkTau_DOC, &
-    ignore_theta, orchidee_theta, &
+    ignore_theta, orchidee_theta, yan_theta, yan_theta_soil, highT_limit, DOC_cycling, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, theta_func_orchidee_min, theta_func_orchidee_max, &
-    tau_Tref, tau_calib, tau_beta, cw_r_cw, cw_z_cw, lf_f_cw, cw_r_lf, cw_z_lf, lf_f_lf, &
+    tau_calib, tau_beta, cw_r_cw, cw_z_cw, lf_f_cw, cw_r_lf, cw_z_lf, lf_f_lf, &
     fMrTau_DOC, fMkTau_DOC, &
 ! -----
     init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density, min_litt_dz, const_litt_dz, &
@@ -274,7 +278,7 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
    id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF, &
    ! inpur rates
    id_InputStrC, id_InputMtbC, id_InputExdC
-
+   
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
    id_litt_microbesR, id_litt_microbesK, id_litt_DOC, id_litt_allC, &
@@ -385,7 +389,7 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Rate of chemically resistant C oxidation by K microbes', 'kg C/m3/h', missing_value=-100.0 )
   id_MkTau = register_3_diag_fields ( diag_mod_name, 'MkTau', axes(:),  &
        lnd%time, 'Rate of K microbes overturning', 'kg C/m3/h', missing_value=-100.0 )
-
+  
   id_InputStrC = register_3_diag_fields ( diag_mod_name, 'InputStrC', axes(:),  &
        lnd%time, 'Rate of input to structural C', 'kg C/m3/h', missing_value=-100.0 )
   id_InputMtbC = register_3_diag_fields ( diag_mod_name, 'InputMtbC', axes(:),  &
@@ -1340,7 +1344,6 @@ subroutine step3_GIMICS(soilc, diag)
   soilc%rhiz(:)%InputMtbC = 0.0; soilc%bulk(:)%InputMtbC = 0.0
   soilc%rhiz(:)%InputExdC = 0.0; soilc%bulk(:)%InputExdC = 0.0
 
-
   do k = 1, N_LITTER_POOLS
      if (id_litt_total_C(k)>0) call send_tile_data(id_litt_total_C(k), C_amount(soilc%litt(k)),  diag)
      if (id_litt_allC(k)>0)    call send_tile_data(id_litt_allC(k),    C_density(soilc%litt(k)), diag)
@@ -1372,7 +1375,7 @@ subroutine step3_GIMICS(soilc, diag)
 
      call send_tile_data(id_litt_Resp(k),       soilc%litt(k)%Resp,       diag)
      call send_tile_data(id_litt_thetaF(k),     soilc%litt(k)%thetaF,     diag)
-
+     
      call send_tile_data(id_litt_InputStrC(k),  soilc%litt(k)%InputStrC,  diag)
      call send_tile_data(id_litt_InputMtbC(k),  soilc%litt(k)%InputMtbC,  diag)
      ! reset input accumulators for the nect timestep
@@ -1450,35 +1453,63 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   endif
 
  if (is_sfc_litter) then
-
-        !CORPSE moisture function
-        !pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
-
-        !ORCHIDEE moisture function
+         
+	!ORCHIDEE moisture function
         if (orchidee_theta) then
            pool%thetaF = theta_func_orchidee(moist,theta_func_orchidee_min,theta_func_orchidee_max)
         else
+             !Generalized, mechanistic soil moisture function from Yan et al. (2018)
+	     if (yan_theta) then      
+             
+                            if (moist .lt. moist_op) then
+                                pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
+                            else
+                                pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
+                            endif
+             else
+	 
+	 
+                            !CORPSE moisture function
+                            !pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
 
-        !Generalized, mechanistic soil moisture function from Yan et al. (2018)
-           if (moist .lt. moist_op) then
-              pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
-           else
-              pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
-           endif
-
+       
+             endif
         endif
 
- else
-    !Generalized, mechanistic soil moisture function from Yan et al. (2018)
-    if (moist .lt. moist_op) then
-       pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
-    else
-       pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
-    endif
 
+
+
+
+
+ else
+ 
+    !Generalized, mechanistic soil moisture function from Yan et al. (2018)
+    if (yan_theta_soil) then   
+    
+       if (moist .lt. moist_op) then
+           pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
+       else
+           pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
+       endif
+    
+    else
+    
+    !CORPSE moisture function
+    !pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+ 
+    endif
+    
  endif
 
+
+
+
+if (highT_limit) then
   Vmax_base =  pool%thetaF * exp(Vslope*T+Vint) * aV * (1/(1+exp(0.4*(T-45))))
+else
+  Vmax_base =  pool%thetaF * exp(Vslope*T+Vint) * aV
+endif
+  
   Vmax_Mr_Lm = Vmax_base * Vmod_Mr_Lm ! mgC/mgM/h
   Vmax_Mr_Ls = Vmax_base * Vmod_Mr_Ls
   Vmax_Mr_Ca = Vmax_base * Vmod_Mr_Ca
@@ -1537,24 +1568,6 @@ endif
    pool%MrTau = tau_calib * 5.2e-4 * exp(0.3*fI_Lm) * pool%microbesR**tau_beta ! kgC/m3/h
    pool%MkTau = tau_calib * 2.4e-4 * exp(0.1*fI_Lm) * pool%microbesK**tau_beta
 
- !if (T .le. tau_Tref) then
- !
- ! pool%MrTau =  exp(0.063*max(T-tau_Tref,0.0)) * 5.2e-4 * exp(0.3*fI_Lm) * pool%microbesR ! kgC/m3/h
- ! pool%MkTau =  exp(0.063*max(T-tau_Tref,0.0)) * 2.4e-4 * exp(0.1*fI_Lm) * pool%microbesK
- !
- ! else
- !
- ! pool%MrTau = tau_calib * exp(0.063*max(T-tau_Tref,0.0)) * 5.2e-4 * exp(0.3*fI_Lm) * pool%microbesR ! kgC/m3/h
- ! pool%MkTau = tau_calib * exp(0.063*max(T-tau_Tref,0.0)) * 2.4e-4 * exp(0.1*fI_Lm) * pool%microbesK
- !
- ! endif
-
- ! else
-
- ! pool%MrTau = 5.2e-4 * exp(0.3*fI_Lm) * pool%microbesR ! kgC/m3/h
- ! pool%MkTau = 2.4e-4 * exp(0.1*fI_Lm) * pool%microbesK
- !
- ! endif
 
   if (is_sfc_litter) then
      fMrTau_Cp = 0.0
@@ -1570,10 +1583,7 @@ endif
   pool%metabolicLitterC  = pool%metabolicLitterC  - (pool%DecompMrLm+pool%DecompMkLm)*dt_fast_hr ! kgC/m3
   pool%structuralLitterC = pool%structuralLitterC - (pool%DecompMrLs+pool%DecompMkLs)*dt_fast_hr
 
-  pool%availableC        = pool%availableC        - (pool%DecompMrCa+pool%DecompMkCa)*dt_fast_hr &
-                                                  + (pool%OxidMrCc+pool%OxidMkCc)*dt_fast_hr     &
-                                                  + ((1-fMrTau_Cp-fMrTau_Cc)*(1-fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(1-fMkTau_DOC)*pool%MkTau)*dt_fast_hr ! kgC/m3
-
+  
   pool%chemResistantC    = pool%chemResistantC    - (pool%OxidMrCc+pool%OxidMkCc)*dt_fast_hr     &
                                                   + (fMrTau_Cc*pool%MrTau + fMkTau_Cc*pool%MkTau)*dt_fast_hr ! kgC/m3
 
@@ -1585,10 +1595,29 @@ endif
      pool%protectedC = pool%protectedC + (fMrTau_Cp*pool%MrTau + fMkTau_Cp*pool%MkTau - pool%Desorb)*dt_fast_hr ! kgC/m3
   endif
 
+
+  if (DOC_cycling) then
+  pool%availableC        = pool%availableC        - (pool%DecompMrCa+pool%DecompMkCa)*dt_fast_hr &
+                                                  + (pool%OxidMrCc+pool%OxidMkCc)*dt_fast_hr     &
+                                                  + ((1-fMrTau_Cp-fMrTau_Cc)*(1-fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(1-fMkTau_DOC)*pool%MkTau)*dt_fast_hr ! kgC/m3
+
+
   pool%DOC               = pool%DOC               - (pool%DecompMrDOC+pool%DecompMkDOC)*dt_fast_hr &
                                                   + pool%Desorb*dt_fast_hr &
 						  + ((1-fMrTau_Cp-fMrTau_Cc)*(fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(fMkTau_DOC)*pool%MkTau)*dt_fast_hr &
                                                   + ((pool%DecompMrLm+pool%DecompMkLm)*w_Lm + (pool%DecompMrLs+pool%DecompMkLs)*w_Ls + (pool%DecompMrCa+pool%DecompMkCa)*w_Ca)*dt_fast_hr
+  else
+  
+  pool%availableC        = pool%availableC        - (pool%DecompMrCa+pool%DecompMkCa)*dt_fast_hr &
+                                                  + (pool%OxidMrCc+pool%OxidMkCc)*dt_fast_hr     &
+                                                  + ((1-fMrTau_Cp-fMrTau_Cc)*(1-fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(1-fMkTau_DOC)*pool%MkTau)*dt_fast_hr & ! kgC/m3
+                                                  + pool%Desorb*dt_fast_hr
+
+  pool%DOC               = 0.0
+  endif     
+
+
+
 
   pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm*(1-w_Lm) + eLs_Mr*pool%DecompMrLs*(1-w_Ls) + eCa_Mr*pool%DecompMrCa*(1-w_Ca) + eCa_Mr*pool%DecompMrDOC - pool%MrTau)*dt_fast_hr ! kgC/m3
   pool%microbesK = pool%microbesK + (eLm_Mk*pool%DecompMkLm*(1-w_Lm) + eLs_Mk*pool%DecompMkLs*(1-w_Ls) + eCa_Mk*pool%DecompMkCa*(1-w_Ca) + eCa_Mk*pool%DecompMkDOC - pool%MkTau)*dt_fast_hr
@@ -1635,8 +1664,6 @@ real function theta_func_orchidee (moist,theta_func_orchidee_min,theta_func_orch
 end function theta_func_orchidee
 
 
-
-
 ! ============================================================================
 !> @brief Add exudates to the soil
 subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate)
@@ -1673,6 +1700,8 @@ subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate
      soilC%bulk(k)%InputExdC = soilc%bulk(k)%InputExdC + deltaBulk/dt_fast_hr
   enddo
 end subroutine
+
+
 
 
 ! ============================================================================
@@ -1842,7 +1871,6 @@ subroutine spend_intermediate_pools_GIMICS(soilc, vegn)
   enddo
 end subroutine
 
-! ============================================================================
 ! add carbon (and later nitrogen) to GIMICS soil BGC pool
 subroutine add_matter_GIMICS1(pool, C, N)
   type(GIMICS_BGC_litt), intent(inout) :: pool ! BGC pool to update
@@ -1865,6 +1893,7 @@ subroutine add_matter_GIMICS1(pool, C, N)
 !   endif
   call update_litter_thickness(pool)
 end subroutine
+
 
 ! ============================================================================
 subroutine debug_pool(pool, tag)
@@ -1899,25 +1928,12 @@ subroutine add_matter_GIMICS2(bulk, rhiz, dz, rhiz_frac, C, N)
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
-  real :: deltaMtb, deltaStr
-
   if (present(C)) then
-     deltaMtb = (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
-     deltaStr = C(C_SLOW)/dz             ! kgC/m3
+     bulk%metabolicLitterC  = bulk%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
+     bulk%structuralLitterC = bulk%structuralLitterC + C(C_SLOW)/dz
 
-     ! bulk soil
-     bulk%metabolicLitterC  = bulk%metabolicLitterC  + deltaMtb
-     bulk%structuralLitterC = bulk%structuralLitterC + deltaStr
-     ! update the deposition accumulators, for diagnostics
-     bulk%InputMtbC   = bulk%InputMtbC + deltaMtb/dt_fast_hr
-     bulk%InputStrC   = bulk%InputStrC + deltaStr/dt_fast_hr
-
-     ! rhizosphere
-     rhiz%metabolicLitterC  = rhiz%metabolicLitterC  + deltaMtb
-     rhiz%structuralLitterC = rhiz%structuralLitterC + deltaStr
-     ! update the deposition accumulators, for diagnostics
-     rhiz%InputMtbC  = rhiz%InputMtbC + deltaMtb/dt_fast_hr
-     rhiz%InputStrC  = rhiz%InputStrC + deltaStr/dt_fast_hr
+     rhiz%metabolicLitterC  = rhiz%metabolicLitterC  + (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
+     rhiz%structuralLitterC = rhiz%structuralLitterC + C(C_SLOW)/dz
   endif
 !   if (present(N)) then
 !      ....
