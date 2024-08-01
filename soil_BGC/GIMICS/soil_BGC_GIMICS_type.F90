@@ -4,7 +4,7 @@ module soil_BGC_GIMICS_type_mod
 
 
 use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
-        stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, string
+        stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, string, lowercase
 use time_manager_mod, only: time_type, time_type_to_real
 use constants_mod, only : PI,tfreeze
 
@@ -186,10 +186,6 @@ real :: w_Ca = 0.1          ! Fluxes from Ca decomposition to DOC (mg/mg)
 real :: fMrTau_DOC = 0.5    ! Partition between Ca and DOC for Mr turnover Fluxes excluding those to Cc and Cp
 real :: fMkTau_DOC = 0.5    ! Partition between Ca and DOC for Mk turnover Fluxes excluding those to Cc and Cp
 
-logical :: ignore_theta = .FALSE.   ! if TRUE, effect of soil moisture on soil BGC are ignored.
-logical :: orchidee_theta = .FALSE. ! if FALSE, yan et al. (2018)'s or corpse's theta function is used for litter
-logical :: yan_theta = .FALSE.      ! if FALSE, corpse's theta function is used for litter
-logical :: yan_theta_soil = .FALSE. ! if FALSE, corpse's theta function is used for soil
 logical :: highT_limit = .FALSE.    ! if FALSE, no limitation on decompostion for high temperature
 logical :: DOC_cycling = .FALSE.    ! if FALSE, no doc cycling
 
@@ -251,12 +247,16 @@ real :: init_litt_dz = 1e-4 ! initial (cold-start) surface litter thickness, [m]
 logical, protected :: save_equilibration_data = .FALSE. !< if TRUE, information for
                          !! soil BGC equilibration acceleration is saved to disk
 
+character(32) :: theta_func_soil = 'CORPSE' ! or 'ORCHIDEE', 'Yan2018', 'NONE'
+character(32) :: theta_func_litt = 'CORPSE' ! or 'ORCHIDEE', 'Yan2018', 'NONE'
+
 namelist /soil_BGC_GIMICS_nml/ &
     litt_theta_mod, Vmod_Mr_Lm, Vmod_Mr_Ls, Vmod_Mr_Ca, Vmod_Mk_Lm, Vmod_Mk_Ls, Vmod_Mk_Ca, Vslope, Vint, aV, &
     Kmod_Mr_Lm, Kmod_Mr_Ls, Kmod_Mr_Ca, Kmod_Mk_Lm, Kmod_Mk_Ls, Kmod_Mk_Ca, Kslope_Lm, Kslope_Ls, Kslope_Ca, Kint, aK, &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     w_Lm, w_Ls, w_Ca, fMrTau_DOC, fMkTau_DOC, &
-    ignore_theta, orchidee_theta, yan_theta, yan_theta_soil, highT_limit, DOC_cycling, &
+    theta_func_litt, theta_func_soil, &
+    highT_limit, DOC_cycling, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, theta_func_orchidee_min, theta_func_orchidee_max, &
     tau_calib, tau_beta, cw_r_cw, cw_z_cw, lf_f_cw, cw_r_lf, cw_z_lf, lf_f_lf, &
     fMrTau_DOC, fMkTau_DOC, &
@@ -300,6 +300,15 @@ integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitte
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 
+integer, parameter :: &
+     THETA_F_NONE     = 0, &
+     THETA_F_ORCHIDEE = 1, &
+     THETA_F_YAN2018  = 2, &
+     THETA_F_CORPSE   = 3
+
+integer :: theta_func_litt_option = -1 ! integer option corresponding to theta_func_litt namelist parameter
+integer :: theta_func_soil_option = -1 ! integer option corresponding to theta_func_soil namelist parameter
+
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
@@ -317,6 +326,37 @@ subroutine read_soil_BGC_GIMICS_namelist()
      unit=stdlog()
      write(unit, nml=soil_BGC_GIMICS_nml)
   endif
+
+  ! parse options of BGC dynamics dependence on moisture
+  select case(trim(lowercase(theta_func_litt)))
+  case ('orchidee')
+     theta_func_litt_option = THETA_F_ORCHIDEE
+  case ('yan2018')
+     theta_func_litt_option = THETA_F_YAN2018
+  case ('corpse')
+     theta_func_litt_option = THETA_F_CORPSE
+  case ('none')
+     theta_func_litt_option = THETA_F_NONE
+  case default
+     call error_mesg('read_soil_BGC_GIMICS_namelist',&
+         'value "'//trim(theta_func_litt)//'" of theta_func_litt is incorrect : use "ORCHIDEE", "Yan2018", "CORPSE", or "none"', FATAL)
+  end select
+
+  select case(trim(lowercase(theta_func_soil)))
+! slm: should we have ORCHIDEE option for soil too?
+!   case ('orchidee')
+!      theta_func_soil_option = THETA_F_ORCHIDEE
+  case ('yan2018')
+     theta_func_soil_option = THETA_F_YAN2018
+  case ('corpse')
+     theta_func_soil_option = THETA_F_CORPSE
+  case ('none')
+     theta_func_soil_option = THETA_F_NONE
+  case default
+     call error_mesg('read_soil_BGC_GIMICS_namelist',&
+         'value "'//trim(theta_func_litt)//'" of theta_func_soil is incorrect : use "Yan2018", "CORPSE", or "none"', FATAL)
+  end select
+
 
   ! store time step in different units in module variables, for convenience
   delta_time = time_type_to_real(lnd%dt_fast) ! [s]
@@ -1453,34 +1493,43 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   endif
 
   if (is_sfc_litter) then
-     !ORCHIDEE moisture function
-     if (orchidee_theta) then
+     select case(theta_func_litt_option)
+     case (THETA_F_ORCHIDEE)
+        ! ORCHIDEE moisture function
         pool%thetaF = theta_func_orchidee(moist,theta_func_orchidee_min,theta_func_orchidee_max)
-     else
-        !Generalized, mechanistic soil moisture function from Yan et al. (2018)
-        if (yan_theta) then
-           if (moist .lt. moist_op) then
-               pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
-           else
-               pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
-           endif
+     case (THETA_F_YAN2018)
+        ! Generalized, mechanistic soil moisture function from Yan et al. (2018)
+        if (moist .lt. moist_op) then
+            pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
         else
-           !CORPSE moisture function
-           !pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+            pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
         endif
-     endif
- else
-    !Generalized, mechanistic soil moisture function from Yan et al. (2018)
-    if (yan_theta_soil) then
-       if (moist .lt. moist_op) then
-           pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
-       else
-           pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
-       endif
-    else
-       !CORPSE moisture function
-       !pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
-    endif
+     case (THETA_F_CORPSE)
+        ! CORPSE moisture function
+        pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+     case (THETA_F_NONE)
+        pool%thetaF = 1.0
+     case default
+        call land_error_message('update_GIMICS_pool: incorrrect version of theta_func_litt_option', FATAL)
+     end select
+  else
+     select case(theta_func_soil_option)
+     ! slm: should we have ORCHIDEE option for soil too?
+     case (THETA_F_YAN2018)
+     !Generalized, mechanistic soil moisture function from Yan et al. (2018)
+        if (moist .lt. moist_op) then
+            pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
+        else
+            pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
+        endif
+     case (THETA_F_CORPSE)
+        ! CORPSE moisture function
+        pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+     case (THETA_F_NONE)
+        pool%thetaF = 1.0
+     case default
+        call land_error_message('update_GIMICS_pool: incorrrect version of theta_func_soil_option', FATAL)
+     end select
   endif
 
   if (highT_limit) then
@@ -1606,11 +1655,6 @@ real function theta_func ( water_filled_porosity, air_filled_porosity, &
   real, intent(in) :: substrate_diffusion_exp,gas_diffusion_exp,min_dry_resp_factor,min_anaerobic_resp_factor
 
   real :: theta_resp_max, aerobic_max
-
-  if (ignore_theta) then
-     theta_func = 1.0
-     return
-  endif
 
   theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
   aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
