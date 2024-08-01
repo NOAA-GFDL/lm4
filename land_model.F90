@@ -481,7 +481,7 @@ subroutine land_model_init &
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
-  call land_tracer_driver_init(id_ug)
+  call land_tracer_driver_init(id_ug,id_zfull)
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
