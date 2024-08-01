@@ -186,7 +186,7 @@ real :: w_Ca = 0.1          ! Fluxes from Ca decomposition to DOC (mg/mg)
 real :: fMrTau_DOC = 0.5    ! Partition between Ca and DOC for Mr turnover Fluxes excluding those to Cc and Cp
 real :: fMkTau_DOC = 0.5    ! Partition between Ca and DOC for Mk turnover Fluxes excluding those to Cc and Cp
 
-logical :: highT_limit = .FALSE.    ! if FALSE, no limitation on decompostion for high temperature
+logical :: highT_limit = .FALSE.    ! if FALSE, no limitation on decomposition for high temperature
 logical :: DOC_cycling = .FALSE.    ! if FALSE, no doc cycling
 
 real :: min_anaerobic_resp_factor = 0.05
@@ -247,7 +247,7 @@ real :: init_litt_dz = 1e-4 ! initial (cold-start) surface litter thickness, [m]
 logical, protected :: save_equilibration_data = .FALSE. !< if TRUE, information for
                          !! soil BGC equilibration acceleration is saved to disk
 
-character(32) :: theta_func_soil = 'CORPSE' ! or 'ORCHIDEE', 'Yan2018', 'NONE'
+character(32) :: theta_func_soil = 'CORPSE' ! or 'Yan2018', 'NONE'
 character(32) :: theta_func_litt = 'CORPSE' ! or 'ORCHIDEE', 'Yan2018', 'NONE'
 
 namelist /soil_BGC_GIMICS_nml/ &
@@ -276,7 +276,7 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
    id_chemResistantC, id_availableC, id_microbesR, id_microbesK, id_DOC, id_DecompMrLm, &
    id_DecompMrLs, id_DecompMrCa, id_DecompMkLm, id_DecompMkLs, id_DecompMkCa, id_DecompMrDOC, id_DecompMkDOC, &
    id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF, &
-   ! inpur rates
+   ! input rates
    id_InputStrC, id_InputMtbC, id_InputExdC
 
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
@@ -1418,7 +1418,7 @@ subroutine step3_GIMICS(soilc, diag)
 
      call send_tile_data(id_litt_InputStrC(k),  soilc%litt(k)%InputStrC,  diag)
      call send_tile_data(id_litt_InputMtbC(k),  soilc%litt(k)%InputMtbC,  diag)
-     ! reset input accumulators for the nect timestep
+     ! reset input accumulators for the next timestep
      soilc%litt(k)%InputStrC = 0.0; soilc%litt(k)%InputMtbC = 0.0
   enddo
 
@@ -1510,7 +1510,7 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
      case (THETA_F_NONE)
         pool%thetaF = 1.0
      case default
-        call land_error_message('update_GIMICS_pool: incorrrect version of theta_func_litt_option', FATAL)
+        call land_error_message('update_GIMICS_pool: incorrect value of theta_func_litt_option', FATAL)
      end select
   else
      select case(theta_func_soil_option)
@@ -1528,7 +1528,7 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
      case (THETA_F_NONE)
         pool%thetaF = 1.0
      case default
-        call land_error_message('update_GIMICS_pool: incorrrect version of theta_func_soil_option', FATAL)
+        call land_error_message('update_GIMICS_pool: incorrect value of theta_func_soil_option', FATAL)
      end select
   endif
 
@@ -1941,7 +1941,7 @@ subroutine add_matter_GIMICS2(bulk, rhiz, dz, rhiz_frac, C, N)
   real, intent(in), optional :: C (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgC/m2
   real, intent(in), optional :: N (N_C_TYPES)  ! (fast,slow,[dead]microbial), kgN/m2
 
-  real :: deltaMtb, deltaStr ! increments of metbolc and structural C, respectively
+  real :: deltaMtb, deltaStr ! increments of metabolic and structural C, respectively
 
   if (present(C)) then
      deltaMtb = (C(C_FAST)+ C(C_MIC))/dz ! kgC/m3
