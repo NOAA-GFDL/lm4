@@ -2,7 +2,7 @@ module land_tracer_driver_mod
 
 #include "../shared/debug.inc"
 
-use constants_mod,      only: rdgas,wtmair,grav,pi,pstd_mks,avogno,DENS_H2O,epsln
+use constants_mod,      only: rdgas,wtmair,grav,pi,pstd_mks,avogno,DENS_H2O,epsln, WTMH2O
 use field_manager_mod , only: MODEL_ATMOS, MODEL_LAND, parse   
 use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, FATAL 
 use fms_mod,            only: mpp_clock_id, mpp_clock_begin, mpp_clock_end , CLOCK_MODULE
@@ -185,9 +185,9 @@ type :: tracer_data_type
 
    real           :: a_RH = 3.
    
-   real           :: conv_flux
-
    integer        :: km_mod=-1
+
+   logical        :: is_vmr
 
    integer        :: & ! diag field IDs
                      id_emis,      id_ddep,  &
@@ -450,7 +450,8 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    
    do tr = 1, ntcana
       call get_tracer_names(MODEL_LAND, tr, name, longname, units)
-      call flux_units(units,funits,trdata(tr)%conv_flux)
+      call flux_units(units,funits,trdata(tr)%is_vmr)
+      
       
       if ((trdata(tr)%nb_n_ox .gt. 0) .and. (trim(funits).ne.'mole/m2/s') .and. (id_ddep_nhx .gt. 0)) then
          call error_mesg("land_tracer_driver_init", trim(funits) // ' for '//trim(trdata(tr)%name) // 'incompatible with noy ddep', FATAL)
@@ -810,8 +811,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    real    :: emis(ntcana) ! tracer sources
    real    :: gamma_codep(ntcana) !codeposition modulation
    real    ::  ft, & ! fraction of canopy not covered by intercepted water/snow
-   fw, & ! fraction of canopy covered by intercepted water
-   fs    ! fraction of canopy covered by intercepted snow
+               fw, & ! fraction of canopy covered by intercepted water
+               fs    ! fraction of canopy covered by intercepted snow
    
    !fraction of ground that is frozen, wet, dry
    real    :: gfrac_frz,gfrac_wet,gfrac_dry
@@ -905,10 +906,10 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    gamma_codep(:)     = 1.
    !from Simpson (2012). Note that Simpson defines the acid ratio as SO2/NH3, while we use 2.*SO2/NH3.
    !Force gamma_code(nso2) to be 1 when acid_ratio = 1 (near neutral conditions)
-   gamma_codep(nso2) = exp(-1.1*acid_ratio)*3.0
+   if (nso2.gt.0.) gamma_codep(nso2) = exp(-1.1*acid_ratio)*3.0
    
    !from Massad (2010) 
-   gamma_codep(nnh3)  = acid_ratio !Massad has no observations above 3.
+   if (nnh3.gt.0.) gamma_codep(nnh3)  = acid_ratio !Massad has no observations above 3.
    !Note that there are large differences in the treatment of RH
    !Zhang (2003) suggests that Rcut = Rcut_ref * exp(-0.03*RH)
    !Massad (2010)  suggests that Rcut = Rcut_ref *  exp(0.18*(100-RH)) = R_cut_ref_p * exp(-[0.03--0.18]*RH)
@@ -1157,8 +1158,16 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
 
          tile%cana%tr(tr) = tile%cana%tr(tr) + dq
          ! ---- final values of the fluxes, for diagnostics
-         ddep  = rho*tcond*tile%cana%tr(tr)*trdata(tr)%conv_flux
-         f_atm = tr_flux(tr)+dfdtr(tr)*dq*trdata(tr)%conv_flux
+         ddep  = rho*tcond*tile%cana%tr(tr)
+         f_atm = (tr_flux(tr)+dfdtr(tr)*dq)
+         
+         if (trdata(tr)%is_vmr) then
+            tmp   = 1e-3*WTMAIR*WTMH2O/((1.-tile%cana%tr(isphum))*WTMH2O+tile%cana%tr(isphum)*WTMAIR) !(kg(air)/mol(air))
+            ddep  = ddep/tmp
+            f_atm = f_atm/tmp
+         end if
+
+
          ! ---- diagnostic section
          if (con_atm.gt.epsln) then
             dvel = con_atm*tcond/(con_atm+tcond)
@@ -1352,30 +1361,30 @@ elemental real function get_conductance_tracer(tr_data,r_s,r_o) result(con)
 end function get_conductance_tracer
 
 ! ============================================================================
-subroutine flux_units(tracer_units,units,conv)
+subroutine flux_units(tracer_units,units,is_vmr)
    character(*), intent(in)   :: tracer_units
    character(32), intent(out) :: units
-   real, intent(out)          :: conv
+   logical, intent(out)       :: is_vmr
    
    select case (trim(lowercase(tracer_units)))
    case ('mmr')
       units = 'kg/m2/s'
-      conv  = 1.
+      is_vmr = .FALSE.
    case ('kg/kg')
       units = 'kg/m2/s'
-      conv  = 1.
+      is_vmr = .FALSE.
    case ('vmr')
       units = 'mole/m2/s'
-      conv  = 1./mw_air
+      is_vmr = .TRUE.
    case ('mol/mol')
-      units = 'mole/m2/s'
-      conv  = 1./mw_air
+      units = 'mole/m2/s'      
+      is_vmr = .TRUE.
    case ('mole/mole')
       units = 'mole/m2/s'
-      conv = 1./mw_air
+      is_vmr = .TRUE.
    case default
       units = trim(tracer_units)//' kg/(m2 s)'
-      conv = 1.
+      is_vmr = .FALSE.
    end select
 end subroutine flux_units
          
@@ -1558,7 +1567,7 @@ real function con_h2(tr_data,tile,p) result(con)
          s_ws(isoil)      = min(max((psi_sat_ref(isoil)/h2_psi_ws)**(1./b),0.),1.)
          s_opt(isoil)     = min(max((psi_sat_ref(isoil)/h2_psi_opt)**(1./b),0.),1.)
          s_upc(isoil)     = 1. !min(max(s_up - frac_ice_pores(isoil),0.),1.)
-         
+
          h2_moist_r1(isoil) = 0.
          h2_moist_r2(isoil) = 0.
          if (frac_water_pores(isoil) .lt. s_ws(isoil)) h2_moist_r1(isoil) = 1.
