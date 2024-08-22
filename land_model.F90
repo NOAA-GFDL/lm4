@@ -2680,7 +2680,7 @@ subroutine land_turbulence(tile, &
       p_surf,      & ! surface pressure, N/m2
       atmos_wind,  & ! wind speed at the top of constant flux layer, m/s
       ustar,       & ! friction velocity above canopy, m/s
-      grnd_T         ! surface temperature, degK
+      grnd_T         ! surface temperature, degK,
   logical, intent(in) :: snow_active
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), con_v_stem(:),  & ! one-sided foliage-CAS conductance per unit ground area
@@ -2756,12 +2756,14 @@ subroutine land_turbulence(tile, &
      con_g_h = con_fac_large ; con_g_v = con_fac_large
   endif
 
-  con_g_turb = con_g_h
+  con_g_turb = con_g_v
 
   con_g_h = con_g_h/(1.0+r_sens*con_g_h)
   con_g_v = con_g_v/(1.0+r_evap*con_g_v)
-  if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
-          con_g_v = con_fac_small
+  if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) then
+     con_g_v = con_fac_small
+     con_g_turb = con_g_v
+  end if
 end subroutine land_turbulence
 
 ! ============================================================================
