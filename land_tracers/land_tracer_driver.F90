@@ -41,8 +41,10 @@ public :: land_tracer_driver_end
 public :: update_cana_tracers
 ! ==== end of public interfaces ==============================================
 
-real, parameter  :: litter_densityC = 0.03/2.*1000.
-real, parameter  :: litter_porosity = 0.5  !10.3389/fmech.2019.00053/full
+
+real, parameter  :: litter_densityC = 0.03/2.*1000. !https://doi.org/10.1093/sjaf/33.1.29
+real, parameter  :: litter_porosity = 0.7  !leaf: 0.955; Twig: 0.8; decomposing matter 0.45-0.55
+                                           !10 .3389/fmech.2019.00053/full
 
 !min/max S snow resistances
 real :: r_snows_min     = 100
@@ -829,14 +831,13 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    real    :: dvel, dvel_new
    real    :: tmp
    
-   real    :: alpha_aere, gamma_aere, A_aere
-   real    :: Eb, Eim, Ein
+   real    :: alpha_aer, gamma_aer, A_aer, cg_aer_v, cg_aer_g
    real    :: fw_avg, fs_avg, rh
    
    real    :: ddep_oa,ddep_bc,ddep_noy,ddep_nhx
    real    :: ustar_mod, tcond
 
-   real    :: e_RH, acid_ratio, acid, base
+   real    :: e_RH, acid_ratio, acid, base, ustar_s
    
    call mpp_clock_begin (land_tracer_clock)
 
@@ -1052,10 +1053,10 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                con_gr_wet =    gfrac_wet * get_conductance_tracer(trdata(tr),r_gs_wet,r_go_wet) * 1./scale_r_T(land_tile_grnd_T(tile),c_wet)   
                con_gr_frz =    gfrac_frz * get_conductance_tracer(trdata(tr),get_snows(land_tile_grnd_T(tile)),r_snowo) * 1./scale_r_T(land_tile_grnd_T(tile),c_snow)    
 
-               if (trdata(tr)%parameterization.eq.GAS_CODEP) then 
-                  con_gr_dry = con_gr_dry !* gamma_codep(tr) - do not apply correction to ground
-                  con_gr_wet = con_gr_wet !* gamma_codep(tr)
-               end if   
+!               if (trdata(tr)%parameterization.eq.GAS_CODEP) then 
+!                  con_gr_dry = con_gr_dry !* gamma_codep(tr) - do not apply correction to ground
+!                  con_gr_wet = con_gr_wet !* gamma_codep(tr)
+!               end if   
                
                if (associated(tile%lake)) then
                   if (tile%lake%ws(1).le.ws_min) then
@@ -1086,55 +1087,53 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
 
             call mpp_clock_begin(land_tracer_ddep_aerosol_clock)
             !aerosol
-            alpha_aere   = 0.
-            gamma_aere   = 0.
-            A_aere       = 0.
-               
             if (associated(tile%vegn)) then
-               tmp =  0.
+               cv = 0
                do k = 1, tile%vegn%n_cohorts
                   associate(c=>tile%vegn%cohorts(k),sp=>spdata(tile%vegn%cohorts(k)%species))
-                     A_aere     = A_aere     + c%layerfrac*sp%A_aer
-                     gamma_aere = gamma_aere + c%layerfrac*sp%gamma_aer
-                     alpha_aere = alpha_aere + c%layerfrac*sp%alpha_aer
-                     tmp        = tmp        + c%layerfrac
+
+                     call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
+                     cg_aer_v = cg_aer(trdata(tr),                 & 
+                                                                  tile%cana%T,ustar,pressure, &
+                                                                  sp%alpha_aer,               &
+                                                                  sp%gamma_aer,               &
+                                                                  sp%A_aer,                   &
+                                                                  ft,fw, fs)
+
+                     cv = cv + c%layerfrac*conductance_series(con_v_v(k),cg_aer_v)
+                     
                   end associate
                end do
-                  
-               A_aere     = A_aere/(tmp+epsln)
-               gamma_aere = gamma_aere/(tmp+epsln)
-               alpha_aere = alpha_aere/(tmp+epsln)
-               
-               gamma_aere = gamma_aere*(1-frac_desert)+gamma_aer_desert*frac_desert
-               alpha_aere = alpha_aere**(1.-frac_desert)+alpha_aer_desert*frac_desert
+
+
+            else
+               cv = 0.
             end if
                   
             if (associated(tile%glac)) then
-               A_aere       = -999.
-               gamma_aere   = gamma_aer_frz
-               alpha_aere   = alpha_aer_frz
+               A_aer       = -999.
+               gamma_aer   = gamma_aer_frz
+               alpha_aer   = alpha_aer_frz
+            elseif (associated(tile%lake)) then
+               A_aer       = -999.
+               gamma_aer   = gamma_aer_lake
+               alpha_aer   = alpha_aer_lake
+            else               
+               A_aer       = -999.
+               gamma_aer   = gamma_aer_desert
+               alpha_aer   = alpha_aer_desert
             end if
-                  
-            if (associated(tile%lake)) then
-               A_aere       = -999.
-               gamma_aere   = gamma_aer_lake
-               alpha_aere   = alpha_aer_lake
-            end if
-               
-            cv = 0.
-            call cg_aer(trdata(tr),tile%cana%T,ustar,pressure,alpha_aere,gamma_aere,A_aere,gfrac_wet,frac_desert,cg,Eb,Eim,Ein)
-                  
-            if (cg_aer_frz.gt.0.) &
-               cg = cg*(1.-gfrac_frz)+cg_aer_frz*gfrac_frz
-            
-            call send_tile_data(trdata(tr)%id_Eb, Eb,  tile%diag)
-            call send_tile_data(trdata(tr)%id_Eim,Eim, tile%diag)
-            call send_tile_data(trdata(tr)%id_Ein,Ein, tile%diag)                     
-               
+
+            ustar_s=ustar*exp(-10.*tile%land_d) !same as dust
+            cg_aer_g =  cg_aer(trdata(tr),land_tile_grnd_T(tile),ustar_s,pressure, &
+                               alpha_aer,gamma_aer,A_aer,gfrac_dry,gfrac_wet,gfrac_frz)
+                                  
+            cg = conductance_series(con_g,cg_aer_g)
+                                                              
             call mpp_clock_end(land_tracer_ddep_aerosol_clock)
 
          endif
-         !end if
+         end if
          
          rho = pressure/(rdgas*tile%cana%T *(1+d608*tile%cana%tr(isphum)))
 
@@ -1168,6 +1167,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
          end if
 
 
+
+         if (trdata(tr)%do_deposition) then
          ! ---- diagnostic section
          if (con_atm.gt.epsln) then
             dvel = con_atm*tcond/(con_atm+tcond)
@@ -1251,11 +1252,12 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             if (trdata(tr)%id_ddep_stem>0) call send_tile_data(trdata(tr)%id_ddep_stem, fdiag*ddep*econ_stem/(econ_cu+econ_stem+econ_mx_st+epsln),   tile%diag)
             if (trdata(tr)%id_ddep_stom>0) call send_tile_data(trdata(tr)%id_ddep_stom, fdiag*ddep*econ_mx_st/(econ_cu+econ_stem+econ_mx_st+epsln),  tile%diag)
          end if
+         end if
 
          
          
          
-      endif
+
    end do
 
    call send_tile_data(id_ddep_bc,  ddep_bc, tile%diag)
@@ -1416,7 +1418,7 @@ elemental real function scale_biomass(frac_desert) result(s)
    s = max(frac_desert*max_scale_desert+(1-frac_desert),1.)
 end function scale_biomass
 
-subroutine  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_wet,frac_desert,con, Eb, Eim, Ein)
+function  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_dry,frac_wet,frac_snow) result(con)
    
    !from Zhang 2001 as presented by Seinfeld (19.27)
    !rb = 1/ (3*ustar * (Sc^-gamma + (St/(alpha+St))^2 + 1/2 * (Dp/A)^2) * R1 )
@@ -1427,9 +1429,12 @@ subroutine  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_wet,frac_desert,c
    real, intent(in) :: alpha, gamma, A !depend on land type
    real, intent(in) :: pressure
    real, intent(in) :: ustar
-   real, intent(in) :: frac_wet, frac_desert
+   real, intent(in) :: frac_wet, frac_dry, frac_snow
    
-   real, intent(out):: con, Eb, Eim, Ein
+   
+   real :: con
+   real :: Ein,Eim,Eb
+
    !Eb:  collection efficiency from Brownian motion
    !Eim: collection efficiency from impaction
    !Ein: collection efficiency from interception
@@ -1463,14 +1468,14 @@ subroutine  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_wet,frac_desert,c
    vts       = 2./9.*C_c*GRAV*rho_p*rp**2/dvis  ! Settling velocity [m/s]
    
    if  ( A .gt. epsln ) then
-      St       = vts*ustar/(grav*A)*(1.-frac_desert) + vts*ustar**2/(grav*kvis)*frac_desert
-      Ein      = (0.5*(2*rp/A)**2)*(1.-frac_desert) !Ein is 0. for desert
+      St       = vts*ustar/(grav*A)
+      Ein      = (0.5*(2*rp/A)**2)
    else
       St       = vts*ustar**2/(grav*kvis)
-      Ein = 0.
+      Ein      = 0.
    end if
    
-   R1      = frac_wet + (1-frac_wet)*exp(-St**0.5)
+   R1      = frac_wet + frac_dry*exp(-St**0.5)
    
    !brownian diffusion
    diff_aer= kb*T*C_c / ( 6.*pi*dvis*rp )
@@ -1479,9 +1484,12 @@ subroutine  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_wet,frac_desert,c
    Eb      = 1./Sc**gamma
    Eim     = (St/(alpha+St))**beta
    
-   con     = e0 * ustar * R1 * (Eb + Eim + Ein)
+   con = (e0 * ustar * R1 * (Eb + Eim + Ein))
+   if (cg_aer_frz.gt.0.)  then
+     con     = (frac_dry+frac_wet) * con + frac_snow*cg_aer_frz
+   end if   
    
-end subroutine cg_aer
+end function cg_aer
 
 real function con_h2(tr_data,tile,p) result(con)
 
@@ -1693,7 +1701,7 @@ real function con_h2(tr_data,tile,p) result(con)
          depth_litter = max(litterC/litter_densityC,0.) !m
          if (depth_litter .gt. 0.) then
             call soil_get_sfc_temp(tile%soil, grnd_T)
-            R_litter = depth_litter/(diff_H2_air(grnd_T,p)*litter_porosity)
+            R_litter = depth_litter/(diff_H2_air(grnd_T,p)*litter_porosity**2)
          end if            
       end if         
          
