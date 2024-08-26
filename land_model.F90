@@ -111,7 +111,7 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
-use gex_mod, only : gex_get_n, gex_get_p, gex_get_index, gex_name, gex_units
+use gex_mod, only : gex_get_n_ex, gex_get_property, gex_get_index, gex_name, gex_units
 
 implicit none
 private
@@ -1305,8 +1305,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_cd_m, cplr2land%cd_m(l,k),          tile%diag)
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
 
-        do n=1,gex_get_n(MODEL_ATMOS,MODEL_LAND)
-           call send_tile_data(id_gex_atm2lnd(n), cplr2land%gex_fields(l,k,n),tile%diag)
+        do n=1,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
+           if (id_gex_atm2lnd(n).gt.0) then
+              call send_tile_data(id_gex_atm2lnd(n), cplr2land%gex_fields(l,k,n),tile%diag)
+           end if
         end do
 
         if (id_snc>0) then
@@ -4268,11 +4270,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_gsnow   = register_tiled_diag_field ( module_name, 'gsnow', axes, time, &
              'sens heat into ground from snow', 'W/m2', missing_value=-1.0e+20 )
 
-  allocate(id_gex_atm2lnd(gex_get_n(MODEL_ATMOS,MODEL_LAND))) 
-  do n=1,gex_get_n(MODEL_ATMOS,MODEL_LAND)         
-      id_gex_atm2lnd(n) = register_tiled_diag_field ( module_name, trim(gex_get_p(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
-                                                      trim(gex_get_p(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
-                                                      trim(gex_get_p(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
+  allocate(id_gex_atm2lnd(gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)))
+
+  do n=1,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)         
+      id_gex_atm2lnd(n) = register_tiled_diag_field ( module_name, trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
+                                                      trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
+                                                      trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
                                                       missing_value=-1.0e+20 )
   end do
 
@@ -4880,7 +4883,7 @@ subroutine realloc_cplr2land( bnd )
 
   ! allocate data according to the domain boundaries
   kd = max_n_tiles()
-  n_gex_fields = gex_get_n(MODEL_ATMOS,MODEL_LAND)
+  n_gex_fields = gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
   
 
 
