@@ -472,6 +472,11 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
          (/id_ug/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
          trim(funits), missing_value=-1.0)
       
+      trdata(tr)%id_conc = &
+           register_tiled_diag_field(diag_name, trim(name), &
+           (/id_ug/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
+           units, missing_value=-1.0)      
+      
       if (trdata(tr)%do_deposition) then
          trdata(tr)%id_ddep = &
             register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
@@ -519,10 +524,6 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
          register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
             (/id_ug/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
             'm/s', missing_value=-1.0)
-         trdata(tr)%id_conc = &
-            register_tiled_diag_field(diag_name, trim(name), &
-            (/id_ug/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
-            units, missing_value=-1.0)
          trdata(tr)%id_tcond = &
             register_tiled_diag_field(diag_name, trim(trdata(tr)%name)//'_tot_con', &
             (/id_ug/),  lnd%time,'total conductance of '//trim(trdata(tr)%name), &
