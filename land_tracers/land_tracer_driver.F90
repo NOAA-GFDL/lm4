@@ -1111,7 +1111,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                   associate(c=>tile%vegn%cohorts(k),sp=>spdata(tile%vegn%cohorts(k)%species))
 
                      call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
-                     cg_aer_v = cg_aer(trdata(tr),                 & 
+                     cg_aer_v = c%lai *                    cg_aer(trdata(tr),                 & 
                                                                   tile%cana%T,ustar,pressure, &
                                                                   sp%alpha_aer,               &
                                                                   sp%gamma_aer,               &
