@@ -225,6 +225,7 @@ integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km, id_h2_depth_
 integer :: id_h2_frac_water_pores_avg, id_h2_frac_ice_pores_avg
 integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter
 integer :: id_h2_sws, id_h2_sopt, id_h2_sup, id_h2_moist_r1, id_h2_moist_r2
+integer :: id_h2_frac_r_litter, id_h2_frac_r_inactive, id_h2_frac_r_snow, id_h2_frac_r_bact
 
 integer :: id_ddep_noy, id_ddep_nhx, id_ddep_bc, id_ddep_oa
 integer :: id_acid_ratio
@@ -743,6 +744,22 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    id_h2_moist_r2 = register_tiled_diag_field(diag_name, 'h2_moist_r2', &
       (/id_ug,id_zfull/),  lnd%time, 'soil moisture above s_ws but below s_opt (fraction)', &
       'unitless', missing_value=-1.0)
+
+   id_h2_frac_r_litter =  register_tiled_diag_field(diag_name, 'h2_frac_r_litter', &
+      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to litter', &
+      'unitless', missing_value=-1.0)
+   id_h2_frac_r_inactive =  register_tiled_diag_field(diag_name, 'h2_frac_r_inactive', &
+      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to inactive', &
+      'unitless', missing_value=-1.0)
+   id_h2_frac_r_snow =  register_tiled_diag_field(diag_name, 'h2_frac_r_snow', &
+      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to snow', &
+      'unitless', missing_value=-1.0)
+   id_h2_frac_r_bact =  register_tiled_diag_field(diag_name, 'h2_frac_r_bact', &
+      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to bact', &
+      'unitless', missing_value=-1.0)
+   
+   
+
 
 
    land_tracer_clock = mpp_clock_id( 'land_tracer', &
@@ -1516,7 +1533,7 @@ real function con_h2(tr_data,tile,p) result(con)
 
    real, parameter :: s_up = 1. !no cap on h2 activity
 
-   logical :: TOP_LAYER
+   logical :: TOP_LAYER,FLOODED
 
    con = 0.
 
@@ -1531,7 +1548,7 @@ real function con_h2(tr_data,tile,p) result(con)
       f_M             = 0.
       f_T             = 0.
       diff_H2         = 0.
-      R_bact          = 1.e20
+      R_bact          = 0.
       R_litter        = 0.
       R_snow          = 0.
       R_inactive      = 0.
@@ -1582,6 +1599,8 @@ real function con_h2(tr_data,tile,p) result(con)
          if ((frac_water_pores(isoil) .ge. s_ws(isoil)) .and. (frac_water_pores(isoil).lt.s_opt(isoil))) h2_moist_r2(isoil) = 1.         
 
 
+         flooded = .FALSE.
+
          if (frac_water_pores(isoil).lt.s_ws(isoil) .and. TOP_LAYER) then
             !we have yet to encounter a wet enough layer
             R_inactive = R_inactive + dz/max(diff_H2_soil(tile%soil%T(isoil),p,                             &
@@ -1589,10 +1608,9 @@ real function con_h2(tr_data,tile,p) result(con)
                            frac_water_pores(isoil)+frac_ice_pores(isoil),    &
                            tile%soil%pars%chb),1.e-20)            
             inactive_layer = inactive_layer + dz
-         elseif (((1.-frac_water_pores(isoil)).lt.epsln) .and. TOP_LAYER) then
-            !set R to a very large number as water will block diffusion
-            R_inactive = 1e20
-            inactive_layer = inactive_layer + dz
+         elseif (((1.-frac_ice_pores(isoil)+frac_water_pores(isoil)).lt.epsln) .and. TOP_LAYER) then
+            R_inactive = 1.e20 !H2 won't diffusive to active sites
+            flooded    = .TRUE.
          else
             T_avg                = T_avg                + dz*tile%soil%T(isoil)
             frac_water_pores_avg = frac_water_pores_avg + dz*frac_water_pores(isoil)
@@ -1706,6 +1724,15 @@ real function con_h2(tr_data,tile,p) result(con)
       end if         
          
       con = 1./(R_litter+R_inactive+R_snow+R_bact)
+
+      if (id_h2_frac_r_litter.gt.0) & 
+           call send_tile_data(id_h2_frac_r_litter,  R_litter*con,   tile%diag)
+      if (id_h2_frac_r_inactive.gt.0) &
+           call send_tile_data(id_h2_frac_r_inactive,R_inactive*con, tile%diag)
+      if (id_h2_frac_r_snow.gt.0) &
+           call send_tile_data(id_h2_frac_r_snow,    R_snow*con,     tile%diag)
+      if (id_h2_frac_r_bact.gt.0) &
+           call send_tile_data(id_h2_frac_r_bact,    R_bact*con,     tile%diag)
       
       call send_tile_data(id_h2_moist_r1, h2_moist_r1,        tile%diag)
       call send_tile_data(id_h2_moist_r2, h2_moist_r2,        tile%diag)            
