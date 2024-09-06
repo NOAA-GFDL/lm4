@@ -339,7 +339,7 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
 
          ! set up deposition parameters
          if(query_method('dry_deposition', MODEL_LAND, tr, method, parameters)) then            
-            if (trdata(tr)%do_deposition==.FALSE.) call error_mesg("land_tracer_driver","missmatch between atm and land configuration for "//trim(trdata(tr)%name), FATAL)
+            if (.not. trdata(tr)%do_deposition) call error_mesg("land_tracer_driver","missmatch between atm and land configuration for "//trim(trdata(tr)%name), FATAL)
             trdata(tr)%param_name = trim(method)
             if (trim(method).eq."gas") then
                trdata(tr)%parameterization = GAS_DEFAULT
@@ -470,8 +470,7 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       trdata(tr)%id_dfdtr = &
          register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
          (/id_ug/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
-         trim(funits), missing_value=-1.0)
-      
+         trim(funits), missing_value=-1.0)      
       trdata(tr)%id_conc = &
            register_tiled_diag_field(diag_name, trim(name), &
            (/id_ug/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
@@ -1713,6 +1712,8 @@ real function con_h2(tr_data,tile,p) result(con)
          select case (soil_carbon_option)
             case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)         
                litterC = sum(tile%soil%litter_century_C(:,LEAF))
+            case (SOILC_CORPSE, SOILC_CORPSE_N)
+               call poolTotals1(tile%soil%litter_corpse(LEAF),totalC=litterC)
             case default
                call error_mesg("land_tracer_driver","soil litter carbon parameterization not recognized (h2_con)",FATAL)
          end select   

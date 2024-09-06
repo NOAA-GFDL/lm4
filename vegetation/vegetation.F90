@@ -622,10 +622,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call read_field(fileobj, 'NCM', ncm, interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
+     call close_file(fileobj)     
   else
      did_read_biodata = .FALSE.
      call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
-     call close_file(fileobj)
   endif
 
   ! create a list of species indices for initialization
