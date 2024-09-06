@@ -18,6 +18,7 @@ use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, mpp_root_pe, &
                   & check_nml_error, stdlog, stderr, mpp_clock_id, &
                   & mpp_clock_begin, mpp_clock_end, string, stdout, &
                   & CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
+use field_manager_mod, only: MODEL_LAND, MODEL_ATMOS
 use data_override_mod, only : data_override_ug
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
      register_diag_field, send_data, diag_field_add_attribute
@@ -110,6 +111,7 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
+use gex_mod, only : gex_get_n, gex_get_p, gex_get_index, gex_name, gex_units
 
 implicit none
 private
@@ -287,6 +289,7 @@ integer :: &
   id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
+integer, allocatable :: id_gex_atm2lnd(:)
 
 ! IDs of CMOR/CMIP variables
 integer :: id_sftlf, id_sftgif ! static fractions
@@ -1204,6 +1207,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   integer :: y,mo,d,h,m,s ! components of date for checksums
 
+  integer :: n 
+
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
@@ -1246,8 +1251,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
-!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
+!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_gex_atm2lnd) &
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,n)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
@@ -1283,7 +1288,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            cplr2land%ustar(l,k), cplr2land%p_surf(l,k), cplr2land%drag_q(l,k), &
            cplr2land%con_atm(l,k), &
            phot_co2_overridden, phot_co2_data(l),&
-           runoff(l), runoff_c(l,:) &
+           runoff(l), runoff_c(l,:), &
+           cplr2land%gex_fields(l,k,:)&
          )
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
@@ -1298,6 +1304,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_qca,  land2cplr%tr(l,k,isphum),     tile%diag)
         call send_tile_data(id_cd_m, cplr2land%cd_m(l,k),          tile%diag)
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
+
+        do n=1,gex_get_n(MODEL_ATMOS,MODEL_LAND)
+           call send_tile_data(id_gex_atm2lnd(n), cplr2land%gex_fields(l,k,n),tile%diag)
+        end do
 
         if (id_snc>0) then
            call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
@@ -1437,7 +1447,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
    ISa_dn_dir, ISa_dn_dif, ILa_dn, &
    ustar, p_surf, drag_q, con_atm,&
    phot_co2_overridden, phot_co2_data, &
-   runoff, runoff_c)
+   runoff, runoff_c, gex_fields)
   type (land_tile_type), pointer :: tile
   integer, intent(in) :: l ! position in unstructured grid
   integer, intent(in) :: itile ! tile number
@@ -1456,8 +1466,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        ustar,              & ! friction velocity above canopy, m/s
        p_surf,             & ! surface pressure, Pa
        drag_q,             & ! product of atmos_wind*CD_q, m/s
-       phot_co2_data         ! data input for the CO2 for photosynthesis
-
+       phot_co2_data,      & ! data input for the CO2 for photosynthesis
+       gex_fields(:)         ! generic exchanged fields
   real, intent(in) :: con_atm
 
   logical, intent(in):: phot_co2_overridden
@@ -3958,7 +3968,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   integer :: axes(1)          ! array of horizontal axes for diag fields
   integer :: ug_dim_size      ! Size of the unstructured axis
   integer :: id_lon, id_lonb, id_lat, id_latb
-  integer :: i
+  integer :: i, n
   integer, allocatable :: ug_dim_data(:) ! Unstructured axis data.
   character(128) :: long_name, flux_units
   character(32)  :: name
@@ -4259,6 +4269,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'sensible heat of runoff', 'W/m2', missing_value=-1.0e+20 )
   id_gsnow   = register_tiled_diag_field ( module_name, 'gsnow', axes, time, &
              'sens heat into ground from snow', 'W/m2', missing_value=-1.0e+20 )
+
+  allocate(id_gex_atm2lnd(gex_get_n(MODEL_ATMOS,MODEL_LAND))) 
+  do n=1,gex_get_n(MODEL_ATMOS,MODEL_LAND)         
+      id_gex_atm2lnd(n) = register_tiled_diag_field ( module_name, trim(gex_get_p(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
+                                                      trim(gex_get_p(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
+                                                      trim(gex_get_p(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
+                                                      missing_value=-1.0e+20 )
+  end do
+
+
   call add_tiled_diag_field_alias ( id_gsnow, module_name, 'gflux', axes, time, &
              'obsolete, please use "gsnow" instead', 'W/m2', missing_value=-1.0e+20 )
   id_gequil   = register_tiled_diag_field ( module_name, 'gequil', axes, time, &
@@ -4856,11 +4876,15 @@ subroutine realloc_cplr2land( bnd )
 
   ! ---- local vars
   integer :: kd
+  integer :: n_gex_fields ! number of exchanged fields
 
   call dealloc_cplr2land(bnd)
 
   ! allocate data according to the domain boundaries
   kd = max_n_tiles()
+  n_gex_fields = gex_get_n(MODEL_ATMOS,MODEL_LAND)
+  
+
 
   allocate( bnd%t_flux(lnd%ls:lnd%le,kd) )
   allocate( bnd%lw_flux(lnd%ls:lnd%le,kd) )
@@ -4874,6 +4898,8 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%p_surf(lnd%ls:lnd%le,kd) )
   allocate( bnd%tr_flux(lnd%ls:lnd%le,kd,ntcana) )
   allocate( bnd%dfdtr(lnd%ls:lnd%le,kd,ntcana) )
+  allocate( bnd%gex_fields(lnd%ls:lnd%le,kd,n_gex_fields) )
+
 
   allocate( bnd%lwdn_flux(lnd%ls:lnd%le,kd) )
   allocate( bnd%swdn_flux(lnd%ls:lnd%le,kd) )
@@ -4904,6 +4930,7 @@ subroutine realloc_cplr2land( bnd )
   bnd%p_surf                 = init_value
   bnd%tr_flux                = init_value
   bnd%dfdtr                  = init_value
+  bnd%gex_fields             = init_value
 
   bnd%lwdn_flux              = init_value
   bnd%swdn_flux              = init_value
@@ -4954,6 +4981,7 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%drag_q )
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
+  __DEALLOC__( bnd%gex_fields )
 
   __DEALLOC__( bnd%con_atm )
 

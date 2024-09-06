@@ -78,6 +78,8 @@ type :: atmos_land_boundary_type
         dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value,
                                  ! including evap over surface specific humidity
 
+   real, dimension(:,:,:), pointer :: gex_fields => NULL() !generic exchange fields
+
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type atmos_land_boundary_type
 
