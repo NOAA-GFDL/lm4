@@ -122,7 +122,6 @@ real    :: h2_psi_opt      = -0.5e2   !optimal psi for HA-HOB (m)
 real    :: h2_beta1        = 1.       !exponent (see Bertagni (GBC, 2021)
 logical :: h2_soilC_mod    = .false.
 logical :: h2_litterC_mod  = .true.
-real    :: h2_psi_offset   = 1.       !correction to experimental h2_psi_ws, and h2_psi_opt (if <0 in kPa)
                                       !-100e6
 
 logical :: pmod_lai_frz, pmod_lai_wet, pmod_lai_dry
@@ -138,7 +137,7 @@ namelist /land_tracer_driver_nml/ &
             alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz,    &
             h2_psi_ws, h2_psi_opt, h2_beta1, h2_km, h2_depth, h2_soilC_mod, h2_litterC_mod, &
             c_snow, c_dry, c_wet, e_lai_dry,e_lai_wet,e_lai_frz, e_ustar, &
-            r_snows_max, r_snows_max, h2_psi_offset
+            r_snows_max, r_snows_max
    
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_tracer_driver_mod'
