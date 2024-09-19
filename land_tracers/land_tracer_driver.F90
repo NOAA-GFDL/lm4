@@ -82,6 +82,8 @@ real :: alpha_aer_swamp        = 50.
 real :: alpha_aer_desert       = 50.
 real :: alpha_aer_frz          = 50.
 
+real :: b_lai_aer              = 0 !there is some confusion in the litterature on whether cg_aer should (b_lai_aer=1) or shoundn't (b_lai_aer=0) be multiplied by lai. 
+
 !Note about default resistances (specified in field table)
 !From Zhang et al. "A size-segregated particle dry deposition scheme for an atmospheric aerosol module" Atmospheric Environment 35 (2001) 549-560. We do not account for seasonal variations in A (use midsummer)
 !From Zhang et al. "A revised parameterization for gaseous dry deposition in air-quality models" Atmos. Chem. Phys., 3, 2067–2082, 2003
@@ -137,7 +139,7 @@ namelist /land_tracer_driver_nml/ &
             alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz,    &
             h2_psi_ws, h2_psi_opt, h2_beta1, h2_km, h2_depth, h2_soilC_mod, h2_litterC_mod, &
             c_snow, c_dry, c_wet, e_lai_dry,e_lai_wet,e_lai_frz, e_ustar, &
-            r_snows_max, r_snows_max
+            r_snows_max, r_snows_max, b_lai_aer
    
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_tracer_driver_mod'
@@ -1109,13 +1111,17 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
                   associate(c=>tile%vegn%cohorts(k),sp=>spdata(tile%vegn%cohorts(k)%species))
 
                      call get_vegn_wet_frac ( c, fw=fw, fs=fs ); ft = 1-fw-fs
-                     cg_aer_v = c%lai *                    cg_aer(trdata(tr),                 & 
-                                                                  tile%cana%T,ustar,pressure, &
-                                                                  sp%alpha_aer,               &
-                                                                  sp%gamma_aer,               &
-                                                                  sp%A_aer,                   &
-                                                                  ft,fw, fs)
-
+                     cg_aer_v = cg_aer(trdata(tr),                 & 
+                          tile%cana%T,ustar,pressure,              &
+                          sp%alpha_aer,                            &
+                          sp%gamma_aer,                            &
+                          sp%A_aer,                                &
+                          ft,fw, fs)
+                     
+                     if (b_lai_aer.gt.epsln) then
+                        cg_aer_v = cg_aer_v*c%lai**b_lai_aer
+                     end if
+                     
                      cv = cv + c%layerfrac*conductance_series(con_v_v(k),cg_aer_v)
                      
                   end associate
