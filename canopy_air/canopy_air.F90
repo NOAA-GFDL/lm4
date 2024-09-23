@@ -248,10 +248,10 @@ subroutine read_cana_namelist()
 
   ! Check for inconsistency of using one part of Ghannam2022 canopy parametrization but not (dependent) others
   if (roughness_option==ROUGH_KMG2022 .and. turbulence_option/=TURB_KMG2022) then
-     call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use=ghannam2022', FATAL)
+     call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use = Ghannam2022', FATAL)
   endif
-  if (usfc_option=='ghannam2022' .and. turbulence_option/=TURB_KMG2022) then
-     call error_mesg('cana_init', 'Ghannam2022 parameterization of friction velocity on the soil surface requires: turbulence_to_use=ghannam2022', FATAL)
+  if (usfc_option==USFC_KMG2022 .and. turbulence_option/=TURB_KMG2022) then
+     call error_mesg('cana_init', 'Ghannam2022 parameterization of friction velocity on the soil surface requires: turbulence_to_use = Ghannam2022', FATAL)
   endif
 
 end subroutine read_cana_namelist
