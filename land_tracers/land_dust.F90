@@ -269,9 +269,11 @@ subroutine land_dust_init (id_ug, mask)
         call virrig%addvar(firrig,trim(cropName(i))//'_irrig')
      enddo
 
-     write(*,*)'land_dust_init: summary of irrigation input fields'
-     write(*,'(a)') vstate%descr()
-     write(*,'(a)') virrig%descr()
+     if (mpp_pe() == mpp_root_pe()) then
+        write(*,*)'land_dust_init: summary of irrigation input fields'
+        write(*,'(a)') vstate%descr()
+        write(*,'(a)') virrig%descr()
+     endif
 
      call read_irrigation_fraction(lnd%time,irrigation_fraction)
   endif

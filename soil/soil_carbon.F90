@@ -142,7 +142,9 @@ end type soil_pool
 !==== module variables =======================================================
 
 !---- namelist ---------------------------------------------------------------
-character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by-layer', or 'CORPSE', or 'CORPSE-N'
+character(32) :: soil_carbon_model_to_use = 'SIMPLE' ! or 'SIMPLE-by-layer', 'CENTURY-like', 'CENTURY-like-by-layer',
+                                       ! or 'CORPSE', or 'CORPSE-N'. 'SIMPLE' is synonymous to 'CENTURY-like' in all
+                                       ! options.
 logical                   :: use_rhizosphere_cohort=.FALSE.  ! Use 2 fixed cohorts for rhizosphere and bulk soil if true
 logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
 real,dimension(N_C_TYPES) :: Ea=(/37e3,54e3,50e3/)          ! Activation energy (kJ/mol)
@@ -287,9 +289,9 @@ subroutine read_soil_carbon_namelist
 
   ! parse soil carbon option
   select case (soil_carbon_model_to_use)
-  case('CENTURY-like')
+  case('CENTURY-like','SIMPLE')
     soil_carbon_option = SOILC_CENTURY
-  case('CENTURY-like-by-layer')
+  case('CENTURY-like-by-layer','SIMPLE-by-layer')
     soil_carbon_option = SOILC_CENTURY_BY_LAYER
   case('CORPSE')
     soil_carbon_option = SOILC_CORPSE
