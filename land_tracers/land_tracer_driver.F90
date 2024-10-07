@@ -183,21 +183,22 @@ module land_tracer_driver_mod
      integer        :: km_mod=-1
 
      integer :: & ! diag field IDs
-          id_emis,      id_ddep,  &
-          id_flux_atm,  id_dfdtr, &
-          id_con_v,     id_con_g, &
-          id_con_mx_st, id_con_cu, id_con_stem, id_con_gr, &
-          id_conc,      id_tcond, id_tcond_wet(nwet_diag), id_tcond_new, &
-          id_econ_v,    id_econ_g, &
-          id_ddep_v,    id_ddep_g, &
-          id_econ_g_dry,id_econ_g_wet, id_econ_g_frz, &
-          id_ddep_g_dry,id_ddep_g_wet, id_ddep_g_frz, &
-          id_econ_stem, id_econ_stom, id_econ_cu, &
-          id_ddep_stem, id_ddep_stom, id_ddep_cu, &
-          id_econ_cu_dry,id_econ_cu_wet, id_econ_cu_frz, &
-          id_ddep_cu_dry,id_ddep_cu_wet, id_ddep_cu_frz, &
-          id_con_v_v, id_con_v_stem, id_con_v_g, &
-          id_Eb, id_Ein, id_Eim
+          id_emis = 0,      id_ddep = 0,  &
+          id_flux_atm = 0,  id_dfdtr = 0, &
+          id_con_v = 0,     id_con_g = 0, &
+          id_con_mx_st = 0, id_con_cu = 0,    id_con_stem = 0, id_con_gr = 0, &
+          id_conc = 0,      id_tcond = 0,     id_tcond_new = 0, &
+          id_tcond_wet(nwet_diag) = 0, &
+          id_econ_v = 0,    id_econ_g = 0, &
+          id_ddep_v = 0,    id_ddep_g = 0, &
+          id_econ_g_dry = 0,id_econ_g_wet = 0, id_econ_g_frz = 0, &
+          id_ddep_g_dry = 0,id_ddep_g_wet = 0, id_ddep_g_frz = 0, &
+          id_econ_stem = 0, id_econ_stom = 0, id_econ_cu = 0, &
+          id_ddep_stem = 0, id_ddep_stom = 0, id_ddep_cu = 0, &
+          id_econ_cu_dry = 0, id_econ_cu_wet = 0, id_econ_cu_frz = 0, &
+          id_ddep_cu_dry = 0, id_ddep_cu_wet = 0, id_ddep_cu_frz = 0, &
+          id_con_v_v = 0, id_con_v_stem = 0, id_con_v_g = 0, &
+          id_Eb = 0, id_Ein = 0, id_Eim = 0
   end type tracer_data_type
 
   integer :: id_fw_avg, id_fs_avg, id_fd_avg

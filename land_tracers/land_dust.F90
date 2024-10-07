@@ -58,11 +58,11 @@ type :: dust_data_type
    real          :: source_fraction = 0.0 ! fraction of the source allocated to this dust tracer
 
    integer :: & ! diag field ids
-     id_emis,      id_ddep,      id_wdep, &
-     id_flux_atm,  id_dfdtr, &
-     id_con_v_lam, id_con_g_lam, &
-     id_con_v,     id_con_g, &
-     id_vdep
+     id_emis      = 0, id_ddep      = 0,  id_wdep = 0, &
+     id_flux_atm  = 0, id_dfdtr     = 0, &
+     id_con_v_lam = 0, id_con_g_lam = 0, &
+     id_con_v     = 0, id_con_g     = 0, &
+     id_vdep      = 0
 end type dust_data_type
 
 
