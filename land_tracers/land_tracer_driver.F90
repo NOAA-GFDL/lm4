@@ -20,7 +20,7 @@ use land_tile_mod,      only: land_tile_type, land_tile_grnd_T, loop_over_tiles,
 use land_tile_diag_mod, only: set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use sat_vapor_pres_mod, only: compute_qs
 use snow_mod,           only: snow_get_depth_area, snow_get_sfc_temp
-use soil_tile_mod,      only: num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types, LEAF
+use soil_tile_mod,      only: num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types, LEAF, CWOOD
 use soil_carbon_mod,    only: SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, soil_carbon_option
 use soil_carbon_mod,    only: poolTotals1
 use soil_mod,           only: soil_get_sfc_temp
@@ -42,9 +42,10 @@ public :: update_cana_tracers
 ! ==== end of public interfaces ==============================================
 
 
-real, parameter  :: litter_densityC = 0.03/2.*1000. !https://doi.org/10.1093/sjaf/33.1.29
-real, parameter  :: litter_porosity = 0.7  !leaf: 0.955; Twig: 0.8; decomposing matter 0.45-0.55
-                                           !10 .3389/fmech.2019.00053/full
+real, parameter  :: litter_leaf_density_C = 0.03/2.*1000. !https://doi.org/10.1093/sjaf/33.1.29
+real, parameter  :: litter_wood_density_C = 0.1/2. *1000. !https://doi.org/10.1093/sjaf/33.1.29
+real, parameter  :: litter_leaf_porosity = 0.955 !leaf: 0.955; Twig: 0.8; decomposing matter 0.45-0.55
+real, parameter  :: litter_wood_porosity = 0.7   !10 .3389/fmech.2019.00053/full
 
 !min/max S snow resistances
 real :: r_snows_min     = 100
@@ -122,9 +123,8 @@ real    :: h2_depth        =  0.1     !depth over which water is averaged for h2
 real    :: h2_psi_ws       = -100e2   !minimum psi for HA-HOB activation (m) - 1MPa is 100m
 real    :: h2_psi_opt      = -0.5e2   !optimal psi for HA-HOB (m)
 real    :: h2_beta1        = 1.       !exponent (see Bertagni (GBC, 2021)
-logical :: h2_soilC_mod    = .false.
-logical :: h2_litterC_mod  = .true.
-                                      !-100e6
+real    :: h2_soilC_mod    = 10.      !in kgC/m2 (turned off if negative)
+real    :: h2_litterC_mod  = 1.       !scale litter depth (turned off if negative)
 
 logical :: pmod_lai_frz, pmod_lai_wet, pmod_lai_dry
 
@@ -184,7 +184,7 @@ type :: tracer_data_type
    !for aerosol
    real           :: radius = 0.25e-6, rho = 1500.
    integer        :: parameterization = 0
-   character      :: param_name = ""   
+   character(32)  :: param_name = "N/A"   
 
    real           :: a_RH = 3.
    
@@ -222,11 +222,11 @@ integer :: id_fw_avg, id_fs_avg, id_fd_avg
 integer :: id_fw_wet(nwet_diag)
 integer :: id_con_atm
 integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert
-integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km, id_h2_depth_litter
+integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km, id_h2_depth_litter_wood, id_h2_depth_litter_leaf
 integer :: id_h2_frac_water_pores_avg, id_h2_frac_ice_pores_avg
-integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter
+integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter, id_h2_R_litter_wood, id_h2_R_litter_leaf
 integer :: id_h2_sws, id_h2_sopt, id_h2_sup, id_h2_moist_r1, id_h2_moist_r2
-integer :: id_h2_frac_r_litter, id_h2_frac_r_inactive, id_h2_frac_r_snow, id_h2_frac_r_bact
+integer :: id_con_h2_no_snow, id_con_h2_no_litter
 
 integer :: id_ddep_noy, id_ddep_nhx, id_ddep_bc, id_ddep_oa
 integer :: id_acid_ratio
@@ -247,11 +247,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! ============================================================================
 subroutine land_tracer_driver_init(id_ug,id_zfull)
    integer,intent(in) :: id_ug, id_zfull !<Unstructured axis id.
-   
-   integer                  :: tr, ttr ! tracer index
-   integer                  :: spc !species index
+   integer                  :: tr  ! tracer index
    real                     :: value ! temporary storage for parsing input
-   character(32)            :: value_str
    character(32)            :: name, units, funits ! name and units of the tracer and flux
    character(128)           :: longname ! long name of the tracer
    character(64)            :: method
@@ -262,9 +259,7 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    integer :: io           ! i/o status for the namelist
    integer :: ierr         ! error code, returned by i/o routines
    
-   integer :: soil_tag, iw
-   type(land_tile_enum_type)     :: ce   ! tile list enumerator
-   type(land_tile_type), pointer :: tile ! pointer to current tile
+   integer :: iw
          
    ! write the version and tag name to the logfile
    call log_version(version, module_name, &
@@ -359,29 +354,6 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
             if ( parse(parameters, 'reactivity',  value) > 0 ) trdata(tr)%reactivity  = value
             if ( parse(parameters, 'alpha',       value) > 0 ) trdata(tr)%alpha       = value
             if ( parse(parameters, 'a_RH',        value) > 0 ) trdata(tr)%a_RH        = value            
-
-            ! if ( trdata(tr)%parameterization .gt. 0) then
-            !    allocate(trdata(tr)%con_cu_dry(0:size(spdata)-1))
-            !    allocate(trdata(tr)%con_cu_wet(0:size(spdata)-1))
-            !    allocate(trdata(tr)%con_cu_frz(0:size(spdata)-1))     has to be recalculated
-            !    allocate(trdata(tr)%con_stem(0:size(spdata)-1))                              
-            !    allocate(trdata(tr)%con_mx(0:size(spdata)-1))                              
-
-            !    do spc = 1,size(spdata)
-            !       associate(sp=>spdata(spc-1))
-            !          trdata(tr)%con_cu_dry(spc-1) = get_conductance_tracer(trdata(tr),sp%r_cus,sp%r_cuo)
-            !          trdata(tr)%con_cu_wet(spc-1) = get_conductance_tracer(trdata(tr),sp%r_cus_wet,sp%r_cuo_wet)
-            !          trdata(tr)%con_cu_frz(spc-1) = get_conductance_tracer(trdata(tr),r_snows,r_snowo)
-            !          trdata(tr)%con_stem(spc-1)   = get_conductance_tracer(trdata(tr),sp%r_stems,sp%r_stemo)                     
-            !          trdata(tr)%con_mx(spc-1)     = get_conductance_tracer(trdata(tr),1.,100.)
-            !       end associate
-            !    end do
-
-            !    trdata(tr)%con_gr_dry  = get_conductance_tracer(trdata(tr),r_gs_dry,r_go_dry)
-            !    trdata(tr)%con_gr_frz  = get_conductance_tracer(trdata(tr),r_snows,r_snowo)
-            !    trdata(tr)%con_gr_wet  = get_conductance_tracer(trdata(tr),r_gs_wet,r_go_wet)
-            !    trdata(tr)%con_gr_lake = get_conductance_tracer(trdata(tr),r_gs_lake,r_go_lake)               
-            ! end if
                
             !ratio of tracer diffusivity to h2o
             if ( parse(parameters, 'diff_ratio',  value) > 0 ) then
@@ -403,17 +375,6 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
             if ( parse(parameters, 'r_mx',  value) > 0 )   trdata(tr)%r_mx    = max(value,epsln)
             if ( parse(parameters, 'radius', value) > 0 )  trdata(tr)%radius  = value
             if ( parse(parameters, 'rho', value) > 0 )     trdata(tr)%rho     = value
-
-            ! if (parse(parameters,'map_to',value_str)>0) then 
-            !    trdata(tr)%map_to = value_str
-            !    do ttr = 1,tr-1
-            !       if (trim(trdata(tr)%name).eq.trim(trdata(tr)%map_to)) then
-            !          trdata(tr)%map_to_index = ttr                                                       
-            !       end if
-            !    end do
-            !    if (trdata(tr)%map_to_index.lt.0) &
-            !     call error_mesg("land_tracer_driver",trim(trdata(tr)%name)//' reference to'//trdata(tr)%map_to//' cannot be found', FATAL)
-            ! endif
          endif
       end if
    enddo
@@ -421,7 +382,7 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    call init_with_headers(table, trdata(:)%name)
    call add_row(table, 'do_deposition',    trdata(:)%do_deposition)
    call add_row(table, 'parameterization', trdata(:)%param_name)   
-   call add_row(table, 'parameterization', trdata(:)%parameterization)   
+   !call add_row(table, 'parameterization', trdata(:)%parameterization)   
    call add_row(table, 'mw',               trdata(:)%mw)    
    call add_row(table, 'alpha',            trdata(:)%alpha)
    call add_row(table, 'reactivity',       trdata(:)%reactivity)
@@ -439,10 +400,6 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    if (abs(e_lai_dry-1.0) <= 1e-5) pmod_lai_dry=.FALSE.
    if (abs(e_lai_wet-1.0) <= 1e-5) pmod_lai_wet=.FALSE.
    if (abs(e_lai_frz-1.0) <= 1e-5) pmod_lai_frz=.FALSE.
-
-   if (mpp_pe() == mpp_root_pe()) write(*,*) 'pmod=',pmod_lai_dry,pmod_lai_wet,pmod_lai_frz
-
-      
       
    ! register diag fields for generic tracers
    call set_default_diag_filter('land')
@@ -700,8 +657,11 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    id_h2_ilayer  = register_tiled_diag_field(diag_name, 'h2_ilayer', &
       (/id_ug/),  lnd%time, 'h2_ilayer', &
       'm', missing_value=-1.0)
-   id_h2_depth_litter  = register_tiled_diag_field(diag_name, 'h2_depth_litter', &
-      (/id_ug/),  lnd%time, 'h2_depth_litter', &
+   id_h2_depth_litter_leaf  = register_tiled_diag_field(diag_name, 'h2_depth_litter_leaf', &
+      (/id_ug/),  lnd%time, 'h2_depth_litter_leaf', &
+      'm', missing_value=-1.0)         
+   id_h2_depth_litter_wood  = register_tiled_diag_field(diag_name, 'h2_depth_litter_wood', &
+      (/id_ug/),  lnd%time, 'h2_depth_litter_wood', &
       'm', missing_value=-1.0)         
    id_h2_R_bact  = register_tiled_diag_field(diag_name, 'h2_R_bact', &
       (/id_ug/),  lnd%time, 'h2_R_bact', &
@@ -711,6 +671,12 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       's/m', missing_value=-1.0)
    id_h2_R_litter  = register_tiled_diag_field(diag_name, 'h2_R_litter', &
       (/id_ug/),  lnd%time, 'h2_R_litter', &
+      's/m', missing_value=-1.0)         
+   id_h2_R_litter_leaf  = register_tiled_diag_field(diag_name, 'h2_R_litter_leaf', &
+      (/id_ug/),  lnd%time, 'h2_R_litter_leaf', &
+      's/m', missing_value=-1.0)         
+   id_h2_R_litter_wood  = register_tiled_diag_field(diag_name, 'h2_R_litter_wood', &
+      (/id_ug/),  lnd%time, 'h2_R_litter_wood', &
       's/m', missing_value=-1.0)         
    id_h2_R_snow  = register_tiled_diag_field(diag_name, 'h2_R_snow', &
       (/id_ug/),  lnd%time, 'h2_R_snow', &
@@ -746,22 +712,12 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       (/id_ug,id_zfull/),  lnd%time, 'soil moisture above s_ws but below s_opt (fraction)', &
       'unitless', missing_value=-1.0)
 
-   id_h2_frac_r_litter =  register_tiled_diag_field(diag_name, 'h2_frac_r_litter', &
-      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to litter', &
-      'unitless', missing_value=-1.0)
-   id_h2_frac_r_inactive =  register_tiled_diag_field(diag_name, 'h2_frac_r_inactive', &
-      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to inactive', &
-      'unitless', missing_value=-1.0)
-   id_h2_frac_r_snow =  register_tiled_diag_field(diag_name, 'h2_frac_r_snow', &
-      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to snow', &
-      'unitless', missing_value=-1.0)
-   id_h2_frac_r_bact =  register_tiled_diag_field(diag_name, 'h2_frac_r_bact', &
-      (/id_ug,id_zfull/),  lnd%time, 'Average H2 fractional resistance due to bact', &
-      'unitless', missing_value=-1.0)
-   
-   
-
-
+   id_con_h2_no_litter =  register_tiled_diag_field(diag_name, 'h2_con_gr_no_litter', &
+      (/id_ug/),  lnd%time, 'H2 surface conductance w/o litter', &
+      'm/s', missing_value=-1.0)
+   id_con_h2_no_snow =  register_tiled_diag_field(diag_name, 'h2_con_gr_no_snow', &
+      (/id_ug/),  lnd%time, 'H2 surface conductance w/o snow', &
+      'm/s', missing_value=-1.0)
 
    land_tracer_clock = mpp_clock_id( 'land_tracer', &
                            grain=CLOCK_MODULE )
@@ -819,7 +775,6 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    integer :: iw      ! wet threshold index
    real    :: rho     ! density of canopy air
    real    :: dq      ! canopy air tracer tendency per time step
-   real    :: con_v   ! laminar conductance to leaves
    real    :: con_st_tr ! total stomatal conductance, scaled by dry leaf area, m/s
    real    :: con_mx  ! "mesophyll conductance", m/s
    real    :: con_mx_st !mesophyll+stomatal
@@ -839,7 +794,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    
    real    :: con_cu_dry, con_cu_wet, con_cu_frz, con_stem
    real    :: con_gr_dry, con_gr_wet, con_gr_frz
-   real    :: r_gs, frac_desert
+   real    :: frac_desert
    real    :: con_v_v_tr, con_v_stem_tr, con_bl_tr, con_g_tr
    
    real    :: con_cu_diag, con_mx_st_diag, con_stem_diag, fdiag
@@ -1062,7 +1017,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
             if (tr==nh2 .and. trdata(tr)%parameterization.eq.GAS_BERTAGNI) then
                !for now set constant conductance
                call mpp_clock_begin (land_tracer_ddep_gas_h2_clock)
-               con_gr_dry = con_h2(trdata(tr),tile,pressure)
+               con_gr_dry = con_h2(tile,pressure)
                con_gr_wet = 0.
                con_gr_frz = 0.
                call mpp_clock_end (land_tracer_ddep_gas_h2_clock)
@@ -1312,7 +1267,7 @@ subroutine get_tile_property(tile,gfrac_frz,gfrac_wet,frac_desert)
 
    real,    intent(out)             :: gfrac_frz,gfrac_wet,frac_desert
 
-   real                             :: depth_to_wt_2b, biomass
+   real                             :: biomass
    real,dimension(num_l)            :: theta
    integer                          :: k
    real                             :: snow_depth, snow_area
@@ -1513,28 +1468,29 @@ function  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_dry,frac_wet,frac_s
    
 end function cg_aer
 
-real function con_h2(tr_data,tile,p) result(con)
+real function con_h2(tile,p) result(con)
 
-   type(tracer_data_type), intent(in) :: tr_data
    type(land_tile_type),   intent(inout) :: tile
    real,                   intent(in) :: p
 
-   real    :: delta !inactive layer
-   integer :: isoil, soil_tag
+   integer :: isoil
    real    :: frac_water_pores_avg, frac_ice_pores_avg
-   real,dimension(num_l) :: frac_water_pores, frac_ice_pores, soil_C, s_ws, s_opt, s_upc, psi_sat_ref, h2_moist_r1, h2_moist_r2
-   real    :: dz, T_avg, T_avgC, dz_tot, soil_C_avg
+   real,dimension(num_l) :: frac_water_pores, frac_ice_pores, soil_C_layer, s_ws, s_opt, s_upc, psi_sat_ref, h2_moist_r1, h2_moist_r2
+   real    :: dz, T_avg, T_avgC, dz_tot
    real    :: diff_h2
    real    :: f_T, f_M
-   real    :: gdelta, snow_depth, snow_area, Tsnow
+   real    :: snow_depth, snow_area, Tsnow
 
-   real    :: R_inactive, R_snow, R_bact, inactive_layer, R_litter
+   real    :: R_inactive, R_snow, R_bact, inactive_layer, R_litter, R_litter_wood, R_litter_leaf
 
    real    :: beta1, b, beta2, norm
-   real    :: litterC, depth_litter, grnd_T
+   real    :: litterC_leaf, litterC_wood
+   real    :: depth_litter_leaf, depth_litter_wood, depth_litter
+   real    :: grnd_T
 
    real    :: h2_km_eff
-   real    :: s_correction, s_opt_avg, s_upc_avg, s_ws_avg
+   real    :: s_opt_avg, s_upc_avg, s_ws_avg
+   real    :: soil_C
 
    real, parameter :: s_up = 1. !no cap on h2 activity
 
@@ -1553,12 +1509,14 @@ real function con_h2(tr_data,tile,p) result(con)
       f_M             = 0.
       f_T             = 0.
       diff_H2         = 0.
-      R_bact          = 0.
+      R_bact          = 1.e20
       R_litter        = 0.
       R_snow          = 0.
       R_inactive      = 0.
       inactive_layer  = 0.
       depth_litter    = 0.
+      depth_litter_leaf = 0.
+      depth_litter_wood = 0.
 
       s_opt_avg       = 0.
       s_upc_avg       = 0.
@@ -1578,8 +1536,28 @@ real function con_h2(tr_data,tile,p) result(con)
       h2_moist_r1(:) = -1.
       h2_moist_r2(:) = -1.
 
+      s_ws(:)  = -1
+      s_opt(:) = -1
+      s_upc(:) = -1
+
       b           = tile%soil%pars%chb
       beta1       = h2_beta1
+
+      if (h2_soilC_mod .gt. 0) then
+         !get C for modulation do not include litter
+         select case (soil_carbon_option)
+         case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+            soil_C = sum(tile%soil%fast_soil_C(:))+sum(tile%soil%slow_soil_C(:))
+         case (SOILC_CORPSE, SOILC_CORPSE_N)
+            do isoil = 1,num_l
+               call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C_layer(isoil) )
+            end do
+            soil_C = sum(soil_C_layer(:))            
+         case default
+            call error_mesg("land_tracer_driver","soil carbon parameterization not recognized (h2_con)",FATAL)
+         end select
+      end if
+      
 
       TOP_LAYER = .TRUE.
       
@@ -1600,9 +1578,8 @@ real function con_h2(tr_data,tile,p) result(con)
 
          h2_moist_r1(isoil) = 0.
          h2_moist_r2(isoil) = 0.
-         if (frac_water_pores(isoil) .lt. s_ws(isoil)) h2_moist_r1(isoil) = 1.
+         if (frac_water_pores(isoil)  .lt. s_ws(isoil)) h2_moist_r1(isoil) = 1.
          if ((frac_water_pores(isoil) .ge. s_ws(isoil)) .and. (frac_water_pores(isoil).lt.s_opt(isoil))) h2_moist_r2(isoil) = 1.         
-
 
          flooded = .FALSE.
 
@@ -1617,6 +1594,7 @@ real function con_h2(tr_data,tile,p) result(con)
             R_inactive = 1.e20 !H2 won't diffusive to active sites
             flooded    = .TRUE.
          else
+            !this layer exceeds minimum s_ws. Add all layers below until h2_depth
             T_avg                = T_avg                + dz*tile%soil%T(isoil)
             frac_water_pores_avg = frac_water_pores_avg + dz*frac_water_pores(isoil)
             frac_ice_pores_avg   = frac_ice_pores_avg   + dz*frac_ice_pores(isoil)
@@ -1626,18 +1604,6 @@ real function con_h2(tr_data,tile,p) result(con)
             s_ws_avg             = s_ws_avg  + dz*s_ws(isoil)            
 
             dz_tot               = dz_tot               + dz
-            
-            if (h2_soilC_mod) then
-               !get C for modulation
-               select case (soil_carbon_option)
-                  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-                     soil_C(isoil) =(tile%soil%fast_soil_C(isoil)+tile%soil%slow_soil_C(isoil))
-                  case (SOILC_CORPSE, SOILC_CORPSE_N)
-                     call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C(isoil))
-                  case default
-                     call error_mesg("land_tracer_driver","soil carbon parameterization not recognized (h2_con)",FATAL)
-               end select
-            end if
 
             TOP_LAYER = .FALSE.
          end if
@@ -1653,10 +1619,8 @@ real function con_h2(tr_data,tile,p) result(con)
          end if
       end if
       
-      soil_C_avg = 0.
-      
+      !dz_tot>0. H2 uptake is possible
       if (dz_tot.gt.epsln) then
-         if (h2_soilC_mod) soil_C_avg = sum(soil_C)/dz_tot !kg/m3
          T_avg                 = T_avg/dz_tot
          T_avgC                = T_avg - 273.15
          frac_water_pores_avg  = frac_water_pores_avg/dz_tot
@@ -1691,6 +1655,7 @@ real function con_h2(tr_data,tile,p) result(con)
             call error_mesg("land_tracer_driver","f_M>1",FATAL)
          end if  
             
+         !From Ehhalt (2011)
          f_T = 1/(1+exp(-(T_avgC-3.8)/6.7)) + 1./(1.+exp((T_avgC - 62.2)/7.7)) - 1.
             
          diff_H2 = diff_H2_soil( T_avg,                                            &
@@ -1699,8 +1664,8 @@ real function con_h2(tr_data,tile,p) result(con)
                                  frac_ice_pores_avg+frac_water_pores_avg,          &
                                  b )
                                     
-         if (h2_soilC_mod) then         
-            h2_km_eff = h2_km*soil_C_avg/(soil_C_avg+7.)
+         if (h2_soilC_mod.gt.0) then         
+            h2_km_eff = h2_km*soil_C/(soil_C+h2_soilC_mod)
          end if
             
          R_bact = 1./max(sqrt(f_T*f_M*h2_km_eff*diff_H2),1.e-20)            
@@ -1713,33 +1678,38 @@ real function con_h2(tr_data,tile,p) result(con)
       end if
 
       !litter
-      if (h2_litterC_mod) then 
+      if (h2_litterC_mod.gt.0) then 
          select case (soil_carbon_option)
             case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)         
-               litterC = sum(tile%soil%litter_century_C(:,LEAF))
+               litterC_leaf = sum(tile%soil%litter_century_C(:,LEAF))
+               litterC_wood = sum(tile%soil%litter_century_C(:,CWOOD))
             case (SOILC_CORPSE, SOILC_CORPSE_N)
-               call poolTotals1(tile%soil%litter_corpse(LEAF),totalC=litterC)
+               call poolTotals1(tile%soil%litter_corpse(LEAF),totalC=litterC_leaf)
+               call poolTotals1(tile%soil%litter_corpse(CWOOD),totalC=litterC_wood)               
             case default
                call error_mesg("land_tracer_driver","soil litter carbon parameterization not recognized (h2_con)",FATAL)
          end select   
             
-         depth_litter = max(litterC/litter_densityC,0.) !m
-         if (depth_litter .gt. 0.) then
+         depth_litter_leaf = max(litterC_leaf/litter_leaf_density_C,0.) * h2_litterC_mod !m
+         depth_litter_wood = max(litterC_wood/litter_wood_density_C,0.) * h2_litterC_mod !m
             call soil_get_sfc_temp(tile%soil, grnd_T)
-            R_litter = depth_litter/(diff_H2_air(grnd_T,p)*litter_porosity**2)
+         if (depth_litter_leaf .gt. 0.) then
+            R_litter_leaf = depth_litter_leaf/(diff_H2_air(grnd_T,p)*litter_leaf_porosity**2)
          end if            
+         if (depth_litter_wood .gt. 0.) then
+            R_litter_wood = depth_litter_wood/(diff_H2_air(grnd_T,p)*litter_wood_porosity**2)
       end if         
+
+         R_litter = R_litter_wood + R_litter_leaf         
+      end if         
+
          
       con = 1./(R_litter+R_inactive+R_snow+R_bact)
 
-      if (id_h2_frac_r_litter.gt.0) & 
-           call send_tile_data(id_h2_frac_r_litter,  R_litter*con,   tile%diag)
-      if (id_h2_frac_r_inactive.gt.0) &
-           call send_tile_data(id_h2_frac_r_inactive,R_inactive*con, tile%diag)
-      if (id_h2_frac_r_snow.gt.0) &
-           call send_tile_data(id_h2_frac_r_snow,    R_snow*con,     tile%diag)
-      if (id_h2_frac_r_bact.gt.0) &
-           call send_tile_data(id_h2_frac_r_bact,    R_bact*con,     tile%diag)
+      if (id_con_h2_no_litter.gt.0) & 
+           call send_tile_data(id_con_h2_no_litter,  1./(R_inactive+R_snow+R_bact),      tile%diag)
+      if (id_con_h2_no_snow.gt.0) &
+           call send_tile_data(id_con_h2_no_snow,    1./(R_litter+R_inactive+R_bact),    tile%diag)
       
       call send_tile_data(id_h2_moist_r1, h2_moist_r1,        tile%diag)
       call send_tile_data(id_h2_moist_r2, h2_moist_r2,        tile%diag)            
@@ -1749,10 +1719,13 @@ real function con_h2(tr_data,tile,p) result(con)
       call send_tile_data(id_h2_sdiff,diff_h2,                tile%diag)
       call send_tile_data(id_h2_R_bact,R_bact,                tile%diag)
       call send_tile_data(id_h2_R_litter,R_litter,            tile%diag)
+      call send_tile_data(id_h2_R_litter_leaf,R_litter_leaf,  tile%diag)
+      call send_tile_data(id_h2_R_litter_wood,R_litter_wood,  tile%diag)
       call send_tile_data(id_h2_R_snow,R_snow,                tile%diag)      
       call send_tile_data(id_h2_R_inactive,R_inactive,        tile%diag)
       call send_tile_data(id_h2_ilayer,inactive_layer,        tile%diag)
-      call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)               
+      call send_tile_data(id_h2_depth_litter_wood,depth_litter_wood,    tile%diag)
+      call send_tile_data(id_h2_depth_litter_leaf,depth_litter_leaf,    tile%diag)                     
                               
       call send_tile_data(id_h2_sws,    s_ws,  tile%diag)      
       call send_tile_data(id_h2_sopt,   s_opt, tile%diag)
