@@ -1698,7 +1698,7 @@ real function con_h2(tile,p) result(con)
          end if            
          if (depth_litter_wood .gt. 0.) then
             R_litter_wood = depth_litter_wood/(diff_H2_air(grnd_T,p)*litter_wood_porosity**2)
-      end if         
+         end if
 
          R_litter = R_litter_wood + R_litter_leaf         
       end if         
@@ -1755,7 +1755,20 @@ elemental real function diff_H2_snow(T,p) result(D)
    !Assuming snow density of 200 kg/m3 and ice density of 917 kg m−3
    !psi = 1 - snow_density/ice_density = 1 - 200/917 = 0.78
    !tau^2 = 1.16 - 1.33 -> pick 1.2
+   !This yields an effective snow porosity of 0.65
 
+   !https://link.springer.com/article/10.1007/s10533-009-9302-3
+   !proposes a different relationship
+   !D_eff = D * psi * tau where tau is psi**(1/3)
+   !D_eff = D * psi**4/3. This would yield an effective porosity of 0.72
+   !When using eq. 4, this becomes 0.635
+
+   !https://tc.copernicus.org/articles/16/967/2022/
+   !porosity     = 1. - 300./917.
+   !porosity_off = 0.078  
+   !porosity_res = max((porosity - porosity_off)/(1.-porosity_off),0.)   
+   !eff_snow_porosity   = porosity_res**1.61   => 0.645
+   
    D = diff_H2_air(T,p) * eff_snow_porosity
 
 end function diff_H2_snow
@@ -1770,6 +1783,5 @@ elemental real function diff_H2_soil(T,p,n,st,b) result(D)
 
    D = diff_H2_air(T,p) * n**2 * (max(1.-st,0.))**(2.+3./b)
 
-end function diff_H2_soil
-
+ end function diff_H2_soil
 end module land_tracer_driver_mod
