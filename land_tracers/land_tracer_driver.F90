@@ -43,9 +43,10 @@ public :: update_cana_tracers
 
 
 real, parameter  :: litter_leaf_density_C = 0.03/2.*1000. !https://doi.org/10.1093/sjaf/33.1.29
-real, parameter  :: litter_wood_density_C = 0.1/2. *1000. !https://doi.org/10.1093/sjaf/33.1.29
 real, parameter  :: litter_leaf_porosity = 0.955 !leaf: 0.955; Twig: 0.8; decomposing matter 0.45-0.55
-real, parameter  :: litter_wood_porosity = 0.7   !10 .3389/fmech.2019.00053/full
+!NOTE: This is not correct. Wood in lm4p2 means "fallen branches" not duff. 
+!real, parameter  :: litter_wood_density_C = 0.1/2. *1000. !https://doi.org/10.1093/sjaf/33.1.29
+!real, parameter  :: litter_wood_porosity = 0.7   !10 .3389/fmech.2019.00053/full
 
 !min/max S snow resistances
 real :: r_snows_min     = 100
@@ -222,10 +223,11 @@ integer :: id_fw_avg, id_fs_avg, id_fd_avg
 integer :: id_fw_wet(nwet_diag)
 integer :: id_con_atm
 integer :: id_gfrac_dry, id_gfrac_wet, id_gfrac_frz, id_frac_desert
-integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km, id_h2_depth_litter_wood, id_h2_depth_litter_leaf
+integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km
 integer :: id_h2_frac_water_pores_avg, id_h2_frac_ice_pores_avg
-integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter, id_h2_R_litter_wood, id_h2_R_litter_leaf
+integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter
 integer :: id_h2_sws, id_h2_sopt, id_h2_sup, id_h2_moist_r1, id_h2_moist_r2
+integer :: id_h2_depth_litter 
 integer :: id_con_h2_no_snow, id_con_h2_no_litter
 
 integer :: id_ddep_noy, id_ddep_nhx, id_ddep_bc, id_ddep_oa
@@ -657,11 +659,8 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    id_h2_ilayer  = register_tiled_diag_field(diag_name, 'h2_ilayer', &
       (/id_ug/),  lnd%time, 'h2_ilayer', &
       'm', missing_value=-1.0)
-   id_h2_depth_litter_leaf  = register_tiled_diag_field(diag_name, 'h2_depth_litter_leaf', &
-      (/id_ug/),  lnd%time, 'h2_depth_litter_leaf', &
-      'm', missing_value=-1.0)         
-   id_h2_depth_litter_wood  = register_tiled_diag_field(diag_name, 'h2_depth_litter_wood', &
-      (/id_ug/),  lnd%time, 'h2_depth_litter_wood', &
+   id_h2_depth_litter  = register_tiled_diag_field(diag_name, 'h2_depth_litter', &
+      (/id_ug/),  lnd%time, 'h2_depth_litter', &
       'm', missing_value=-1.0)         
    id_h2_R_bact  = register_tiled_diag_field(diag_name, 'h2_R_bact', &
       (/id_ug/),  lnd%time, 'h2_R_bact', &
@@ -671,12 +670,6 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       's/m', missing_value=-1.0)
    id_h2_R_litter  = register_tiled_diag_field(diag_name, 'h2_R_litter', &
       (/id_ug/),  lnd%time, 'h2_R_litter', &
-      's/m', missing_value=-1.0)         
-   id_h2_R_litter_leaf  = register_tiled_diag_field(diag_name, 'h2_R_litter_leaf', &
-      (/id_ug/),  lnd%time, 'h2_R_litter_leaf', &
-      's/m', missing_value=-1.0)         
-   id_h2_R_litter_wood  = register_tiled_diag_field(diag_name, 'h2_R_litter_wood', &
-      (/id_ug/),  lnd%time, 'h2_R_litter_wood', &
       's/m', missing_value=-1.0)         
    id_h2_R_snow  = register_tiled_diag_field(diag_name, 'h2_R_snow', &
       (/id_ug/),  lnd%time, 'h2_R_snow', &
@@ -1485,7 +1478,7 @@ real function con_h2(tile,p) result(con)
 
    real    :: beta1, b, beta2, norm
    real    :: litterC_leaf, litterC_wood
-   real    :: depth_litter_leaf, depth_litter_wood, depth_litter
+   real    :: depth_litter_leaf, depth_litter
    real    :: grnd_T
 
    real    :: h2_km_eff
@@ -1511,12 +1504,12 @@ real function con_h2(tile,p) result(con)
       diff_H2         = 0.
       R_bact          = 1.e20
       R_litter        = 0.
+      R_litter_leaf   = 0.
       R_snow          = 0.
       R_inactive      = 0.
       inactive_layer  = 0.
       depth_litter    = 0.
       depth_litter_leaf = 0.
-      depth_litter_wood = 0.
 
       s_opt_avg       = 0.
       s_upc_avg       = 0.
@@ -1682,25 +1675,26 @@ real function con_h2(tile,p) result(con)
          select case (soil_carbon_option)
             case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)         
                litterC_leaf = sum(tile%soil%litter_century_C(:,LEAF))
-               litterC_wood = sum(tile%soil%litter_century_C(:,CWOOD))
+!               litterC_wood = sum(tile%soil%litter_century_C(:,CWOOD))
             case (SOILC_CORPSE, SOILC_CORPSE_N)
                call poolTotals1(tile%soil%litter_corpse(LEAF),totalC=litterC_leaf)
-               call poolTotals1(tile%soil%litter_corpse(CWOOD),totalC=litterC_wood)               
+!               call poolTotals1(tile%soil%litter_corpse(CWOOD),totalC=litterC_wood)               
             case default
                call error_mesg("land_tracer_driver","soil litter carbon parameterization not recognized (h2_con)",FATAL)
          end select   
             
          depth_litter_leaf = max(litterC_leaf/litter_leaf_density_C,0.) * h2_litterC_mod !m
-         depth_litter_wood = max(litterC_wood/litter_wood_density_C,0.) * h2_litterC_mod !m
+!         depth_litter_wood = max(litterC_wood/litter_wood_density_C,0.) * h2_litterC_mod !m
             call soil_get_sfc_temp(tile%soil, grnd_T)
          if (depth_litter_leaf .gt. 0.) then
             R_litter_leaf = depth_litter_leaf/(diff_H2_air(grnd_T,p)*litter_leaf_porosity**2)
          end if            
-         if (depth_litter_wood .gt. 0.) then
-            R_litter_wood = depth_litter_wood/(diff_H2_air(grnd_T,p)*litter_wood_porosity**2)
-         end if
+!         if (depth_litter_wood .gt. 0.) then
+!            R_litter_wood = depth_litter_wood/(diff_H2_air(grnd_T,p)*litter_wood_porosity**2)
+!         end if
 
-         R_litter = R_litter_wood + R_litter_leaf         
+!         R_litter = R_litter_wood + R_litter_leaf
+         R_litter = R_litter_leaf
       end if         
 
          
@@ -1719,13 +1713,10 @@ real function con_h2(tile,p) result(con)
       call send_tile_data(id_h2_sdiff,diff_h2,                tile%diag)
       call send_tile_data(id_h2_R_bact,R_bact,                tile%diag)
       call send_tile_data(id_h2_R_litter,R_litter,            tile%diag)
-      call send_tile_data(id_h2_R_litter_leaf,R_litter_leaf,  tile%diag)
-      call send_tile_data(id_h2_R_litter_wood,R_litter_wood,  tile%diag)
       call send_tile_data(id_h2_R_snow,R_snow,                tile%diag)      
       call send_tile_data(id_h2_R_inactive,R_inactive,        tile%diag)
       call send_tile_data(id_h2_ilayer,inactive_layer,        tile%diag)
-      call send_tile_data(id_h2_depth_litter_wood,depth_litter_wood,    tile%diag)
-      call send_tile_data(id_h2_depth_litter_leaf,depth_litter_leaf,    tile%diag)                     
+      call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)                     
                               
       call send_tile_data(id_h2_sws,    s_ws,  tile%diag)      
       call send_tile_data(id_h2_sopt,   s_opt, tile%diag)
