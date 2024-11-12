@@ -1264,7 +1264,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         else
            n_cohorts = 1
         endif
-
+        call check_temp_range(land2cplr%t_ca(l,k),'tcheck15','land2cplr') ! debug_pjp
         call update_land_model_fast_0d(tile, l,k, n_cohorts, land2cplr, &
            cplr2land%lprec(l,k),  cplr2land%fprec(l,k), cplr2land%tprec(l,k), &
            cplr2land%wind(l,k), &
@@ -1275,6 +1275,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            phot_co2_overridden, phot_co2_data(l),&
            runoff(l), runoff_c(l,:) &
         )
+        call check_temp_range(land2cplr%t_ca(l,k),'tcheck16','land2cplr') ! debug_pjp
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
@@ -1572,6 +1573,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
                                            ! heat swept with tiny snow
   integer, parameter :: max_fog_steps = 2
+  logical :: value_OK ! debug_pjp
+  character(len=256) :: text ! debug_pjp
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -1604,6 +1607,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
   call check_var_range(precip_s,  0.0, 1.0,        'land model input', 'precip_s',    WARNING)
   call check_temp_range(atmos_T,                   'land model input', 'atmos_T')
+  call check_temp_range(land2cplr%t_ca(l,itile),   'tcheck17', 'land2cplr%t_ca') ! debug_pjp
   call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'sw.down.dir', WARNING)
   call check_var_range(ISa_dn_dif, 0.0, 1360.0,    'land model input', 'sw.down.dif', WARNING)
   call check_var_range(ILa_dn,     0.0, 1360.0,    'land model input', 'lw.down',     WARNING)
@@ -1682,6 +1686,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      grnd_E_max =  HUGE(grnd_E_max)
   endif
 
+  call check_temp_range(tile%cana%T, 'tcheck17.4', 'tile%cana%T') ! debug_pjp
   cana_T   = tile%cana%T
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
@@ -2118,6 +2123,16 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
          ! [X.5] calculate final value of other tendencies
            delta_qc = X0(iqc) + X1(iqc)*delta_Tg + X2(iqc)*delta_psig
            delta_Tc = X0(iTc) + X1(iTc)*delta_Tg + X2(iTc)*delta_psig
+!          call check_temp_range(tile%cana%T+delta_Tc, 'tcheck27', 'tile%cana%T+delta_Tc', value_OK) ! debug_pjp Note: This check is triggered 1000's of times
+!          if(.NOT.value_OK) then                            ! debug_pjp
+!            text = 'X0=                  X1(iTc)=                  delta_Tg=                  X2(iTc)=                  delta_psig=                ' ! debug_pjp
+!            write(text(  4: 19),'(e16.8)') X0(iTc)          ! debug_pjp
+!            write(text( 30: 45),'(e16.8)') X1(iTc)          ! debug_pjp
+!            write(text( 57: 72),'(e16.8)') delta_Tg         ! debug_pjp
+!            write(text( 83: 98),'(e16.8)') X2(iTc)          ! debug_pjp
+!            write(text(112:127),'(e16.8)') delta_psig       ! debug_pjp
+!            call error_mesg('tcheck27',trim(text),WARNING)  ! debug_pjp Note: This check is triggered 1000's of times
+!          endif                                             ! debug_pjp
            delta_fog= X0(iFog) + X1(iFog)*delta_Tg + X2(iFog)*delta_psig
            delta_Tv(:) = X0(iTv:iTv+N-1) + X1(iTv:iTv+N-1)*delta_Tg + X2(iTv:iTv+N-1)*delta_psig
            delta_wl(:) = X0(iwl:iwl+N-1) + X1(iwl:iwl+N-1)*delta_Tg + X2(iwl:iwl+N-1)*delta_psig
@@ -2224,7 +2239,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! [*] start of step_2 updates
   ! update canopy air temperature and specific humidity
+  call check_temp_range(tile%cana%T, 'tcheck17.5', 'tile%cana%T') ! debug_pjp
   tile%cana%T = tile%cana%T + delta_Tc
+  call check_temp_range(tile%cana%T, 'tcheck17.6', 'tile%cana%T') ! debug_pjp Out of bounds!
   tile%cana%tr(isphum) = tile%cana%tr(isphum) + delta_qc
   tile%cana%fog = tile%cana%fog + delta_fog
 
@@ -2369,8 +2386,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! do the calculations that require updated land surface prognostic variables
      call nitrogen_sources(lnd%time, l, tile%vegn%p_ann, precip_l+precip_s, &
              tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
+     call check_temp_range(tile%cana%T, 'tcheck17.7', 'tile%cana%T') ! debug_pjp
      call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
           ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
+     call check_temp_range(tile%cana%T, 'tcheck17.8', 'tile%cana%T') ! debug_pjp
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
 
@@ -2393,6 +2412,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      __DEBUG4__(fco2_0,Dfco2Dq,vegn_fco2, DOC_to_atmos)
   endif
 
+  call check_temp_range(tile%cana%T, 'tcheck17.9', 'tile%cana%T') ! debug_pjp
   call update_cana_tracers(tile, l, tr_flux, dfdtr, &
            precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
 
@@ -2406,7 +2426,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
     sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
 
+  call check_temp_range(land2cplr%t_ca(l,itile), 'tcheck18', 'land2cplr') ! debug_pjp
+  call check_temp_range(tile%cana%T, 'tcheck18.1', 'tile%cana%T') ! debug_pjp
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
+  call check_temp_range(land2cplr%t_ca(l,itile), 'tcheck19', 'land2cplr') ! debug_pjp
 
   ! accumulate runoff variables over the tiles
   runoff = runoff + (snow_frunf + subs_lrunf + snow_lrunf + subs_frunf)*tile%frac
@@ -3455,6 +3478,10 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   integer :: face ! for debugging
   integer :: i, j, m, tr
 
+  if (associated(tile%cana)) then ! debug_pjp
+     call check_temp_range(tile%cana%T,'tcheck25','tile%cana%T') ! debug_pjp
+  endif ! debug_pjp
+
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 
   vegn_Tv = 0
@@ -3497,17 +3524,20 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if (associated(tile%vegn)) then
      call update_derived_vegn_data(tile%vegn, tile%soil)
+     call check_temp_range(land2cplr%t_ca(l,k),'tcheck20','tile%vegn') ! debug_pjp
      ! USE OF SNOWPACK RAD PROPERTIES FOR INTERCEPTED SNOW IS ERRONEOUS,
      ! NEEDS TO BE CHANGED. TEMPORARY.
      call vegn_radiation ( tile%vegn, cosz, snow_depth, snow_refl_dif, snow_emis, &
                    vegn_refl_dif, vegn_tran_dif, &
                    vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
                    vegn_refl_lw, vegn_tran_lw)
+     call check_temp_range(land2cplr%t_ca(l,k),'tcheck21','tile%vegn') ! debug_pjp
      ! (later see if we can remove vegn_cover from c-a-radiation...) TEMPORARY
      ! vegn_diffusion returns integral properties of the canopy, relevant for the
      ! calculations of the land roughness and displacement
      call vegn_diffusion ( tile%vegn, snow_depth, &
                    vegn_cover, vegn_height, vegn_lai, vegn_sai)
+     call check_temp_range(land2cplr%t_ca(l,k),'tcheck22','tile%vegn') ! debug_pjp
      ! assign layers and fractions
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
      vegn_frac (:) = tile%vegn%cohorts(1:N)%layerfrac
@@ -3598,6 +3628,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%albedo_nir_dif (l,k) = 0.0
   land2cplr%rough_mom      (l,k) = 0.1
   land2cplr%rough_heat     (l,k) = 0.1
+  call check_temp_range(land2cplr%t_ca(l,k),'tcheck23','land2cplr%t_ca') ! debug_pjp
 
   ! Calculate radiative surface temperature. lwup cannot be calculated here
   ! based on the available temperatures because it is a result of the implicit
@@ -3618,6 +3649,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%tile_size      (l,k) = tile%frac
 
   land2cplr%t_ca(l,k) = tile%cana%T
+  call check_temp_range(land2cplr%t_ca(l,k),'tcheck24','land2cplr%t_ca') ! debug_pjp
   do tr = 1,ntcana
      land2cplr%tr(l,k,tr) = tile%cana%tr(tr)
   enddo

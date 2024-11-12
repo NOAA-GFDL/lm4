@@ -37,36 +37,50 @@ integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
   ! by "natural" it means non-human-maintained, so secondary vegetation
   ! grassland will be included.
-integer, public, parameter :: SCND_AGE_SEL_TAG = 4 ! tag for the secondary vegetation age selectors
+ integer, public, parameter :: SCND_AGE_SEL_TAG = 4 ! tag for the secondary vegetation age selectors
 
-integer, public, parameter :: & ! life form of the plant
+ integer, public, parameter :: & ! life form of the plant
  FORM_GRASS = 0, &
  FORM_WOODY = 1
  ! in future, possibly add mosses...
 
-integer, public, parameter :: IDLE = 0, ACTIVE_ON_COMPUTED_SCHEDULE = 1, ACTIVE_ON_LM3_SCHEDULE = 2
-integer, public, parameter :: &
+ integer, public, parameter :: IDLE = 0, ACTIVE_ON_CROP_SCHEDULE = 1, ACTIVE_ON_LM3_SCHEDULE = 2
+ integer, public, parameter :: &
+ NO_DATE      = 0, &
  NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has zero crop area.
                      ! In such cases the crop tile is treated the same way as it was before vegn_crop_mod was introduced.
  MAIZE        = 1, &
  SOYBEAN      = 2, &
  RICE         = 3, &
  SPRING_WHEAT = 4, &
- WINTER_WHEAT = 5
+ WINTER_WHEAT = 5, &
+ num_crop_types = 5, &
+ num_crop_seasons = 2, &
+ num_crop_periods = 3, &
+ num_crop_water_sources = 2, &
+ num_crop_cal = 6, &
+ IRRIGATED = 1, &
+ RAINFED = 2, &
+ MAIN_SEASON = 1, &
+ SECOND_SEASON = 2
+ character(len=12), public, parameter :: &
+ crop_name(0:num_crop_types) = (/'No_crop     ','Maize       ','Soybean     ','Rice        ','Spring_Wheat','Winter_Wheat'/)
+ character(len= 9), public, parameter :: water_source_name(num_crop_water_sources) = (/'irrigated','rainfed  '/)
+ character(len=13), public, parameter :: season_name(num_crop_seasons) = (/'main_season  ','second_season'/)
+ character(len=3),  public, parameter :: selection_name(num_crop_seasons) = (/'1st','2nd'/)
+ character(len=8),  public, parameter :: period_name(num_crop_periods) = (/'optimal ','earliest','latest  '/)
 
-character(len=12), public, parameter :: crop_name(0:5)=(/'NO_CROP     ','MAIZE       ','SOYBEAN     ','RICE        ','SPRING_WHEAT','WINTER_WHEAT'/)
-
-integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
+ integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
  SP_C3GRASS   = 1, & ! c3 grass
  SP_TEMPDEC   = 2, & ! temperate deciduous
  SP_TROPICAL  = 3, & ! non-grass tropical
  SP_EVERGR    = 4    ! non-grass evergreen
-character(len=12), parameter :: lm3_species_name(0:N_LM3_SPECIES-1) = &
+ character(len=12), parameter :: lm3_species_name(0:N_LM3_SPECIES-1) = &
     (/'c4grass  ',  'c3grass  ' ,  'tempdec  ', 'tropical ','evergreen'/)
 
-integer, public, parameter :: n_dim_vegn_types = 9
-integer, public, parameter :: MSPECIES = N_LM3_SPECIES+n_dim_vegn_types-1
+ integer, public, parameter :: n_dim_vegn_types = 9
+ integer, public, parameter :: MSPECIES = N_LM3_SPECIES+n_dim_vegn_types-1
 
 integer, public, parameter :: & ! physiology types
  PT_C3        = 0, &

@@ -5,8 +5,7 @@ module debug_crop_mod
 use land_debug_mod, only : is_watch_cell, set_current_point, log_date
 use vegn_data_mod, only : FORM_GRASS, LU_CROP, spdata
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_LAI
-use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
 
 implicit none
@@ -41,21 +40,37 @@ subroutine debug_crop(vegn, tag)
 !    end associate ! cc
 !    write(*,*)
 ! enddo
-  call dpri('Maize_pday',   vegn%Crop%crop_cal_Maize(8))
-  call dpri('Maize_hday',   vegn%Crop%crop_cal_Maize(11))
-  call dpri('Soy_pday',     vegn%Crop%crop_cal_Soy(8))
-  call dpri('Soy_hday',     vegn%Crop%crop_cal_Soy(11))
-  call dpri('SW_pday',      vegn%Crop%crop_cal_SW(8))
-  call dpri('SW_hday',      vegn%Crop%crop_cal_SW(11))
-  call dpri('WW_pday',      vegn%Crop%crop_cal_WW(8))
-  call dpri('WW_hday',      vegn%Crop%crop_cal_WW(11))
-  call dpri('Rice_pday',    vegn%Crop%crop_cal_Rice_1(8))
-  call dpri('Rice_hday',    vegn%Crop%crop_cal_Rice_1(11))
-  call dpri('current_crop', vegn%Crop%current_crop)
-  call dpri('plant_opt',    vegn%Crop%plant_opt)
-  call dpri('harvest_opt',  vegn%Crop%harvest_opt)
-  call dpri('status',       vegn%Crop%status)
-  call dpri('LAI',          vegn_tile_LAI(vegn))
+  call dpri('potential_crop(1)',vegn%Crop%potential_crop(1))
+  call dpri('potential_crop(2)',vegn%Crop%potential_crop(2))
+  call dpri('potential_crop(3)',vegn%Crop%potential_crop(3))
+  call dpri('potential_crop(4)',vegn%Crop%potential_crop(4))
+  call dpri('potential_crop(5)',vegn%Crop%potential_crop(5))
+  call dpri('chosen_calendars(1,1)',vegn%Crop%chosen_calendars(1,1))
+  call dpri('chosen_calendars(2,1)',vegn%Crop%chosen_calendars(2,1))
+  call dpri('chosen_crop(1)',vegn%Crop%chosen_crop(1))
+  call dpri('chosen_crop(2)',vegn%Crop%chosen_crop(2))
+  call dpri('crop_calendars(1,1,1,1,2)',vegn%Crop%crop_calendars(1,1,1,1,2))
+  call dpri('crop_calendars(2,1,1,1,2)',vegn%Crop%crop_calendars(2,1,1,1,2))
+  call dpri('crop_calendars(1,1,2,1,2)',vegn%Crop%crop_calendars(1,1,2,1,2))
+  call dpri('crop_calendars(2,1,2,1,2)',vegn%Crop%crop_calendars(2,1,2,1,2))
+  call dpri('crop_calendars(1,1,1,2,2)',vegn%Crop%crop_calendars(1,1,1,2,2))
+  call dpri('crop_calendars(2,1,1,2,2)',vegn%Crop%crop_calendars(2,1,1,2,2))
+  call dpri('crop_calendars(1,1,2,2,2)',vegn%Crop%crop_calendars(1,1,2,2,2))
+  call dpri('crop_calendars(2,1,2,2,2)',vegn%Crop%crop_calendars(2,1,2,2,2))
+  call dpri('crop_calendars(1,1,1,3,2)',vegn%Crop%crop_calendars(1,1,1,3,2))
+  call dpri('crop_calendars(2,1,1,3,2)',vegn%Crop%crop_calendars(2,1,1,3,2))
+  call dpri('crop_calendars(1,1,2,3,2)',vegn%Crop%crop_calendars(1,1,2,3,2))
+  call dpri('crop_calendars(2,1,2,3,2)',vegn%Crop%crop_calendars(2,1,2,3,2))
+  call dpri('crop_calendars(1,1,1,4,2)',vegn%Crop%crop_calendars(1,1,1,4,2))
+  call dpri('crop_calendars(2,1,1,4,2)',vegn%Crop%crop_calendars(2,1,1,4,2))
+  call dpri('crop_calendars(1,1,2,4,2)',vegn%Crop%crop_calendars(1,1,2,4,2))
+  call dpri('crop_calendars(2,1,2,4,2)',vegn%Crop%crop_calendars(2,1,2,4,2))
+  call dpri('crop_calendars(1,1,1,5,2)',vegn%Crop%crop_calendars(1,1,1,5,2))
+  call dpri('crop_calendars(2,1,1,5,2)',vegn%Crop%crop_calendars(2,1,1,5,2))
+  call dpri('crop_calendars(1,1,2,5,2)',vegn%Crop%crop_calendars(1,1,2,5,2))
+  call dpri('crop_calendars(2,1,2,5,2)',vegn%Crop%crop_calendars(2,1,2,5,2))
+  call dpri('status',vegn%Crop%status)
+  call dpri('LAI',vegn_tile_LAI(vegn))
   write(*,*)
 
 end subroutine debug_crop

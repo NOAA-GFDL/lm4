@@ -11,15 +11,15 @@ use diag_manager_mod, only : register_static_field, send_data
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
 use land_debug_mod, only : string_from_time, land_error_message, check_conservation, &
-     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range, is_watch_point
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
-     nspecies, spdata, agf_bs, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, &
-     WINTER_WHEAT, IDLE, ACTIVE_ON_COMPUTED_SCHEDULE, ACTIVE_ON_LM3_SCHEDULE, crop_name
+     nspecies, spdata, agf_bs, NO_DATE, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, &
+     WINTER_WHEAT, IDLE, ACTIVE_ON_CROP_SCHEDULE, ACTIVE_ON_LM3_SCHEDULE, crop_name, landuse_name
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
 use soil_tile_mod, only : num_l, LEAF, CWOOD
@@ -30,7 +30,7 @@ use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
-use vegn_crop_mod, only: crop_init, crop_calendar, crop_end, save_crop_restart
+use vegn_crop_mod, only: vegn_crop_init, compute_crop_calendars, vegn_crop_end, save_crop_restart
 use debug_crop_mod, only: debug_crop
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
@@ -111,7 +111,8 @@ character(1024) :: luh2_state_file  = '' ! input data set of LU states (for C3/C
 character(32) :: c3_crop_species  = '' ! name of the species used for C3 crops
 character(32) :: c4_crop_species  = '' ! name of the species used for C4 crops
 character(32) :: maize_crop_species = ''
-character(32) :: wheat_crop_species = ''
+character(32) :: spring_wheat_crop_species = ''
+character(32) :: winter_wheat_crop_species = ''
 character(32) :: rice_crop_species  = ''
 character(32) :: soybean_crop_species = ''
 real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harvesting, kg/m2
@@ -144,7 +145,7 @@ namelist/harvesting_nml/ do_harvesting, &
      ! crop harvesting and planting parameters
      crop_schedule, crop_schedule_file, &
      crop_distribution, luh2_state_file, &
-     c3_crop_species, c4_crop_species, maize_crop_species, wheat_crop_species, rice_crop_species, soybean_crop_species, &
+     c3_crop_species, c4_crop_species, maize_crop_species, spring_wheat_crop_species, winter_wheat_crop_species, rice_crop_species, soybean_crop_species, &
      crop_seed_density, allow_weeds_on_crops, clear_crop_before_planting, clear_all_on_conversion_to_crop, &
      transport_crop_seeds, crop_seed_c2n
 
@@ -153,7 +154,8 @@ integer :: crop_schedule_option = -1 ! selected planting/harvesting schedule opt
 integer :: crop_distribution_option = -1
 real, allocatable :: crop_planting_day(:) ! day of year when planting is done
 real, allocatable :: crop_harvest_day(:)  ! day of year when harvesting is done
-integer :: c3_crop_idx = -1, c4_crop_idx = -1, maize_crop_idx = -1, wheat_crop_idx = -1, rice_crop_idx = -1, soybean_crop_idx = -1 ! index of crop species
+integer :: c3_crop_idx = -1, c4_crop_idx = -1, maize_crop_idx = -1 ! index of crop species
+integer :: spring_wheat_crop_idx = -1, winter_wheat_crop_idx = -1, rice_crop_idx = -1, soybean_crop_idx = -1
 
 integer :: id_crop_planting_day, id_crop_harvest_day
 
@@ -252,7 +254,8 @@ subroutine vegn_harvesting_init(id_ug)
      if (trim(spdata(i)%name)==trim(c3_crop_species)) c3_crop_idx = i
      if (trim(spdata(i)%name)==trim(c4_crop_species)) c4_crop_idx = i
      if (trim(spdata(i)%name)==trim(maize_crop_species))   maize_crop_idx   = i
-     if (trim(spdata(i)%name)==trim(wheat_crop_species))   wheat_crop_idx   = i
+     if (trim(spdata(i)%name)==trim(spring_wheat_crop_species)) spring_wheat_crop_idx = i
+     if (trim(spdata(i)%name)==trim(winter_wheat_crop_species)) winter_wheat_crop_idx = i
      if (trim(spdata(i)%name)==trim(rice_crop_species))    rice_crop_idx    = i
      if (trim(spdata(i)%name)==trim(soybean_crop_species)) soybean_crop_idx = i
   enddo
@@ -274,10 +277,16 @@ subroutine vegn_harvesting_init(id_ug)
      call error_mesg('vegn_harvesting_init','maize crop species "'//trim(maize_crop_species)//'" is #'//string(maize_crop_idx)//&
                      ' in the list of species', NOTE)
   endif
-  if (wheat_crop_idx<0) then
-     call error_mesg('vegn_harvesting_init','wheat crop species "'//trim(wheat_crop_species)//'" not found in the list of species',NOTE)
+  if (spring_wheat_crop_idx<0) then
+     call error_mesg('vegn_harvesting_init','spring wheat crop species "'//trim(spring_wheat_crop_species)//'" not found in the list of species',NOTE)
   else
-     call error_mesg('vegn_harvesting_init','wheat crop species "'//trim(wheat_crop_species)//'" is #'//string(wheat_crop_idx)//&
+     call error_mesg('vegn_harvesting_init','spring wheat crop species "'//trim(spring_wheat_crop_species)//'" is #'//string(spring_wheat_crop_idx)//&
+                     ' in the list of species', NOTE)
+  endif
+  if (winter_wheat_crop_idx<0) then
+     call error_mesg('vegn_harvesting_init','winter wheat crop species "'//trim(winter_wheat_crop_species)//'" not found in the list of species',NOTE)
+  else
+     call error_mesg('vegn_harvesting_init','winter wheat crop species "'//trim(winter_wheat_crop_species)//'" is #'//string(winter_wheat_crop_idx)//&
                      ' in the list of species', NOTE)
   endif
   if (rice_crop_idx<0) then
@@ -297,17 +306,15 @@ subroutine vegn_harvesting_init(id_ug)
   tot_area_land = sum(lnd%ug_area)
   call mpp_sum(tot_area_land)
 
-  if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call crop_init( id_ug )
+  if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call vegn_crop_init( id_ug )
 end subroutine vegn_harvesting_init
-
 
 ! ============================================================================
 subroutine vegn_harvesting_end
    if (allocated(crop_harvest_day))  deallocate(crop_harvest_day)
    if (allocated(crop_planting_day)) deallocate(crop_planting_day)
-   if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call crop_end()
+   if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call vegn_crop_end()
 end subroutine vegn_harvesting_end
-
 
 ! ============================================================================
 ! harvest vegetation in a tile
@@ -319,7 +326,7 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
   if (crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
-     call crop_calendar(tile%vegn, tile%diag, L)
+     call compute_crop_calendars(tile%vegn, tile%diag, L)
   endif
 
   associate(vegn=>tile%vegn)
@@ -339,59 +346,55 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
      case (CROP_SCHEDULE_LM3)
         if (end_of_year) then
            call vegn_harvest_cropland (tile)
-           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_LM3: vegn_harvest_cropland called')
            call vegn_plant_crop (tile)
-           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_LM3: vegn_plant_crop called')
         endif
      case (CROP_SCHEDULE_PRESCRIBED)
         if (end_of_day.AND.day_of_year==nint(crop_harvest_day(L))) then
            call vegn_harvest_cropland (tile)
-           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_PRESCRIBED: vegn_harvest_cropland called')
         endif
         if (end_of_day.AND.day_of_year==nint(crop_planting_day(L))) then
            call vegn_plant_crop (tile)
-           call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_PRESCRIBED: vegn_plant_crop called')
         endif
      case (CROP_SCHEDULE_COMPUTED)
-        ! Note that vegn%Crop%plant_opt and vegn%Crop%harvest_opt are zero where the MIRCA data has no crop area
-        ! or where the crop calendar algorithm determines that conditions are unsuitable for the dominant crop.
-        ! In such cases planting and harvesting defaults to the CROP_SCHEDULE_LM3 behavior.
-        if(nint(vegn%Crop%plant_opt) == 0 .OR. nint(vegn%Crop%harvest_opt) == 0) then
-          if (end_of_year) then
-             if(vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
-               call vegn_harvest_cropland (tile)
-               call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_harvest_cropland called to harvest grass')
-             endif
-             if(vegn%Crop%status == IDLE) then
-               call vegn_plant_crop (tile)
-               vegn%Crop%status = ACTIVE_ON_LM3_SCHEDULE
-               if(vegn%Crop%current_crop == NO_CROP) then
-                 call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_plant_crop called to plant grass because MIRCA data has no crop here')
-               else
-                 call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_plant_crop called to plant grass because the climate is unsuitable for '//crop_name(vegn%Crop%current_crop))
-               endif
-             endif
-          endif
-        else
-          if (end_of_day .AND. day_of_year==nint(vegn%Crop%plant_opt)) then
-             if (vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
-               ! harvest grass before planting crop
-               call vegn_harvest_cropland (tile)
-               call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_harvest_cropland called to harvest grass prior to planting crop')
-             endif
-             if (vegn%Crop%status == IDLE) then
-               call vegn_plant_crop (tile)
-               vegn%Crop%status = ACTIVE_ON_COMPUTED_SCHEDULE
-               call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_plant_crop called to plant '//crop_name(vegn%Crop%current_crop))
-             endif
-          endif
-          if (end_of_day .AND. day_of_year==nint(vegn%Crop%harvest_opt) .AND. vegn%Crop%status == ACTIVE_ON_COMPUTED_SCHEDULE) then
-             call vegn_harvest_cropland (tile)
-             call debug_crop(tile%vegn,'crop_schedule_option=CROP_SCHEDULE_COMPUTED: vegn_harvest_cropland called to harvest '//crop_name(vegn%Crop%current_crop))
-          endif
+        if (end_of_year) then
+           if(vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
+              call vegn_harvest_cropland (tile)
+              vegn%Crop%status = IDLE
+           endif
+           if(vegn%Crop%chosen_calendars(1,1) == NO_DATE .AND. vegn%Crop%chosen_calendars(1,2) == NO_DATE) then
+              ! There is no crop to plant so plant grass on the LM3 schedule.
+              call vegn_plant_crop (tile, chosen_crop=NO_CROP)
+              vegn%Crop%status = ACTIVE_ON_LM3_SCHEDULE
+           endif
+        endif
+        if (end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(1,1) .or. day_of_year==vegn%Crop%chosen_calendars(1,2))) then
+           ! Today is either the main or second season planting date
+           if (vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
+              ! harvest grass before planting crop
+              call vegn_harvest_cropland (tile)
+              vegn%Crop%status = IDLE
+           endif
+           if (vegn%Crop%status == IDLE) then
+              ! There is no crop currently growing, so plant a crop
+              if(day_of_year==vegn%Crop%chosen_calendars(1,1)) then
+                call vegn_plant_crop (tile, chosen_crop=vegn%Crop%chosen_crop(1))
+                vegn%Crop%status = ACTIVE_ON_CROP_SCHEDULE
+              else if(day_of_year==vegn%Crop%chosen_calendars(1,2)) then
+                call vegn_plant_crop (tile, chosen_crop=vegn%Crop%chosen_crop(2))
+                vegn%Crop%status = ACTIVE_ON_CROP_SCHEDULE
+              endif
+           endif
+        endif
+        if (end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(2,1) .or. day_of_year==vegn%Crop%chosen_calendars(2,2))) then
+           ! Today is either the main or second season harvest date
+           if(vegn%Crop%status == ACTIVE_ON_CROP_SCHEDULE) then
+              ! A crop is in the ground and ready to harvest
+              call vegn_harvest_cropland (tile)
+              vegn%Crop%status = IDLE
+           endif
         endif
      end select ! crop_schedule_option
-  end select
+  end select ! vegn%landuse
   end associate
 end subroutine vegn_harvesting
 ! ============================================================================
@@ -426,16 +429,14 @@ subroutine vegn_harvest_cropland(tile)
   else
      call vegn_harvest_crop_lm3(tile)
   endif
-  tile%vegn%Crop%status = IDLE
 end subroutine vegn_harvest_cropland
-
-
 ! ============================================================================
-subroutine vegn_plant_crop(tile)
+subroutine vegn_plant_crop(tile, chosen_crop)
   type(land_tile_type), intent(inout) :: tile
+  integer, optional, intent(in) :: chosen_crop
 
   if (do_ppa) then
-     call vegn_plant_crop_ppa(tile)
+     call vegn_plant_crop_ppa(tile, chosen_crop)
   else
      ! do nothing at the moment -- later add turning phenology on
   endif
@@ -1114,8 +1115,9 @@ function biogeographic_physiology_type(temp, precip) result (pt)
 end function biogeographic_physiology_type
 
 ! ============================================================================
-subroutine vegn_plant_crop_ppa(tile)
+subroutine vegn_plant_crop_ppa(tile, chosen_crop)
   type(land_tile_type), intent(inout) :: tile
+  integer, optional, intent(in) :: chosen_crop
 
   ! list of pools we borrow seeds from, highest priority first
   integer, parameter :: seed_source_pools(6) = &
@@ -1152,7 +1154,10 @@ subroutine vegn_plant_crop_ppa(tile)
         call land_error_message('vegn_plant_crop_ppa: unknown physiology type '//string(pt)//'; this should never happen.', FATAL)
      end select
   case (CROP_DISTR_MIRCA2000)
-     select case(tile%vegn%Crop%current_crop)
+     if(.not.present(chosen_crop)) then
+        call land_error_message('vegn_plant_crop_ppa: calling argument chosen_crop must be present when crop_schedule = computed', FATAL)
+     endif
+     select case(chosen_crop)
      case (NO_CROP)
         pt = biogeographic_physiology_type(tile%vegn%t_ann, tile%vegn%p_ann*seconds_per_year)
         select case(pt)
@@ -1170,11 +1175,11 @@ subroutine vegn_plant_crop_ppa(tile)
      case (RICE)
        crop_species_idx = rice_crop_idx
      case (SPRING_WHEAT)
-       crop_species_idx = wheat_crop_idx
+       crop_species_idx = spring_wheat_crop_idx
      case (WINTER_WHEAT)
-       crop_species_idx = wheat_crop_idx
+       crop_species_idx = winter_wheat_crop_idx
      case default
-        call land_error_message('vegn_plant_crop_ppa: unknown crop type '//string(tile%vegn%Crop%current_crop)//'; this should never happen.', FATAL)
+        call land_error_message('vegn_plant_crop_ppa: invalid crop type number='//string(chosen_crop)//'; this should never happen.', FATAL)
      end select
   case default
      call error_mesg('vegn_plant_crop_ppa','Unknown crop distribution option; this should never happen.', FATAL)
@@ -1342,16 +1347,18 @@ subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C, crop_seed_
    real, intent(out) :: crop_seed_demand_C, crop_seed_demand_N
 
    crop_seed_demand_C = 0.0; crop_seed_demand_N = 0.0
-   if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
-      if(vegn%landuse==LU_CROP .and. day_of_year==nint(vegn%Crop%plant_opt)) then
-        crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
-        crop_seed_demand_N = MAX(crop_seed_density/crop_seed_c2n - vegn%harv_pool_N(HARV_POOL_CROP),0.0)
+   if (vegn%landuse==LU_CROP) then
+     if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
+        if(day_of_year==vegn%Crop%chosen_calendars(1,1) .or. day_of_year==vegn%Crop%chosen_calendars(1,2)) then
+          crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+          crop_seed_demand_N = MAX(crop_seed_density/crop_seed_c2n - vegn%harv_pool_N(HARV_POOL_CROP),0.0)
+        endif
+     else
+        if(day_of_year==nint(crop_planting_day(l))) then
+          crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
+          crop_seed_demand_N = MAX(crop_seed_density/crop_seed_c2n - vegn%harv_pool_N(HARV_POOL_CROP),0.0)
+        endif
      endif
-   else
-      if(vegn%landuse==LU_CROP .and. day_of_year==nint(crop_planting_day(l))) then
-        crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)
-        crop_seed_demand_N = MAX(crop_seed_density/crop_seed_c2n - vegn%harv_pool_N(HARV_POOL_CROP),0.0)
-      endif
    endif
 end subroutine
 

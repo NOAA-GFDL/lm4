@@ -89,7 +89,7 @@ public :: nitems  ! count of items in list
 public :: tile_is_selected
 
 ! abstract interfaces for accessor functions
-public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
+public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_i0ij, fptr_r0ij, fptr_r0ijk
 
 public :: land_tile_map ! array of tile lists
 ! ==== end of public interfaces ==============================================
@@ -234,6 +234,12 @@ abstract interface
      integer             , intent(in) :: i,j ! indices in the array
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0ij
+  subroutine fptr_i0ij(tile, i,j, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , intent(in) :: i,j ! indices in the array
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_i0ij
   ! given land tile and an 3 indices, returns pointer to some scalar real data
   ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0ijk(tile, i,j,k, ptr)

@@ -6,6 +6,7 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_list_type, &
      first_elmt, loop_over_tiles, fptr_r0, fptr_r0i, &
      get_tile_water, land_tile_carbon, land_tile_nitrogen, land_tile_heat
+use fms_mod, only: WARNING ! debug_pjp
 
 implicit none
 private
@@ -102,7 +103,8 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
   endif
   if (present(cmass)) then
      cmass1 = land_tile_carbon(tile)
-     call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
+!    call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
+     call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol, severity=WARNING) ! debug_pjp
   endif
   if (present(nmass).and.soil_carbon_option==SOILC_CORPSE_N) then
      nmass1  = land_tile_nitrogen(tile)

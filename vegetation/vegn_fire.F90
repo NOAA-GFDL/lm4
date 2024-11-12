@@ -1577,7 +1577,12 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
           endif
        endif
     elseif (fire_option_fRH==FIRE_RH_GOMPERTZ) then
-       fire_fn_rh = exp(-rh_gom2(kop)*exp(-rh_gom3(kop)*rh))
+       ! impose arbitrary upper limit on the argument of internal exponent to avoid floating overflows
+       if (-rh_gom3(kop)*rh < 100.0) then
+          fire_fn_rh = exp(-rh_gom2(kop)*exp(-rh_gom3(kop)*rh))
+       else
+          fire_fn_rh = 0.0
+       endif
        if (do_calc_derivs) then
 !          fire_fn_rh_DERIVwrt_param1 = -exp(-rh_gom3*rh)*exp(-rh_gom2*exp(-rh_gom3*rh))
 !          fire_fn_rh_DERIVwrt_param2 = rh_gom2*rh*exp(-rh_gom3*rh)*exp(-rh_gom2*exp(-rh_gom3*rh))
@@ -2183,8 +2188,9 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
-    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*sum(litter_total_C)/0.45
-    fire_intensity = ROS_surface * max(0.0,FC_parameter) * H_parameter  !!! [kJ/m/s]
+    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45
+    fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
+
     SH_parameter = F_parameter * (fire_intensity**0.6667)
     crown_scorch_frac = ((SH_parameter-height+CL_parameter)/CL_parameter)*0.01 ! percent to fraction
     if (crown_scorch_frac<0.or.SH_parameter==0.or.height==0) crown_scorch_frac = 0.0
@@ -3135,6 +3141,7 @@ subroutine calc_fire_derivs(&
    ! slm: kludge to make derivative function compile.If we use this function, we must
    ! change it to average over species in the tiles somehow.
    integer :: vegn_cohort_1_species
+
    vegn_cohort_1_species = vegn%cohorts(1)%species
 
 !!!! NOTE:

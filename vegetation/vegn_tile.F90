@@ -2,25 +2,25 @@ module vegn_tile_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : error_mesg, WARNING, FATAL
-use constants_mod,      only : tfreeze, hlf
-
-use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
-use land_numerics_mod,  only : rank_descending
-use land_io_mod,        only : init_cover_field
-use land_tile_selectors_mod, only : tile_selector_type
+use fms_mod,            only: error_mesg, WARNING, FATAL
+use constants_mod,      only: tfreeze, hlf
+use land_constants_mod, only: NBANDS
+use land_debug_mod,     only: is_watch_point, check_var_range, land_error_message
+use land_numerics_mod,  only: rank_descending
+use land_io_mod,        only: init_cover_field
+use land_tile_selectors_mod, only: tile_selector_type
 
 use soil_carbon_mod, only : N_C_TYPES
 use vegn_data_mod, only : &
-     MSPECIES, nspecies, spdata, &
-     vegn_to_use,  input_cover_types, vegn_index_constant, &
-     mcv_min, mcv_lai, &
-     BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
-     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
-     scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
-     tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
-     do_bl_max_merge
+  MSPECIES, nspecies, spdata, &
+  vegn_to_use,  input_cover_types, vegn_index_constant, &
+  mcv_min, mcv_lai, &
+  BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
+  LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
+  scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
+  tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
+  do_bl_max_merge, num_crop_cal, num_crop_types, num_crop_seasons, &
+  num_crop_water_sources, num_crop_periods, IDLE
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C
@@ -81,18 +81,33 @@ end interface
    real :: precip_av_climate(12)
    real :: T_mid_mth(12)
    real :: P_mid_mth(12)
-   ! The dates of the crop calendars below are in the following sequence:
-   ! crop_cal_....(1: 6) = plant beg, plant optimal, plant end, harvest beg, harvest optimal, harvest end for irrigated crop
-   ! crop_cal_....(7:12) = plant beg, plant optimal, plant end, harvest beg, harvest optimal, harvest end for rainfed crop
-   real :: crop_cal_Maize(12)
-   real :: crop_cal_Soy(12)
-   real :: crop_cal_SW(12)
-   real :: crop_cal_WW(12)
-   real :: crop_cal_Rice_1(12) ! main season
-   real :: crop_cal_Rice_2(12) ! second season
-   integer :: current_crop
-   real :: plant_beg, plant_opt, plant_end, harvest_beg, harvest_opt, harvest_end ! The calendar of the current_crop is assigned to these
-   integer :: status
+
+   ! crop_calendars(:,iperiod,iseason,ipref,iwater) = The cropping period of a crop.
+   ! The first dimension is of size 2 for the planting and harvesting dates.
+   ! iperiod=1,2,3 for the optimal, earliest and latest cropping periods of the crop.
+   ! iseason=1,2 for the 1st and 2nd season of the crop.
+   ! ipref denotes the crop preference hierarchy. ipref=1 is the preferred crop, ipref=2 is the second most preferred, etc.
+   ! iwater=1,2 for irrigated and rainfed crop
+   integer :: crop_calendars(2, num_crop_periods, num_crop_seasons, num_crop_types, num_crop_water_sources)
+
+   ! potential_crop is the crop preference hierarchy. Determined at initialization and static thereafter.
+   ! There are very few grid cells where the MIRCA data has non-zero crop area for all five major crops.
+   ! The last N values of potential_crop are filled with the value of NO_CROP, where N = the number of major crops which have zero area.
+   integer :: potential_crop(num_crop_types)
+
+   ! If conditions are suitable for one or more crops then one or two cropping periods are assigned to array chosen_calendars.
+   ! The first calendar chosen is the crop of highest preference for which conditions are suitable.
+   ! If conditions are not suitable for the crop of highest preference, then suitablilty is tested for the next highest preference, etc.
+   ! This calendar is loaded into chosen_calendars(:,:,1). This is referred to as the main crop.
+   ! The crop suitability is checked for the next crop on the priority list and a second cropping period.
+   ! is loaded into chosen_calendars(:,2) if conditions are suitable for second crop on the same land tile..
+   ! This is referred to as the secondary crop.
+
+   integer :: chosen_calendars(2,num_crop_seasons)
+   integer :: chosen_crop(num_crop_seasons)
+   integer :: status = IDLE
+   logical :: watch = .false.
+   integer :: nwatch = 0
  end type crop_type
 
 ! ==== types =================================================================

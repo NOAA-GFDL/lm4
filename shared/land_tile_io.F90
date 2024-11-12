@@ -10,7 +10,7 @@ use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
 use land_io_mod, only : register_variable_string_attribute
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
-     fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
+     fptr_i0, fptr_i0i, fptr_i0ij, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map, tile_test_func
 use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
@@ -51,6 +51,7 @@ end interface
 interface add_int_tile_data
    module procedure add_tile_data_i0d_fptr_i0
    module procedure add_tile_data_i1d_fptr_i0i
+   module procedure add_tile_data_i2d_fptr_i0ij
 end interface
 
 interface get_tile_data
@@ -67,6 +68,7 @@ end interface
 interface get_int_tile_data
    module procedure get_tile_data_i0d_fptr_i0
    module procedure get_tile_data_i1d_fptr_i0i
+   module procedure get_tile_data_i2d_fptr_i0ij
 end interface
 
 ! ==== module constants ======================================================
@@ -96,7 +98,7 @@ type land_restart_type
 
    ! axis information
    integer    :: nax=0
-   type(axis) :: ax(5)
+   type(axis) :: ax(7)
 end type land_restart_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -581,6 +583,37 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   deallocate(data)
 end subroutine add_tile_data_r2d_fptr_r0ij
 
+subroutine add_tile_data_i2d_fptr_i0ij(restart,varname,dim1,dim2,fptr,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: dim1,dim2 ! names of extra dimensions
+  procedure(fptr_i0ij)         :: fptr    ! subroutine returning pointer to the data
+  character(len=*), intent(in), optional :: units, longname
+
+  integer, allocatable :: data(:,:,:)
+  integer :: i,dim1len,dim2len
+  character(len=NF90_MAX_NAME) :: dims(3) ! array of dimension names
+
+  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ij', &
+        'tidx not allocated: looks like land restart was not initialized',FATAL)
+
+  dim1len = dimlen(restart,dim1)
+  dim2len = dimlen(restart,dim2)
+  allocate(data(size(restart%tidx),dim1len,dim2len))
+  call gather_tile_data_i2d(fptr,restart%tidx,data)
+  dims(1) = 'tile_index'; dims(2) = dim1; dims(3) = dim2
+  call register_field(restart%rhandle, varname, "int", dims)
+  call register_variable_attribute(restart%rhandle, varname, "_FillValue", NF90_FILL_INT)
+  if (present(longname)) then
+      call register_variable_string_attribute(restart%rhandle, varname, "long_name", longname)
+  endif
+  if (present(units)) then
+      call register_variable_string_attribute(restart%rhandle, varname, "units", units)
+   endif
+  call write_data(restart%rhandle, varname, data)
+  deallocate(data)
+end subroutine add_tile_data_i2d_fptr_i0ij
+
 subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -822,6 +855,33 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   call distrib_tile_data_r2d(fptr,restart%tidx,r)
   deallocate(r)
 end subroutine get_tile_data_r2d_fptr_r0ij
+
+subroutine get_tile_data_i2d_fptr_i0ij(restart,varname,dim1,dim2,fptr)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: dim1,dim2 ! names of the dimensions
+  procedure(fptr_i0ij)         :: fptr    ! subroutine returning pointer to the data
+
+  ! ---- local vars
+  integer :: n,m
+  integer, allocatable :: r(:,:,:) ! input data buffer
+
+  if (.not. field_exists(restart, dim1)) then
+      call error_mesg("get_tile_data_i2d_fptr_i0ij", &
+           "axis '"//trim(dim1)//"' was not found in file '"//trim(restart%basename)//"'.", &
+           FATAL)
+  endif
+
+  !Get the sizes of the dimensions
+  call get_dimension_size(restart%rhandle, dim1, n)
+  call get_dimension_size(restart%rhandle, dim2, m)
+
+  !Read in the field data from the file.
+  allocate(r(size(restart%tidx),n,m))
+  call read_data(restart%rhandle, varname, r)
+  call distrib_tile_data_i2d(fptr,restart%tidx,r)
+  deallocate(r)
+end subroutine get_tile_data_i2d_fptr_i0ij
 
 subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   type(land_restart_type), intent(inout) :: restart
@@ -1141,6 +1201,31 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
   enddo
 end subroutine gather_tile_data_r2d
 
+subroutine gather_tile_data_i2d(fptr,idx,data)
+  procedure(fptr_i0ij):: fptr ! subroutine returning the pointer to the data to be written
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  integer, intent(out) :: data(:,:,:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: i,k,m
+
+  data = NF90_FILL_INT
+
+! gather data into an array along the tile dimension. It is assumed that
+! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i), tileptr)
+     do k=1,size(data,2)
+     do m=1,size(data,3)
+        call fptr(tileptr, k, m, ptr)
+        if(associated(ptr)) data(i,k,m)=ptr
+     enddo
+     enddo
+  enddo
+end subroutine gather_tile_data_i2d
+
 subroutine gather_tile_data_r2d_idx(fptr,index,idx,data)
   procedure(fptr_r0ijk) :: fptr ! subroutine returning the pointer to the data
   integer, intent(in) :: index ! additional index argument for fptr
@@ -1345,6 +1430,27 @@ subroutine distrib_tile_data_r2d(fptr,idx,data)
   enddo
 end subroutine distrib_tile_data_r2d
 
+subroutine distrib_tile_data_i2d(fptr,idx,data)
+  procedure(fptr_i0ij):: fptr ! subroutine returning the pointer to the data to be written
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  integer, intent(in) :: data(:,:,:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: i,k,m
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i), tileptr)
+     do k=1,size(data,2)
+     do m=1,size(data,3)
+        call fptr(tileptr, k, m, ptr)
+        if(associated(ptr)) ptr=data(i,k,m)
+     enddo
+     enddo
+  enddo
+end subroutine distrib_tile_data_i2d
 subroutine distrib_tile_data_r2d_idx(fptr,n,idx,data)
   procedure(fptr_r0ijk) :: fptr ! subroutine returning the pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
