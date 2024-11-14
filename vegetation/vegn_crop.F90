@@ -130,7 +130,7 @@
  real, parameter, dimension(0:num_m) :: variance_D_Rice            = (/.001309, .001683, .001709, .001265, .000884/) ! fraction^2
 
  integer, parameter :: GP_Maize = 149, GP_Soy = 142,  GP_Rice = 137
- real,    parameter :: SI_crit_Maize = 26.0, SI_crit_Soy = 26.0, SI_crit_Rice = 26.0, SI_crit_SW = 30.0, SI_crit_WW = 30.0
+ real,    parameter :: SI_crit_Maize = 26.0, SI_crit_Soy = 28.0, SI_crit_Rice = 20.0, SI_crit_SW = 22.0, SI_crit_WW = 30.0
 
  real, dimension(0:num_m) :: central_T_Maize, central_P_Maize, variance_P_Maize ! model units
  real, dimension(0:num_m) :: central_T_Soy,   central_P_Soy,   variance_P_Soy   ! model units
