@@ -13,6 +13,7 @@ use vegn_data_mod, only : spdata, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
    do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, root_length_double_norm, &
+   grass_merge_option, GRASS_MERGE_BY_DBH, GRASS_MERGE_BY_HEIGHT, height_merge_rel, &
    snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
 use soil_tile_mod, only : soil_tile_type, max_lev, num_l, dz
@@ -881,7 +882,13 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    sameSize    = (abs(c1%DBH - c2%DBH) <= DBH_merge_rel*max(abs(c1%DBH),abs(c2%DBH))) .or.  &
                  (abs(c1%DBH - c2%DBH) <  DBH_merge_abs)
    if (spdata(c1%species)%lifeform == FORM_GRASS) then
-      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc) <= NSC_merge_rel*max(abs(c1%nsc), abs(c2%nsc)))
+      select case (grass_merge_option)
+      case (GRASS_MERGE_BY_DBH)
+         sameSize = sameSize ! using the same size DBH criteria as for trees
+      case (GRASS_MERGE_BY_HEIGHT)
+         sameSize = abs(c1%height-c2%height) <= height_merge_rel*max(abs(c1%height),abs(c2%height))
+      end select
+      sameSize =  sameSize.and.(abs(c1%nsc - c2%nsc) <= NSC_merge_rel*max(abs(c1%nsc), abs(c2%nsc)))
    endif
 
    cohorts_can_be_merged = &
