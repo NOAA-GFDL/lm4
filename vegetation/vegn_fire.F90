@@ -1584,7 +1584,12 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
           endif
        endif
     elseif (fire_option_fRH==FIRE_RH_GOMPERTZ) then
-       fire_fn_rh = exp(-rh_gom2(kop)*exp(-rh_gom3(kop)*rh))
+       ! impose arbitrary upper limit on the argument of internal exponent to avoid floating overflows
+       if (-rh_gom3(kop)*rh < 100.0) then
+          fire_fn_rh = exp(-rh_gom2(kop)*exp(-rh_gom3(kop)*rh))
+       else
+          fire_fn_rh = 0.0
+       endif
        if (do_calc_derivs) then
 !          fire_fn_rh_DERIVwrt_param1 = -exp(-rh_gom3*rh)*exp(-rh_gom2*exp(-rh_gom3*rh))
 !          fire_fn_rh_DERIVwrt_param2 = rh_gom2*rh*exp(-rh_gom3*rh)*exp(-rh_gom2*exp(-rh_gom3*rh))
@@ -2190,7 +2195,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
-    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*sum(litter_total_C)/0.45
+    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
 
     SH_parameter = F_parameter * (fire_intensity**0.6667)
@@ -3566,8 +3571,10 @@ subroutine fire_transitions_0D(tiles, land_area, l)
      cmass1 = cmass1 + cm*tile%frac ; nmass1 = nmass1 + nm*tile%frac
      f1 = f1+tile%frac
   enddo
-  call check_conservation ('fire_transitions_0D', 'liquid water', lmass0, lmass1, water_cons_tol)
-  call check_conservation ('fire_transitions_0D', 'frozen water', fmass0, fmass1, water_cons_tol)
+  ! //FIXME EZSNOW: I have temporarily removed checks as GLASS can modify ice and snow totals when merging tiles [not currently used]
+  call check_conservation ('fire_transitions_0D', 'liquid + frozen water', lmass0+fmass0, lmass1+fmass1, water_cons_tol) ! EZSNOW
+!   call check_conservation ('fire_transitions_0D', 'liquid water', lmass0, lmass1, water_cons_tol)
+!   call check_conservation ('fire_transitions_0D', 'frozen water', fmass0, fmass1, water_cons_tol)
   call check_conservation ('fire_transitions_0D', 'carbon'      , cmass0, cmass1, carbon_cons_tol)
   call check_conservation ('fire_transitions_0D', 'nitrogen'    , nmass0, nmass1, nitrogen_cons_tol)
   call check_var_range(f1, 1.0-1e7,1.0+1e7, 'fire_transitions_0D output', 'sum of tile fractions',FATAL)

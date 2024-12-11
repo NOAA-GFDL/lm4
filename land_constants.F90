@@ -27,6 +27,23 @@ real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 
 real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one meter of water, Mega Pascal
 
+! BRDF parameters from the MODIS brdf/albedo product user guide:
+! C. B. Schaaf et al. (2002): First operational BRDF, albedo nadir reflectance products from
+! MODIS. Remote Sensing of Environment, 83, No.1-2, 135–148, doi:10.1016/s0034-4257(02)00091-3.
+real, public, parameter :: g_iso  = 1.
+real, public, parameter :: g_vol  = 0.189184
+real, public, parameter :: g_geo  = -1.377622
+real, public, parameter :: g0_iso = 1.0
+real, public, parameter :: g1_iso = 0.0
+real, public, parameter :: g2_iso = 0.0
+real, public, parameter :: g0_vol = -0.007574
+real, public, parameter :: g1_vol = -0.070987
+real, public, parameter :: g2_vol =  0.307588
+real, public, parameter :: g0_geo = -1.284909
+real, public, parameter :: g1_geo = -0.166314
+real, public, parameter :: g2_geo =  0.041840
+
+
 !real, public, parameter :: kin_visc_air = 1.568e-5 ! kinematic viscosity of air, m2/s
 
 public :: diffusivity_h2o ! (T,p) diffusivity of H2O in air, m2/s

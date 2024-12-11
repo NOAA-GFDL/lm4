@@ -549,7 +549,7 @@ end subroutine lake_step_1
 ! ============================================================================
 ! apply boundary flows to lake water and move lake water vertically.
   subroutine lake_step_2 ( lake, diag, lake_subl, snow_lprec, snow_hlprec,  &
-                           subs_DT, subs_M_imp, subs_evap, &
+                           subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW
                            use_tfreeze_in_grnd_latent, &
                            lake_levap, lake_fevap, lake_melt, &
                            lake_Ttop, lake_Ctop )
@@ -562,7 +562,8 @@ end subroutine lake_step_1
      snow_hlprec, &
      subs_DT,       &!
      subs_M_imp,       &! rate of phase change of non-evaporated lake water
-     subs_evap
+     subs_evap, &
+     fswg_substrate ! EZSNOW
   logical, intent(in) :: use_tfreeze_in_grnd_latent
   real, intent(out) :: &
      lake_levap, lake_fevap, lake_melt, &
@@ -618,6 +619,10 @@ end subroutine lake_step_1
        write(*,*) 'level=', l, 'T', lake%T(l)
     enddo
   endif
+
+    ! EZSNOW: account for heat penetration in substrate
+  hcap = lake%heat_capacity_dry(1)*lake%dz(1) + clw*lake%wl(1) + csw*lake%ws(1)
+  lake%T(1)  = lake%T(1) + fswg_substrate/hcap
 
   ! ---- extract evap from lake and do implicit melt --------------------
   lake%wl(1) = lake%wl(1) - lake_levap*delta_time

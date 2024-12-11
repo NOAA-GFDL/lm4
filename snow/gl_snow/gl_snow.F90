@@ -1,0 +1,556 @@
+
+module gl_snow_mod
+
+#include "../../shared/debug.inc"
+
+use fms_mod, only : error_mesg, FATAL, NOTE
+use fms2_io_mod, only : get_dimension_size
+use time_manager_mod,   only: time_type_to_real
+use constants_mod,      only: tfreeze
+use land_tile_mod,    only : land_tile_map, land_tile_type, &
+     land_tile_enum_type, first_elmt, loop_over_tiles
+use land_data_mod, only : lnd, log_version
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_restart_axis, add_tile_data, get_tile_data, get_tile_by_idx, &
+     add_int_tile_data, get_int_tile_data, field_exists
+
+use snow_tile_mod, only : read_snow_data_namelist, csw
+use gl_snow_tile_mod, only: gl_snow_tile_type, gl_snow_diag_init
+use snowpack_mod, only: snow_layer_type, snowpack_init, read_snowpack_namelist
+use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
+     add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
+use snow_evolution_mod, only : &
+     read_F06_data, read_snow_evolution_namelist
+use snicar_mod, only: read_snicar_optics_data, read_snow_snicar_namelist
+
+
+implicit none
+private
+
+! ==== public interfaces =====================================================
+public :: gl_read_snow_namelist
+public :: gl_snow_init
+public :: gl_snow_end
+public :: gl_save_snow_restart
+! =====end of public interfaces ==============================================
+
+
+! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'gl_snow_mod'
+#include "../../shared/version_variable.inc"
+
+! name of the "compressed" dimension (and dimension variable) in the output
+! netcdf files -- that is, the dimensions written out using compression by
+! gathering, as described in CF conventions.
+character(len=*),   parameter :: snowlayers_index_name   = 'snow_layer_index'
+
+! ---- module variables
+logical         :: module_is_initialized =.FALSE.
+! ---- end of module variables
+
+contains
+
+! ============================================================================
+subroutine gl_read_snow_namelist()
+  call read_snow_data_namelist()
+end subroutine gl_read_snow_namelist
+
+
+! ============================================================================
+! initialize snow model
+subroutine gl_snow_init(id_ug)
+  integer,intent(in) :: id_ug    !< ID of unstructured diag axis (encoding lat and lon)
+
+  ! ---- local vars ----------------------------------------------------------
+  type(land_tile_enum_type)     :: ce    ! tile list enumerator
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  ! character(*), parameter :: restart_file_name='INPUT/snow.res.nc' ! OLD-VERSION
+  character(*), parameter :: restart_file_name='INPUT/snow.nc' ! EZSNOW-2022SC
+  type(land_restart_type) :: restart
+  logical :: restart_exists
+  integer k, n, ic, nlayers
+
+  logical read_old_snow_restart
+  real old_init_snow_density, ws
+
+  call gl_snow_diag_init( id_ug )
+
+  call log_version(version, module_name, &
+  __FILE__)
+
+  old_init_snow_density = 250.0 ! kg/m3, density for old model snow to input ! // TODO read from nml?
+  module_is_initialized = .TRUE.
+
+  ! initialize snowpack -> namelist moved to snowpack_init
+  call read_snowpack_namelist()
+  call snowpack_init()
+
+  call read_snow_evolution_namelist() ! read snow evolution namelist parameters
+  call read_snow_snicar_namelist() ! read SNICAR namelist parameters
+!   call read_snicar_optics_data() ! read SNICAR snow optical data ! already done in read nml
+  call read_F06_data() ! Read flanner 2006 parameter table
+
+
+  ! -------- initialize snow state --------
+  call open_land_restart(restart,restart_file_name,restart_exists)
+  if (restart_exists) then
+
+   call error_mesg('gl_snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+
+   read_old_snow_restart = field_exists(restart,'temp')
+
+   if (read_old_snow_restart) then
+      write(*,*) "Snow GLASS :: reading old snow CM model restart"
+      ! read number of layers
+      call get_dimension_size(restart%rhandle,'zfull',nlayers)
+
+      ! create snowpack with specified number of layers in each land tile
+      ce = first_elmt(land_tile_map)
+      do while(loop_over_tiles(ce, tile))
+         if (.not.associated(tile%snow)) cycle
+         select type (s=>tile%snow)
+         class is (gl_snow_tile_type)
+            if (allocated(s%sp%snow)) deallocate(s%sp%snow)
+            allocate(s%sp%snow(nlayers))
+            s%sp%nlayers = nlayers
+         end select
+      enddo
+
+      ! read the Milly model data
+      call get_tile_data(restart, 'temp', 'zfull', cm_snow_temp_ptr)
+      call get_tile_data(restart, 'wl'  , 'zfull', cm_snow_wl_ptr)
+      call get_tile_data(restart, 'ws'  , 'zfull', cm_snow_ws_ptr)
+
+      ! loop through the snow tiles, remove empty layers, initialize the variables
+      ce = first_elmt(land_tile_map)
+      do while(loop_over_tiles(ce, tile))
+         if (.not.associated(tile%snow)) cycle
+
+         select type (s=>tile%snow)
+         class is (gl_snow_tile_type)
+            if (minval(s%sp%snow(:)%wl) < -1E-7) then
+               write(*,*) "minval(tile%snow%wl) = ", minval(s%sp%snow(:)%wl)
+               call error_mesg('gl_snow_init', 'Found wl < 0, routine should not be used in this case!', FATAL)
+            endif
+
+            s%sp%topwater = 0.0
+            s%sp%topwheat = 0.0
+            s%sp%snow_refl_dir = (/0.9,   0.9/) ! //TODO clean up
+            s%sp%snow_refl_dir = (/0.6,   0.6/)
+            s%sp%beta_rad =      (/100.0, 40.0/)
+
+            ws = sum(s%sp%snow(:)%ws)
+            if (ws<0.0) then
+               s%sp%nlayers = 0
+               s%sp%topsnowdeficit     = ws
+               s%sp%topsnowheatdeficit = csw * sum(s%sp%snow(:)%ws * (s%sp%snow(:)%T-TFREEZE))
+            else
+               s%sp%topsnowdeficit = 0.0
+               s%sp%topsnowheatdeficit = 0.0
+               n = 0 ! number of layers with snow
+               do k = 1,s%sp%nlayers
+                  if (s%sp%snow(k)%ws>0.0) then
+                     n = n+1 ! increase current count of layers with snow
+                     s%sp%snow(n) = s%sp%snow(k)
+
+                     s%sp%snow(n)%dz    = s%sp%snow(n)%ws/300.0 ! div by rho // use 250, //TODO read from snow data
+                     s%sp%snow(n)%T     = s%sp%snow(n)%T
+                     s%sp%snow(n)%dendr = 0.5
+                     s%sp%snow(n)%optd  = 1E-4
+                     s%sp%snow(n)%sph   = 0.5
+                     s%sp%snow(n)%age   = 0.0
+                     do ic = 1, 3
+                        s%sp%snow(n)%wc_em(ic) = 0.0
+                        s%sp%snow(n)%wc_im(ic) = 0.0
+                     enddo
+                  else ! ws <0
+                     s%sp%topsnowdeficit     = s%sp%topsnowdeficit     + s%sp%snow(k)%ws
+                     s%sp%topsnowheatdeficit = s%sp%topsnowheatdeficit + csw * s%sp%snow(k)%ws * (s%sp%snow(k)%T - TFREEZE)
+                  endif
+               enddo
+               s%sp%nlayers = n
+            endif
+         end select
+      enddo
+   else
+      write(*,*) "start reading new GLASS restart"
+      call read_create_snowlayers(restart)
+      call get_snowlayer_data(restart, 'T',    snowlayer_T_ptr)
+      call get_snowlayer_data(restart, 'wl',   snowlayer_wl_ptr)
+      call get_snowlayer_data(restart, 'ws',   snowlayer_ws_ptr)
+      call get_snowlayer_data(restart, 'dz',   snowlayer_dz_ptr)
+      call get_snowlayer_data(restart, 'dendr',   snowlayer_dendr_ptr)
+      call get_snowlayer_data(restart, 'optd',   snowlayer_optd_ptr)
+      call get_snowlayer_data(restart, 'sph',   snowlayer_sph_ptr)
+      call get_snowlayer_data(restart, 'age',   snowlayer_age_ptr)
+
+      call get_snowlayer_data(restart,'wc_im_bc',snowlayer_wc_im_bc_ptr)
+      call get_snowlayer_data(restart,'wc_im_md',snowlayer_wc_im_md_ptr)
+      call get_snowlayer_data(restart,'wc_im_om',snowlayer_wc_im_om_ptr)
+      call get_snowlayer_data(restart,'wc_em_bc',snowlayer_wc_em_bc_ptr)
+      call get_snowlayer_data(restart,'wc_em_md',snowlayer_wc_em_md_ptr)
+      call get_snowlayer_data(restart,'wc_em_om',snowlayer_wc_em_om_ptr)
+
+      call get_int_tile_data(restart,'nlayers', snowtile_nlayers_ptr)
+      call get_tile_data(restart,'topwater',snowtile_topwater_ptr)
+      call get_tile_data(restart,'topwheat',snowtile_topwheat_ptr)
+      call get_tile_data(restart,'topsnowdeficit',snowtile_topsnowdeficit_ptr)
+      call get_tile_data(restart,'topsnowheatdeficit',snowtile_topsnowheatdeficit_ptr)
+
+      call get_tile_data(restart, 'beta_rad', 'bands', beta_rad_ptr)
+
+      call get_tile_data(restart,'nearsurf_bceq_tot', snowtile_nearsurf_bceq_tot_ptr)
+      call get_tile_data(restart,'nearsurf_bceq_em', snowtile_nearsurf_bceq_em_ptr)
+      call get_tile_data(restart,'nearsurf_bceq_im', snowtile_nearsurf_bceq_im_ptr)
+      call get_tile_data(restart,'nearsurf_optd', snowtile_nearsurf_optd_ptr)
+      call get_tile_data(restart,'nearsurf_sph', snowtile_nearsurf_sph_ptr)
+      call get_tile_data(restart,'nearsurf_rho', snowtile_nearsurf_rho_ptr)
+      call get_tile_data(restart,'nearsurf_age', snowtile_nearsurf_age_ptr)
+
+      ! // TODO: Added other vars
+      ! call get_tile_data(restart,'nearsurf_T', snowtile_nearsurf_T_ptr)
+      ! call get_tile_data(restart,'nearsurf_dendr', snowtile_nearsurf_dendr_ptr)
+      ! call get_tile_data(restart,'preprec', snowtile_nearsurf_T_ptr)
+   endif
+
+  else
+     call error_mesg('gl_snow_init', 'cold-starting snow', NOTE)
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce, tile))
+         if (.not.associated(tile%snow)) cycle
+         select type (s=>tile%snow)
+         class is (gl_snow_tile_type)
+            s%sp%nlayers = 0
+            s%sp%topsnowdeficit = 0.0
+            s%sp%topsnowheatdeficit = 0.0
+            s%sp%topwater = 0.0
+            s%sp%topwheat = 0.0
+            s%sp%snow_refl_dir = (/0.9,   0.9/)
+            s%sp%snow_refl_dir = (/0.6,   0.6/)
+            s%sp%beta_rad =      (/100.0, 40.0/)
+         end select
+     enddo
+  endif
+  call free_land_restart(restart)
+
+
+end subroutine gl_snow_init
+
+
+! ============================================================================
+subroutine gl_snow_end ()
+
+  module_is_initialized =.FALSE.
+
+end subroutine gl_snow_end
+
+
+! ============================================================================
+subroutine gl_save_snow_restart(tile_dim_length,timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  ! ---- local vars
+  integer ::  i, j
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile
+
+  character(267) :: filename
+  type(land_restart_type) :: restart1 ! restart file i/o object
+
+  call error_mesg('snow_end','writing NetCDF restart',NOTE)
+
+! Note that filename is updated for tile & rank numbers during file creation
+  ! filename = trim(timestamp)//'snow.res.nc' ! OLD VERSION
+  filename = 'RESTART/'//trim(timestamp)//'snow.nc' ! EZSNOW-2022SC
+  call init_land_restart(restart1, filename, snow_tile_exists, tile_dim_length)
+
+  ! create compressed dimension for snow layers -- must be called even
+  ! if restart has not been created, because it calls mpp_max and that should
+  ! be called on all PEs to work
+  call create_snowlayer_dimension(restart1)
+
+  Write(*,*) "writing snow restart : status of snow object:" !//TODO clean up
+  Write(*,*) "snow restart ... cidx = ", restart1%cidx
+
+  call add_snowlayer_data(restart1,'T',snowlayer_T_ptr,'layer temperature','degrees_K')
+  call add_snowlayer_data(restart1,'wl',snowlayer_wl_ptr,'layer liquid water content','kg/m2')
+  call add_snowlayer_data(restart1,'ws',snowlayer_ws_ptr,'layer ice water content','kg/m2')
+  call add_snowlayer_data(restart1,'dz',snowlayer_dz_ptr,'layer thickness','m')
+  call add_snowlayer_data(restart1,'age',snowlayer_age_ptr,'layer age','days')
+  call add_snowlayer_data(restart1,'optd',snowlayer_optd_ptr,'layer optical diameter','m')
+  call add_snowlayer_data(restart1,'dendr',snowlayer_dendr_ptr,'layer snow dendricity','dimless')
+  call add_snowlayer_data(restart1,'sph',snowlayer_sph_ptr,'layer snow sphericity','dimless')
+  call add_snowlayer_data(restart1,'wc_im_bc',snowlayer_wc_im_bc_ptr,'LAI content', 'mg/m2')
+  call add_snowlayer_data(restart1,'wc_im_md',snowlayer_wc_im_md_ptr,'LAI content', 'mg/m2')
+  call add_snowlayer_data(restart1,'wc_im_om',snowlayer_wc_im_om_ptr,'LAI content', 'mg/m2')
+  call add_snowlayer_data(restart1,'wc_em_bc',snowlayer_wc_em_bc_ptr,'LAI content', 'mg/m2')
+  call add_snowlayer_data(restart1,'wc_em_md',snowlayer_wc_em_md_ptr,'LAI content', 'mg/m2')
+  call add_snowlayer_data(restart1,'wc_em_om',snowlayer_wc_em_om_ptr,'LAI content', 'mg/m2')
+
+  ! call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),'NB',longname='shortwave bands',sense=-1) ! OLD VERSION
+  call add_restart_axis(restart1,'bands',(/ 1.0, 2.0 /),.false., 'NB',longname='shortwave bands',sense=-1) ! EZSNOW-2022SC
+
+  call add_tile_data(restart1,'beta_rad', 'bands', beta_rad_ptr, 'snow optical thickness', 'm^-1')
+  call add_int_tile_data(restart1,'nlayers', snowtile_nlayers_ptr,'number of snow layers', 'number')
+  call add_tile_data(restart1,'topwater',snowtile_topwater_ptr,'snowpack topwater', 'kg/m2')
+  call add_tile_data(restart1,'topwheat',snowtile_topwheat_ptr,'snowpack topwheat', 'J/m2')
+  call add_tile_data(restart1,'topsnowdeficit',snowtile_topsnowdeficit_ptr,'snowpack top snow deficit', 'kg/m2')
+  call add_tile_data(restart1,'topsnowheatdeficit',snowtile_topsnowheatdeficit_ptr,'snowpack top snow heat deficit', 'J/m2')
+
+  call add_tile_data(restart1,'nearsurf_bceq_tot', snowtile_nearsurf_bceq_tot_ptr, 'nearsurf_bceq_tot','ppm')
+  call add_tile_data(restart1,'nearsurf_bceq_em', snowtile_nearsurf_bceq_em_ptr, 'nearsurf_bceq_em','ppm')
+  call add_tile_data(restart1,'nearsurf_bceq_im', snowtile_nearsurf_bceq_im_ptr, 'nearsurf_bceq_im','ppm')
+  call add_tile_data(restart1,'nearsurf_optd', snowtile_nearsurf_optd_ptr, 'nearsurf_optd','m')
+  call add_tile_data(restart1,'nearsurf_sph', snowtile_nearsurf_sph_ptr, 'nearsurf_sph','dimless')
+  call add_tile_data(restart1,'nearsurf_rho', snowtile_nearsurf_rho_ptr, 'nearsurf_rho','kg/m3')
+  call add_tile_data(restart1,'nearsurf_age', snowtile_nearsurf_age_ptr, 'nearsurf_age','days')
+
+
+   ! call add_tile_data(restart1,'nearsurf_T', snowtile_nearsurf_T_ptr, 'nearsurf_T','K')
+   ! call add_tile_data(restart1,'nearsurf_dendr', snowtile_nearsurf_dendr_ptr, 'nearsurf_dendr','dimless')
+
+  call save_land_restart(restart1)
+  call free_land_restart(restart1)
+
+end subroutine gl_save_snow_restart
+
+! ============================================================================
+! tile existence detector: returns a logical value indicating wether component
+! model tile exists or not
+logical function snow_tile_exists(tile)
+  type(land_tile_type), pointer :: tile
+  snow_tile_exists = associated(tile%snow)
+end function snow_tile_exists
+
+! ============================================================================
+! accessor functions: given a pointer to a land tile, they return pointer
+! to the desired member of the land tile, of NULL if this member does not
+! exist.
+subroutine snow_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%T
+   end select
+end subroutine snow_temp_ptr
+
+subroutine snow_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%wl
+   end select
+end subroutine snow_wl_ptr
+
+subroutine snow_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%ws
+   end select
+end subroutine snow_ws_ptr
+
+subroutine snow_dz_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%dz
+   end select
+end subroutine snow_dz_ptr
+
+subroutine snow_optd_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%optd
+   end select
+end subroutine snow_optd_ptr
+
+subroutine snow_dendr_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%dendr
+   end select
+end subroutine snow_dendr_ptr
+
+subroutine snow_age_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%age
+   end select
+end subroutine snow_age_ptr
+
+subroutine snow_sph_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%sph
+   end select
+end subroutine snow_sph_ptr
+
+subroutine beta_rad_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%beta_rad(i)
+   end select
+end subroutine beta_rad_ptr
+
+
+! ============================================================================
+! old snow accessor functions: given a pointer to a land tile, they return pointer
+! to the desired member of the land tile, of NULL if this member does not
+! exist.
+subroutine cm_snow_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%T
+   end select
+end subroutine cm_snow_temp_ptr
+
+subroutine cm_snow_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%wl
+   end select
+end subroutine cm_snow_wl_ptr
+
+subroutine cm_snow_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
+   ptr=>NULL()
+   if(.not.associated(tile)) return
+   if(.not.associated(tile%snow)) return
+   select type (s=>tile%snow)
+   class is (gl_snow_tile_type)
+      ptr => s%sp%snow(i)%ws
+   end select
+end subroutine cm_snow_ws_ptr
+
+! ============================================================================
+! snowlayer accessor functions: given a pointer to a snowlayer, return a pointer to a
+! specific member of the snowlayer structure
+
+#define DEFINE_SNOWPACK_ACCESSOR_0D(xtype,x) subroutine snowtile_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();\
+if(.not.associated(t))return;\
+if(.not.associated(t%snow))return;\
+select type(s=>t%snow); class is(gl_snow_tile_type);\
+p=>s%sp%x;end select;\
+end subroutine
+
+#define DEFINE_SNOWLAYER_ACCESSOR(xtype,x) subroutine snowlayer_ ## x ## _ptr(c,p);\
+type(snow_layer_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x;end subroutine
+
+#define DEFINE_SNOWLAYER_ACCESSOR_BC(xtype,x) subroutine snowlayer_ ## x ## _bc_ptr(c,p);\
+type(snow_layer_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x(1);end subroutine
+
+#define DEFINE_SNOWLAYER_ACCESSOR_MD(xtype,x) subroutine snowlayer_ ## x ## _md_ptr(c,p);\
+type(snow_layer_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x(2);end subroutine
+
+#define DEFINE_SNOWLAYER_ACCESSOR_OM(xtype,x) subroutine snowlayer_ ## x ## _om_ptr(c,p);\
+type(snow_layer_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x(3);end subroutine
+
+
+
+DEFINE_SNOWPACK_ACCESSOR_0D(integer, nlayers)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, topwater)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, topwheat)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, topsnowdeficit)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, topsnowheatdeficit)
+
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_bceq_tot)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_bceq_em)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_bceq_im)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_dendr)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_optd)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_sph)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_rho)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_age)
+DEFINE_SNOWPACK_ACCESSOR_0D(real, nearsurf_T)
+
+
+DEFINE_SNOWLAYER_ACCESSOR(real,T)
+DEFINE_SNOWLAYER_ACCESSOR(real,wl)
+DEFINE_SNOWLAYER_ACCESSOR(real,ws)
+DEFINE_SNOWLAYER_ACCESSOR(real,dz)
+DEFINE_SNOWLAYER_ACCESSOR(real,age)
+DEFINE_SNOWLAYER_ACCESSOR(real,dendr)
+DEFINE_SNOWLAYER_ACCESSOR(real,optd)
+DEFINE_SNOWLAYER_ACCESSOR(real,sph)
+
+
+
+DEFINE_SNOWLAYER_ACCESSOR_BC(real,wc_im)
+DEFINE_SNOWLAYER_ACCESSOR_MD(real,wc_im)
+DEFINE_SNOWLAYER_ACCESSOR_OM(real,wc_im)
+DEFINE_SNOWLAYER_ACCESSOR_BC(real,wc_em)
+DEFINE_SNOWLAYER_ACCESSOR_MD(real,wc_em)
+DEFINE_SNOWLAYER_ACCESSOR_OM(real,wc_em)
+
+end module gl_snow_mod
+
+
+

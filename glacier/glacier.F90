@@ -348,7 +348,7 @@ end subroutine glac_step_1
 ! ============================================================================
 ! apply boundary flows to glac water and move glac water vertically.
   subroutine glac_step_2 ( glac, diag, glac_subl, snow_lprec, snow_hlprec,  &
-                           subs_DT, subs_M_imp, subs_evap, &
+                           subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW
                            glac_levap, glac_fevap, glac_melt, &
                            glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop )
 ! *** WARNING!!! MOST OF THIS CODE IS SIMPLY COPIED FROM SOIL FOR POSSIBLE
@@ -370,7 +370,8 @@ end subroutine glac_step_1
      snow_hlprec, &
      subs_DT,       &!
      subs_M_imp,       &! rate of phase change of non-evaporated glac water
-     subs_evap
+     subs_evap,   &
+     fswg_substrate ! EZSNOW
   real, intent(out) :: &
      glac_levap, glac_fevap, glac_melt, &
      glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop
@@ -442,6 +443,11 @@ end subroutine glac_step_1
         write(*,'(i2.2,x,a,g23.16)') l, 'T', glac%T(l)
      enddo
   endif
+
+  ! EZSNOW: account for heat penetration in substrate
+  hcap = glac%heat_capacity_dry(1)*dz(1) + clw*glac%wl(1) + csw*glac%ws(1)
+  glac%T(1) = glac%T(1)  + fswg_substrate/hcap
+
 
 IF (LM2) THEN ! *********************************************************
     glac_lrunf  = snow_lprec

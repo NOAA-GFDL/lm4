@@ -160,6 +160,14 @@ subroutine open_land_restart(restart,filename,restart_exists)
   ! TODO: possibly make tile index and cohort index names parameters in this module
   !       just constants, no sense to make them namelists vars
 
+     !Get the size of the snowlayer_index dimension from the file. ! EZSNOW
+  if (field_exists(restart, "snowlayer_index")) then 
+    call get_dimension_size(restart%rhandle, "snowlayer_index", n)
+    !Read in the snowlayer_index field from the file.
+    allocate(restart%cidx(n))
+    call read_data(restart%rhandle, "snowlayer_index", restart%cidx)
+ endif
+
 end subroutine open_land_restart
 
 ! ==============================================================================

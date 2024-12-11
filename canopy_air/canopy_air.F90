@@ -109,7 +109,7 @@ real :: min_wind_decay = 0.1    ! minimum \alpha (wind decay parameter within th
 
 
 ! resistance-related namelist variables
-character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
+character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013', 'Haghighi_Or_2013'
 logical :: use_HO2013_over_glac = .TRUE. ! if FALSE, HO2013 is not applied over glacier surfaces
 logical :: use_HO2013_over_lake = .TRUE. ! if FALSE, HO2013 is not applied over lake surfaces
 character(32) :: usfc_to_use = 'area-based' ! or 'Loubet' or 'Ghannam2022'
@@ -172,79 +172,86 @@ subroutine read_cana_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
+  character(256) :: msg   ! namelist error message text
 
   call log_version(version, module_name, &
   __FILE__)
-     read (input_nml_file, nml=cana_nml, iostat=io)
-     ierr = check_nml_error(io, 'cana_nml')
+
+  read (input_nml_file, nml=cana_nml, iostat=io, iomsg=msg)
+  ierr = check_nml_error(io, 'cana_nml :: '//trim(msg))
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=cana_nml)
   endif
 
-  ! Check for inconsistency of using one part of Ghannam2022 canopy parametrization but not (dependent) others
-  if (trim(lowercase(roughness_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
-     call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use=ghannam2022', FATAL)
-  endif
-  if (trim(lowercase(usfc_to_use))=='ghannam2022' .and. trim(lowercase(turbulence_to_use))/='ghannam2022') then
-     call error_mesg('cana_init', 'Ghannam2022 parameterization of friction velocity on the soil surface requires: turbulence_to_use=ghannam2022', FATAL)
-  endif
-
   ! initialize options, to avoid expensive string comparisons during
   ! run-time
-  if (trim(lowercase(turbulence_to_use))=='lm3v') then
+  select case (trim(lowercase(turbulence_to_use)))
+  case ('lm3v')
      turbulence_option = TURB_LM3V
-  else if (trim(lowercase(turbulence_to_use))=='lm3w') then
+  case ('lm3w')
      turbulence_option = TURB_LM3W
-  else if (trim(lowercase(turbulence_to_use))=='raupach') then
+  case ('raupach')
      turbulence_option = TURB_R1996
-  else if (trim(lowercase(turbulence_to_use))=='ghannam2022') then
+  case ('ghannam2022')
      turbulence_option = TURB_KMG2022
-  else
+  case default
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w", "lm3v", "Raupach", or "Ghannam2022"', FATAL)
-  endif
+  end select
 
-  if (trim(lowercase(roughness_to_use))=='lm3v') then
+
+  select case (trim(lowercase(roughness_to_use)))
+  case ('lm3v')
      roughness_option = ROUGH_LM3V
-  else if (trim(lowercase(roughness_to_use))=='lm3w') then
+  case ('lm3w')
      roughness_option = ROUGH_LM3W
-  else if (trim(lowercase(roughness_to_use))=='raupach') then
+  case ('raupach')
      roughness_option = ROUGH_R1994
-  else if (trim(lowercase(roughness_to_use))=='ghannam2022') then
+  case ('ghannam2022')
      roughness_option = ROUGH_KMG2022
-  else
+  case default
      call error_mesg('cana_init', 'canopy air roughness option roughness_to_use="'// &
           trim(roughness_to_use)//'" is invalid, use "lm3w", "lm3v", "Raupach", or "Ghannam2022"', FATAL)
-  endif
+  end select
 
   ! pre-calculate RSL correction
   rsl_corr = log(rsl_factor)-1+1.0/rsl_factor
 
   ! convert symbolic names of surface resistance options into numeric IDs to
   ! avoid expensive string comparisons run-time
-  if (trim(lowercase(soil_resistance_to_use))=='none') then
+  select case (trim(lowercase(soil_resistance_to_use)))
+  case ('none')
      soil_resistance_option = RESIST_NONE
-  else if (trim(lowercase(soil_resistance_to_use))=='ho2013') then
+  case ('ho2013', 'haghighi_or_2013')
      soil_resistance_option = RESIST_HO2013
-  else
+  case default
      call error_mesg('surface_resistance_init',&
           'soil resistance option soil_resistance_to_use="'//&
-          trim(soil_resistance_to_use)//'" is invalid, use "none" or "HO"',&
+          trim(soil_resistance_to_use)//'" is invalid, use "none" or "Haghighi_Or_2013"',&
           FATAL)
-  endif
+  end select
 
-  if (trim(lowercase(usfc_to_use))=='area-based') then
+  select case (trim(lowercase(usfc_to_use)))
+  case ('area-based')
      usfc_option = USFC_AREA
-  else if (trim(lowercase(usfc_to_use))=='loubet') then
+  case ('loubet')
      usfc_option = USFC_LOUBET
-    else if (trim(lowercase(usfc_to_use))=='ghannam2022') then
+  case ('ghannam2022')
      usfc_option = USFC_KMG2022
-  else
+  case default
      call error_mesg('surface_resistance_init',&
           'soil resistance option usfc_to_use="'//&
           trim(soil_resistance_to_use)//'" is invalid, use "area-based", "Loubet", or "Ghannam2022"',&
           FATAL)
+  end select
+
+  ! Check for inconsistency of using one part of Ghannam2022 canopy parametrization but not (dependent) others
+  if (roughness_option==ROUGH_KMG2022 .and. turbulence_option/=TURB_KMG2022) then
+     call error_mesg('cana_init', 'Ghannam2022 parameterization of canopy roughness length and displacement height requires: turbulence_to_use = Ghannam2022', FATAL)
+  endif
+  if (usfc_option==USFC_KMG2022 .and. turbulence_option/=TURB_KMG2022) then
+     call error_mesg('cana_init', 'Ghannam2022 parameterization of friction velocity on the soil surface requires: turbulence_to_use = Ghannam2022', FATAL)
   endif
 
 end subroutine read_cana_namelist

@@ -20,7 +20,7 @@ use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
 use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
-use snow_tile_mod, only : snow_tile_stock_pe
+! use snow_tile_mod, only : snow_tile_stock_pe ! EZSNOW
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL, LU_RANGE
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
@@ -58,11 +58,11 @@ type :: dust_data_type
    real          :: source_fraction = 0.0 ! fraction of the source allocated to this dust tracer
 
    integer :: & ! diag field ids
-     id_emis,      id_ddep,      id_wdep, &
-     id_flux_atm,  id_dfdtr, &
-     id_con_v_lam, id_con_g_lam, &
-     id_con_v,     id_con_g, &
-     id_vdep
+     id_emis      = 0, id_ddep      = 0,  id_wdep = 0, &
+     id_flux_atm  = 0, id_dfdtr     = 0, &
+     id_con_v_lam = 0, id_con_g_lam = 0, &
+     id_con_v     = 0, id_con_g     = 0, &
+     id_vdep      = 0
 end type dust_data_type
 
 
@@ -269,9 +269,11 @@ subroutine land_dust_init (id_ug, mask)
         call virrig%addvar(firrig,trim(cropName(i))//'_irrig')
      enddo
 
-     write(*,*)'land_dust_init: summary of irrigation input fields'
-     write(*,'(a)') vstate%descr()
-     write(*,'(a)') virrig%descr()
+     if (mpp_pe() == mpp_root_pe()) then
+        write(*,*)'land_dust_init: summary of irrigation input fields'
+        write(*,'(a)') vstate%descr()
+        write(*,'(a)') virrig%descr()
+     endif
 
      call read_irrigation_fraction(lnd%time,irrigation_fraction)
   endif
@@ -595,7 +597,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
   real, parameter :: sigma = 1.0
   real, parameter :: beta = 100.0
   real :: soil_wetness, soil_iceness ! soil properties for dust source calculations
-  real :: snow_lmass, snow_fmass ! snow liquid and frozen water mass (kg/m2)
+  real :: snow_fmass ! snow (solid) water mass (kg/m2)
   real :: bareness ! barenes factor, unitless
   real :: lambda, drag
   real :: u_ts, u_thresh ! wind erosion threshold, m/s
@@ -613,7 +615,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
 
   irr_frac = 0.0
 
-  call snow_tile_stock_pe(tile%snow, snow_lmass, snow_fmass)
+  snow_fmass = tile%snow%ice()
   if (associated(tile%soil)) then
     ! calculate soil average wetness and "iceness"
     call soil_ave_wetness(tile%soil, soil_depth, soil_wetness, soil_iceness)

@@ -1,6 +1,8 @@
 module vegn_radiation_mod
 
-use fms_mod,            only : error_mesg, FATAL
+use mpp_mod,            only : mpp_pe, mpp_root_pe
+use fms_mod,            only : stdlog, input_nml_file, lowercase, error_mesg, &
+        check_nml_error, FATAL
 use constants_mod,      only : stefan
 
 use land_constants_mod, only : NBANDS
@@ -8,7 +10,7 @@ use land_data_mod,      only : log_version
 use vegn_data_mod,      only : spdata, min_cosz, sai_rad, sai_rad_nosnow
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
-use snow_tile_mod,      only : snow_radiation
+use snow_tile_mod,      only : snow_refl_kernel, snow_emis_kernel
 
 use land_debug_mod,     only : is_watch_point
 use land_data_mod,      only : log_version
@@ -29,15 +31,61 @@ character(len=*), parameter :: module_name = 'vegn_radiation_mod'
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation
 integer, parameter :: VEGN_RAD_TWOSTREAM = 2 ! two-stream radiation code
 
-! values for internal intercepted snow radiation properties selector -- currently
+! values for intercepted snow radiation properties selector -- currently
 ! works only for VEGN_RAD_TWOSTREAM
 integer, parameter :: SNOW_RAD_IGNORE       = 1 ! no influence of intercepted snow
-integer, parameter :: SNOW_RAD_PAINT_LEAVES = 2 ! intecepted snow modifies leaf
-   ! reflectance and transmittance
+integer, parameter :: SNOW_RAD_PAINT_LEAVES = 2 ! intercepted snow modifies leaf
+                                                ! reflectance and transmittance
+
+! values for intercepted snow albedo selector
+integer, parameter :: SNOW_ALB_BRDF = 1 ! BRDF coefficients are used
+integer, parameter :: SNOW_ALB_REFL = 2 ! simple reflectance parameters are used
 
 ! ==== module variables ======================================================
-integer :: vegn_rad_option = -1 ! selector of the current vegetation radiation option
-integer :: snow_rad_option = -1 ! selector of the current snow rad properties option
+integer :: vegn_rad_option = -1 ! selector of the vegetation radiation option
+integer :: snow_rad_option = -1 ! selector of the intercepted snow treatment option
+integer :: snow_alb_option = -1 ! selector of the intercepted snow albedo option
+
+integer :: debug_count = 0 ! if set to 0, print intercepted snow parameter debug
+                           ! information on the first call to vegetation radiation.
+                           ! -1 means not to do it.
+
+! ---- namelist --------------------------------------------------------------
+character(32) :: vegn_rad_to_use = 'big-leaf' ! or 'two-stream'
+character(32) :: snow_rad_to_use = 'ignore'   ! or 'paint-leaves'
+
+! short-wave radiative properties of intercepted snow
+! The defaults are set to match the (historical) defaults in CM snow model,
+! and not modern best settings.
+character(32) :: snow_albedo_to_use   = 'refl-params' ! or 'brdf-params'.
+! - for BRDF option
+real :: snow_f_iso_cold(NBANDS)   = (/ 0.354, 0.530 /)
+real :: snow_f_vol_cold(NBANDS)   = (/ 0.200, 0.252 /)
+real :: snow_f_geo_cold(NBANDS)   = (/ 0.054, 0.064 /)
+real :: snow_f_iso_warm(NBANDS)   = (/ 0.354, 0.530 /)
+real :: snow_f_vol_warm(NBANDS)   = (/ 0.200, 0.252 /)
+real :: snow_f_geo_warm(NBANDS)   = (/ 0.054, 0.064 /)
+! - for simple reflectance option
+real :: snow_refl_max_dir(NBANDS) = (/ 0.8,  0.8  /)
+real :: snow_refl_max_dif(NBANDS) = (/ 0.8,  0.8  /)
+real :: snow_refl_min_dir(NBANDS) = (/ 0.65, 0.65 /)
+real :: snow_refl_min_dif(NBANDS) = (/ 0.65, 0.65 /)
+
+! long-wave emissivity of intercepted snow
+real :: snow_emis_min             = 0.90
+real :: snow_emis_max             = 0.95
+
+! the defaults of intercepted snow radiative properties are the same as the
+! defaults for snow albedo parameters in CM snow model, and should probably
+! be overriden in the namelist input for any of the runs.
+
+namelist /vegn_radiation_nml/ vegn_rad_to_use, snow_rad_to_use, snow_albedo_to_use, &
+    snow_f_iso_cold, snow_f_vol_cold, snow_f_geo_cold, &
+    snow_f_iso_warm, snow_f_vol_warm, snow_f_geo_warm, &
+    snow_refl_max_dir, snow_refl_max_dif, &
+    snow_refl_min_dir, snow_refl_min_dif, &
+    snow_emis_min, snow_emis_max
+
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -48,35 +96,60 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 ! initialize vegetation radiation options
-subroutine vegn_radiation_init(rad_to_use,snow_rad_to_use)
-  character(*), intent(in) :: rad_to_use
-  character(*), intent(in) :: snow_rad_to_use
+subroutine vegn_radiation_init()
+  integer :: unit         ! unit for namelist i/o
+  integer :: io           ! i/o status for the namelist
+  integer :: ierr         ! error code, returned by i/o routines
+  character(265) :: message
 
   call log_version(version, module_name, &
   __FILE__)
 
+  read (input_nml_file, nml=vegn_radiation_nml, iostat=io, iomsg=message)
+  ierr = check_nml_error(io, 'vegn_radiation_nml : '//trim(message))
+
+  if (mpp_pe() == mpp_root_pe()) then
+     unit=stdlog()
+     write(unit, nml=vegn_radiation_nml)
+  endif
+
   ! convert symbolic names of radiation options into numeric IDs to
   ! speed up selection during run-time
-  if(trim(rad_to_use)=='big-leaf') then
+  select case (trim(lowercase(vegn_rad_to_use)))
+  case ('big-leaf')
      vegn_rad_option = VEGN_RAD_BIGLEAF
-  else if(trim(rad_to_use)=='two-stream') then
+  case ('two-stream')
      vegn_rad_option = VEGN_RAD_TWOSTREAM
-  else
+  case default
      call error_mesg('vegn_radiation_init',&
-          'vegetation radiation option rad_to_use="'//trim(rad_to_use)//'" is invalid, '// &
-          'use "big-leaf" or "two-stream"',&
+          'vegetation radiation option vegn_rad_to_use="'//trim(vegn_rad_to_use)// &
+          '" is invalid, use "big-leaf" or "two-stream"',&
           FATAL)
-  endif
-  if (trim(snow_rad_to_use)=='ignore') then
+  end select
+
+  select case (trim(lowercase(snow_rad_to_use)))
+  case ('ignore')
      snow_rad_option = SNOW_RAD_IGNORE
-  else if (trim(snow_rad_to_use)=='paint-leaves') then
+  case ('paint-leaves')
      snow_rad_option = SNOW_RAD_PAINT_LEAVES
-  else
+  case default
      call error_mesg('vegn_radiation_init',&
-          'vegetation radiation option snow_rad_to_use="'//trim(snow_rad_to_use)//'" is invalid, '// &
-          'use "ignore" or "paint-leaves"',&
+          'vegetation radiation option snow_rad_to_use="'//trim(snow_rad_to_use)// &
+          '" is invalid, use "ignore" or "paint-leaves"',&
           FATAL)
-  endif
+  end select
+
+  select case (trim(lowercase(snow_albedo_to_use)))
+  case ('brdf-params')
+    snow_alb_option = SNOW_ALB_BRDF
+  case ('refl-params')
+    snow_alb_option = SNOW_ALB_REFL
+  case default
+     call error_mesg('vegn_radiation_init',&
+          'vegetation radiation option snow_albedo_to_use="'//trim(snow_albedo_to_use)// &
+          '" is invalid, use "brdf-params" or "refl-params"',&
+          FATAL)
+  end select
 
 end subroutine vegn_radiation_init
 
@@ -195,7 +268,7 @@ subroutine vegn_rad_properties_bigleaf ( cohort, snow_refl, snow_emis, &
   vegn_leaf_emis = cohort%leaf_emis + (snow_emis - cohort%leaf_emis)*a_vs
 
   vegn_K = 2.  ! this is a temporary placeholder for now. value does not matter
-               ! as long as substrate albedoes for dif/dir are the same.
+               ! as long as substrate albedos for dif/dir are the same.
   vegn_lai      = cohort%lai
 
 end subroutine vegn_rad_properties_bigleaf
@@ -225,8 +298,9 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   integer :: i
   integer :: sp ! current species, solely to shorten the notation
   real :: leaf_refl, leaf_tran ! optical properties of partially snow-covered leaves
-  real :: snow_refl_dif(NBANDS) ! snow reflectances
-  real :: snow_refl_dir(NBANDS), snow_refl_lw, snow_emis ! snow rad. properies (unused)
+  real :: snow_refl_dif(NBANDS) ! short-wave reflectances of intercepted snow for diffuse light
+  real :: snow_refl_dir(NBANDS) ! short-wave reflectances of intercepted snow for direct light
+  real :: snow_refl_lw, snow_emis ! long-wave rad. properties of intercepted snow
   real :: fs ! fractional coverage of intercepted snow
   real :: vegn_idx ! effective vegetation index
 
@@ -243,7 +317,14 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   endif
 
   ! get the snow radiative properties for current canopy temperature
-  call snow_radiation ( cohort%Tv, cosz, .FALSE., snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  call snow_refl_kernel ( cohort%Tv, cosz, snow_alb_option==SNOW_ALB_BRDF, &
+     snow_f_iso_warm, snow_f_vol_warm, snow_f_geo_warm, &
+     snow_f_iso_cold, snow_f_vol_cold, snow_f_geo_cold, &
+     snow_refl_min_dir, snow_refl_max_dir, &
+     snow_refl_min_dif, snow_refl_max_dif, &
+     snow_refl_dir, snow_refl_dif , debug_count.eq.0)
+  call snow_emis_kernel ( cohort%Tv, snow_emis_min, snow_emis_max, snow_refl_lw, snow_emis, debug_count.eq.0 )
+  debug_count = debug_count - 1
 
   sp = cohort%species
   do i = 1, NBANDS

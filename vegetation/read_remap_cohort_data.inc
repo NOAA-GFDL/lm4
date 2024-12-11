@@ -101,7 +101,7 @@ tile_loop:  do while(ce/=te.and.k<=dimlens(2))
         if (.not.associated(tile%vegn)) cycle
         ! find index of the next valid tile in the input data
         do while(.not.any(mask(ii,jj,k,:)))
-           k=k+1 ! go to the next tile if there's no data (i.e. all mask
+           k=k+1 ! go to the next tile if there is no data (i.e. all mask
                  ! values are false for this tile)
            if(k>dimlens(2)) exit tile_loop
         enddo

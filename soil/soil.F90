@@ -220,7 +220,7 @@ integer :: i_river_NH4     = NO_TRACER
 ! unused:
 integer ::  &
     id_nsoilcohorts, &
-    id_lwc, id_swc, id_psi, id_temp, &
+    id_lwc, id_swc, id_psi, id_temp, id_K_x, id_K_z, id_K_macro_x, id_K_macro_z, &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
     id_hie, id_hsn, id_hbf, id_hif, id_hal, id_hnu, id_hsc, &
     id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, &
@@ -775,7 +775,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   ! read soil carbon restart, if present
   call open_land_restart(restart,'INPUT/soil_carbon.res.nc',restart_exists)
   if (restart_exists) then
-     call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
+     call error_mesg('soil_init','reading soil_carbon restart',NOTE)
      select case (soil_carbon_option)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
@@ -823,6 +823,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   call send_tile_data_r0d_fptr(id_Qmax,         soil_Qmax_ptr)
   call send_tile_data_r1d_fptr(id_w_fc,         soil_w_fc_ptr)
   call send_tile_data_r1d_fptr(id_alpha,        soil_alpha_ptr)
+  call send_tile_data_r1d_fptr(id_K_macro_z,    soil_K_macro_z_ptr)
+  call send_tile_data_r1d_fptr(id_K_macro_x,    soil_K_macro_x_ptr)
   call send_tile_data_r1d_fptr(id_refl_dry_dir, soil_refl_dry_dir_ptr)
   call send_tile_data_r1d_fptr(id_refl_dry_dif, soil_refl_dry_dif_ptr)
   call send_tile_data_r1d_fptr(id_refl_sat_dir, soil_refl_sat_dir_ptr)
@@ -1252,6 +1254,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, lnd%time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
   id_thermal_cond =  register_tiled_diag_field ( module_name, 'soil_tcon', &
        axes, lnd%time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
+  id_K_x =  register_tiled_diag_field ( module_name, 'soil_K_x', &
+       axes, lnd%time, 'soil hydraulic conductivity in horizontal', 'kg/(m2 s)',  missing_value=-100.0 )
+  id_K_z =  register_tiled_diag_field ( module_name, 'soil_K_z', &
+       axes, lnd%time, 'soil hydraulic conductivity in vertical', 'kg/(m2 s)',  missing_value=-100.0 )
 
   id_surface_water = register_tiled_diag_field (module_name, 'surface_water', &
        axes(1:1), lnd%time, 'surface water storage', 'm', missing_value=-100.0 )
@@ -1302,6 +1308,12 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, 'soil field capacity', missing_value=-1.0 )
   id_alpha = register_tiled_static_field ( module_name, 'soil_alpha',  &
        axes, 'soil microscopic length scale', missing_value=-1.0 )
+  id_K_macro_z = register_tiled_static_field ( module_name, 'soil_K_macro_z',  &
+       axes, 'Vertical conductance due to macroporosity', units='kg/(m2 s)',   &
+       missing_value=-100.0 )
+  id_K_macro_x = register_tiled_static_field ( module_name, 'soil_K_macro_x',  &
+       axes, 'Horizontal conductance due to macroporosity', units='kg/(m2 s)', &
+       missing_value=-100.0 )
   id_refl_dry_dir = register_tiled_static_field ( module_name, 'refl_dry_dir',  &
        (/id_ug, id_band/), 'reflectance of dry soil for direct light', &
        missing_value=-1.0 )
@@ -1920,7 +1932,7 @@ end subroutine soil_step_1
 ! apply boundary flows to soil water and move soil water vertically.
   subroutine soil_step_2 ( soil, vegn, diag, soil_subl, snow_lprec, snow_hlprec,  &
                            vegn_uptk, &
-                           subs_DT, subs_M_imp, subs_evap, &
+                           subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate 
                            use_tfreeze_in_grnd_latent, &
                            ! output
                            soil_levap, soil_fevap, soil_melt, &
@@ -1938,7 +1950,8 @@ end subroutine soil_step_1
        vegn_uptk(:), &  ! vegetation soil water uptake flux [kg/m2 of cohort/s]
        subs_DT,       & ! ?? soil surface layer temperature tendency [K]
        subs_M_imp,       &! rate of phase change of non-evaporated soil water ?? [kg/m2/s]
-       subs_evap         ! ?? solution for soil surface evaporation [kg/m2/s]
+       subs_evap, &         ! ?? solution for soil surface evaporation [kg/m2/s]
+       fswg_substrate  ! EZSNOW added fswg_substrate [W/m^2]
   logical, intent(in) :: use_tfreeze_in_grnd_latent
   real, intent(out) :: &
        soil_levap, & ! ?? liquid soil surface evaporation [mm/s]
@@ -2106,6 +2119,10 @@ end subroutine soil_step_1
         write(*,*)
      enddo
   endif
+
+      ! EZSNOW: account for heat penetration in substrate
+  hcap = soil%heat_capacity_dry(1)*dz(1) + clw*soil%wl(1) + csw*soil%ws(1)
+  soil%T(1)  = soil%T(1) + fswg_substrate/hcap
 
   ! ---- extract evap from soil and do implicit melt --------------------
   IF(LM2) THEN
@@ -2979,6 +2996,8 @@ end subroutine soil_step_1
   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
   if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
+  if (id_K_x > 0) call send_tile_data(id_K_x,  K_x, diag)
+  if (id_K_z > 0) call send_tile_data(id_K_z,  K_z, diag)
 
   ! CMOR variables
   if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
