@@ -24,7 +24,7 @@ public :: snow_data_thermodynamics
 public :: snow_data_area
 public :: snow_refl_kernel, snow_emis_kernel
 public :: snow_sw_properties, snow_lw_properties
-public :: NTRACERS, cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
+public :: N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM, cpw, csw, clw, use_mcm_masking, depth_crit, z0_momentum, &
           k_over_B, distinct_snow_on_glacier
 ! ==== end of public interfaces ==============================================
 
@@ -34,8 +34,11 @@ character(len=*), parameter :: module_name = 'snow_tile_mod'
 
 ! range of temperatures for ramp between "warm" and "cold" albedo
 real,    parameter :: t_range = 10.0 ! degK
-integer, parameter :: NTRACERS = 3   !< Number of tracers tracked in snow
-
+integer, parameter :: N_SNOW_TRACERS = 3, & !< Number of tracers tracked in snow
+   ! indices of snow tracers:
+   SNOW_TR_BC = 1, &  ! black carbon
+   SNOW_TR_MD = 2, &  ! mineral dust
+   SNOW_TR_OM = 3     ! organic matter
 
 ! ==== types =================================================================
 type, abstract, public :: snow_tile_type
@@ -90,7 +93,7 @@ end type snow_tile_type
 !     integer :: i
 !     call snow%set_wsi(i, 1.0)
 ! func_get_real_1D : returns a 1D array of values. Example:
-!     real :: em(NTRACERS)
+!     real :: em(N_SNOW_TRACERS)
 !     call snow%lai_em(em)
 
 abstract interface

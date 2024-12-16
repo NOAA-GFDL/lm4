@@ -17,7 +17,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data
 
 use snowpack_mod, only : snow_layer_type, snowpack_t
-use snow_tile_mod, only: snow_tile_type, NTRACERS, z0_momentum, &
+use snow_tile_mod, only: snow_tile_type, N_SNOW_TRACERS, z0_momentum, &
      k_over_B, cpw, clw, csw, snow_data_area, snow_lw_properties
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_option, ALBEDO_SNICAR, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
@@ -321,7 +321,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       snow3%snow(il)%dz = snow3%snow(il)%dz * x1
       snow3%snow(il)%ws = snow3%snow(il)%ws * x1
       snow3%snow(il)%wl = snow3%snow(il)%wl * x1
-      do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+      do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
         snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x1
         snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x1
       enddo
@@ -334,7 +334,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       snow3%snow(il)%dz = snow3%snow(il)%dz * x2
       snow3%snow(il)%ws = snow3%snow(il)%ws * x2
       snow3%snow(il)%wl = snow3%snow(il)%wl * x2
-      do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+      do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
         snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x2
         snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x2
       enddo
@@ -359,7 +359,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
         snow3%snow(il)%dz = snow1%snow(il)%dz * x1 + snow2%snow(il)%dz * x2
         snow3%snow(il)%ws = snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2
         snow3%snow(il)%wl = snow1%snow(il)%wl * x1 + snow2%snow(il)%wl * x2
-        do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+        do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
           snow3%snow(il)%wc_em(it) = snow1%snow(il)%wc_em(it) * x1 + snow2%snow(il)%wc_em(it) * x2
           snow3%snow(il)%wc_im(it) = snow1%snow(il)%wc_im(it) * x1 + snow2%snow(il)%wc_im(it) * x2
         enddo
@@ -393,7 +393,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
           snow3%snow(il)%dz = snow3%snow(il)%dz * x1
           snow3%snow(il)%ws = snow3%snow(il)%ws * x1
           snow3%snow(il)%wl = snow3%snow(il)%wl * x1
-          do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+          do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
             snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x1
             snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x1
           enddo
@@ -408,7 +408,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
           snow3%snow(il)%dz = snow3%snow(il)%dz * x2
           snow3%snow(il)%ws = snow3%snow(il)%ws * x2
           snow3%snow(il)%wl = snow3%snow(il)%wl * x2
-          do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+          do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
             snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x2
             snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x2
           enddo
@@ -876,14 +876,14 @@ subroutine gl_snow_lai_em(snow, tracers)
   class(gl_snow_tile_type), intent(in) :: snow
   real, intent(out)                    :: tracers(:)
 
-  tracers(1:NTRACERS) = snow%sp%lai_em()
+  tracers(1:N_SNOW_TRACERS) = snow%sp%lai_em()
 end subroutine
 
 subroutine gl_snow_lai_im(snow, tracers)
   class(gl_snow_tile_type), intent(in) :: snow
   real, intent(out)                    :: tracers(:)
 
-  tracers(1:NTRACERS) = snow%sp%lai_im()
+  tracers(1:N_SNOW_TRACERS) = snow%sp%lai_im()
 end subroutine
 
 subroutine gl_sweep_snow(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc_im)
@@ -893,7 +893,7 @@ subroutine gl_sweep_snow(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc
   real, intent(out) :: lost_wc_em(:), lost_wc_im(:) ! tracer losses
 
   real :: lswept, fswept, hlswept, hfswept
-  real :: swept_wc_em(NTRACERS), swept_wc_im(NTRACERS)
+  real :: swept_wc_em(N_SNOW_TRACERS), swept_wc_im(N_SNOW_TRACERS)
 
   call gl_sweep_tiny_snow(snow%sp, lrunf,  frunf,  hlrunf,  hfrunf,  lost_wc_em,  lost_wc_im)  ! sweeping tiny snow
   call gl_sweep_huge_snow(snow%sp, lswept, fswept, hlswept, hfswept, swept_wc_em, swept_wc_im) ! sweeping huge snow

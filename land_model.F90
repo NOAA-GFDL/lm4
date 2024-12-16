@@ -50,7 +50,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart,
 
 ! use snow_evolution_mod, only: use_internal_sources, &
 !     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
-use snow_tile_mod, only : NTRACERS
+use snow_tile_mod, only : N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
@@ -1212,14 +1212,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   logical           :: phot_co2_overridden ! flag indicating successful override
 
   ! EZSNOW variables for snow LAIs data override
-  real, allocatable :: wetdep_bc(:)
-  real, allocatable :: wetdep_md(:)
-  real, allocatable :: wetdep_om(:)   ! buffer for data
-  real, allocatable :: drydep_bc(:)
-  real, allocatable :: drydep_md(:)
-  real, allocatable :: drydep_om(:)   ! buffer for data
-  logical           :: wetdep_bc_overridden, wetdep_md_overridden, wetdep_om_overridden  ! flag indicating successful override
-  logical           :: drydep_bc_overridden, drydep_md_overridden, drydep_om_overridden  ! flag indicating successful override
+  real, allocatable :: wetdconc(:,:) ! (:, N_SNOW_TRACERS) concentration of snow tracers in precip, for override
+  real, allocatable :: drydep  (:,:) ! (:, N_SNOW_TRACERS) dry deposition os snow tracers, for override
+  logical :: wetdep_overridden(N_SNOW_TRACERS)
+  logical :: drydep_overridden(N_SNOW_TRACERS)
+  character(10), parameter :: &
+      wetdep_name(N_SNOW_TRACERS) = ['bc_wet_dep','md_wet_dep','om_wet_dep'], &
+      drydep_name(N_SNOW_TRACERS) = ['bc_dry_dep','md_dry_dep','om_dry_dep']
 
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
@@ -1256,21 +1255,16 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        override=phot_co2_overridden)
 
   !  ======= EZSNOW : read override deposition fluxes for entire grid
-  allocate(wetdep_bc(lnd%ls:lnd%le))
-  allocate(wetdep_md(lnd%ls:lnd%le))
-  allocate(wetdep_om(lnd%ls:lnd%le))
-  allocate(drydep_bc(lnd%ls:lnd%le))
-  allocate(drydep_md(lnd%ls:lnd%le))
-  allocate(drydep_om(lnd%ls:lnd%le))
+  allocate(wetdconc(lnd%ls:lnd%le, N_SNOW_TRACERS))
+  allocate(drydep  (lnd%ls:lnd%le, N_SNOW_TRACERS))
 
-  ! read deposition data: Wet deposition fluxes in [ppm] ->[mg/m2/s]/[kg/m2/s] conc. in prcp.
-  call data_override_ug("LND", "bc_wet_dep", wetdep_bc, lnd%time, override = wetdep_bc_overridden)
-  call data_override_ug("LND", "md_wet_dep", wetdep_md, lnd%time, override = wetdep_md_overridden)
-  call data_override_ug("LND", "om_wet_dep", wetdep_om, lnd%time, override = wetdep_om_overridden)
-  ! read deposition data: Dry deposition fluxes in [mg/m2/s]
-  call data_override_ug("LND", "bc_dry_dep", drydep_bc, lnd%time, override = drydep_bc_overridden)
-  call data_override_ug("LND", "md_dry_dep", drydep_md, lnd%time, override = drydep_md_overridden)
-  call data_override_ug("LND", "om_dry_dep", drydep_om, lnd%time, override = drydep_om_overridden)
+  ! override deposition
+  do i = 1,N_SNOW_TRACERS
+     ! wet deposition conc. in precip [ppm] ->[mg/m2/s]/[kg/m2/s] conc. in prcp.
+     call data_override_ug("LND", wetdep_name(i), wetdconc(:,i), lnd%time, override = wetdep_overridden(i))
+     ! dry deposition: fluxes in [mg/m2/s]
+     call data_override_ug("LND", drydep_name(i), drydep(:,i), lnd%time, override = drydep_overridden(i))
+  enddo
   !  =======
 
   ! get the fertilization data
@@ -1288,7 +1282,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
-!$OMP                                  wetdep_bc,wetdep_md,wetdep_om,drydep_bc,drydep_md,drydep_om, &
+!$OMP                                  wetdconc,drydep, &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_gex_atm2lnd) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,n)
   do l = lnd%ls, lnd%le
@@ -1339,8 +1333,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !  - data override
 ! precedence: override > GEX > tracer calculations
            cplr2land%gex_fields(l,k,:), &
-           (/drydep_bc(l), drydep_md(l), drydep_om(l)/), &  ! EZSNOW added -- fluxes [mg m-2 s-1]
-           (/wetdep_bc(l), wetdep_md(l), wetdep_om(l)/)  &  ! EZSNOW added -- concentrations [ppm]
+           drydep(l,:),   &  ! EZSNOW added -- fluxes [mg m-2 s-1]
+           wetdconc(l,:)  &  ! EZSNOW added -- concentrations [ppm]
          )
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
@@ -1488,12 +1482,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! deallocate override buffer
   deallocate(phot_co2_data)
 
-  deallocate(wetdep_bc) ! EZSNOW deallocate override deposition data
-  deallocate(wetdep_md)
-  deallocate(wetdep_om)
-  deallocate(drydep_bc)
-  deallocate(drydep_om)
-  deallocate(drydep_md)
+  deallocate(wetdconc,drydep) ! EZSNOW deallocate override deposition data
 
   call mpp_clock_end(landFastClock)
   call mpp_clock_end(landClock)
@@ -1535,8 +1524,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, intent(inout) :: &
        runoff, &   ! total runoff of H2O, kg/m2
        runoff_c(:) ! runoff of tracers (including ice/snow and heat)
-  real, DIMENSION(NTRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om
-  real, DIMENSION(NTRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
+  real, DIMENSION(N_SNOW_TRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om
+  real, DIMENSION(N_SNOW_TRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
 
   ! ---- local vars
   real :: A(3*N+3,3*N+3),B0(3*N+3),B1(3*N+3),B2(3*N+3) ! implicit equation matrix and right-hand side vectors
@@ -1666,9 +1655,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: fswg_surface, fswg_substrate
   real begw_check !, endw_check, netw_check ! to check mass balance after snow step 2
   real begh_check !, endh_check, neth_check ! to check heat balance after snow step 2
-  real, DIMENSION(NTRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2 ! currently only 1 is used
-  real, DIMENSION(NTRACERS) :: lost_wc_em, lost_wc_im ! not used
-  real, DIMENSION(NTRACERS) :: mass_lai_im1, mass_lai_em1
+  real, DIMENSION(N_SNOW_TRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2 ! currently only 1 is used
+  real, DIMENSION(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! not used
+  real, DIMENSION(N_SNOW_TRACERS) :: mass_lai_im1, mass_lai_em1
   real snow_E_max ! max evap from snow (not used for now)
   integer il ! snow layer counter
   real, DIMENSION(NBANDS) :: fswg_dir, fswg_dif ! needed for SNICAR snow albedo option
@@ -2910,12 +2899,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! note: these diag fields are not quite the same as the wet lap deposited on snowpack because
   ! laps are note deposited when vegn_fprec or vegn_lprec are very small (< 1E-9 kg/m2/s)
-  call send_tile_data(id_wetdep_bc, wetdep(1)*(vegn_fprec + vegn_lprec), tile%diag)
-  call send_tile_data(id_wetdep_md, wetdep(2)*(vegn_fprec + vegn_lprec), tile%diag)
-  call send_tile_data(id_wetdep_om, wetdep(3)*(vegn_fprec + vegn_lprec), tile%diag)
-  call send_tile_data(id_drydep_bc, drydep(1), tile%diag)
-  call send_tile_data(id_drydep_md, drydep(2), tile%diag)
-  call send_tile_data(id_drydep_om, drydep(3), tile%diag)
+  call send_tile_data(id_wetdep_bc, wetdep(SNOW_TR_BC)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_md, wetdep(SNOW_TR_MD)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_om, wetdep(SNOW_TR_OM)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_drydep_bc, drydep(SNOW_TR_BC), tile%diag)
+  call send_tile_data(id_drydep_md, drydep(SNOW_TR_MD), tile%diag)
+  call send_tile_data(id_drydep_om, drydep(SNOW_TR_OM), tile%diag)
   ! call send_tile_data(id_snow_nlayers, real(tile%snow%n_layers()), tile%diag)
   ! ------ end snow additional fields
 
