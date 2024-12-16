@@ -111,9 +111,9 @@ subroutine gl_snow_diag_init(id_ug)
   id_snow_avrg_optd = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_optd', (/id_ug/), lnd%time, &
      'Snowpack average optical diameter', 'm', missing_value=-9999.0) !
   id_snow_avrg_sph = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_sph', (/id_ug/), lnd%time, &
-     'Snowpack average sphericity', 'dimless', missing_value=-9999.0) !
+     'Snowpack average sphericity', 'dimensionless', missing_value=-9999.0) !
   id_snow_avrg_dendr = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_dendr', (/id_ug/), lnd%time, &
-     'Snowpack average dendricity', 'dimless', missing_value=-9999.0) !
+     'Snowpack average dendricity', 'dimensionless', missing_value=-9999.0) !
   id_snow_density = register_tiled_diag_field ( diag_mod_name, 'snow_density', (/id_ug/), lnd%time, &
      'Snowpack density', 'kg/m3', missing_value=-9999.0)
   id_snow_avrg_age = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_age', (/id_ug/), lnd%time, &
@@ -128,19 +128,19 @@ subroutine gl_snow_diag_init(id_ug)
      ! 'Snowpack content of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
 
   id_snow_nearsurf_bceq_tot = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) near-surface conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) near-surface conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_nearsurf_bceq_im = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_im', (/id_ug/), lnd%time, &
      'Snowpack near-surface conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_nearsurf_bceq_em = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_em', (/id_ug/), lnd%time, &
      'Snowpack near-surface conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bc_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bc_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of black carbon', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of black carbon', 'ppm', missing_value=-9999.0)
   id_snow_avrg_md_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_md_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
   id_snow_avrg_om_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_om_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_im = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_im', (/id_ug/), lnd%time, &
      'Snowpack average conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_em = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_em', (/id_ug/), lnd%time, &
@@ -149,16 +149,16 @@ subroutine gl_snow_diag_init(id_ug)
   id_snow_nearsurf_optd = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_optd', (/id_ug/), lnd%time, &
      'Snowpack near-surface optical diameter', 'm', missing_value=-9999.0)
   id_snow_nearsurf_sph = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_sph', (/id_ug/), lnd%time, &
-     'Snowpack near-surface grain sphericity', 'dimless', missing_value=-9999.0)
+     'Snowpack near-surface grain sphericity', 'dimensionless', missing_value=-9999.0)
   id_snow_nearsurf_dendr = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_dendr', (/id_ug/), lnd%time, &
-     'Snowpack near-surface grain dendricity', 'dimless', missing_value=-9999.0) !
+     'Snowpack near-surface grain dendricity', 'dimensionless', missing_value=-9999.0) !
   id_snow_nearsurf_age = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_age', (/id_ug/), lnd%time, &
      'Snowpack near-surface age', 'days', missing_value=-9999.0) !
   id_snow_nearsurf_density = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_density', (/id_ug/), lnd%time, &
      'Snowpack near-surface density', 'kg/m3', missing_value=-9999.0)
 
   ! id_snow_area_frac = register_tiled_diag_field ( diag_mod_name, 'snow_area_frac', (/id_ug/), lnd%time, &
-     ! 'Frcational snow-covered area', 'dimless', missing_value=-9999.0)
+     ! 'Fractional snow-covered area', 'dimensionless', missing_value=-9999.0)
 !   id_snow_depth = register_tiled_diag_field ( diag_mod_name, 'snow_depth', (/id_ug/), lnd%time, &
 !      'Snow depth', 'm', missing_value=-9999.0)
   id_snow_liq = register_tiled_diag_field ( diag_mod_name, 'snow_liq', (/id_ug/), lnd%time, &
