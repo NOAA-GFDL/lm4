@@ -1585,6 +1585,7 @@ subroutine snowpack_nearsurf_properties(s)
     s%nearsurf_T = 0.0  ! hCap weighted average snow temperature [K]
 
   endif
+  s%nearsurf_bceq_tot = s%nearsurf_bceq_im + s%nearsurf_bceq_em ! concentration [ppm]
 
 end subroutine snowpack_nearsurf_properties
 
