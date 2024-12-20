@@ -3856,24 +3856,25 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
               - drydep*delta_time - total_wetdep_check*delta_time + lost_wc_em + lost_wc_im
    ! if (net_delta_lai(1) > 1E-3) then
    if (do_snow_check_cons .and. ((net_delta_lai(1) > 1E-6).or.(net_delta_lai(2) > 1E-6).or.(net_delta_lai(3) > 1E-6))) then
-      write(*,*) "TOTAL DRYDEP = ", sum(drydep)*delta_time
-      write(*,*) "TOTAL WETDEP = ", sum(total_wetdep_check)*delta_time
-      write(*,*) "TOTAL LOST (IM) = ", sum(lost_wc_im)
-      write(*,*) "TOTAL LOST (EM) = ", sum(lost_wc_em)
-      write(*,*) "TOTAL LOST = ", sum(lost_wc_em + lost_wc_im)
-      write(*,*) "INIT STORAGE = ", sum(mass_lai_em_1 + mass_lai_im_1)
-      write(*,*) "FINAL STORAGE = ", sum(mass_lai_em_2 + mass_lai_im_2)
-      write(*,*) "Outer rainf, snowf = ", vegn_fprec, vegn_lprec
-      write(*,*) "total wetdep due to snowfall + rainfall = ", sum(total_wetdep_check) * delta_time
-      write(*,*) "total drydep * dt = ", sum(drydep) * delta_time
-      write(*,*) "snowpack nlayers, total ice = ", s%nlayers, s%ice()
-      write(*,*) "initial lai mass = ", mass_lai_im_1 + mass_lai_em_1
-      write(*,*) "final lai mass = ", mass_lai_im_2 + mass_lai_em_2
-      write(*,*) "total deposition: = ", drydep*delta_time + total_wetdep_check*delta_time
-      write(*,*) "total LAIs lost (1): = ", lost_wc_em1 + lost_wc_im1
-      write(*,*) "total LAIs lost (2): = ", lost_wc_em2 + lost_wc_im2
-      write(*,*) "total LAIs lost (1) + (2): = ", lost_wc_em + lost_wc_im
-      write(*,*) "net_delta_lai = ", net_delta_lai
+      write(*,101) "TOTAL DRYDEP = ", sum(drydep)*delta_time
+      write(*,101) "TOTAL WETDEP = ", sum(total_wetdep_check)*delta_time
+      write(*,101) "TOTAL LOST (IM) = ", sum(lost_wc_im)
+      write(*,101) "TOTAL LOST (EM) = ", sum(lost_wc_em)
+      write(*,101) "TOTAL LOST = ", sum(lost_wc_em + lost_wc_im)
+      write(*,101) "INIT STORAGE = ", sum(mass_lai_em_1 + mass_lai_im_1)
+      write(*,101) "FINAL STORAGE = ", sum(mass_lai_em_2 + mass_lai_im_2)
+      write(*,101) "Outer rainf, snowf = ", vegn_fprec, vegn_lprec
+      write(*,101) "total wetdep due to snowfall + rainfall = ", sum(total_wetdep_check) * delta_time
+      write(*,101) "total drydep * dt = ", sum(drydep) * delta_time
+      write(*,101) "snowpack nlayers, total ice = ", s%nlayers, s%ice()
+      write(*,101) "initial lai mass = ", mass_lai_im_1 + mass_lai_em_1
+      write(*,101) "final lai mass = ", mass_lai_im_2 + mass_lai_em_2
+      write(*,101) "total deposition: = ", drydep*delta_time + total_wetdep_check*delta_time
+      write(*,101) "total LAIs lost (1): = ", lost_wc_em1 + lost_wc_im1
+      write(*,101) "total LAIs lost (2): = ", lost_wc_em2 + lost_wc_im2
+      write(*,101) "total LAIs lost (1) + (2): = ", lost_wc_em + lost_wc_im
+      write(*,101) "net_delta_lai = ", net_delta_lai
+101   format(a,99g23.16)
       call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: snowpack: light absorbing impurities not conserved after snow step 2", FATAL)
    endif
 

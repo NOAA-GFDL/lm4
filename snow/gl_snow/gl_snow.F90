@@ -101,7 +101,7 @@ subroutine gl_snow_init(id_ug)
    read_old_snow_restart = field_exists(restart,'temp')
 
    if (read_old_snow_restart) then
-      write(*,*) "Snow GLASS :: reading old snow CM model restart"
+      call error_mesg('gl_snow_init', 'reading old snow CM model restart', NOTE)
       ! read number of layers
       call get_dimension_size(restart%rhandle,'zfull',nlayers)
 
@@ -174,7 +174,7 @@ subroutine gl_snow_init(id_ug)
          end select
       enddo
    else
-      write(*,*) "start reading new GLASS restart"
+      call error_mesg('gl_snow_init', 'start reading new GLASS restart', NOTE)
       call read_create_snowlayers(restart)
       call get_snowlayer_data(restart, 'T',    snowlayer_T_ptr)
       call get_snowlayer_data(restart, 'wl',   snowlayer_wl_ptr)
