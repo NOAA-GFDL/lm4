@@ -1211,20 +1211,23 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real, allocatable :: phot_co2_data(:)  ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
 
-  ! EZSNOW variables for snow LAIs data override
-  real, allocatable :: wetdconc(:,:) ! (:, N_SNOW_TRACERS) concentration of snow tracers in precip, for override
-  real, allocatable :: drydep  (:,:) ! (:, N_SNOW_TRACERS) dry deposition os snow tracers, for override
-  logical :: wetdep_overridden(N_SNOW_TRACERS)
-  logical :: drydep_overridden(N_SNOW_TRACERS)
+  ! EZSNOW variables for snow LAPs data override
+  real, allocatable :: wetdconc(:,:,:) ! (:,:, N_SNOW_TRACERS) concentration of snow tracers in precip, for override
+  real, allocatable :: drydep  (:,:,:) ! (:,:, N_SNOW_TRACERS) dry deposition os snow tracers, for override
+  real, allocatable :: buffer  (:)     ! input data buffer
+  real, allocatable :: precip  (:,:)   ! total precipitation
+  logical :: wetdep_set(N_SNOW_TRACERS)
+  logical :: drydep_set(N_SNOW_TRACERS)
   character(10), parameter :: &
-      wetdep_name(N_SNOW_TRACERS) = ['bc_wet_dep','md_wet_dep','om_wet_dep'], &
-      drydep_name(N_SNOW_TRACERS) = ['bc_dry_dep','md_dry_dep','om_dry_dep']
+      wetdep_override_name(N_SNOW_TRACERS) = ['bc_wet_dep','md_wet_dep','om_wet_dep'], &
+      wetdep_gex_name     (N_SNOW_TRACERS) = ['wetbc     ','wetdust   ','wetoa     '], &
+      drydep_override_name(N_SNOW_TRACERS) = ['bc_dry_dep','md_dry_dep','om_dry_dep'], &
+      drydep_gex_name     (N_SNOW_TRACERS) = ['drybc     ','drydust   ','dryoa     ']
 
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
   integer :: y,mo,d,h,m,s ! components of date for checksums
-
   integer :: n
 
   ! start clocks
@@ -1247,25 +1250,86 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! changed the tiling structure, static vegetation output is done here.
   call write_static_vegn()
 
+  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   ! override data at the beginning of the time step
+
   is= lnd%is ; ie = lnd%ie
   js= lnd%js ; je = lnd%je
   allocate(phot_co2_data(lnd%ls:lnd%le))
   call data_override_ug('LND','phot_co2',phot_co2_data,lnd%time, &
        override=phot_co2_overridden)
 
-  !  ======= EZSNOW : read override deposition fluxes for entire grid
-  allocate(wetdconc(lnd%ls:lnd%le, N_SNOW_TRACERS))
-  allocate(drydep  (lnd%ls:lnd%le, N_SNOW_TRACERS))
+  ! + EZSNOW : override deposition fluxes
+  ! GLASS takes concentrations of tracers in precipitation as wet deposition input
+  ! these concentrations can come from:
+  !  - fluxes from coupler/atmosphere (through GEX mechanism) scaled with precipitation
+  !  - data override
+  ! precedence: override > GEX
 
-  ! override deposition
-  do i = 1,N_SNOW_TRACERS
+  ! drydep fluxes can come from:
+  !  - data override
+  !  - from coupler/atmosphere (through GEX mechanism)
+  !  - land tracer calculations
+  ! precedence: override > GEX > tracer calculations
+
+  allocate(wetdconc(lnd%ls:lnd%le, size(cplr2land%lprec,2), N_SNOW_TRACERS))
+  allocate(drydep  (lnd%ls:lnd%le, size(cplr2land%lprec,2), N_SNOW_TRACERS))
+  allocate(precip  (lnd%ls:lnd%le, size(cplr2land%lprec,2))) ! total precipitation
+  allocate(buffer  (lnd%ls:lnd%le)) ! buffer for override data
+
+  ! set wet deposition of Light Absorbing Particles
+  wetdconc(:,:,:) = 0.0; wetdep_set(:) = .FALSE.
+  ! try to get wet deposition variables from the atmosphere (GEX)
+  precip = cplr2land%lprec + cplr2land%fprec
+  do n = 1,N_SNOW_TRACERS
      ! wet deposition conc. in precip [ppm] ->[mg/m2/s]/[kg/m2/s] conc. in prcp.
-     call data_override_ug("LND", wetdep_name(i), wetdconc(:,i), lnd%time, override = wetdep_overridden(i))
-     ! dry deposition: fluxes in [mg/m2/s]
-     call data_override_ug("LND", drydep_name(i), drydep(:,i), lnd%time, override = drydep_overridden(i))
+     buffer(:) = 0
+     call data_override_ug("LND", wetdep_override_name(n), buffer(:), lnd%time, override = wetdep_set(n))
+     if (wetdep_set(n)) then
+        ! spread the same overriden concentration of impurities to all tiles in grid cells
+        do m = 1, size(wetdconc,2)
+           wetdconc(:,m,n) = buffer(:)
+        enddo
+        cycle
+     endif
+     m = gex_get_index(MODEL_ATMOS,MODEL_LAND,wetdep_gex_name(n))
+     call error_mesg('gex_deposition_init',wetdep_gex_name(n)//' is GEX tracer '//string(m),NOTE)
+     if (m>0) then
+        ! convert flux to concentration [ppm]
+        where (precip>1.0e-9)
+           wetdconc(:,:,n) = cplr2land%gex_fields(:,:,m)/precip(:,:)*1e6
+        elsewhere
+           wetdconc(:,:,n) = 0.0
+        end where
+        ! filter out negatives
+        wetdconc(:,:,n) = max(wetdconc(:,:,n),0.0)
+
+        wetdep_set(n) = .TRUE.
+     endif
   enddo
-  !  =======
+
+  ! set dry deposition of Light Absorbing Particles
+  drydep(:,:,:) = 0.0; drydep_set(:) = .FALSE.
+  do n = 1,N_SNOW_TRACERS
+     ! try to get dry deposition flux from data override
+     call data_override_ug("LND", drydep_override_name(n), buffer(:), lnd%time, override = drydep_set(n))
+     if (drydep_set(n)) then
+        ! spread the same dry deposition flux to all tiles in grid cell
+        do m = 1, size(drydep,2)
+           drydep(:,m,n) = buffer(:)
+        enddo
+        cycle
+     endif
+     ! try to get dry deposition flux from the atmosphere (GEX)
+     m = gex_get_index(MODEL_ATMOS,MODEL_LAND,drydep_gex_name(n))
+     if (m>0) then
+        drydep(:,:,n) = cplr2land%gex_fields(:,:,m)*1e6 ! to convert kg/(m2 s) -> mg/(m2 s)
+        drydep_set(n) = .TRUE.
+     endif
+  enddo
+
+  deallocate (precip, buffer)
+  ! - EZSNOW : override deposition fluxes
 
   ! get the fertilization data
   call update_nitrogen_sources(lnd%time, lnd%time+lnd%dt_fast)
@@ -1282,7 +1346,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
-!$OMP                                  wetdconc,drydep, &
+!$OMP                                  wetdconc, drydep, drydep_set, wetdep_set, &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_gex_atm2lnd) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,n)
   do l = lnd%ls, lnd%le
@@ -1321,20 +1385,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            cplr2land%con_atm(l,k), &
            phot_co2_overridden, phot_co2_data(l),&
            runoff(l), runoff_c(l,:), &
-! FIXME slm: we should calculate wetdep and drydep fluxes
-! wetdep can come from:
-!  - GEX fields
-!  - data override (scaled with precipitation)
-! precedence: override > GEX
-
-! drydep can come from:
-!  - GEX fields
-!  - land tracer calculations
-!  - data override
-! precedence: override > GEX > tracer calculations
-           cplr2land%gex_fields(l,k,:), &
-           drydep(l,:),   &  ! EZSNOW added -- fluxes [mg m-2 s-1]
-           wetdconc(l,:)  &  ! EZSNOW added -- concentrations [ppm]
+           drydep_set(:), drydep  (l,k,:), &  ! EZSNOW added -- fluxes of dry deposition [mg m-2 s-1]
+           wetdep_set(:), wetdconc(l,k,:)  &  ! EZSNOW added -- concentrations for wet deposition [ppm]
          )
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
@@ -1496,8 +1548,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
    ISa_dn_dir, ISa_dn_dif, ILa_dn, &
    ustar, p_surf, drag_q, con_atm,&
    phot_co2_overridden, phot_co2_data, &
-   runoff, runoff_c, gex_fields, &
-   drydep, wetdep )
+   runoff, runoff_c, &
+   drydep_set, drydep, &
+   wetdep_set, wetdep  )
   type (land_tile_type), pointer :: tile
   integer, intent(in) :: l ! position in unstructured grid
   integer, intent(in) :: itile ! tile number
@@ -1516,16 +1569,23 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        ustar,              & ! friction velocity above canopy, m/s
        p_surf,             & ! surface pressure, Pa
        drag_q,             & ! product of atmos_wind*CD_q, m/s
-       phot_co2_data,      & ! data input for the CO2 for photosynthesis
-       gex_fields(:)         ! generic exchanged fields
+       phot_co2_data         ! data input for the CO2 for photosynthesis
+
+
   real, intent(in) :: con_atm
 
   logical, intent(in):: phot_co2_overridden
   real, intent(inout) :: &
        runoff, &   ! total runoff of H2O, kg/m2
        runoff_c(:) ! runoff of tracers (including ice/snow and heat)
-  real, DIMENSION(N_SNOW_TRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om
-  real, DIMENSION(N_SNOW_TRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
+  logical, intent(in) :: &
+       ! slm: these are not used yet, but drydep_set should be -- to use
+       ! calculations of the dry deposition in the land tracers, if not set
+       drydep_set(N_SNOW_TRACERS), & ! flag indicating availability of LAP dry deposition flux data for each tracer
+       wetdep_set(N_SNOW_TRACERS)    ! flag indicating availability of LAP wet deposition conc. data for each tracer
+  real, intent(in) :: &
+       drydep(N_SNOW_TRACERS), & ! EZSNOW : LAP dry deposition flux [mg/m2/s] for bc, md, om
+       wetdep(N_SNOW_TRACERS)    ! EZSNOW : LAP wet deposition concentration [ppm] for bc, md, om
 
   ! ---- local vars
   real :: A(3*N+3,3*N+3),B0(3*N+3),B1(3*N+3),B2(3*N+3) ! implicit equation matrix and right-hand side vectors
@@ -1704,6 +1764,14 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call check_var_range(p_surf,     0.0, HUGE(1.0), 'land model input', 'p_surf',      WARNING)
   ! not checking fluxes and their derivatives, since they can be either positive
   ! or negative, and it is hard to determine valid ranges for them.
+  do i = 1,N_SNOW_TRACERS
+     if (wetdep_set(i)) then
+        call check_var_range(wetdep(i), 0.0, 1.0e6, 'land model input', 'wetdep('//trim(string(i))//')', WARNING)
+     endif
+     if (drydep_set(i)) then
+        call check_var_range(drydep(i), 0.0, HUGE(1.0), 'land model input', 'drydep('//trim(string(i))//')', WARNING)
+     endif
+  enddo
 
 !   if (associated(tile%vegn)) then
 !      call vegn_check_cohort_order(tile%vegn,'update_land_model_fast_0d')
@@ -4534,10 +4602,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   allocate(id_gex_atm2lnd(gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)))
 
   do n=1,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
-      id_gex_atm2lnd(n) = register_tiled_diag_field ( module_name, trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
-                                                      trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
-                                                      trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
-                                                      missing_value=-1.0e+20 )
+      id_gex_atm2lnd(n) = register_tiled_diag_field ( module_name, &
+          trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
+          trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
+          trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
+          missing_value=-1.0e+20 )
   end do
 
 
