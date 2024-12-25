@@ -49,7 +49,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart,
 
 ! use snow_evolution_mod, only: use_internal_sources, &
 !     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
-use snow_tile_mod, only : NTRACERS
+use snow_tile_mod, only : N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
 use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
@@ -1512,8 +1512,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, intent(inout) :: &
        runoff, &   ! total runoff of H2O, kg/m2
        runoff_c(:) ! runoff of tracers (including ice/snow and heat)
-  real, DIMENSION(NTRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om
-  real, DIMENSION(NTRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
+  real, DIMENSION(N_SNOW_TRACERS), intent(in) :: wetdep ! EZSNOW pass LAP wet deposition [ppm] for bc, md, om
+  real, DIMENSION(N_SNOW_TRACERS), intent(in) :: drydep ! EZSNOW pass LAP deposition [mg/m2/s] for bc, md, om
 
   ! ---- local vars
   real :: A(3*N+3,3*N+3),B0(3*N+3),B1(3*N+3),B2(3*N+3) ! implicit equation matrix and right-hand side vectors
@@ -1643,9 +1643,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: fswg_surface, fswg_substrate
   real begw_check !, endw_check, netw_check ! to check mass balance after snow step 2
   real begh_check !, endh_check, neth_check ! to check heat balance after snow step 2
-  real, DIMENSION(NTRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2 ! currently only 1 is used
-  real, DIMENSION(NTRACERS) :: lost_wc_em, lost_wc_im ! not used
-  real, DIMENSION(NTRACERS) :: mass_lai_im1, mass_lai_em1
+  real, DIMENSION(N_SNOW_TRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2 ! currently only 1 is used
+  real, DIMENSION(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! not used
+  real, DIMENSION(N_SNOW_TRACERS) :: mass_lai_im1, mass_lai_em1
   real snow_E_max ! max evap from snow (not used for now)
   integer il ! snow layer counter
   real, DIMENSION(NBANDS) :: fswg_dir, fswg_dif ! needed for SNICAR snow albedo option
@@ -2887,12 +2887,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! note: these diag fields are not quite the same as the wet lap deposited on snowpack because
   ! laps are note deposited when vegn_fprec or vegn_lprec are very small (< 1E-9 kg/m2/s)
-  call send_tile_data(id_wetdep_bc, wetdep(1)*(vegn_fprec + vegn_lprec), tile%diag)
-  call send_tile_data(id_wetdep_md, wetdep(2)*(vegn_fprec + vegn_lprec), tile%diag)
-  call send_tile_data(id_wetdep_om, wetdep(3)*(vegn_fprec + vegn_lprec), tile%diag)
-  call send_tile_data(id_drydep_bc, drydep(1), tile%diag)
-  call send_tile_data(id_drydep_md, drydep(2), tile%diag)
-  call send_tile_data(id_drydep_om, drydep(3), tile%diag)
+  call send_tile_data(id_wetdep_bc, wetdep(SNOW_TR_BC)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_md, wetdep(SNOW_TR_MD)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_wetdep_om, wetdep(SNOW_TR_OM)*(vegn_fprec + vegn_lprec), tile%diag)
+  call send_tile_data(id_drydep_bc, drydep(SNOW_TR_BC), tile%diag)
+  call send_tile_data(id_drydep_md, drydep(SNOW_TR_MD), tile%diag)
+  call send_tile_data(id_drydep_om, drydep(SNOW_TR_OM), tile%diag)
   ! call send_tile_data(id_snow_nlayers, real(tile%snow%n_layers()), tile%diag)
   ! ------ end snow additional fields
 

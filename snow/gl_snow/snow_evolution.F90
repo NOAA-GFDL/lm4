@@ -19,7 +19,7 @@ use land_debug_mod, only : is_watch_point, land_error_message
 use snicar_mod, only: compute_snicar_albedo
 use snowpack_mod, only : snowpack_t, snow_layer_type, rho_water, rho_ice, LAI_ext, LAI_ssa, eps, &
     add_liquid_to_layer, compute_snow_grain_shape, merge_layers
-use snow_tile_mod, only : NTRACERS, snow_sw_properties, cpw, clw, csw
+use snow_tile_mod, only : N_SNOW_TRACERS, snow_sw_properties, cpw, clw, csw
 
 
 implicit none
@@ -49,7 +49,7 @@ character(len=*), parameter :: module_name = 'snow_evolution_mod'
 
 !< scavenging coefficients for the tracters
 !                                        (BC,  MD,  OM)
-real, parameter :: SCAVENG(NTRACERS) = (/ 0.2, 0.0, 0.0 /)
+real, parameter :: SCAVENG(N_SNOW_TRACERS) = (/ 0.2, 0.0, 0.0 /)
 
 
 ! structure to store Flanner and Zender 2006 data
@@ -474,7 +474,7 @@ END SUBROUTINE read_F06_data
 subroutine gl_sweep_tiny_snow(snowpack, lrunf, frunf, hlrunf, hfrunf,lost_wc_em, lost_wc_im )
   type(snowpack_t), intent(inout) :: snowpack
   real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
-  real, intent(out), dimension(NTRACERS) :: lost_wc_em, lost_wc_im
+  real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im
   real :: snow_mass
   integer :: il, it
   real snow_depth
@@ -510,7 +510,7 @@ subroutine gl_sweep_tiny_snow(snowpack, lrunf, frunf, hlrunf, hfrunf,lost_wc_em,
     !  hlrunf = hlrunf + clw*snowpack%snow(il)%wl*(snowpack%snow(il)%T-tfreeze)
     !  hfrunf = hfrunf + csw*snowpack%snow(il)%ws*(snowpack%snow(il)%T-tfreeze) - snowpack%snow(il)%ws * HLF ! WAS
      hfrunf = hfrunf + csw*snowpack%snow(il)%ws*(snowpack%snow(il)%T-tfreeze) ! IS
-     do it = 1, NTRACERS
+     do it = 1, N_SNOW_TRACERS
        lost_wc_em(it) =lost_wc_em(it)+ snowpack%snow(il)%wc_em(it)
        lost_wc_im(it) =lost_wc_im(it)+ snowpack%snow(il)%wc_im(it)
      enddo
@@ -527,7 +527,7 @@ end subroutine gl_sweep_tiny_snow
 subroutine gl_sweep_huge_snow(snowpack, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc_im )
   type(snowpack_t), intent(inout) :: snowpack
   real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
-  real, intent(out), dimension(NTRACERS) :: lost_wc_em, lost_wc_im
+  real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im
   real :: snow_mass
   integer :: il, it
   real snow_depth
@@ -578,7 +578,7 @@ subroutine gl_sweep_huge_snow(snowpack, lrunf, frunf, hlrunf, hfrunf, lost_wc_em
             frunf = frunf + snowpack%snow(il)%ws
             hlrunf = hlrunf + clw*snowpack%snow(il)%wl*(snowpack%snow(il)%T-tfreeze) + snowpack%snow(il)%wl * HLF
             hfrunf = hfrunf + csw*snowpack%snow(il)%ws*(snowpack%snow(il)%T-tfreeze)
-            do it = 1, NTRACERS
+            do it = 1, N_SNOW_TRACERS
               lost_wc_em(it) =lost_wc_em(it)+ snowpack%snow(il)%wc_em(it)
               lost_wc_im(it) =lost_wc_im(it)+ snowpack%snow(il)%wc_im(it)
             enddo
@@ -1615,7 +1615,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     real, intent(IN) :: Mg_imp
     logical, intent(IN) :: thick_enough_for_evap
     real, intent(OUT) :: snow_melt,subs_m_imp
-    real, intent(out), dimension(ntracers) :: lost_wc_em, lost_wc_im ! mass of tracers lost from the system [mg/m^2]
+    real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! mass of tracers lost from the system [mg/m^2]
     real mass_to_subl, current_mass, rho1
     integer il, it
     real mc_fict, del_T_toplayer, temptop, cap0, dheat, initial_snow_depth
@@ -1802,14 +1802,14 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
         ! remove layer now
         if (s%nlayers > 1) then
             ! first pass any tracers to layer below, then remove 1st layer
-            do it = 1, NTRACERS
+            do it = 1, N_SNOW_TRACERS
                 s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
                 s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
             enddo
             s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
             s%nlayers = s%nlayers - 1 ! in both cases
         else if (s%nlayers == 1) then ! case only one layer  since snowpack must be activve
-            do it = 1, NTRACERS
+            do it = 1, N_SNOW_TRACERS
                 lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
                 lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
             enddo
@@ -1838,14 +1838,14 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
 
         if (s%nlayers > 1) then
             ! first pass any tracers to layer below, then remove 1st layer
-            do it = 1, NTRACERS
+            do it = 1, N_SNOW_TRACERS
                 s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
                 s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
             enddo
             s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
             s%nlayers = s%nlayers - 1
         else if (s%nlayers == 1) then
-            do it = 1, NTRACERS
+            do it = 1, N_SNOW_TRACERS
                 lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
                 lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
             enddo
@@ -1950,14 +1950,14 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
             s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl
             ! remove current layer from stack and pass any tracers to layer below
             if (s%nlayers>1) then
-                do it = 1, NTRACERS
+                do it = 1, N_SNOW_TRACERS
                     s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
                     s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
                 enddo
                 s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
                 s%nlayers = s%nlayers - 1
             else
-                do it = 1, NTRACERS
+                do it = 1, N_SNOW_TRACERS
                     lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
                     lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
                 enddo
@@ -1998,13 +1998,13 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
     real, INTENT(IN) :: Tatm ! atmos temperature [K]
     real, intent(IN) :: dt ! time step [s]
     logical, intent(in), OPTIONAL :: verbose_in
-    real, intent(out), dimension(NTRACERS) :: lost_wc_em, lost_wc_im ! [mg/m2]
-    real, intent(IN) :: wetdep(NTRACERS) ! wet deposition of tracers from atmosphere [ppm]
-    real, intent(IN) :: drydep(NTRACERS) ! wet deposition of tracers from atmosphere [mg m^-2 s^-1]
+    real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! [mg/m2]
+    real, intent(IN) :: wetdep(N_SNOW_TRACERS) ! wet deposition of tracers from atmosphere [ppm]
+    real, intent(IN) :: drydep(N_SNOW_TRACERS) ! wet deposition of tracers from atmosphere [mg m^-2 s^-1]
     real :: new_snow_depth
     real :: T_new_snow
     integer :: il, it ! counters (layers, tracers)
-    real wetdepf(NTRACERS) ! wet deposition IN SNOW ONLY of tracers from atmosphere [mg m^-2 s^-1]
+    real wetdepf(N_SNOW_TRACERS) ! wet deposition IN SNOW ONLY of tracers from atmosphere [mg m^-2 s^-1]
     real mass_to_subl, current_mass
     type(snow_layer_type) snow0 ! new snow instance of size 1
     type(snow_layer_type), allocatable :: snow1(:) ! new snow array
@@ -2035,14 +2035,14 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
     if (s%nlayers > 0) then
         s%snow(1)%wc_em = s%snow(1)%wc_em + drydep * dt
     else
-        do it =1, NTRACERS
+        do it =1, N_SNOW_TRACERS
             lost_wc_em(it) = lost_wc_em(it) + drydep(it) * dt ! UNITS [mg/m2]
         enddo
     endif
 
 
     ! compute the wet deposition due to solid snow only
-    do it =1, NTRACERS
+    do it =1, N_SNOW_TRACERS
         ! if ((fprec) > 0.0) then
         if ((fprec) > 1E-9) then
             ! wetdepf(it) = wetdep(it) * fprec/(fprec + lprec)
@@ -2083,11 +2083,11 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
             s%topsnowdeficit = s%topsnowdeficit + fprec*dt
             ! used it all up, but still deliver impurities to snow
                 if (s%nlayers > 0.0) then
-                    do it = 1, NTRACERS
+                    do it = 1, N_SNOW_TRACERS
                         s%snow(1)%wc_im(it) = s%snow(1)%wc_im(it)  + wetdepf(it) * dt
                     enddo
                 else ! if all snow is used up for filling deficit, and no other snow layers
-                    do it = 1,NTRACERS
+                    do it = 1,N_SNOW_TRACERS
                     lost_wc_im(it) = lost_wc_im(it) + wetdepf(it) * dt
                     enddo
                 endif
@@ -2130,7 +2130,7 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
         snow0%dz = new_snow_depth
         snow0%wl = 0.0
         snow0%ws = fprec2 * dt
-        do it = 1, NTRACERS
+        do it = 1, N_SNOW_TRACERS
             snow0%wc_im(it) = wetdepf(it) * dt
             snow0%wc_em(it) = 0.0 ! added
         enddo
@@ -2166,7 +2166,7 @@ subroutine snow_solid_balance(s, fprec, fevap, lprec, levap, tprec, wetdep, dryd
             if (n_new_layers == 0) call land_error_message("ERROR snow_solid_balance in snow_evolution module: n_new_layers should not be zero!", FATAL)
             if (verbose) write(*,*) "case no old snow -> create fresh snow layers"
             do il = 1, n_new_layers
-                do it =1, NTRACERS ! subdivide equally - all new layers are equal
+                do it =1, N_SNOW_TRACERS ! subdivide equally - all new layers are equal
                     snow1(il)%wc_im(it) = wetdepf(it) / real(n_new_layers) * dt ! if new layers, all are created equal
                     snow1(il)%wc_em(it) = 0.0 ! added
                 enddo
@@ -2214,17 +2214,17 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
     real, intent(in) :: fprec ! solid precipitation rate [kg m^-2 s^-1]
     real, intent(in) :: tprec ! temperature of precipitation [K]
     real, intent(in) :: dt ! time step [s]
-    real, intent(out), dimension(NTRACERS) :: lost_wc_em, lost_wc_im ! [mg/m2]
-    real, intent(in) :: wetdep(NTRACERS) ! wet deposition of tracers from atmosphere [ppm]
+    real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! [mg/m2]
+    real, intent(in) :: wetdep(N_SNOW_TRACERS) ! wet deposition of tracers from atmosphere [ppm]
     real, intent(out) :: snow_lprec, snow_hlprec ! rates, heat wrt liquid at TF in LM4p2
     logical, intent(in), optional :: verbose_in
     real :: wl_excess
     real :: zflux_wl, zflux_T ! verical mass of liquid water [Kg m^-2] moved down the snowpack
-    real :: zflux_wc_em(NTRACERS), zflux_wc_im(NTRACERS) ! flux scavenged for each im or em
+    real :: zflux_wc_em(N_SNOW_TRACERS), zflux_wc_im(N_SNOW_TRACERS) ! flux scavenged for each im or em
     integer :: il, it ! counter
     real SWE_il ! snow water equivalent of layer il [kg m^-2]
     integer n_melt_layers, new_layer_counter
-    real wetdepl(NTRACERS) ! wet deposition of tracers from atmosphere [mg m^-2 s^-1]
+    real wetdepl(N_SNOW_TRACERS) ! wet deposition of tracers from atmosphere [mg m^-2 s^-1]
     real wl_max
     real delta_wl
     real rho_snow_il
@@ -2253,7 +2253,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
     n_melt_layers = 0 ! init number of completely melted layers
 
     ! compute the fraction of wet deposition carried by liquid precipitation only
-    do it = 1, NTRACERS
+    do it = 1, N_SNOW_TRACERS
         if ((lprec) > 1E-9) then
             ! wetdepl(it) = wetdep(it) * lprec / (lprec + fprec)
             ! UNITS: [wetdepf] = mg/m2/s
@@ -2270,7 +2270,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
     ! write(*,*) "Before liquid balance, nlayers = ", s%nlayers
 
     if (s%nlayers==0) then ! if no snow, get rid immediately of all wet deposited LAIs
-        do it = 1, NTRACERS
+        do it = 1, N_SNOW_TRACERS
         lost_wc_im(it) = lost_wc_im(it) + wetdepl(it)*dt ! if there is no snow, flush tracers away
         enddo
     endif
@@ -2375,7 +2375,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 endif
 
                 ! compute amounts of tracers flushed down with the water
-                do it = 1, NTRACERS
+                do it = 1, N_SNOW_TRACERS
                     SWE_il = s%snow(il)%ws + s%snow(il)%wl ! layer snow water equivalent
                     ! note the denominator, since as this point zfluz_wl was already removed in (*)
                     ! scavenge proportionally from internally and externally mixed impurities
@@ -2394,7 +2394,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 snow_lprec = snow_lprec + zflux_ws/dt ! rate
                 snow_hlprec = snow_hlprec + zflux_ws/dt*CSW*(zflux_T-TFREEZE)
                 ! DO FLUSH THE TRACERS HERE ::
-                do it = 1, NTRACERS
+                do it = 1, N_SNOW_TRACERS
                     SWE_il = s%snow(il)%ws + s%snow(il)%wl ! layer snow water equivalent
                     lost_wc_em(it) = lost_wc_em(it) + zflux_wc_em(it)
                     lost_wc_im(it) = lost_wc_im(it) + zflux_wc_im(it)
@@ -2563,7 +2563,7 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
 
     class(snowpack_t), intent(inout) :: s !< state of snowpack
     real, intent(in) :: dt ! time step [s]
-    real, intent(out),  DIMENSION(NTRACERS) :: lost_wc_im, lost_wc_em ! [mg/m2]
+    real, intent(out),  DIMENSION(N_SNOW_TRACERS) :: lost_wc_im, lost_wc_em ! [mg/m2]
     real, intent(out) :: snow_lprec, snow_hlprec ! rates, heat wrt liquid at TF in LM4p2
     logical, intent(in), optional :: verbose_in
     integer il
@@ -2574,7 +2574,7 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
     type(snow_layer_type), allocatable :: snow1(:) ! new snow array
     integer n_melt_layers, new_layer_counter, origin_n_layers
     real zflux_wl, zflux_T
-    real, DIMENSION(NTRACERS) :: zflux_wc_im, zflux_wc_em
+    real, DIMENSION(N_SNOW_TRACERS) :: zflux_wc_im, zflux_wc_em
     real hCap0, heat0, hCap1, heat1
     real original_ws
     real rho_start, rho_ends
@@ -3325,9 +3325,9 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real, intent(in) :: vegn_fprec ! precip below canopy [Kg m^-2 s^-1]
     real, intent(in) :: vegn_hlprec ! heat carried by precip [J m^-2 s^-1]
     real, intent(in) :: vegn_hfprec ! heat carried by precip [J m^-2 s^-1]
-    real, intent(in), DIMENSION(NTRACERS) :: mass_lai_em_1, mass_lai_im_1 ! mass of LAIs at beginning of step, for mass cons checks
-    real, intent(in), DIMENSION(NTRACERS) :: lost_wc_em_st, lost_wc_im_st ! from sweep tiny snow, to check mass balance
-    real, intent(out), DIMENSION(NTRACERS) :: lost_wc_em, lost_wc_im
+    real, intent(in), DIMENSION(N_SNOW_TRACERS) :: mass_lai_em_1, mass_lai_im_1 ! mass of LAIs at beginning of step, for mass cons checks
+    real, intent(in), DIMENSION(N_SNOW_TRACERS) :: lost_wc_em_st, lost_wc_im_st ! from sweep tiny snow, to check mass balance
+    real, intent(out), DIMENSION(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im
     real, intent(in) :: DTg, Mg_imp, evapg, fswg, flwg, sensg
     logical, intent(in) :: use_tfreeze_in_grnd_latent
     real, intent(out) :: &
@@ -3341,8 +3341,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real, intent(in) :: dt ! delta time step
     real, intent(in) :: wind_atm, t_atm
     real, intent(in) :: p_surf ! surface atm pressure in [Pa]
-    real, intent(in) :: wetdep(NTRACERS) ! wet deposition of tracers from atmosphere [ppm]
-    real, intent(in) :: drydep(NTRACERS) ! dry deposition of tracers from atmosphere [mg m^-2 s^-1]
+    real, intent(in) :: wetdep(N_SNOW_TRACERS) ! wet deposition of tracers from atmosphere [ppm]
+    real, intent(in) :: drydep(N_SNOW_TRACERS) ! dry deposition of tracers from atmosphere [mg m^-2 s^-1]
     real, intent(in) :: begw_check, begh_check
     real, intent(in) :: G0, DGDTg, snow_G_Z, snow_G_TZ
     !  local variables
@@ -3356,8 +3356,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real lswept1, fswept1, hlswept1, hfswept1 ! from sublimation
     real lswept2, fswept2, hlswept2, hfswept2
     integer il
-    real, dimension(NTRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2  ! [mg/m2]
-    real, dimension(NTRACERS) :: lost_wc_em3, lost_wc_im3, lost_wc_em4, lost_wc_im4, lost_wc_em5, lost_wc_im5 ! [mg/m2]
+    real, dimension(N_SNOW_TRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2  ! [mg/m2]
+    real, dimension(N_SNOW_TRACERS) :: lost_wc_em3, lost_wc_im3, lost_wc_em4, lost_wc_im4, lost_wc_em5, lost_wc_im5 ! [mg/m2]
     real laimass1 , laimass2 , netlaimass ! [mg/m2]
     real laimass_wetdep_rainf, laimass_wetdep_snowf
     real dheat_fevap
@@ -3365,7 +3365,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real vegn_hlprec_r ! lm4p2 conv, used only for energy balance checks
     real vegn_hfprec_ch ! used only for energy balance checks
     real endh_check, neth_check, endw_check, netw_check
-    real, dimension(NTRACERS) :: total_wetdep_check, net_delta_lai, mass_lai_em_2, mass_lai_im_2
+    real, dimension(N_SNOW_TRACERS) :: total_wetdep_check, net_delta_lai, mass_lai_em_2, mass_lai_im_2
     real sum_swheat
     real delta_time
     logical thick_enough_for_evap
@@ -3482,7 +3482,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
 
     netmass1 = s%SWE() ! mass cons check
     netheat1 = s%heat() ! heat cons check
-    laimass1 = sum(s%lai_em() + s%lai_im()) ! sum across NTRACERS dimension for purposes of mass cons check
+    laimass1 = sum(s%lai_em() + s%lai_im()) ! sum across N_SNOW_TRACERS dimension for purposes of mass cons check
 
     heat1b = s%heat()
     if(verbose) write(*,*) "STEP2: heat check B = ", heat1b
@@ -3560,7 +3560,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
     netmass1 = s%SWE() ! init mass cons check
     netheat1 = s%heat()  ! init heat cons check
-    laimass1 = sum(s%lai_em() + s%lai_im()) ! sum across NTRACERS dimension for purposes of LAI mass cons check
+    laimass1 = sum(s%lai_em() + s%lai_im()) ! sum across N_SNOW_TRACERS dimension for purposes of LAI mass cons check
     call snow_melt_and_freeze( &
             s, dt, snow_lprec1, &
             snow_hlprec1, lost_wc_em2, lost_wc_im2,  verbose_in=.FALSE.)
@@ -3856,24 +3856,25 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
               - drydep*delta_time - total_wetdep_check*delta_time + lost_wc_em + lost_wc_im
    ! if (net_delta_lai(1) > 1E-3) then
    if (do_snow_check_cons .and. ((net_delta_lai(1) > 1E-6).or.(net_delta_lai(2) > 1E-6).or.(net_delta_lai(3) > 1E-6))) then
-      write(*,*) "TOTAL DRYDEP = ", sum(drydep)*delta_time
-      write(*,*) "TOTAL WETDEP = ", sum(total_wetdep_check)*delta_time
-      write(*,*) "TOTAL LOST (IM) = ", sum(lost_wc_im)
-      write(*,*) "TOTAL LOST (EM) = ", sum(lost_wc_em)
-      write(*,*) "TOTAL LOST = ", sum(lost_wc_em + lost_wc_im)
-      write(*,*) "INIT STORAGE = ", sum(mass_lai_em_1 + mass_lai_im_1)
-      write(*,*) "FINAL STORAGE = ", sum(mass_lai_em_2 + mass_lai_im_2)
-      write(*,*) "Outer rainf, snowf = ", vegn_fprec, vegn_lprec
-      write(*,*) "total wetdep due to snowfall + rainfall = ", sum(total_wetdep_check) * delta_time
-      write(*,*) "total drydep * dt = ", sum(drydep) * delta_time
-      write(*,*) "snowpack nlayers, total ice = ", s%nlayers, s%ice()
-      write(*,*) "initial lai mass = ", mass_lai_im_1 + mass_lai_em_1
-      write(*,*) "final lai mass = ", mass_lai_im_2 + mass_lai_em_2
-      write(*,*) "total deposition: = ", drydep*delta_time + total_wetdep_check*delta_time
-      write(*,*) "total LAIs lost (1): = ", lost_wc_em1 + lost_wc_im1
-      write(*,*) "total LAIs lost (2): = ", lost_wc_em2 + lost_wc_im2
-      write(*,*) "total LAIs lost (1) + (2): = ", lost_wc_em + lost_wc_im
-      write(*,*) "net_delta_lai = ", net_delta_lai
+      write(*,101) "TOTAL DRYDEP = ", sum(drydep)*delta_time
+      write(*,101) "TOTAL WETDEP = ", sum(total_wetdep_check)*delta_time
+      write(*,101) "TOTAL LOST (IM) = ", sum(lost_wc_im)
+      write(*,101) "TOTAL LOST (EM) = ", sum(lost_wc_em)
+      write(*,101) "TOTAL LOST = ", sum(lost_wc_em + lost_wc_im)
+      write(*,101) "INIT STORAGE = ", sum(mass_lai_em_1 + mass_lai_im_1)
+      write(*,101) "FINAL STORAGE = ", sum(mass_lai_em_2 + mass_lai_im_2)
+      write(*,101) "Outer rainf, snowf = ", vegn_fprec, vegn_lprec
+      write(*,101) "total wetdep due to snowfall + rainfall = ", sum(total_wetdep_check) * delta_time
+      write(*,101) "total drydep * dt = ", sum(drydep) * delta_time
+      write(*,101) "snowpack nlayers, total ice = ", s%nlayers, s%ice()
+      write(*,101) "initial lai mass = ", mass_lai_im_1 + mass_lai_em_1
+      write(*,101) "final lai mass = ", mass_lai_im_2 + mass_lai_em_2
+      write(*,101) "total deposition: = ", drydep*delta_time + total_wetdep_check*delta_time
+      write(*,101) "total LAIs lost (1): = ", lost_wc_em1 + lost_wc_im1
+      write(*,101) "total LAIs lost (2): = ", lost_wc_em2 + lost_wc_im2
+      write(*,101) "total LAIs lost (1) + (2): = ", lost_wc_em + lost_wc_im
+      write(*,101) "net_delta_lai = ", net_delta_lai
+101   format(a,99g23.16)
       call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: snowpack: light absorbing impurities not conserved after snow step 2", FATAL)
    endif
 

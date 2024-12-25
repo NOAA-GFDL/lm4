@@ -17,7 +17,7 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data
 
 use snowpack_mod, only : snow_layer_type, snowpack_t
-use snow_tile_mod, only: snow_tile_type, NTRACERS, z0_momentum, &
+use snow_tile_mod, only: snow_tile_type, N_SNOW_TRACERS, z0_momentum, &
      k_over_B, cpw, clw, csw, snow_data_area, snow_lw_properties
 use snow_evolution_mod, only : gl_sweep_tiny_snow, assign_substrate_sw_to_surface, &
      albedo_option, ALBEDO_SNICAR, use_internal_sources, thresh_snow_depth_swheat, gl_compute_snow_albedo, &
@@ -89,7 +89,7 @@ integer :: id_snow_avrg_optd, id_snow_avrg_sph, id_snow_avrg_dendr, id_snow_dens
     id_snow_nearsurf_sph, id_snow_nearsurf_dendr, id_snow_nearsurf_age, &
     id_snow_nearsurf_density, id_snow_liq, id_snow_ice, &
     id_snow_topwater, id_snow_topsnowdeficit, id_snow_topwheat, &
-    id_snow_topsnowheatdeficit
+    id_snow_topsnowheatdeficit, id_snow_nlayers
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -111,9 +111,9 @@ subroutine gl_snow_diag_init(id_ug)
   id_snow_avrg_optd = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_optd', (/id_ug/), lnd%time, &
      'Snowpack average optical diameter', 'm', missing_value=-9999.0) !
   id_snow_avrg_sph = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_sph', (/id_ug/), lnd%time, &
-     'Snowpack average sphericity', 'dimless', missing_value=-9999.0) !
+     'Snowpack average sphericity', 'dimensionless', missing_value=-9999.0) !
   id_snow_avrg_dendr = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_dendr', (/id_ug/), lnd%time, &
-     'Snowpack average dendricity', 'dimless', missing_value=-9999.0) !
+     'Snowpack average dendricity', 'dimensionless', missing_value=-9999.0) !
   id_snow_density = register_tiled_diag_field ( diag_mod_name, 'snow_density', (/id_ug/), lnd%time, &
      'Snowpack density', 'kg/m3', missing_value=-9999.0)
   id_snow_avrg_age = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_age', (/id_ug/), lnd%time, &
@@ -128,19 +128,19 @@ subroutine gl_snow_diag_init(id_ug)
      ! 'Snowpack content of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
 
   id_snow_nearsurf_bceq_tot = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) near-surface conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) near-surface conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_nearsurf_bceq_im = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_im', (/id_ug/), lnd%time, &
      'Snowpack near-surface conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_nearsurf_bceq_em = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_bceq_em', (/id_ug/), lnd%time, &
      'Snowpack near-surface conc. of externally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bc_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bc_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of black carbon', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of black carbon', 'ppm', missing_value=-9999.0)
   id_snow_avrg_md_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_md_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of mineral dust', 'ppm', missing_value=-9999.0)
   id_snow_avrg_om_tot = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_om_tot', (/id_ug/), lnd%time, &
-     'Snowpack total (im + em) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
+     'Snowpack total (internally plus externally mixed) average conc. of organic carbon', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_im = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_im', (/id_ug/), lnd%time, &
      'Snowpack average conc. of internally mixed light-absorbing impurities', 'ppm', missing_value=-9999.0)
   id_snow_avrg_bceq_em = register_tiled_diag_field ( diag_mod_name, 'snow_avrg_bceq_em', (/id_ug/), lnd%time, &
@@ -149,16 +149,16 @@ subroutine gl_snow_diag_init(id_ug)
   id_snow_nearsurf_optd = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_optd', (/id_ug/), lnd%time, &
      'Snowpack near-surface optical diameter', 'm', missing_value=-9999.0)
   id_snow_nearsurf_sph = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_sph', (/id_ug/), lnd%time, &
-     'Snowpack near-surface grain sphericity', 'dimless', missing_value=-9999.0)
+     'Snowpack near-surface grain sphericity', 'dimensionless', missing_value=-9999.0)
   id_snow_nearsurf_dendr = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_dendr', (/id_ug/), lnd%time, &
-     'Snowpack near-surface grain dendricity', 'dimless', missing_value=-9999.0) !
+     'Snowpack near-surface grain dendricity', 'dimensionless', missing_value=-9999.0) !
   id_snow_nearsurf_age = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_age', (/id_ug/), lnd%time, &
      'Snowpack near-surface age', 'days', missing_value=-9999.0) !
   id_snow_nearsurf_density = register_tiled_diag_field ( diag_mod_name, 'snow_nearsurf_density', (/id_ug/), lnd%time, &
      'Snowpack near-surface density', 'kg/m3', missing_value=-9999.0)
 
   ! id_snow_area_frac = register_tiled_diag_field ( diag_mod_name, 'snow_area_frac', (/id_ug/), lnd%time, &
-     ! 'Frcational snow-covered area', 'dimless', missing_value=-9999.0)
+     ! 'Fractional snow-covered area', 'dimensionless', missing_value=-9999.0)
 !   id_snow_depth = register_tiled_diag_field ( diag_mod_name, 'snow_depth', (/id_ug/), lnd%time, &
 !      'Snow depth', 'm', missing_value=-9999.0)
   id_snow_liq = register_tiled_diag_field ( diag_mod_name, 'snow_liq', (/id_ug/), lnd%time, &
@@ -175,6 +175,8 @@ subroutine gl_snow_diag_init(id_ug)
   id_snow_topsnowheatdeficit = register_tiled_diag_field ( diag_mod_name, 'snow_topsnowheatdeficit', (/id_ug/), lnd%time, &
      'Snowpack topsnowheatdeficit', 'J/m2', missing_value=-1.0e+20)
 
+  id_snow_nlayers = register_tiled_diag_field( diag_mod_name, 'snow_nlayers', (/id_ug/), lnd%time, &
+     'number of layers in snowpack', 'unitless', missing_value=-1.0e+20 )
 end subroutine gl_snow_diag_init
 
 
@@ -321,7 +323,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       snow3%snow(il)%dz = snow3%snow(il)%dz * x1
       snow3%snow(il)%ws = snow3%snow(il)%ws * x1
       snow3%snow(il)%wl = snow3%snow(il)%wl * x1
-      do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+      do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
         snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x1
         snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x1
       enddo
@@ -334,7 +336,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
       snow3%snow(il)%dz = snow3%snow(il)%dz * x2
       snow3%snow(il)%ws = snow3%snow(il)%ws * x2
       snow3%snow(il)%wl = snow3%snow(il)%wl * x2
-      do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+      do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
         snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x2
         snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x2
       enddo
@@ -359,7 +361,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
         snow3%snow(il)%dz = snow1%snow(il)%dz * x1 + snow2%snow(il)%dz * x2
         snow3%snow(il)%ws = snow1%snow(il)%ws * x1 + snow2%snow(il)%ws * x2
         snow3%snow(il)%wl = snow1%snow(il)%wl * x1 + snow2%snow(il)%wl * x2
-        do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+        do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
           snow3%snow(il)%wc_em(it) = snow1%snow(il)%wc_em(it) * x1 + snow2%snow(il)%wc_em(it) * x2
           snow3%snow(il)%wc_im(it) = snow1%snow(il)%wc_im(it) * x1 + snow2%snow(il)%wc_im(it) * x2
         enddo
@@ -393,7 +395,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
           snow3%snow(il)%dz = snow3%snow(il)%dz * x1
           snow3%snow(il)%ws = snow3%snow(il)%ws * x1
           snow3%snow(il)%wl = snow3%snow(il)%wl * x1
-          do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+          do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
             snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x1
             snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x1
           enddo
@@ -408,7 +410,7 @@ subroutine gl_merge_snow_tiles(snow2ez, w2, snow1ez, w1)
           snow3%snow(il)%dz = snow3%snow(il)%dz * x2
           snow3%snow(il)%ws = snow3%snow(il)%ws * x2
           snow3%snow(il)%wl = snow3%snow(il)%wl * x2
-          do it = 1, NTRACERS ! rescale quantities from tile 1 to new tile area
+          do it = 1, N_SNOW_TRACERS ! rescale quantities from tile 1 to new tile area
             snow3%snow(il)%wc_em(it) = snow3%snow(il)%wc_em(it) * x2
             snow3%snow(il)%wc_im(it) = snow3%snow(il)%wc_im(it) * x2
           enddo
@@ -876,14 +878,14 @@ subroutine gl_snow_lai_em(snow, tracers)
   class(gl_snow_tile_type), intent(in) :: snow
   real, intent(out)                    :: tracers(:)
 
-  tracers(1:NTRACERS) = snow%sp%lai_em()
+  tracers(1:N_SNOW_TRACERS) = snow%sp%lai_em()
 end subroutine
 
 subroutine gl_snow_lai_im(snow, tracers)
   class(gl_snow_tile_type), intent(in) :: snow
   real, intent(out)                    :: tracers(:)
 
-  tracers(1:NTRACERS) = snow%sp%lai_im()
+  tracers(1:N_SNOW_TRACERS) = snow%sp%lai_im()
 end subroutine
 
 subroutine gl_sweep_snow(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc_im)
@@ -893,7 +895,7 @@ subroutine gl_sweep_snow(snow, lrunf, frunf, hlrunf, hfrunf, lost_wc_em, lost_wc
   real, intent(out) :: lost_wc_em(:), lost_wc_im(:) ! tracer losses
 
   real :: lswept, fswept, hlswept, hfswept
-  real :: swept_wc_em(NTRACERS), swept_wc_im(NTRACERS)
+  real :: swept_wc_em(N_SNOW_TRACERS), swept_wc_im(N_SNOW_TRACERS)
 
   call gl_sweep_tiny_snow(snow%sp, lrunf,  frunf,  hlrunf,  hfrunf,  lost_wc_em,  lost_wc_im)  ! sweeping tiny snow
   call gl_sweep_huge_snow(snow%sp, lswept, fswept, hlswept, hfswept, swept_wc_em, swept_wc_im) ! sweeping huge snow
@@ -1162,6 +1164,8 @@ subroutine gl_snow_send_diag(snow, diag)
   call send_tile_data(id_snow_topwheat, snow%sp%topwheat, diag)
   call send_tile_data(id_snow_topsnowdeficit, snow%sp%topsnowdeficit, diag)
   call send_tile_data(id_snow_topsnowheatdeficit, snow%sp%topsnowheatdeficit, diag)
+
+  call send_tile_data(id_snow_nlayers, float(snow%sp%nlayers), diag)
 
 end subroutine gl_snow_send_diag
 

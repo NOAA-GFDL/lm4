@@ -6,13 +6,13 @@ module snowpack_mod
 
 use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
-       FATAL, WARNING, NOTE
+       string, FATAL, WARNING, NOTE
 use land_data_mod,  only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 use land_constants_mod, only : NBANDS
 use constants_mod,  only : tfreeze, hlv, hlf, PI, dens_h2o
 
-use snow_tile_mod, only : NTRACERS, csw, clw, snow_data_area
+use snow_tile_mod, only : N_SNOW_TRACERS, csw, clw, snow_data_area
 
 implicit none
 private
@@ -44,10 +44,10 @@ real, parameter :: thickness_for_surface_optical_props = 0.03 ! [m] 3cm as in Vi
 ! optical properties od BC, MD and OC (respectively) from Veronica's paper
 ! using the default value for Dust here - see paper for additional values
 ! single scattering albedos
-real, parameter :: LAI_ssa(NTRACERS) = (/ 0.209, 0.857, 0.963   /) ! single scattering albedo [adim.]
-real, parameter :: LAI_ext(NTRACERS) = (/ 9267.0, 474.0, 3289.0 /) ! extinction cross section [m^2 kg^-1]
-real, parameter :: LAI_sca(NTRACERS) = (/ 1937.0, 406.0, 3167.0 /) ! scattering cross section [m^2 kg^-1]
-real, parameter :: LAI_abs(NTRACERS) = (/ 7330.0, 67.8, 122.0   /) ! absorption cross section [m^2 kg^-1]
+real, parameter :: LAI_ssa(N_SNOW_TRACERS) = (/ 0.209, 0.857, 0.963   /) ! single scattering albedo [adim.]
+real, parameter :: LAI_ext(N_SNOW_TRACERS) = (/ 9267.0, 474.0, 3289.0 /) ! extinction cross section [m^2 kg^-1]
+real, parameter :: LAI_sca(N_SNOW_TRACERS) = (/ 1937.0, 406.0, 3167.0 /) ! scattering cross section [m^2 kg^-1]
+real, parameter :: LAI_abs(N_SNOW_TRACERS) = (/ 7330.0, 67.8, 122.0   /) ! absorption cross section [m^2 kg^-1]
 real, parameter :: eps = 1E-8 ! a small number
 
 
@@ -61,8 +61,8 @@ type :: snow_layer_type
     real :: dendr ! snow layer densdricity [dim.less number in [0,1] with 0 = Not dendritic]
     real :: age  !< age of snow layer, [days]
     real :: sph  !< snow grain sphericity [number in [0,1] with 1 = spherical grains]
-    real :: wc_em(NTRACERS) !< mass of impurities of each type (array, dim=NTRACERS) - externally mixed only (em) [mg/m2]
-    real :: wc_im(NTRACERS) !< mass of impurities of each type (array, dim=NTRACERS) - internally mixed only (im) [mg/m2]
+    real :: wc_em(N_SNOW_TRACERS) !< mass of impurities of each type (array, dim=N_SNOW_TRACERS) - externally mixed only (em) [mg/m2]
+    real :: wc_im(N_SNOW_TRACERS) !< mass of impurities of each type (array, dim=N_SNOW_TRACERS) - internally mixed only (im) [mg/m2]
 contains
     procedure :: hCap => snow_heat_capacity    !< heat capacity of the layer, J/m2/K
     procedure :: hCon => snow_heat_conductance !< heat conductance of snow, W/m/K
@@ -900,7 +900,7 @@ end function snowpack_avrg_bceq_em
 !> \Internally mixed LAIs content of the snowpack [mg/m2]
 function snowpack_lai_im(s)
   class(snowpack_t), intent(in) :: s
-  real, DIMENSION(NTRACERS) :: snowpack_lai_im
+  real, DIMENSION(N_SNOW_TRACERS) :: snowpack_lai_im
   integer :: k
   snowpack_lai_im = 0.0
   if (s%nlayers>0) then
@@ -914,7 +914,7 @@ end function snowpack_lai_im
 !> \Externally mixed LAIs content of the snowpack [mg/m2]
 function snowpack_lai_em(s)
   class(snowpack_t), intent(in) :: s
-  real, DIMENSION(NTRACERS) :: snowpack_lai_em
+  real, DIMENSION(N_SNOW_TRACERS) :: snowpack_lai_em
   integer :: k
   snowpack_lai_em = 0.0
   if (s%nlayers>0) then
@@ -1585,6 +1585,7 @@ subroutine snowpack_nearsurf_properties(s)
     s%nearsurf_T = 0.0  ! hCap weighted average snow temperature [K]
 
   endif
+  s%nearsurf_bceq_tot = s%nearsurf_bceq_im + s%nearsurf_bceq_em ! concentration [ppm]
 
 end subroutine snowpack_nearsurf_properties
 
@@ -1703,13 +1704,13 @@ subroutine attempt_split_layers(s)
            !!!!!!! because we are defining these as masses [kg/m2], not densities
            s%snow(k)%ws = s%snow(k)%ws * f1
            s%snow(k)%wl = s%snow(k)%wl * f1
-           s%snow(k)%wc_im = s%snow(k)%wc_im * f1 ! vector of size NTRACERS
-           s%snow(k)%wc_em = s%snow(k)%wc_em * f1 ! vector of size NTRACERS
+           s%snow(k)%wc_im = s%snow(k)%wc_im * f1 ! vector of size N_SNOW_TRACERS
+           s%snow(k)%wc_em = s%snow(k)%wc_em * f1 ! vector of size N_SNOW_TRACERS
 
            s%snow(k+1)%ws = s%snow(k+1)%ws * (1.0 - f1)
            s%snow(k+1)%wl = s%snow(k+1)%wl * (1.0 - f1)
-           s%snow(k+1)%wc_im = s%snow(k+1)%wc_im * (1.0 - f1) ! vector of size NTRACERS
-           s%snow(k+1)%wc_em = s%snow(k+1)%wc_em * (1.0 - f1) ! vector of size NTRACERS
+           s%snow(k+1)%wc_im = s%snow(k+1)%wc_im * (1.0 - f1) ! vector of size N_SNOW_TRACERS
+           s%snow(k+1)%wc_em = s%snow(k+1)%wc_em * (1.0 - f1) ! vector of size N_SNOW_TRACERS
            !!!!!!!
         endif
      endif
@@ -1929,7 +1930,7 @@ subroutine merge_layers(s1,s2)
   s2%dendr = (s2%ws * s2%dendr + s1%ws * s1%dendr)/(s1%ws + s2%ws)
   s2%age = (s2%ws * s2%age + s1%ws * s1%age)/(s1%ws + s2%ws)
   old_rho = (s1%ws + s2%ws)/(s1%dz + s2%dz)
-  do it = 1, NTRACERS ! sum impurities masses
+  do it = 1, N_SNOW_TRACERS ! sum impurities masses
     ! s2%wc(it) = s2%wc(it) + s1%wc(it)
     s2%wc_im(it) = s2%wc_im(it) + s1%wc_im(it)
     s2%wc_em(it) = s2%wc_em(it) + s1%wc_em(it)
