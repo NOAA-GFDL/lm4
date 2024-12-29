@@ -1816,15 +1816,21 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   heat2freeze = 0.0 ! all heat is computed wrt solid at freezing termperature
   heatleft = heat - heat2melt
 
+  if(is_watch_point()) then
+     write(*,*)'#### add_liquid_to_layer ::: input'
+     __DEBUG4__(s%dz,s%ws,s%wl,s%T)
+     __DEBUG2__(wl2,T2)
+  endif
+
   if (heatleft > 0.0) then
     ! enough energy to melt everything
     ws3 = 0.0
     wl3 = mass
     T3 = (heatleft)/(ws3*CSW + wl3*CLW) + TFREEZE
 
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer ::: case warm'
-                  endif
+    if(is_watch_point()) then
+       write(*,*)'#### add_liquid_to_layer ::: case warm'
+    endif
 
   else if (heat < heat2freeze) then
     ! resulting temperature will be <= 0.0
@@ -1835,9 +1841,9 @@ subroutine add_liquid_to_layer(s, wl2, T2)
     ! T3 = (heatleft)/(ws3*CSW + wl3*CLW) + TFREEZE
     T3 = (heat)/(ws3*CSW + wl3*CLW) + TFREEZE
 
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer ::: case cold, heat < heat2freeze '
-                  endif
+    if(is_watch_point()) then
+       write(*,*)'#### add_liquid_to_layer ::: case cold, heat < heat2freeze '
+    endif
   else
     ! intermediate case: heat2freeze < heat < heat2melt
     ! layer will be at freezing temperature
@@ -1845,9 +1851,9 @@ subroutine add_liquid_to_layer(s, wl2, T2)
     ! excess heat will be used to melt as much water as possible
     wl3 = heat/HLF
     ws3 = mass - wl3
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer ::: case intermediate'
-                  endif
+    if(is_watch_point()) then
+       write(*,*)'#### add_liquid_to_layer ::: case intermediate, heat2freeze < heat < heat2melt'
+    endif
   endif
 
   ! now update thickness of the new layer
@@ -1855,22 +1861,34 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   ! instead, if there is a net freeze (unlikely, but say we add supercooled water)
   ! assign to the net newly formed solid the density of old snow (350 kg/m3), and do weighted average
   delta_solid = ws3 - original_total_solid
+  if(is_watch_point()) then
+     __DEBUG4__(delta_solid, ws3, original_total_solid,rho_refrozen)
+  endif
+
+!   if (.not.(s%dz>0.0)) then
+!      call land_error_message('add_liquid_to_layer: s%dz = '//string(s%dz)//' < 0',FATAL)
+!   endif
   ! rho_s = s%ws / max(s%dz, 1E-9)
-  rho_s = max(s%ws / s%dz, 10.0)
+  if (s%dz > 0.0) then
+     rho_s = max(s%ws / s%dz, 10.0)
+  else
+     ! slm: This is an arbitrary choice in case the layer thickness is zero.
+     rho_s = rho_refrozen
+  endif
   if (delta_solid > 0.0) then ! net freeze
     dz3 = s%ws / rho_s + delta_solid / rho_refrozen ! sum of layer thickness due to original and newly frozen solid
   else ! net melt
-    dz3 = ws3 / rho_s ! preserve density of initial soild phase
+    dz3 = ws3 / rho_s ! preserve density of initial solid phase
   endif
-    ! dz3 = max(1E-9, dz3)
+  ! dz3 = max(1E-9, dz3)
 
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer'
-                      __DEBUG3__(delta_solid, ws3, original_total_solid)
-                      __DEBUG3__(dz3, rho_s, s%ws)
-                      __DEBUG2__(s%dz, rho_refrozen)
-                      ! write(*,*) "rho_s, s"
-                  endif
+  if(is_watch_point()) then
+     write(*,*)'#### add_liquid_to_layer'
+     __DEBUG3__(delta_solid, ws3, original_total_solid)
+     __DEBUG3__(dz3, rho_s, s%ws)
+     __DEBUG2__(s%dz, rho_refrozen)
+     ! write(*,*) "rho_s, s"
+  endif
   ! finally assign new values to snow layer structure
   s%ws = ws3
   s%wl = wl3
@@ -1883,18 +1901,18 @@ subroutine add_liquid_to_layer(s, wl2, T2)
 
   ! if (  abs(final_heat - heat )> eps ) then
   if (  abs(final_heat - heat )> 1E-4 ) then
-    write(*,*) "-------add liquid to layer:: energy not conserved!------"
-  write(*,*) "heat = ", heat
-  write(*,*) "heat2freeze = ", heat2freeze
-  write(*,*) "heat2melt = ", heat2melt
-  write(*,*) "heatleft = ", heatleft
-    write(*,*) "initial layer: ws, wl, T = ", initws1, initwl1, initT1
-    write(*,*) "liquid to add:, wl_add, T_add = ", wl2, initT2
-    write(*,*) "final values: ws3, wl3, T3:", ws3, wl3, T3
-    write(*,*) "Delta heat = ", final_heat - heat
-    write(*,*) "heat = ", heat
-    write(*,*) "final_heat = ", final_heat
-    call land_error_message( "ERROR in add_liquid_to_layer in snwopack module: energy not conserved!", FATAL)
+     write(*,*) "-------add liquid to layer:: energy not conserved!------"
+     write(*,*) "heat = ", heat
+     write(*,*) "heat2freeze = ", heat2freeze
+     write(*,*) "heat2melt = ", heat2melt
+     write(*,*) "heatleft = ", heatleft
+     write(*,*) "initial layer: ws, wl, T = ", initws1, initwl1, initT1
+     write(*,*) "liquid to add:, wl_add, T_add = ", wl2, initT2
+     write(*,*) "final values: ws3, wl3, T3:", ws3, wl3, T3
+     write(*,*) "Delta heat = ", final_heat - heat
+     write(*,*) "heat = ", heat
+     write(*,*) "final_heat = ", final_heat
+     call land_error_message( "ERROR in add_liquid_to_layer in snwopack module: energy not conserved!", FATAL)
   endif
 
   ! additionally, one could change grain properties due to freeze or melt : optd, sph
