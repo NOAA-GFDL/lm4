@@ -1294,7 +1294,7 @@ subroutine snow_wind_drift_C13(snowpack, dt, Ubar, verbose)
     real SLi ! driftability index
     real rho_i
     real new_rho_i
-    real tau_i
+    real :: tau_ir ! reciprocal to tau_i (time scale of drift?)
     real Gamma_i_drift
     real pseudo_zi
     real dt_hours
@@ -1346,16 +1346,17 @@ subroutine snow_wind_drift_C13(snowpack, dt, Ubar, verbose)
             ! For snow layer i
             ! characteristic time for snow grain change due to wind drift
             Gamma_i_drift = max(0.0, SLi * exp ( - pseudo_zi / 0.1))
-            tau_i = tau_48h/Gamma_i_drift
+!             tau_i = tau_48h/Gamma_i_drift
+            tau_ir = Gamma_i_drift/tau_48h ! reciprocal to tau_i, to avoid division by zero
 
             ! VIONNET 2012 - dgs and dd deprecated
             if (.not.is_dendritic) then
-                ds = dt_hours * (1.0-snowpack%snow(il)%sph)/tau_i
+                ds = dt_hours * (1.0-snowpack%snow(il)%sph)*tau_ir
                 ! dgs = dt_hours * 5.0*10.0**(-4)/tau_i
                 ! dd = 0.0
             else
                 ! dd = dt_hours * snowpack%snow(il)%d / 2.0 / tau_i
-                ds = dt_hours * (1.0 - snowpack%snow(il)%sph)/tau_i
+                ds = dt_hours * (1.0 - snowpack%snow(il)%sph)*tau_ir
             endif
 
             ! ! CARMAGNOLA 2013 - alpha = 1E-4
@@ -1374,20 +1375,20 @@ subroutine snow_wind_drift_C13(snowpack, dt, Ubar, verbose)
             ! CARMAGNOLA 2013 - alpha = 1E-4 - REVISED
             ! sph = snowpack%snow(il)%s
             ! is_dendritic = snowpack%snow(il)%dopt < 1E-4 * (4.0 - sph)
-            ds = dt_hours * (1.0 - snowpack%snow(il)%sph)/tau_i
+            ds = dt_hours * (1.0 - snowpack%snow(il)%sph)*tau_ir
             if (.not.is_dendritic) then
-                ddopt = -2.0 * 1E-4 * sph * dt_hours *( 1.0 - sph ) / tau_i ! unchanged, was ok
+                ddopt = -2.0 * 1E-4 * sph * dt_hours *( 1.0 - sph ) * tau_ir ! unchanged, was ok
             else
                 ! dendricity from dopt and s
                 den = den_from_dopt(sph, dopt)
-                term_a = den * (sph - 3.0) / 2.0 / tau_i ! was ok
-                term_b = (1.0 - sph) / tau_i * (den - 1.0)
+                term_a = den * (sph - 3.0) / 2.0 * tau_ir ! was ok
+                term_b = (1.0 - sph) * tau_ir * (den - 1.0)
                 ddopt = 1E-4 * dt_hours * ( term_a + term_b )
             endif
 
             ! update now density (i.e. vertical dim. now)
             ! note: this modifies the vertical z profile of the snowpack
-            drho = dt_hours * (rho_max - rho_i) / tau_i
+            drho = dt_hours * (rho_max - rho_i) * tau_ir
             new_rho_i = rho_i + drho
             new_rho_i = max(min(rho_max, new_rho_i), rho_min)
             ! apply constraints - soild snow density
@@ -1453,7 +1454,7 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
     real SLi ! driftability index
     real rho_i
     real new_rho_i
-    real tau_i
+    real :: tau_ir ! tau_ir is reciprocal to tau_i (time scale of drift?)
     real Gamma_i_drift
     real pseudo_zi
     real dt_hours
@@ -1506,22 +1507,23 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
             ! For snow layer i
             ! characteristic time for snow grain change due to wind drift
             Gamma_i_drift = max(0.0, SLi * exp ( - pseudo_zi / 0.1))
-            tau_i = tau_48h/Gamma_i_drift
+            ! tau_i = tau_48h/Gamma_i_drift
+            tau_ir = Gamma_i_drift/tau_48h
 
-            ds = dt_hours * (1.0 - sph)/tau_i ! POSITIVE
+            ds = dt_hours * (1.0 - sph) * tau_ir ! POSITIVE
             if (.not.is_dendritic) then
-                ddopt = -2.0 * 1E-4 * sph * dt_hours * (1.0 - sph)/tau_i ! NEGATIVE
+                ddopt = -2.0 * 1E-4 * sph * dt_hours * (1.0 - sph) * tau_ir ! NEGATIVE
             else
                 ! dendricity from dopt and s
                 ! den = den_from_dopt(sph, dopt)
-                term_a = - dendr * (sph - 3.0) / 2.0 / tau_i
-                term_b = (1.0 - sph) / tau_i * (dendr - 1.0)
+                term_a = - dendr * (sph - 3.0) / 2.0 * tau_ir
+                term_b = (1.0 - sph) * tau_ir * (dendr - 1.0)
                 ddopt = 1E-4 * dt_hours * ( term_a + term_b )
             endif
 
             ! if actually dendritic, update dendriticy:
             if (snowpack%snow(il)%dendr > 1E-7 ) then
-                ddendr = - dendr/2.0/tau_i * dt_hours
+                ddendr = - dendr/2.0 * tau_ir * dt_hours
             else
                 ddendr = 0.0
             endif
@@ -1530,7 +1532,7 @@ subroutine snow_wind_drift(snowpack, dt, Ubar, verbose)
 
             ! update now density (i.e. vertical dim. now)
             ! note: this modifies the vertical z profile of the snowpack
-            drho = dt_hours * (rho_max - rho_i) / tau_i
+            drho = dt_hours * (rho_max - rho_i) * tau_ir
             drho = max(0.0, drho)
             new_rho_i = rho_i + drho
             new_rho_i = max(min(rho_max, new_rho_i), rho_min)
@@ -3750,7 +3752,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     if(is_watch_point()) then
         write(*,*)'#### Snow step 2 : after snow liquid balance ####'
         write(*,*) "vegn_lprec, vegn_hlprec, ltprec = ", vegn_lprec, vegn_hlprec, ltprec
-        write(*,*) "snow_lprec * HLF, snow_hlprec1, snow_hlprec2, snow_hlprec1+snow_hlprec2 = ",snow_lprec * HLF, snow_hlprec1, snow_hlprec2, snow_hlprec1+snow_hlprec2 ! should include HLF here
+!         write(*,*) "snow_lprec * HLF, snow_hlprec1, snow_hlprec2, snow_hlprec1+snow_hlprec2 = ",snow_lprec * HLF, snow_hlprec1, snow_hlprec2, snow_hlprec1+snow_hlprec2 ! should include HLF here
     !   call s%print()
     endif
 
