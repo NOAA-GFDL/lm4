@@ -8,7 +8,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
        string, FATAL, WARNING, NOTE
 use land_data_mod,  only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message
+use land_debug_mod, only : is_watch_point, land_error_message, check_var_range
 use land_constants_mod, only : NBANDS
 use constants_mod,  only : tfreeze, hlv, hlf, PI, dens_h2o
 
@@ -185,12 +185,13 @@ integer, parameter :: &
 contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 !> initialize optimal layer thickness calculations
-! initialization sets up data arrays for calculation of z(layer) and its inverse layer(z),
+! Initialization sets up data arrays for calculation of z(layer) and its inverse layer(z),
 ! where "layer" is a real number, not an integer. these functions are used to calculate
 ! optimal thickness of layers for any given depth within the snowpack.
-!       the thickness of the lowest layer can be increased with total snowpack depth,
-!       since we do not expect it to matter when the snow is very deep (and therefore
-!       likely to be in equilibrium with underlying substrate)
+!
+! The thickness of the lowest layer can be increased with total snowpack depth,
+! since we do not expect it to matter when the snow is very deep (and therefore
+! likely to be in equilibrium with underlying substrate)
 subroutine dzopt_init(dzopt, depth)
   class(dzopt_t), intent(inout) :: dzopt
   real,           intent(in)    :: depth !< snow depth
@@ -210,13 +211,35 @@ subroutine dzopt_init(dzopt, depth)
     allocate(dzopt%l( size(opt_layer_z) )) !< layer number corresponding to layer boundaries
   endif
 
+  if (depth<=0.0) then
+     ! for zero-depth snow, just create a dummy distribution of optimal layers so
+     ! that dzopt%depth(L) and dzopt%layer(Z) return something
+     dzopt%n = 2
+     dzopt%z(1) = 0.0; dzopt%z(2) = 1.0e-6 ! slm: this small value sets up a very steep L(Z) slope; is this a problem?
+     dzopt%l(1) = 0.0; dzopt%l(2) = 1.0
+     if (is_watch_point()) then
+        write(*,*) "#### dzopt_init: zero snow depth ####"
+        __DEBUG1__(depth)
+        call dzopt%print()
+     endif
+     return
+  endif
 
   dzopt%z(:) = opt_layer_z(:)
   dzopt%l(:) = [(float(k-1), k=1,size(opt_layer_z))]
   dzopt%n    = size(opt_layer_z)
 
-  d1 = depth - opt_layer_N ! depth to the near-soil layer
+  d1 = depth - opt_layer_N  ! depth to the near-soil layer
+  d1 = max(d1,opt_layer(1)) ! to avoid division by zero for snow thinner
+                            ! than opt_layer(1)/2-opt_layer_N
   k = bisect(dzopt%z(:), d1)
+
+  if (is_watch_point()) then
+     write(*,*) "#### dzopt_init 1 ####"
+     __DEBUG4__(depth,d1,opt_layer_N,k)
+!      call dzopt%print()
+  endif
+
   if (opt_layer(k)<=opt_layer_N) then
       ! bottom layer is thin enough as it is
       dzopt%n = k+2
@@ -230,9 +253,20 @@ subroutine dzopt_init(dzopt, depth)
       endif
       dzopt%z(:) = dzopt%z(:)*scale
 
-      ! add a thin layer at the bottom
-      dzopt%z(k+1) = depth
-      dzopt%n      = k+1
+      if(depth > dzopt%z(k)) then
+         ! add a thin layer at the bottom
+         dzopt%z(k+1) = depth
+         dzopt%n      = k+1
+      else
+         dzopt%n      = k
+      endif
+  endif
+
+  if (is_watch_point()) then
+     write(*,*) "#### dzopt_init 2 ####"
+     __DEBUG1__(scale)
+     __DEBUG4__(depth,d1,opt_layer_N,k)
+     call dzopt%print()
   endif
 end subroutine dzopt_init
 
@@ -1966,15 +2000,41 @@ subroutine attempt_merge_layers(s)
   type(dzopt_t) :: dzopt
   real :: penalty0, penalty1
   integer :: k, k1, i
+
+  if(is_watch_point()) then
+     write(*,*) '#### attempt_merge_layers input'
+     do i = 1,s%nlayers
+        write(*,'(i2.2)', advance='NO') i
+        call dpri('dz',s%snow(i)%dz)
+        call dpri('sph',s%snow(i)%sph)
+        call dpri('optd',s%snow(i)%optd)
+        call dpri('density',s%snow(i)%density())
+        write(*,*)
+     enddo
+  endif
+
   call dzopt%init(s%depth())
 
+  if(is_watch_point()) then
+     write(*,*) '#### attempt_merge_layers loop'
+  endif
   z = 0; k = 1
   do while (k < s%nlayers) ! while loop because s%nlayers changes inside
      dz_opt = dzopt%dz(z)
      k1 = k+1 ; z1 = z+s%snow(k)%dz ! index and depth for the next step
+     if (is_watch_point()) then
+        write(*,'(i2.2)', advance='NO') k
+        call dpri('dz',s%snow(k)%dz)
+        __DEBUG___(z1)
+        __DEBUG___(dz_opt)
+     endif
      if (s%snow(k)%dz < dz_opt .and. layers_can_be_merged(s%snow(k), s%snow(k+1))) then
         penalty0 = dzopt%penalty([z, z+s%snow(k)%dz, z+s%snow(k)%dz+s%snow(k+1)%dz])
         penalty1 = dzopt%penalty([z,                 z+s%snow(k)%dz+s%snow(k+1)%dz])
+        if (is_watch_point()) then
+           __DEBUG___(penalty0)
+           __DEBUG___(penalty1)
+        endif
         if (penalty1 < penalty0) then
            call merge_layers(s%snow(k+1), s%snow(k))
            do i = k+1, s%nlayers-1
@@ -1984,8 +2044,23 @@ subroutine attempt_merge_layers(s)
            k1 = k ; z1 = z ! do next step with the same layer, except with increased thickness
         endif
      endif
+     if (is_watch_point()) then
+        write(*,*)
+     endif
      k = k1; z = z1
   enddo
+
+  if(is_watch_point()) then
+     write(*,*) '#### attempt_merge_layers end'
+     do i = 1,s%nlayers
+        write(*,'(i2.2)', advance='NO') i
+        call dpri('dz',s%snow(i)%dz)
+        call dpri('sph',s%snow(i)%sph)
+        call dpri('optd',s%snow(i)%optd)
+        call dpri('density',s%snow(i)%density())
+        write(*,*)
+     enddo
+  endif
 end subroutine attempt_merge_layers
 
 
