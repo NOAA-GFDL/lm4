@@ -24,7 +24,6 @@ public :: merge_layers
 ! public :: merge_phases
 public :: add_liquid_to_layer
 public :: snowpack_init
-public :: read_snowpack_namelist
 public :: compute_snow_grain_shape
 public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
@@ -57,8 +56,8 @@ type :: snow_layer_type
     real :: ws !< solid phase water, kg/m2 # EZ: changed from density to mass/area
     real :: wl !< liquid phase water, kg/m2 # EZ: changed from density to mass/area
     real :: dz !< layer thickness, m
-    real :: optd ! snow optical diameter [m] [Carmagnola et al., 2013, Flanner and Zender 2006]
-    real :: dendr ! snow layer densdricity [dim.less number in [0,1] with 0 = Not dendritic]
+    real :: optd  !< snow optical diameter [m] [Carmagnola et al., 2013, Flanner and Zender 2006]
+    real :: dendr !< snow layer densdricity [dim.less number in [0,1] with 0 = Not dendritic]
     real :: age  !< age of snow layer, [days]
     real :: sph  !< snow grain sphericity [number in [0,1] with 1 = spherical grains]
     real :: wc_em(N_SNOW_TRACERS) !< mass of impurities of each type (array, dim=N_SNOW_TRACERS) - externally mixed only (em) [mg/m2]
@@ -163,9 +162,9 @@ real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
 real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 ! real :: opt_layer(MAX_OPT_LAYERS) = [0.01, (-1.0,i=2,MAX_OPT_LAYERS)] !< prescribed layer thicknesses
-logical :: lap_albedo_include_bc = .TRUE.
-logical :: lap_albedo_include_md = .TRUE.
-logical :: lap_albedo_include_om = .TRUE.
+logical, protected :: lap_albedo_include_bc = .TRUE.
+logical, protected :: lap_albedo_include_md = .TRUE.
+logical, protected :: lap_albedo_include_om = .TRUE.
 character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
 
 namelist /snowpack_nml/ &
@@ -188,9 +187,10 @@ contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 ! initialization sets up data arrays for calculation of z(layer) and its inverse layer(z),
 ! where "layer" is a real number, not an integer. these functions are used to calculate
 ! optimal thickness of layers for any given depth within the snowpack.
-!       the thickness of the lowest layer can be increased with total snowpack depth,
-!       since we do not expect it to matter when the snow is very deep (and therefore
-!       likely to be in equilibrium with underlying substrate)
+!
+! NOTE: the thickness of the lowest layer can be increased with total snowpack depth,
+! since we do not expect it to matter when the snow is very deep (and therefore
+! likely to be in equilibrium with underlying substrate)
 subroutine dzopt_init(dzopt, depth)
   class(dzopt_t), intent(inout) :: dzopt
   real,           intent(in)    :: depth !< snow depth
@@ -330,17 +330,21 @@ subroutine dzopt_print(dzopt)
   enddo
 end subroutine dzopt_print
 
-subroutine read_snowpack_namelist()
+!> initialize snowpack module, in particular read namelist parameters
+! version for lm4p2
+subroutine snowpack_init()
   ! ---- local vars
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: l            ! layer iterator
+  character(256) :: msg   ! namelist error message text
+  integer :: k, n
+  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=snowpack_nml, iostat=io)
-  ierr = check_nml_error(io, 'snowpack_nml')
+  read (input_nml_file, nml=snowpack_nml, iostat=io, iomsg=msg)
+  ierr = check_nml_error(io, 'snowpack_nml :: '//trim(msg))
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=snowpack_nml)
@@ -357,44 +361,12 @@ subroutine read_snowpack_namelist()
         'heat_cond_to_use='//trim(heat_cond_to_use)//' in snowpack_nml in incorrect: valid options are "Cal", "vapor", or "Yen"', FATAL)
   endif
 
-  ! write(*,*) "after reading snowpack nml:"
-  ! write(*,*) "version = ", version
-  ! write(*,*) "module_name = ", module_name
-  ! write(*,*)  "opt_layer_N" ,  opt_layer_N
-  ! write(*,*)  "opt_layer_R" ,  opt_layer_R
-  ! write(*,*)  "opt_layer_max" ,  opt_layer_max
-! real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
-! ! real :: opt_layer_N   = 0.01 !< thickness of the bottom layer, m
-! real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
-! ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
-! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
-
-end subroutine read_snowpack_namelist
-
-
-!> initialize snowpack module, in particular read namelist parameters
-! version for lm4p2
-subroutine snowpack_init()
-  integer i
-  integer :: io, k, n
-  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
-
-  ! EZSNOW: uncomment for reading nml
-  ! open (701, file='nml/input.nml')
-  ! read (701, snowpack_nml, iostat=io)
-  ! if (io /= 0) stop 'Error reading input namelist "snowpack_nml"'
-  ! close (701)
-  ! write(*,snowpack_nml)
-  ! call read_snowpack_namelist()
-
-
-
   !!! ------ EZSNOW : made these allocatable ------ !!!
   ! allocate(z(MAX_OPT_LAYERS+1)) !< boundaries of the layers, m
   ! allocate(l(MAX_OPT_LAYERS+1)) !< layer number corresponding to layer boundaries
   allocate(opt_layer(MAX_OPT_LAYERS))  !< prescribed layer thicknesses
   allocate(opt_layer_z(MAX_OPT_LAYERS+1)) !< lower boundary of optimal layers, m
-  opt_layer = [0.05, (-1.0,i=2,MAX_OPT_LAYERS)] !< start assigning prescribed layer thicknesses
+  opt_layer = [0.05, (-1.0,k=2,MAX_OPT_LAYERS)] !< start assigning prescribed layer thicknesses
   !!! ---------------------------------------------- !!!
 
   ! initialize optimal layer distribution for infinite lower bound
