@@ -149,7 +149,7 @@ end type dzopt_t
 ! ---- namelist
 ! integer i
 real :: opt_layer_top = 0.05 !< thickness of the top optimal layer, m
-real :: opt_layer_N   = 0.03 !< thickness of the bottom optimal layer, m
+real :: opt_layer_bot = 0.03 !< thickness of the optimal layer at the bottom of the snowpack, m
 real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
 logical, protected :: lap_albedo_include_bc = .TRUE.
@@ -158,7 +158,7 @@ logical, protected :: lap_albedo_include_om = .TRUE.
 character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
 
 namelist /snowpack_nml/ &
-         opt_layer_top, opt_layer_R, opt_layer_N, opt_layer_max, heat_cond_to_use, &
+         opt_layer_top, opt_layer_R, opt_layer_bot, opt_layer_max, heat_cond_to_use, &
          lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
 
 ! ---- end of namelist
@@ -217,10 +217,10 @@ subroutine dzopt_init(dzopt, depth)
   ! scale the optimal layer depths so that the given snow depth covers the
   ! integer number of them -- possibly including a thin layer at the bottom
   ! added to better resolve gradients at the soil-snow interface
-  d1 = depth - opt_layer_N ! depth to the top of the near-soil layer
+  d1 = depth - opt_layer_bot ! depth to the top of the near-soil layer
   k  = bisect(dzopt%z(:), d1)
   dz = dzopt%z(k+1) - dzopt%z(k) ! thickness of optimal layer at the depth d1
-  if (dz<=opt_layer_N) then
+  if (dz<=opt_layer_bot) then
       ! bottom layer is thin enough as it is
       dzopt%n = k+2
   else
@@ -367,10 +367,13 @@ subroutine snowpack_init()
   ! check optimal layer parameters for sanity
   if (.not. opt_layer_top>0.0) call error_mesg('snowpack_init', &
        'opt_layer_top ='//string(opt_layer_top)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
-  if (.not. opt_layer_N>0.0) call error_mesg('snowpack_init', &
-       'opt_layer_N ='//string(opt_layer_N)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
-  if (.not. opt_layer_R>0.0) call error_mesg('snowpack_init', &
-       'opt_layer_R ='//string(opt_layer_R)//' in snowpack_nml in invalid: must be > 0.0, and typically > 1.0', FATAL)
+  if (.not. opt_layer_bot>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_bot ='//string(opt_layer_bot)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
+  if (.not. opt_layer_R>=1.0) call error_mesg('snowpack_init', &
+       'opt_layer_R ='//string(opt_layer_R)//' in snowpack_nml in invalid: must be >= 1.0'// &
+       ' for the thickness of layers to increase with depth', FATAL)
+  if (.not. opt_layer_max>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_max ='//string(opt_layer_max)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
 
 end subroutine snowpack_init
 
