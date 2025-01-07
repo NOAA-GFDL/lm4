@@ -40,6 +40,8 @@ public :: do_mgimplicit
 public :: albedo_option, ALBEDO_SNICAR
 public :: thresh_snow_depth_swheat
 public :: assign_substrate_sw_to_surface
+public :: glass_distinct_snow_on_glacier
+public :: glacier_nir_albedo_correction
 
 
 
@@ -158,6 +160,8 @@ real :: depth_surface_T_corr = 0.2
 real :: thresh_snow_depth_swheat = 0.05 ! snow depth threshold [m] above which internal sw heat sources are computed
 logical :: assign_substrate_sw_to_surface = .FALSE.
 real :: min_fresh_density = 50.0 ! [kg/m3] minimum density for newly formed snow layers
+logical :: glass_distinct_snow_on_glacier = .FALSE.
+real :: glacier_nir_albedo_correction = 0.15
 
 namelist /snow_evolution_nml/ &
          do_compaction, do_metamorph, do_wind_drift, do_split, do_merge, &
@@ -165,7 +169,8 @@ namelist /snow_evolution_nml/ &
          min_snow_mass, min_snow_depth, max_snow, prevent_tiny_snow, do_mgimplicit, &
          metamor_model, file_data_F06, wlmax_to_use, albedo_to_use, &
          albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, &
-         thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
+         thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density, &
+         glass_distinct_snow_on_glacier, glacier_nir_albedo_correction
 ! ---- end of namelist
 
 ! ---- module data
@@ -2774,6 +2779,13 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
           ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
           call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
       end select
+
+         ! apply correction for NIR snow albedo if above glacier:
+         if (glass_distinct_snow_on_glacier .and. on_glacier) then
+         s%snow_refl_dir(2) = min(1.0, s%snow_refl_dir(2) + glacier_nir_albedo_correction)
+         s%snow_refl_dif(2) = min(1.0, s%snow_refl_dif(2) + glacier_nir_albedo_correction)
+
+         endif
          ! TODO: compute these from crocus regardless of the albedo model chosen
          snow_refl_dif = s%snow_refl_dif ! arrays of size 2 = (VIS, NIR)
          snow_refl_dir = s%snow_refl_dir ! arrays of size 2 = (VIS, NIR)

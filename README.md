@@ -26,3 +26,8 @@ Here it was updated
 
 There is a change in namelist: use_mcm_masking, depth_crit, csw, clw, cpw are now in snowpack_nml
 
+# version Jan 6 2025:
+# branching out from 
+# add an albedo modification for snow over glaciers, similar to the albedo change by Chris Milly
+# decrease snow NIR albedo of the same amount as in Milly snow scheme.
+
