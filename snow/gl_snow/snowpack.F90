@@ -133,18 +133,8 @@ end type snowpack_t
 character(len=*), parameter :: module_name = 'snowpack_mod' ! lm4p2
 #include "../../shared/version_variable.inc"
 
-
-
-!> optimal snowpack layer distribution and associated calculations
-integer, parameter :: MAX_OPT_LAYERS = 32
-! EZSNOW: made this allocatable
-real, ALLOCATABLE :: opt_layer(:)   !< prescribed layer thicknesses
-real, ALLOCATABLE :: opt_layer_z(:) !< lower boundary of optimal layers, m
-
 type :: dzopt_t
     integer :: n ! number of elements of z, l
-    ! real :: z(MAX_OPT_LAYERS+1) !< boundaries of the layers, m
-    ! real :: l(MAX_OPT_LAYERS+1) !< layer number corresponding to layer boundaries
     real, ALLOCATABLE :: z(:) !< boundaries of the layers, m
     real, ALLOCATABLE :: l(:) !< layer number corresponding to layer boundaries
 contains
@@ -158,17 +148,17 @@ end type dzopt_t
 
 ! ---- namelist
 ! integer i
-real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
+real :: opt_layer_top = 0.05 !< thickness of the top optimal layer, m
+real :: opt_layer_bot = 0.03 !< thickness of the optimal layer at the bottom of the snowpack, m
 real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
-! real :: opt_layer(MAX_OPT_LAYERS) = [0.01, (-1.0,i=2,MAX_OPT_LAYERS)] !< prescribed layer thicknesses
 logical, protected :: lap_albedo_include_bc = .TRUE.
 logical, protected :: lap_albedo_include_md = .TRUE.
 logical, protected :: lap_albedo_include_om = .TRUE.
 character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
 
 namelist /snowpack_nml/ &
-         opt_layer_R, opt_layer_N, opt_layer_max, heat_cond_to_use, &
+         opt_layer_top, opt_layer_R, opt_layer_bot, opt_layer_max, heat_cond_to_use, &
          lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
 
 ! ---- end of namelist
@@ -179,8 +169,6 @@ integer, parameter :: &
     HEAT_COND_VAPOR = 2, &
     HEAT_COND_YEN   = 3
 
-! real :: opt_layer_z(MAX_OPT_LAYERS+1) ! lower boundary of optimal layers, m
-
 contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 !> initialize optimal layer thickness calculations
@@ -188,34 +176,45 @@ contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 ! where "layer" is a real number, not an integer. these functions are used to calculate
 ! optimal thickness of layers for any given depth within the snowpack.
 !
-! NOTE: the thickness of the lowest layer can be increased with total snowpack depth,
+! TODO: the thickness of the lowest layer can be increased with total snowpack depth,
 ! since we do not expect it to matter when the snow is very deep (and therefore
 ! likely to be in equilibrium with underlying substrate)
 subroutine dzopt_init(dzopt, depth)
   class(dzopt_t), intent(inout) :: dzopt
   real,           intent(in)    :: depth !< snow depth
 
-  real :: dz, d1, scale
-  integer :: k
+  real    :: dz, d1, scale, z
+  integer :: k, n
 
-  if (.not. allocated(dzopt%z)) allocate(dzopt%z(size(opt_layer_z)))
-  if (.not. allocated(dzopt%l)) allocate(dzopt%l(size(opt_layer_z)))
+  ! Determine the number of layers needed for a given depth, so that the entire
+  ! snowpack is covered by the array of optimal layers:
+  z = 0.0; dz = opt_layer_top; n = 1
+  do
+     z  = z + dz
+     n  = n + 1
+     if (z > depth) exit ! from loop
+     dz = min(dz*opt_layer_R, opt_layer_max)
+  enddo
+  ! z > depth, and n is at least 2
 
-  call update_dzopt_size(depth)
-  ! write(*,*) "size(opt_layer_z), size(dzopt%z))", size(opt_layer_z), size(dzopt%z)
-  if(size(opt_layer_z)>size(dzopt%z)) then
-    deallocate(dzopt%z)
-    deallocate(dzopt%l)
-    allocate(dzopt%z( size(opt_layer_z) )) !< boundaries of the layers, m
-    allocate(dzopt%l( size(opt_layer_z) )) !< layer number corresponding to layer boundaries
-  endif
+  ! allocate storage
+  dzopt%n = n+1 ! reserve space for one more layers in case a thin layer at the bottom
+                ! needs to be inserted
+  if (allocated(dzopt%z).or.allocated(dzopt%l)) &
+       call land_error_message('dzopt_init :: arrays "z" and/or "l" are already allocated', FATAL)
+  allocate(dzopt%z(dzopt%n)) ! boundaries of the layers, m
+  allocate(dzopt%l(dzopt%n)) ! layer number corresponding to layer boundaries
+
+  ! initialize depths of optimal layer tops and layer numbers: calculation of layer
+  ! boundaries must be exactly the same as above, where the number of layers is estimated
+  dzopt%l(1) = 0.0; dzopt%z(1) = 0.0; dz = opt_layer_top;
+  do k = 2,dzopt%n
+     dzopt%l(k) = k-1
+     dzopt%z(k) = dzopt%z(k-1) + dz
+     dz         = min(dz*opt_layer_R, opt_layer_max)
+  enddo
 
   if (depth<=0.0) then
-     ! for zero-depth snow, just create a dummy distribution of optimal layers so
-     ! that dzopt%depth(L) and dzopt%layer(Z) return something
-     dzopt%n = 2
-     dzopt%z(1) = 0.0; dzopt%z(2) = 1.0e-6 ! slm: this small value sets up a very steep L(Z) slope; is this a problem?
-     dzopt%l(1) = 0.0; dzopt%l(2) = 1.0
      if (is_watch_point()) then
         write(*,*) "#### dzopt_init: zero snow depth ####"
         __DEBUG1__(depth)
@@ -224,30 +223,33 @@ subroutine dzopt_init(dzopt, depth)
      return
   endif
 
-  dzopt%z(:) = opt_layer_z(:)
-  dzopt%l(:) = [(float(k-1), k=1,size(opt_layer_z))]
-  dzopt%n    = size(opt_layer_z)
+  d1 = depth - opt_layer_bot ! depth to the near-soil layer
+  d1 = max(d1,dzopt%z(2))    ! to avoid division by zero for snow thinner
+                             ! than opt_layer(1)/2-opt_layer_bot
+  k = bisect(dzopt%z(:), d1) ! 1 <= k <= size(dzopt%z(:))-1
+  dz = dzopt%z(k+1) - dzopt%z(k) ! thickness of optimal layer at the depth d1
 
-  d1 = depth - opt_layer_N  ! depth to the near-soil layer
-  d1 = max(d1,opt_layer(1)) ! to avoid division by zero for snow thinner
-                            ! than opt_layer(1)/2-opt_layer_N
-  k = bisect(dzopt%z(:), d1)
-
+  ! scale the optimal layer depths so that the given snow depth covers the
+  ! integer number of them -- possibly including a thin layer at the bottom
+  ! added to better resolve gradients at the soil-snow interface
   if (is_watch_point()) then
      write(*,*) "#### dzopt_init 1 ####"
-     __DEBUG4__(depth,d1,opt_layer_N,k)
+     __DEBUG3__(depth,opt_layer_bot,d1)
+     __DEBUG3__(k,   dzopt%z(k),   dzopt%l(k))
+     __DEBUG3__(k+1, dzopt%z(k+1), dzopt%l(k+1))
+     __DEBUG1__(dz)
 !      call dzopt%print()
   endif
 
-  if (opt_layer(k)<=opt_layer_N) then
+  if (dz<=opt_layer_bot) then
       ! bottom layer is thin enough as it is
       dzopt%n = k+2
   else
       ! scale layers to fit integer number in depth
-      if (d1 < opt_layer_z(k)+opt_layer(k)/2) then
-         scale = d1/opt_layer_z(k)
+      if (d1 < (dzopt%z(k)+dzopt%z(k+1))/2) then
+         scale = d1/dzopt%z(k)
       else
-         scale = d1/opt_layer_z(k+1)
+         scale = d1/dzopt%z(k+1)
          k = k+1
       endif
       dzopt%z(:) = dzopt%z(:)*scale
@@ -263,8 +265,7 @@ subroutine dzopt_init(dzopt, depth)
 
   if (is_watch_point()) then
      write(*,*) "#### dzopt_init 2 ####"
-     __DEBUG1__(scale)
-     __DEBUG4__(depth,d1,opt_layer_N,k)
+     __DEBUG2__(scale,depth)
      call dzopt%print()
   endif
 end subroutine dzopt_init
@@ -390,125 +391,22 @@ subroutine snowpack_init()
   else if (trim(lowercase(heat_cond_to_use))=='yen') then
      heat_cond_option = HEAT_COND_YEN
   else
-     call error_mesg('read_snowpack_namelist', &
+     call error_mesg('snowpack_init', &
         'heat_cond_to_use='//trim(heat_cond_to_use)//' in snowpack_nml in incorrect: valid options are "Cal", "vapor", or "Yen"', FATAL)
   endif
 
-  !!! ------ EZSNOW : made these allocatable ------ !!!
-  ! allocate(z(MAX_OPT_LAYERS+1)) !< boundaries of the layers, m
-  ! allocate(l(MAX_OPT_LAYERS+1)) !< layer number corresponding to layer boundaries
-  allocate(opt_layer(MAX_OPT_LAYERS))  !< prescribed layer thicknesses
-  allocate(opt_layer_z(MAX_OPT_LAYERS+1)) !< lower boundary of optimal layers, m
-  opt_layer = [0.05, (-1.0,k=2,MAX_OPT_LAYERS)] !< start assigning prescribed layer thicknesses
-  !!! ---------------------------------------------- !!!
+  ! check optimal layer parameters for sanity
+  if (.not. opt_layer_top>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_top ='//string(opt_layer_top)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
+  if (.not. opt_layer_bot>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_bot ='//string(opt_layer_bot)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
+  if (.not. opt_layer_R>=1.0) call error_mesg('snowpack_init', &
+       'opt_layer_R ='//string(opt_layer_R)//' in snowpack_nml in invalid: must be >= 1.0'// &
+       ' for the thickness of layers to increase with depth', FATAL)
+  if (.not. opt_layer_max>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_max ='//string(opt_layer_max)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
 
-  ! initialize optimal layer distribution for infinite lower bound
-  ! using prescribed thicknesses for the shallow snow depths, and
-  ! limited exponential increase of each sequential layer thickness below
-
-  ! check that there are positive values in layer thickness array
-  n = count(opt_layer(:)>0)
-  if (n == 0) &
-     call land_error_message( 'No positive values in layer thickness array "opt_layer"', FATAL)
-  if (count(opt_layer(1:n)>0) < n) &
-     call land_error_message( 'Positive layer thickness values "opt_layer" are intermingled with negatives', FATAL)
-
-
-
-  opt_layer_z(1) = 0.0
-  do k = 1, size(opt_layer)
-     if (opt_layer(k) > 0) then
-        dz = opt_layer(k)
-     else
-        dz = min(dz*opt_layer_R, opt_layer_max)
-        opt_layer(k) = dz ! store for future use
-     endif
-     opt_layer_z(k+1) = opt_layer_z(k) + dz
-  enddo
-
-  ! Now, add layers in case snowpack is too thick and requires a larger number of optimal layers
-
-  ! write(*,*) """
-
-!   write(*,'(99(i8.2,:,","))') (k, k=1,size(opt_layer))
-!   write(*,'(99(f8.3,:,","))') opt_layer
 end subroutine snowpack_init
-
-! if snowpack is too thick, increase number of layers in dzopt
-subroutine update_dzopt_size(snow_depth)
-  real snow_depth
-  integer i
-  integer :: io, k, n
-  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
-  integer :: NEW_OPT_LAYERS
-  integer cuml
-  real cumz
-
-
-  ! write(*,*) "update dzopt size: depth, opt_layer_z = ", snow_depth, opt_layer_z
-  if (snow_depth > opt_layer_z(size(opt_layer_z)-1)) then
-
-  ! write(*,*) "updating the size of opt_layer_z array ..."
-
-
-    !!! ------ Determine new number of layers needed for dzopt
-    cumz = opt_layer_z(size(opt_layer_z)) ! max depth in opt layer z, bottom of opt snowpack
-    cuml = size(opt_layer) ! current maximum number of layers in optimum snowpack
-    dz = opt_layer(size(opt_layer)) ! current optimal thickness of bottom opt layer
-    do while(cumz<snow_depth)
-      dz = min(dz*opt_layer_R, opt_layer_max)
-      cumz = cumz + dz
-      cuml = cuml + 1
-    enddo
-
-    !!! ------ Now cuml is the new number of layers needed
-    !!! add 5 to reduce the number of times the arrays need to be allocated
-    NEW_OPT_LAYERS = cuml + 5
-
-    !!! ------ EZSNOW : made these allocatable ------ !!!
-    ! deallocate(dzopt%z)
-    ! deallocate(dzopt%l)
-    deallocate(opt_layer)
-    deallocate(opt_layer_z)
-    ! allocate(dzopt%z(NEW_OPT_LAYERS+1)) !< boundaries of the layers, m
-    ! allocate(dzopt%l(NEW_OPT_LAYERS+1)) !< layer number corresponding to layer boundaries
-    allocate(opt_layer(NEW_OPT_LAYERS))  !< prescribed layer thicknesses
-    allocate(opt_layer_z(NEW_OPT_LAYERS+1)) !< lower boundary of optimal layers, m
-    opt_layer = [0.05, (-1.0,i=2,NEW_OPT_LAYERS)] !< start assigning prescribed layer thicknesses
-    !!! ---------------------------------------------- !!!
-
-    ! initialize optimal layer distribution for infinite lower bound
-    ! using prescribed thicknesses for the shallow snow depths, and
-    ! limited exponential increase of each sequential layer thickness below
-
-    ! check that there are positive values in layer thickness array
-    n = count(opt_layer(:)>0)
-    if (n == 0) &
-      call land_error_message( 'No positive values in layer thickness array "opt_layer"', FATAL)
-    if (count(opt_layer(1:n)>0) < n) &
-      call land_error_message( 'Positive layer thickness values "opt_layer" are intermingled with negatives', FATAL)
-
-    opt_layer_z(1) = 0.0
-    do k = 1, size(opt_layer)
-      if (opt_layer(k) > 0) then
-          dz = opt_layer(k)
-      else
-          dz = min(dz*opt_layer_R, opt_layer_max)
-          opt_layer(k) = dz ! store for future use
-      endif
-      opt_layer_z(k+1) = opt_layer_z(k) + dz
-    enddo
-
-  endif
-
-  if (opt_layer_z(size(opt_layer_z))< snow_depth) then
-      write(*, * ) "Optimal layer thickness distribution error: snow depth = ", snow_depth
-      write(*, * ) "Optimal layer thickness distribution error: NEW_OPT_LAYERS  = ", NEW_OPT_LAYERS
-      call land_error_message("Optimal layer thickness distribution is not thick enough for given snow depth", FATAL)
-  endif
-
-end subroutine update_dzopt_size
-
 
 !> update age of existing snow layers [in days]
 subroutine snowpack_update_age(s, dt)
