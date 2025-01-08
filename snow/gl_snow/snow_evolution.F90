@@ -158,6 +158,9 @@ real :: depth_surface_T_corr = 0.2
 real :: thresh_snow_depth_swheat = 0.05 ! snow depth threshold [m] above which internal sw heat sources are computed
 logical :: assign_substrate_sw_to_surface = .FALSE.
 real :: min_fresh_density = 50.0 ! [kg/m3] minimum density for newly formed snow layers
+real :: glacier_nir_albedo_correction = 0.0 ! albedo correction applied over the glaciers
+     ! Set it to 0.15 to (roughly) match Antarctic albedo correction used to mitigate
+     ! ocean's Weddel Sea polynya problem
 
 namelist /snow_evolution_nml/ &
          do_compaction, do_metamorph, do_wind_drift, do_split, do_merge, &
@@ -165,7 +168,8 @@ namelist /snow_evolution_nml/ &
          min_snow_mass, min_snow_depth, max_snow, prevent_tiny_snow, do_mgimplicit, &
          metamor_model, file_data_F06, wlmax_to_use, albedo_to_use, &
          albedo_correction_to_use, correct_surface_T, depth_surface_T_corr, &
-         thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density
+         thresh_snow_depth_swheat, assign_substrate_sw_to_surface, min_fresh_density, &
+         glacier_nir_albedo_correction
 ! ---- end of namelist
 
 ! ---- module data
@@ -2753,14 +2757,6 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
       s%beta_rad(BAND_VIS) = -9999.9
       s%beta_rad(BAND_NIR) = -9999.9
   else
-      ! write(*,*) "compute snow albedo:"
-      ! write(*,*) "albedo_to_use = ", albedo_to_use
-      ! write(*,*) "albedo_correction_to_use = ", albedo_correction_to_use
-
-      ! if (albedo_correction_to_use == 'HE') then
-      !     call land_error_message("ERROR compute_snow_albedo in snow_evolution module: LAI Albedo correction still needs to be implemented!", FATAL)
-      ! endif
-
       call compute_beta_rad_crocus(s, p_atm) ! first call is used only for the light penetration depth
       select case (albedo_option)
       case (ALBEDO_BRDF)
@@ -2773,21 +2769,25 @@ subroutine gl_compute_snow_albedo(s, snow_T, cosz, on_glacier, p_atm, subs_refl_
       case (ALBEDO_SNICAR)
           call compute_snicar_albedo(s, cosz, subs_refl_dif) ! add to it cos dependence through modified snow grain?
       case default
-          ! error stop "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!"
-          call land_error_message( "ERROR compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
+          call land_error_message( "compute_snow_albedo in snow_evolution module: Must specify a valid albedo model!", FATAL)
       end select
-         ! TODO: compute these from crocus regardless of the albedo model chosen
-         snow_refl_dif = s%snow_refl_dif ! arrays of size 2 = (VIS, NIR)
-         snow_refl_dir = s%snow_refl_dir ! arrays of size 2 = (VIS, NIR)
 
-     if (is_watch_point()) then
-         write(*,*) "snow  - gl_compute_snow_albedo:: computed albedo values:"
-         write(*,*) "albedo_to_use = ", albedo_to_use
-         write(*,*) "albedo_correction_to_use = ", albedo_correction_to_use
-         write(*,*) snow_refl_dif
-         write(*,*) snow_refl_dir
-         write(*,*) s%beta_rad
-     endif
+      ! apply correction for NIR snow albedo if above glacier:
+      if (on_glacier) then
+         s%snow_refl_dir(BAND_NIR) = max(0.0, min(1.0, s%snow_refl_dir(BAND_NIR) + glacier_nir_albedo_correction))
+         s%snow_refl_dif(BAND_NIR) = max(0.0, min(1.0, s%snow_refl_dif(BAND_NIR) + glacier_nir_albedo_correction))
+      endif
+
+      ! TODO: compute these from crocus regardless of the albedo model chosen
+      snow_refl_dif = s%snow_refl_dif ! arrays of size 2 = (VIS, NIR)
+      snow_refl_dir = s%snow_refl_dir ! arrays of size 2 = (VIS, NIR)
+
+      if (is_watch_point()) then
+          write(*,*) "### gl_compute_snow_albedo:: computed albedo values:"
+          __DEBUG1__(snow_refl_dif)
+          __DEBUG1__(snow_refl_dir)
+          __DEBUG1__(s%beta_rad)
+      endif
   endif
 
 end subroutine gl_compute_snow_albedo
