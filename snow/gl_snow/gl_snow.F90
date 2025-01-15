@@ -17,7 +17,7 @@ use land_tile_io_mod, only: land_restart_type, &
 
 use snow_tile_mod, only : read_snow_data_namelist, csw
 use gl_snow_tile_mod, only: gl_snow_tile_type, gl_snow_diag_init
-use snowpack_mod, only: snow_layer_type, snowpack_init, read_snowpack_namelist
+use snowpack_mod, only: snow_layer_type, snowpack_init
 use snowlayers_io_mod, only :  read_create_snowlayers, create_snowlayer_dimension, &
      add_snowlayer_data, add_int_snowlayer_data, get_snowlayer_data, get_int_snowlayer_data
 use snow_evolution_mod, only : &
@@ -82,8 +82,6 @@ subroutine gl_snow_init(id_ug)
   old_init_snow_density = 250.0 ! kg/m3, density for old model snow to input ! // TODO read from nml?
   module_is_initialized = .TRUE.
 
-  ! initialize snowpack -> namelist moved to snowpack_init
-  call read_snowpack_namelist()
   call snowpack_init()
 
   call read_snow_evolution_namelist() ! read snow evolution namelist parameters

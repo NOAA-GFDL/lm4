@@ -89,7 +89,8 @@ integer :: id_snow_avrg_optd, id_snow_avrg_sph, id_snow_avrg_dendr, id_snow_dens
     id_snow_nearsurf_sph, id_snow_nearsurf_dendr, id_snow_nearsurf_age, &
     id_snow_nearsurf_density, id_snow_liq, id_snow_ice, &
     id_snow_topwater, id_snow_topsnowdeficit, id_snow_topwheat, &
-    id_snow_topsnowheatdeficit
+    id_snow_topsnowheatdeficit, id_snow_nlayers, id_snow_dz_top,  &
+    id_snow_dz_bot,  id_snow_dz_thick, id_snow_dz_thin
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -175,6 +176,16 @@ subroutine gl_snow_diag_init(id_ug)
   id_snow_topsnowheatdeficit = register_tiled_diag_field ( diag_mod_name, 'snow_topsnowheatdeficit', (/id_ug/), lnd%time, &
      'Snowpack topsnowheatdeficit', 'J/m2', missing_value=-1.0e+20)
 
+  id_snow_nlayers = register_tiled_diag_field( diag_mod_name, 'snow_nlayers', (/id_ug/), lnd%time, &
+     'number of layers in snowpack', 'unitless', missing_value=-1.0e+20 )
+  id_snow_dz_top = register_tiled_diag_field( diag_mod_name, 'snow_dz_top', (/id_ug/), lnd%time, &
+     'thickness of the top snow layer', 'm', missing_value=-1.0e+20 )
+  id_snow_dz_bot = register_tiled_diag_field( diag_mod_name, 'snow_dz_bot', (/id_ug/), lnd%time, &
+     'thickness of the bottom snow layer', 'm', missing_value=-1.0e+20 )
+  id_snow_dz_thick = register_tiled_diag_field( diag_mod_name, 'snow_dz_thick', (/id_ug/), lnd%time, &
+     'thickness of the thickest snow layer', 'm', missing_value=-1.0e+20 )
+  id_snow_dz_thin = register_tiled_diag_field( diag_mod_name, 'snow_dz_thin', (/id_ug/), lnd%time, &
+     'thickness of the thinnest snow layer', 'm', missing_value=-1.0e+20 )
 end subroutine gl_snow_diag_init
 
 
@@ -1125,7 +1136,8 @@ subroutine gl_snow_send_diag(snow, diag)
   class(gl_snow_tile_type),  intent(inout) :: snow !< snow data structure
   type(diag_buff_type), intent(inout) :: diag !< diagnostic buffer
 
-  real :: snow_area
+  real :: snow_area, dz
+  integer :: i
 
   snow_area = snow%sp%area()
   call snow%sp%nearsurf_properties() ! slm: this updates snow state somehow
@@ -1162,6 +1174,35 @@ subroutine gl_snow_send_diag(snow, diag)
   call send_tile_data(id_snow_topwheat, snow%sp%topwheat, diag)
   call send_tile_data(id_snow_topsnowdeficit, snow%sp%topsnowdeficit, diag)
   call send_tile_data(id_snow_topsnowheatdeficit, snow%sp%topsnowheatdeficit, diag)
+
+  associate(n=>snow%sp%nlayers)
+  call send_tile_data(id_snow_nlayers, float(n), diag)
+  if (n>0) then
+     call send_tile_data(id_snow_dz_top,   snow%sp%snow(1)%dz, diag)
+     call send_tile_data(id_snow_dz_bot,   snow%sp%snow(n)%dz, diag)
+     if (id_snow_dz_thick>0) then
+       dz = -HUGE(1.0)
+       do i = 1,n
+          dz = max(snow%sp%snow(i)%dz,dz)
+       enddo
+       call send_tile_data(id_snow_dz_thick, dz, diag)
+     endif
+     if (id_snow_dz_thin>0) then
+       dz = HUGE(1.0)
+       do i = 1,n
+          dz = min(snow%sp%snow(i)%dz,dz)
+       enddo
+       call send_tile_data(id_snow_dz_thin, dz, diag)
+     endif
+  else
+     ! slm: not sure if sending zeroes is necessary or desirable, but I suspect
+     ! the would be a crash in the domain where there is no snow
+     call send_tile_data(id_snow_dz_top,   0.0, diag)
+     call send_tile_data(id_snow_dz_bot,   0.0, diag)
+     call send_tile_data(id_snow_dz_thick, 0.0, diag)
+     call send_tile_data(id_snow_dz_thin,  0.0, diag)
+  endif
+  end associate
 
 end subroutine gl_snow_send_diag
 

@@ -6,9 +6,9 @@ module snowpack_mod
 
 use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, lowercase, &
-       FATAL, WARNING, NOTE
+       string, FATAL, WARNING, NOTE
 use land_data_mod,  only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message
+use land_debug_mod, only : is_watch_point, land_error_message, check_var_range
 use land_constants_mod, only : NBANDS
 use constants_mod,  only : tfreeze, hlv, hlf, PI, dens_h2o
 
@@ -24,7 +24,6 @@ public :: merge_layers
 ! public :: merge_phases
 public :: add_liquid_to_layer
 public :: snowpack_init
-public :: read_snowpack_namelist
 public :: compute_snow_grain_shape
 public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
@@ -57,8 +56,8 @@ type :: snow_layer_type
     real :: ws !< solid phase water, kg/m2 # EZ: changed from density to mass/area
     real :: wl !< liquid phase water, kg/m2 # EZ: changed from density to mass/area
     real :: dz !< layer thickness, m
-    real :: optd ! snow optical diameter [m] [Carmagnola et al., 2013, Flanner and Zender 2006]
-    real :: dendr ! snow layer densdricity [dim.less number in [0,1] with 0 = Not dendritic]
+    real :: optd  !< snow optical diameter [m] [Carmagnola et al., 2013, Flanner and Zender 2006]
+    real :: dendr !< snow layer densdricity [dim.less number in [0,1] with 0 = Not dendritic]
     real :: age  !< age of snow layer, [days]
     real :: sph  !< snow grain sphericity [number in [0,1] with 1 = spherical grains]
     real :: wc_em(N_SNOW_TRACERS) !< mass of impurities of each type (array, dim=N_SNOW_TRACERS) - externally mixed only (em) [mg/m2]
@@ -134,18 +133,8 @@ end type snowpack_t
 character(len=*), parameter :: module_name = 'snowpack_mod' ! lm4p2
 #include "../../shared/version_variable.inc"
 
-
-
-!> optimal snowpack layer distribution and associated calculations
-integer, parameter :: MAX_OPT_LAYERS = 32
-! EZSNOW: made this allocatable
-real, ALLOCATABLE :: opt_layer(:)   !< prescribed layer thicknesses
-real, ALLOCATABLE :: opt_layer_z(:) !< lower boundary of optimal layers, m
-
 type :: dzopt_t
     integer :: n ! number of elements of z, l
-    ! real :: z(MAX_OPT_LAYERS+1) !< boundaries of the layers, m
-    ! real :: l(MAX_OPT_LAYERS+1) !< layer number corresponding to layer boundaries
     real, ALLOCATABLE :: z(:) !< boundaries of the layers, m
     real, ALLOCATABLE :: l(:) !< layer number corresponding to layer boundaries
 contains
@@ -159,17 +148,17 @@ end type dzopt_t
 
 ! ---- namelist
 ! integer i
-real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
+real :: opt_layer_top = 0.05 !< thickness of the top optimal layer, m
+real :: opt_layer_bot = 0.03 !< thickness of the optimal layer at the bottom of the snowpack, m
 real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
-! real :: opt_layer(MAX_OPT_LAYERS) = [0.01, (-1.0,i=2,MAX_OPT_LAYERS)] !< prescribed layer thicknesses
-logical :: lap_albedo_include_bc = .TRUE.
-logical :: lap_albedo_include_md = .TRUE.
-logical :: lap_albedo_include_om = .TRUE.
+logical, protected :: lap_albedo_include_bc = .TRUE.
+logical, protected :: lap_albedo_include_md = .TRUE.
+logical, protected :: lap_albedo_include_om = .TRUE.
 character(len=12) :: heat_cond_to_use = 'yen'  ! available: yen, vapor
 
 namelist /snowpack_nml/ &
-         opt_layer_R, opt_layer_N, opt_layer_max, heat_cond_to_use, &
+         opt_layer_top, opt_layer_R, opt_layer_bot, opt_layer_max, heat_cond_to_use, &
          lap_albedo_include_bc, lap_albedo_include_md, lap_albedo_include_om
 
 ! ---- end of namelist
@@ -180,59 +169,104 @@ integer, parameter :: &
     HEAT_COND_VAPOR = 2, &
     HEAT_COND_YEN   = 3
 
-! real :: opt_layer_z(MAX_OPT_LAYERS+1) ! lower boundary of optimal layers, m
-
 contains  ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 !> initialize optimal layer thickness calculations
-! initialization sets up data arrays for calculation of z(layer) and its inverse layer(z),
+! Initialization sets up data arrays for calculation of z(layer) and its inverse layer(z),
 ! where "layer" is a real number, not an integer. these functions are used to calculate
 ! optimal thickness of layers for any given depth within the snowpack.
-!       the thickness of the lowest layer can be increased with total snowpack depth,
-!       since we do not expect it to matter when the snow is very deep (and therefore
-!       likely to be in equilibrium with underlying substrate)
+!
+! TODO: the thickness of the lowest layer can be increased with total snowpack depth,
+! since we do not expect it to matter when the snow is very deep (and therefore
+! likely to be in equilibrium with underlying substrate)
 subroutine dzopt_init(dzopt, depth)
   class(dzopt_t), intent(inout) :: dzopt
   real,           intent(in)    :: depth !< snow depth
 
-  real :: dz, d1, scale
-  integer :: k
+  real    :: dz, d1, scale, z
+  integer :: k, n
 
-  if (.not. allocated(dzopt%z)) allocate(dzopt%z(size(opt_layer_z)))
-  if (.not. allocated(dzopt%l)) allocate(dzopt%l(size(opt_layer_z)))
+  ! Determine the number of layers needed for a given depth, so that the entire
+  ! snowpack is covered by the array of optimal layers:
+  z = 0.0; dz = opt_layer_top; n = 1
+  do
+     z  = z + dz
+     n  = n + 1
+     if (z > depth) exit ! from loop
+     dz = min(dz*opt_layer_R, opt_layer_max)
+  enddo
+  ! z > depth, and n is at least 2
 
-  call update_dzopt_size(depth)
-  ! write(*,*) "size(opt_layer_z), size(dzopt%z))", size(opt_layer_z), size(dzopt%z)
-  if(size(opt_layer_z)>size(dzopt%z)) then
-    deallocate(dzopt%z)
-    deallocate(dzopt%l)
-    allocate(dzopt%z( size(opt_layer_z) )) !< boundaries of the layers, m
-    allocate(dzopt%l( size(opt_layer_z) )) !< layer number corresponding to layer boundaries
+  ! allocate storage
+  dzopt%n = n+1 ! reserve space for one more layers in case a thin layer at the bottom
+                ! needs to be inserted
+  if (allocated(dzopt%z).or.allocated(dzopt%l)) &
+       call land_error_message('dzopt_init :: arrays "z" and/or "l" are already allocated', FATAL)
+  allocate(dzopt%z(dzopt%n)) ! boundaries of the layers, m
+  allocate(dzopt%l(dzopt%n)) ! layer number corresponding to layer boundaries
+
+  ! initialize depths of optimal layer tops and layer numbers: calculation of layer
+  ! boundaries must be exactly the same as above, where the number of layers is estimated
+  dzopt%l(1) = 0.0; dzopt%z(1) = 0.0; dz = opt_layer_top;
+  do k = 2,dzopt%n
+     dzopt%l(k) = k-1
+     dzopt%z(k) = dzopt%z(k-1) + dz
+     dz         = min(dz*opt_layer_R, opt_layer_max)
+  enddo
+
+  if (depth<=0.0) then
+     if (is_watch_point()) then
+        write(*,*) "#### dzopt_init: zero snow depth ####"
+        __DEBUG1__(depth)
+        call dzopt%print()
+     endif
+     return
   endif
 
+  d1 = depth - opt_layer_bot ! depth to the near-soil layer
+  d1 = max(d1,dzopt%z(2))    ! to avoid division by zero for snow thinner
+                             ! than opt_layer(1)/2-opt_layer_bot
+  k = bisect(dzopt%z(:), d1) ! 1 <= k <= size(dzopt%z(:))-1
+  dz = dzopt%z(k+1) - dzopt%z(k) ! thickness of optimal layer at the depth d1
 
-  dzopt%z(:) = opt_layer_z(:)
-  dzopt%l(:) = [(float(k-1), k=1,size(opt_layer_z))]
-  dzopt%n    = size(opt_layer_z)
+  ! scale the optimal layer depths so that the given snow depth covers the
+  ! integer number of them -- possibly including a thin layer at the bottom
+  ! added to better resolve gradients at the soil-snow interface
+  if (is_watch_point()) then
+     write(*,*) "#### dzopt_init 1 ####"
+     __DEBUG3__(depth,opt_layer_bot,d1)
+     __DEBUG3__(k,   dzopt%z(k),   dzopt%l(k))
+     __DEBUG3__(k+1, dzopt%z(k+1), dzopt%l(k+1))
+     __DEBUG1__(dz)
+!      call dzopt%print()
+  endif
 
-  d1 = depth - opt_layer_N ! depth to the near-soil layer
-  k = bisect(dzopt%z(:), d1)
-  if (opt_layer(k)<=opt_layer_N) then
+  if (dz<=opt_layer_bot) then
       ! bottom layer is thin enough as it is
       dzopt%n = k+2
   else
       ! scale layers to fit integer number in depth
-      if (d1 < opt_layer_z(k)+opt_layer(k)/2) then
-         scale = d1/opt_layer_z(k)
+      if (d1 < (dzopt%z(k)+dzopt%z(k+1))/2) then
+         scale = d1/dzopt%z(k)
       else
-         scale = d1/opt_layer_z(k+1)
+         scale = d1/dzopt%z(k+1)
          k = k+1
       endif
       dzopt%z(:) = dzopt%z(:)*scale
 
-      ! add a thin layer at the bottom
-      dzopt%z(k+1) = depth
-      dzopt%n      = k+1
+      if(depth > dzopt%z(k)) then
+         ! add a thin layer at the bottom
+         dzopt%z(k+1) = depth
+         dzopt%n      = k+1
+      else
+         dzopt%n      = k
+      endif
+  endif
+
+  if (is_watch_point()) then
+     write(*,*) "#### dzopt_init 2 ####"
+     __DEBUG2__(scale,depth)
+     call dzopt%print()
   endif
 end subroutine dzopt_init
 
@@ -330,17 +364,21 @@ subroutine dzopt_print(dzopt)
   enddo
 end subroutine dzopt_print
 
-subroutine read_snowpack_namelist()
+!> initialize snowpack module, in particular read namelist parameters
+! version for lm4p2
+subroutine snowpack_init()
   ! ---- local vars
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: l            ! layer iterator
+  character(256) :: msg   ! namelist error message text
+  integer :: k, n
+  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=snowpack_nml, iostat=io)
-  ierr = check_nml_error(io, 'snowpack_nml')
+  read (input_nml_file, nml=snowpack_nml, iostat=io, iomsg=msg)
+  ierr = check_nml_error(io, 'snowpack_nml :: '//trim(msg))
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=snowpack_nml)
@@ -353,157 +391,22 @@ subroutine read_snowpack_namelist()
   else if (trim(lowercase(heat_cond_to_use))=='yen') then
      heat_cond_option = HEAT_COND_YEN
   else
-     call error_mesg('read_snowpack_namelist', &
+     call error_mesg('snowpack_init', &
         'heat_cond_to_use='//trim(heat_cond_to_use)//' in snowpack_nml in incorrect: valid options are "Cal", "vapor", or "Yen"', FATAL)
   endif
 
-  ! write(*,*) "after reading snowpack nml:"
-  ! write(*,*) "version = ", version
-  ! write(*,*) "module_name = ", module_name
-  ! write(*,*)  "opt_layer_N" ,  opt_layer_N
-  ! write(*,*)  "opt_layer_R" ,  opt_layer_R
-  ! write(*,*)  "opt_layer_max" ,  opt_layer_max
-! real :: opt_layer_N   = 0.03 !< thickness of the bottom layer, m
-! ! real :: opt_layer_N   = 0.01 !< thickness of the bottom layer, m
-! real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
-! ! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
-! real :: opt_layer_R   = 1.5  !< factor of increase for the layers in the middle of the snowpack, unitless
+  ! check optimal layer parameters for sanity
+  if (.not. opt_layer_top>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_top ='//string(opt_layer_top)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
+  if (.not. opt_layer_bot>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_bot ='//string(opt_layer_bot)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
+  if (.not. opt_layer_R>=1.0) call error_mesg('snowpack_init', &
+       'opt_layer_R ='//string(opt_layer_R)//' in snowpack_nml in invalid: must be >= 1.0'// &
+       ' for the thickness of layers to increase with depth', FATAL)
+  if (.not. opt_layer_max>0.0) call error_mesg('snowpack_init', &
+       'opt_layer_max ='//string(opt_layer_max)//' in snowpack_nml in invalid: must be > 0.0', FATAL)
 
-end subroutine read_snowpack_namelist
-
-
-!> initialize snowpack module, in particular read namelist parameters
-! version for lm4p2
-subroutine snowpack_init()
-  integer i
-  integer :: io, k, n
-  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
-
-  ! EZSNOW: uncomment for reading nml
-  ! open (701, file='nml/input.nml')
-  ! read (701, snowpack_nml, iostat=io)
-  ! if (io /= 0) stop 'Error reading input namelist "snowpack_nml"'
-  ! close (701)
-  ! write(*,snowpack_nml)
-  ! call read_snowpack_namelist()
-
-
-
-  !!! ------ EZSNOW : made these allocatable ------ !!!
-  ! allocate(z(MAX_OPT_LAYERS+1)) !< boundaries of the layers, m
-  ! allocate(l(MAX_OPT_LAYERS+1)) !< layer number corresponding to layer boundaries
-  allocate(opt_layer(MAX_OPT_LAYERS))  !< prescribed layer thicknesses
-  allocate(opt_layer_z(MAX_OPT_LAYERS+1)) !< lower boundary of optimal layers, m
-  opt_layer = [0.05, (-1.0,i=2,MAX_OPT_LAYERS)] !< start assigning prescribed layer thicknesses
-  !!! ---------------------------------------------- !!!
-
-  ! initialize optimal layer distribution for infinite lower bound
-  ! using prescribed thicknesses for the shallow snow depths, and
-  ! limited exponential increase of each sequential layer thickness below
-
-  ! check that there are positive values in layer thickness array
-  n = count(opt_layer(:)>0)
-  if (n == 0) &
-     call land_error_message( 'No positive values in layer thickness array "opt_layer"', FATAL)
-  if (count(opt_layer(1:n)>0) < n) &
-     call land_error_message( 'Positive layer thickness values "opt_layer" are intermingled with negatives', FATAL)
-
-
-
-  opt_layer_z(1) = 0.0
-  do k = 1, size(opt_layer)
-     if (opt_layer(k) > 0) then
-        dz = opt_layer(k)
-     else
-        dz = min(dz*opt_layer_R, opt_layer_max)
-        opt_layer(k) = dz ! store for future use
-     endif
-     opt_layer_z(k+1) = opt_layer_z(k) + dz
-  enddo
-
-  ! Now, add layers in case snowpack is too thick and requires a larger number of optimal layers
-
-  ! write(*,*) """
-
-!   write(*,'(99(i8.2,:,","))') (k, k=1,size(opt_layer))
-!   write(*,'(99(f8.3,:,","))') opt_layer
 end subroutine snowpack_init
-
-! if snowpack is too thick, increase number of layers in dzopt
-subroutine update_dzopt_size(snow_depth)
-  real snow_depth
-  integer i
-  integer :: io, k, n
-  real    :: dz ! layer thickness, for initialization of optimal vertical discretization, m
-  integer :: NEW_OPT_LAYERS
-  integer cuml
-  real cumz
-
-
-  ! write(*,*) "update dzopt size: depth, opt_layer_z = ", snow_depth, opt_layer_z
-  if (snow_depth > opt_layer_z(size(opt_layer_z)-1)) then
-
-  ! write(*,*) "updating the size of opt_layer_z array ..."
-
-
-    !!! ------ Determine new number of layers needed for dzopt
-    cumz = opt_layer_z(size(opt_layer_z)) ! max depth in opt layer z, bottom of opt snowpack
-    cuml = size(opt_layer) ! current maximum number of layers in optimum snowpack
-    dz = opt_layer(size(opt_layer)) ! current optimal thickness of bottom opt layer
-    do while(cumz<snow_depth)
-      dz = min(dz*opt_layer_R, opt_layer_max)
-      cumz = cumz + dz
-      cuml = cuml + 1
-    enddo
-
-    !!! ------ Now cuml is the new number of layers needed
-    !!! add 5 to reduce the number of times the arrays need to be allocated
-    NEW_OPT_LAYERS = cuml + 5
-
-    !!! ------ EZSNOW : made these allocatable ------ !!!
-    ! deallocate(dzopt%z)
-    ! deallocate(dzopt%l)
-    deallocate(opt_layer)
-    deallocate(opt_layer_z)
-    ! allocate(dzopt%z(NEW_OPT_LAYERS+1)) !< boundaries of the layers, m
-    ! allocate(dzopt%l(NEW_OPT_LAYERS+1)) !< layer number corresponding to layer boundaries
-    allocate(opt_layer(NEW_OPT_LAYERS))  !< prescribed layer thicknesses
-    allocate(opt_layer_z(NEW_OPT_LAYERS+1)) !< lower boundary of optimal layers, m
-    opt_layer = [0.05, (-1.0,i=2,NEW_OPT_LAYERS)] !< start assigning prescribed layer thicknesses
-    !!! ---------------------------------------------- !!!
-
-    ! initialize optimal layer distribution for infinite lower bound
-    ! using prescribed thicknesses for the shallow snow depths, and
-    ! limited exponential increase of each sequential layer thickness below
-
-    ! check that there are positive values in layer thickness array
-    n = count(opt_layer(:)>0)
-    if (n == 0) &
-      call land_error_message( 'No positive values in layer thickness array "opt_layer"', FATAL)
-    if (count(opt_layer(1:n)>0) < n) &
-      call land_error_message( 'Positive layer thickness values "opt_layer" are intermingled with negatives', FATAL)
-
-    opt_layer_z(1) = 0.0
-    do k = 1, size(opt_layer)
-      if (opt_layer(k) > 0) then
-          dz = opt_layer(k)
-      else
-          dz = min(dz*opt_layer_R, opt_layer_max)
-          opt_layer(k) = dz ! store for future use
-      endif
-      opt_layer_z(k+1) = opt_layer_z(k) + dz
-    enddo
-
-  endif
-
-  if (opt_layer_z(size(opt_layer_z))< snow_depth) then
-      write(*, * ) "Optimal layer thickness distribution error: snow depth = ", snow_depth
-      write(*, * ) "Optimal layer thickness distribution error: NEW_OPT_LAYERS  = ", NEW_OPT_LAYERS
-      call land_error_message("Optimal layer thickness distribution is not thick enough for given snow depth", FATAL)
-  endif
-
-end subroutine update_dzopt_size
-
 
 !> update age of existing snow layers [in days]
 subroutine snowpack_update_age(s, dt)
@@ -1782,15 +1685,21 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   heat2freeze = 0.0 ! all heat is computed wrt solid at freezing termperature
   heatleft = heat - heat2melt
 
+  if(is_watch_point()) then
+     write(*,*)'#### add_liquid_to_layer ::: input'
+     __DEBUG4__(s%dz,s%ws,s%wl,s%T)
+     __DEBUG2__(wl2,T2)
+  endif
+
   if (heatleft > 0.0) then
     ! enough energy to melt everything
     ws3 = 0.0
     wl3 = mass
     T3 = (heatleft)/(ws3*CSW + wl3*CLW) + TFREEZE
 
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer ::: case warm'
-                  endif
+    if(is_watch_point()) then
+       write(*,*)'#### add_liquid_to_layer ::: case warm'
+    endif
 
   else if (heat < heat2freeze) then
     ! resulting temperature will be <= 0.0
@@ -1801,9 +1710,9 @@ subroutine add_liquid_to_layer(s, wl2, T2)
     ! T3 = (heatleft)/(ws3*CSW + wl3*CLW) + TFREEZE
     T3 = (heat)/(ws3*CSW + wl3*CLW) + TFREEZE
 
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer ::: case cold, heat < heat2freeze '
-                  endif
+    if(is_watch_point()) then
+       write(*,*)'#### add_liquid_to_layer ::: case cold, heat < heat2freeze '
+    endif
   else
     ! intermediate case: heat2freeze < heat < heat2melt
     ! layer will be at freezing temperature
@@ -1811,9 +1720,9 @@ subroutine add_liquid_to_layer(s, wl2, T2)
     ! excess heat will be used to melt as much water as possible
     wl3 = heat/HLF
     ws3 = mass - wl3
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer ::: case intermediate'
-                  endif
+    if(is_watch_point()) then
+       write(*,*)'#### add_liquid_to_layer ::: case intermediate, heat2freeze < heat < heat2melt'
+    endif
   endif
 
   ! now update thickness of the new layer
@@ -1821,22 +1730,34 @@ subroutine add_liquid_to_layer(s, wl2, T2)
   ! instead, if there is a net freeze (unlikely, but say we add supercooled water)
   ! assign to the net newly formed solid the density of old snow (350 kg/m3), and do weighted average
   delta_solid = ws3 - original_total_solid
+  if(is_watch_point()) then
+     __DEBUG4__(delta_solid, ws3, original_total_solid,rho_refrozen)
+  endif
+
+!   if (.not.(s%dz>0.0)) then
+!      call land_error_message('add_liquid_to_layer: s%dz = '//string(s%dz)//' < 0',FATAL)
+!   endif
   ! rho_s = s%ws / max(s%dz, 1E-9)
-  rho_s = max(s%ws / s%dz, 10.0)
+  if (s%dz > 0.0) then
+     rho_s = max(s%ws / s%dz, 10.0)
+  else
+     ! slm: This is an arbitrary choice in case the layer thickness is zero.
+     rho_s = rho_refrozen
+  endif
   if (delta_solid > 0.0) then ! net freeze
     dz3 = s%ws / rho_s + delta_solid / rho_refrozen ! sum of layer thickness due to original and newly frozen solid
   else ! net melt
-    dz3 = ws3 / rho_s ! preserve density of initial soild phase
+    dz3 = ws3 / rho_s ! preserve density of initial solid phase
   endif
-    ! dz3 = max(1E-9, dz3)
+  ! dz3 = max(1E-9, dz3)
 
-                   if(is_watch_point()) then
-                      write(*,*)'#### add_liquid_to_layer'
-                      __DEBUG3__(delta_solid, ws3, original_total_solid)
-                      __DEBUG3__(dz3, rho_s, s%ws)
-                      __DEBUG2__(s%dz, rho_refrozen)
-                      ! write(*,*) "rho_s, s"
-                  endif
+  if(is_watch_point()) then
+     write(*,*)'#### add_liquid_to_layer'
+     __DEBUG3__(delta_solid, ws3, original_total_solid)
+     __DEBUG3__(dz3, rho_s, s%ws)
+     __DEBUG2__(s%dz, rho_refrozen)
+     ! write(*,*) "rho_s, s"
+  endif
   ! finally assign new values to snow layer structure
   s%ws = ws3
   s%wl = wl3
@@ -1849,18 +1770,18 @@ subroutine add_liquid_to_layer(s, wl2, T2)
 
   ! if (  abs(final_heat - heat )> eps ) then
   if (  abs(final_heat - heat )> 1E-4 ) then
-    write(*,*) "-------add liquid to layer:: energy not conserved!------"
-  write(*,*) "heat = ", heat
-  write(*,*) "heat2freeze = ", heat2freeze
-  write(*,*) "heat2melt = ", heat2melt
-  write(*,*) "heatleft = ", heatleft
-    write(*,*) "initial layer: ws, wl, T = ", initws1, initwl1, initT1
-    write(*,*) "liquid to add:, wl_add, T_add = ", wl2, initT2
-    write(*,*) "final values: ws3, wl3, T3:", ws3, wl3, T3
-    write(*,*) "Delta heat = ", final_heat - heat
-    write(*,*) "heat = ", heat
-    write(*,*) "final_heat = ", final_heat
-    call land_error_message( "ERROR in add_liquid_to_layer in snwopack module: energy not conserved!", FATAL)
+     write(*,*) "-------add liquid to layer:: energy not conserved!------"
+     write(*,*) "heat = ", heat
+     write(*,*) "heat2freeze = ", heat2freeze
+     write(*,*) "heat2melt = ", heat2melt
+     write(*,*) "heatleft = ", heatleft
+     write(*,*) "initial layer: ws, wl, T = ", initws1, initwl1, initT1
+     write(*,*) "liquid to add:, wl_add, T_add = ", wl2, initT2
+     write(*,*) "final values: ws3, wl3, T3:", ws3, wl3, T3
+     write(*,*) "Delta heat = ", final_heat - heat
+     write(*,*) "heat = ", heat
+     write(*,*) "final_heat = ", final_heat
+     call land_error_message( "ERROR in add_liquid_to_layer in snwopack module: energy not conserved!", FATAL)
   endif
 
   ! additionally, one could change grain properties due to freeze or melt : optd, sph
@@ -1966,15 +1887,41 @@ subroutine attempt_merge_layers(s)
   type(dzopt_t) :: dzopt
   real :: penalty0, penalty1
   integer :: k, k1, i
+
+  if(is_watch_point()) then
+     write(*,*) '#### attempt_merge_layers input'
+     do i = 1,s%nlayers
+        write(*,'(i2.2)', advance='NO') i
+        call dpri('dz',s%snow(i)%dz)
+        call dpri('sph',s%snow(i)%sph)
+        call dpri('optd',s%snow(i)%optd)
+        call dpri('density',s%snow(i)%density())
+        write(*,*)
+     enddo
+  endif
+
   call dzopt%init(s%depth())
 
+  if(is_watch_point()) then
+     write(*,*) '#### attempt_merge_layers loop'
+  endif
   z = 0; k = 1
   do while (k < s%nlayers) ! while loop because s%nlayers changes inside
      dz_opt = dzopt%dz(z)
      k1 = k+1 ; z1 = z+s%snow(k)%dz ! index and depth for the next step
+     if (is_watch_point()) then
+        write(*,'(i2.2)', advance='NO') k
+        call dpri('dz',s%snow(k)%dz)
+        __DEBUG___(z1)
+        __DEBUG___(dz_opt)
+     endif
      if (s%snow(k)%dz < dz_opt .and. layers_can_be_merged(s%snow(k), s%snow(k+1))) then
         penalty0 = dzopt%penalty([z, z+s%snow(k)%dz, z+s%snow(k)%dz+s%snow(k+1)%dz])
         penalty1 = dzopt%penalty([z,                 z+s%snow(k)%dz+s%snow(k+1)%dz])
+        if (is_watch_point()) then
+           __DEBUG___(penalty0)
+           __DEBUG___(penalty1)
+        endif
         if (penalty1 < penalty0) then
            call merge_layers(s%snow(k+1), s%snow(k))
            do i = k+1, s%nlayers-1
@@ -1984,8 +1931,23 @@ subroutine attempt_merge_layers(s)
            k1 = k ; z1 = z ! do next step with the same layer, except with increased thickness
         endif
      endif
+     if (is_watch_point()) then
+        write(*,*)
+     endif
      k = k1; z = z1
   enddo
+
+  if(is_watch_point()) then
+     write(*,*) '#### attempt_merge_layers end'
+     do i = 1,s%nlayers
+        write(*,'(i2.2)', advance='NO') i
+        call dpri('dz',s%snow(i)%dz)
+        call dpri('sph',s%snow(i)%sph)
+        call dpri('optd',s%snow(i)%optd)
+        call dpri('density',s%snow(i)%density())
+        write(*,*)
+     enddo
+  endif
 end subroutine attempt_merge_layers
 
 
