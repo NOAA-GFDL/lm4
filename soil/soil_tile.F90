@@ -220,6 +220,8 @@ type :: soil_tile_type
 
    real, allocatable :: frozen_freq(:) ! Keeps track of frequency of frozen conditions,
         ! for permafrost detection in root profile calculations.
+   real, allocatable :: saturated_freq(:) ! Keeps track of frequency of saturated conditions,
+        ! for detection of anoxic condition in root profile calculations.
 
    ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
    real :: gross_nitrogen_flux_into_tile, gross_nitrogen_flux_out_of_tile
@@ -641,6 +643,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%div_hlsp          (num_l),  &
             ptr%div_hlsp_heat     (num_l),  &
             ptr%frozen_freq       (num_l),  &
+            ptr%saturated_freq    (num_l),  &
             ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
@@ -723,6 +726,7 @@ subroutine soil_data_init_0d(soil)
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
   soil%frozen_freq(:)         = 0.0
+  soil%saturated_freq(:)      = 0.0
 
   soil%gross_nitrogen_flux_into_tile = 0.0
   soil%gross_nitrogen_flux_out_of_tile = 0.0

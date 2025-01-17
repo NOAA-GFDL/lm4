@@ -48,6 +48,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      c2n_N_fixer, C2N_SEED, track_vegn_nitrogen, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
      permafrost_depth_thresh, permafrost_freq_thresh, &
+     saturation_depth_thresh, saturation_freq_thresh, &
      tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE, &
      zbot_assumption_bug, root_length_double_norm
@@ -2489,8 +2490,13 @@ subroutine update_cohort_root_properties(soil, cohort)
   cohort%br_profile(:) = 0.0
   z = 0
   do l = 1, num_l
-     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh) exit ! from loop
-     ! so that the rest of profile remains zero.
+     ! truncate root profile if freezing frequency is higher than threshold
+     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh)   exit
+     ! truncate root profile if saturation frequency is higher than threshold
+     ! that means that the roots cannot survive in the environment with low oxigen
+     if (z+dz(l)/2>saturation_depth_thresh.and.soil%saturated_freq(l)>saturation_freq_thresh) exit
+     ! if we exit from loop due to one of the above conditions, the rest of root profile
+     ! remains zero.
 
      cohort%br_profile(l) = exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta)
      z = z + dz(l)

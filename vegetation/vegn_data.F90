@@ -150,7 +150,9 @@ public :: &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
-    nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
+    nsc_target_option, &
+    permafrost_depth_thresh, permafrost_freq_thresh, &
+    saturation_depth_thresh, saturation_freq_thresh, &
     tree_grass_option, reserved_grass_frac, &
 
     track_vegn_nitrogen, N_limits_live_biomass, &
@@ -562,6 +564,12 @@ real, protected :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which
 real, protected :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
            ! considered permafrost for the root vertical profile calculations
 
+real, protected :: saturation_depth_thresh = 1.0e36 ! soil depth [m] above which fully saturated
+           ! soil does not preclude root existence. Default value reverts to old treatment
+           ! (roots exists everywhere, regardless of water table)
+real, protected :: saturation_freq_thresh  = 0.9    ! frequency of saturated conditions above
+           ! which soil is considered "saturated" for the root vertical profile calculations
+
 character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass' or 'trees-top-grass'
            ! in pure PPA treatment, grass can shade small trees according to usual PPA rules
            ! in trees-squeeze-grass case, saplings and grasses are in the same layer, and
@@ -610,6 +618,7 @@ namelist /vegn_data_nml/ &
   do_bl_max_merge, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
   permafrost_depth_thresh, permafrost_freq_thresh, &
+  saturation_depth_thresh, saturation_freq_thresh, &
   tree_grass_competition, reserved_grass_frac, &
 
   ! N-related namelist values

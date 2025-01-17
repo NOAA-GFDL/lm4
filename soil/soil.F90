@@ -156,7 +156,11 @@ real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water sa
 real    :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
   ! before warning or abort
 
-real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
+real :: tau_smooth_frozen_freq     = 2.0 ! time scale for frozen soil frequency calculations, yrs
+real :: tau_smooth_saturated_freq  = 2.0 ! time scale for saturated soil frequency calculations, yrs
+real :: thresh_saturated           = 0.99 ! threshold for saturated condition: if water+ice content
+! of a layer is higher than this fraction of porosity, then the soil is considered saturated for
+! saturated frequency calculations
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -181,7 +185,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     bwood_macinf, &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
-                    tau_smooth_frozen_freq
+                    tau_smooth_frozen_freq, tau_smooth_saturated_freq, thresh_saturated
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -190,7 +194,7 @@ real            :: delta_time ! fast (physical) time step, s
 real            :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 logical         :: use_single_geo
 real            :: Eg_min
-real            :: weight_av_frozen_freq
+real            :: weight_av_frozen_freq, weight_av_saturated_freq
 
 integer         :: gw_option = -1
 
@@ -224,7 +228,7 @@ integer ::  &
 !     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
 !     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss,
     id_passive_N_uptake,&
-    id_Qmax, id_frozen_freq
+    id_Qmax, id_frozen_freq, id_saturated_freq
 
 ! integer :: &
 !     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -347,9 +351,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
 
-  ! initialize time smoothing parameter for calculation of long-term average frozen soil
-  ! frequency
-  weight_av_frozen_freq = dt_fast_yr/(dt_fast_yr+tau_smooth_frozen_freq)
+  ! initialize time smoothing parameter for calculation of long-term average frozen
+  ! and saturated soil frequencies
+  weight_av_frozen_freq    = dt_fast_yr/(dt_fast_yr+tau_smooth_frozen_freq)
+  weight_av_saturated_freq = dt_fast_yr/(dt_fast_yr+tau_smooth_saturated_freq)
 
   call uptake_init(num_l,dz,zfull)
   call hlsp_hydro_lev_init(num_l,dz,zfull)
@@ -637,6 +642,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      call get_tile_data(restart, 'groundwater_T', 'zfull', soil_groundwater_T_ptr)
      if(field_exists(restart, 'frozen_freq')) &
           call get_tile_data(restart, 'frozen_freq', 'zfull', soil_frozen_freq_ptr)
+     if(field_exists(restart, 'saturated_freq')) &
+          call get_tile_data(restart, 'saturated_freq', 'zfull', soil_saturated_freq_ptr)
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
      call free_land_restart(restart)
@@ -900,6 +907,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
   id_frozen_freq  = register_tiled_diag_field ( module_name, 'frozen_freq',  axes,       &
        lnd%time, 'frequency of frozen soil (time smoothed)', '1',  missing_value=-100.0 )
+  id_saturated_freq  = register_tiled_diag_field ( module_name, 'saturated_freq',  axes,       &
+       lnd%time, 'frequency of saturated soil (time smoothed)', '1',  missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:1), &
        lnd%time, 'number of iterations for soil uptake',  missing_value=-100.0 )
@@ -1235,6 +1244,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'groundwater'  , 'zfull', soil_groundwater_ptr, units='kg/m2' )
   call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
   call add_tile_data(restart,'frozen_freq'  , 'zfull', soil_frozen_freq_ptr, 'frequency of frozen soil occurence')
+  call add_tile_data(restart,'saturated_freq','zfull', soil_saturated_freq_ptr, 'frequency of saturated soil occurence')
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
 
   call save_land_restart(restart)
@@ -1610,6 +1620,7 @@ end subroutine soil_step_1
   real, dimension(vegn%n_cohorts) :: passive_N_uptake
 
   real :: frozen ! frozen soil indicator, used for calculating long-term frozen soil frequency
+  real :: saturated ! saturated soil indicator, used for calculating long-term saturated soil frequency
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -2538,11 +2549,17 @@ end subroutine soil_step_1
    if (i_river_NO3/=NO_TRACER) soil_tr_runf(i_river_NO3) = total_NO3_div/delta_time
    if (i_river_NH4/=NO_TRACER) soil_tr_runf(i_river_NH4) = total_NH4_div/delta_time
 
-   ! update frequency of frozen soil
+   ! update frequency of frozen and saturated soil
    do l = 1, num_l
-      frozen = 0.0
-      if (soil%ws(l)>0) frozen = 1.0
-      soil%frozen_freq(l) = weight_av_frozen_freq*frozen + (1-weight_av_frozen_freq)*soil%frozen_freq(l)
+      frozen = 0.0; if (soil%ws(l)>0) frozen = 1.0
+      soil%frozen_freq(l) = weight_av_frozen_freq*frozen + &
+                           (1-weight_av_frozen_freq)*soil%frozen_freq(l)
+
+      saturated = 0.0;
+      if (soil%wl(l)+soil%ws(l) >= soil%pars%vwc_sat*dz(l)*thresh_saturated) &
+            saturated = 1.0
+      soil%saturated_freq(l) = weight_av_saturated_freq*saturated + &
+                              (1-weight_av_saturated_freq)*soil%saturated_freq(l)
    enddo
 
 ! ----------------------------------------------------------------------------
@@ -2633,6 +2650,7 @@ end subroutine soil_step_1
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
   call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
+  call send_tile_data(id_saturated_freq, soil%saturated_freq, diag)
 
 end subroutine soil_step_2
 
