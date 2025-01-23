@@ -8,11 +8,12 @@ use mpp_mod, only: input_nml_file
 
 use constants_mod,   only: PI
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
-use fms_mod, only : file_exist, check_nml_error, error_mesg, stdlog, stdout, &
-      lowercase, WARNING, FATAL, NOTE
+use fms_mod, only: check_nml_error, error_mesg, stdlog, stdout, lowercase, &
+                 & WARNING, FATAL, NOTE
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use sphum_mod, only : qscomp
 use diag_manager_mod, only : register_diag_field, send_data
+use time_interp_external2_mod, only : ERR_FIELD_NOT_FOUND
 
 use land_constants_mod, only : N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, N_C_TYPES, &
       seconds_per_year
@@ -539,8 +540,14 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   ! initialize external fields
   ! SSR: Does horizontal interpolation
   if (use_FpopD_nf .OR. use_FpopD_ba) then
-     call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
-          'bilinear', fill=0.0)
+     ! First, try the field 'POP_DENSITY'. If it is not found, then try 'pop_density'.
+     call init_external_ts(population_ts, 'INPUT/population.nc', 'POP_DENSITY',&
+          'bilinear', fill=0.0, ierr=ierr)
+
+     if (ierr .eq. ERR_FIELD_NOT_FOUND) then
+       call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
+            'bilinear', fill=0.0)
+     endif
   endif
   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
      call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
@@ -1576,7 +1583,12 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
           endif
        endif
     elseif (fire_option_fRH==FIRE_RH_GOMPERTZ) then
-       fire_fn_rh = exp(-rh_gom2(kop)*exp(-rh_gom3(kop)*rh))
+       ! impose arbitrary upper limit on the argument of internal exponent to avoid floating overflows
+       if (-rh_gom3(kop)*rh < 100.0) then
+          fire_fn_rh = exp(-rh_gom2(kop)*exp(-rh_gom3(kop)*rh))
+       else
+          fire_fn_rh = 0.0
+       endif
        if (do_calc_derivs) then
 !          fire_fn_rh_DERIVwrt_param1 = -exp(-rh_gom3*rh)*exp(-rh_gom2*exp(-rh_gom3*rh))
 !          fire_fn_rh_DERIVwrt_param2 = rh_gom2*rh*exp(-rh_gom3*rh)*exp(-rh_gom2*exp(-rh_gom3*rh))
@@ -2171,7 +2183,7 @@ subroutine vegn_fire_intensity(vegn,soilc,ROS_surface,ROS,theta,theta_extinction
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
-    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*sum(litter_total_C)/0.45
+    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
 
     SH_parameter = F_parameter * (fire_intensity**0.6667)

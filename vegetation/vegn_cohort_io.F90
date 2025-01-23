@@ -3,7 +3,6 @@ module cohort_io_mod
 use netcdf, only: NF90_FILL_DOUBLE, NF90_FILL_INT
 
 use fms_mod,          only : error_mesg, FATAL, WARNING
-use fms_io_mod,       only : get_instance_filename
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, compressed_start_and_count, &
      register_axis, register_field, register_variable_attribute, read_data, write_data
 use mpp_mod,          only : mpp_max
@@ -189,15 +188,11 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   integer              , intent(in)  :: cohorts_dim_length  ! length of cohorts axis
 
   ! ---- local vars
-  character(256) :: file_name ! full name of the file, including the processor number
   integer :: ncidx
   integer, dimension(:), allocatable :: npes_cidx !Cohort index length of each pe in file's pelist.
   integer, dimension(:), allocatable :: npes_cidx_start !Offset of cohort index of each pe in file's pelist.
   integer, dimension(cohorts_dim_length) :: buffer
   integer :: i
-
-  ! form the full name of the file
-  call get_instance_filename(trim(name), file_name)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to

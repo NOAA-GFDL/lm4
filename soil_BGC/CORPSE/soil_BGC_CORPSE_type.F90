@@ -170,6 +170,7 @@ contains
   procedure :: rav_C   => rav_C_CORPSE   ! returns amounts of fas, slow, and (dead) microbial C [kgC/m2]
   procedure :: get_DOC => retrieve_DOC
   procedure :: get_DON => retrieve_DON
+  procedure :: get_layer_C => totC_by_layer_CORPSE
   procedure :: get_nit => retrieve_nitrate
   procedure :: get_amm => retrieve_ammonium
   procedure :: get_littC => get_littC_CORPSE
@@ -734,6 +735,20 @@ real function total_C_CORPSE (soilc) result(soil_tile_carbon)
      soil_tile_carbon=soil_tile_carbon+temp
   enddo
 end function
+
+!> @brief Given soil carbon state, return total soil C by layer
+subroutine totC_by_layer_CORPSE (soilc, values)
+  class(soil_BGC_CORPSE_t),  intent(in)  :: soilc !< soil carbon data structure
+  real,                      intent(out) :: values(:) ! (num_l)
+
+  integer :: k
+
+  values(:) = 0.0
+  do k=1,min(size(values),num_l)
+     call poolTotals(soilc%org_matter(k),totalCarbon=values(k))
+  enddo
+end subroutine
+
 
 !> @brief Given soil carbon state, return total soil nitrogen
 !! @return total soil nitrogen, kgN/m2

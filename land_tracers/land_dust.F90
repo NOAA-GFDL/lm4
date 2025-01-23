@@ -58,11 +58,11 @@ type :: dust_data_type
    real          :: source_fraction = 0.0 ! fraction of the source allocated to this dust tracer
 
    integer :: & ! diag field ids
-     id_emis,      id_ddep,      id_wdep, &
-     id_flux_atm,  id_dfdtr, &
-     id_con_v_lam, id_con_g_lam, &
-     id_con_v,     id_con_g, &
-     id_vdep
+     id_emis      = 0, id_ddep      = 0,  id_wdep = 0, &
+     id_flux_atm  = 0, id_dfdtr     = 0, &
+     id_con_v_lam = 0, id_con_g_lam = 0, &
+     id_con_v     = 0, id_con_g     = 0, &
+     id_vdep      = 0
 end type dust_data_type
 
 
@@ -268,6 +268,12 @@ subroutine land_dust_init (id_ug, mask)
         call vstate%addvar(fstate,cropName(i))
         call virrig%addvar(firrig,trim(cropName(i))//'_irrig')
      enddo
+
+     if (mpp_pe() == mpp_root_pe()) then
+        write(*,*)'land_dust_init: summary of irrigation input fields'
+        write(*,'(a)') vstate%descr()
+        write(*,'(a)') virrig%descr()
+     endif
 
      call read_irrigation_fraction(lnd%time,irrigation_fraction)
   endif
@@ -685,6 +691,8 @@ subroutine update_dust_slow (time)
 
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   logical :: used
+
+  if (.not.do_dust) return ! nothing to do
 
   call get_date(time,             year0,month0,day0,hour,minute,second)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)

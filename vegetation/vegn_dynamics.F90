@@ -5,10 +5,9 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: file_exist, check_nml_error, input_nml_file, close_file, &
-     check_nml_error, stdlog, error_mesg, FATAL, WARNING
+use fms_mod, only: check_nml_error, stdlog, error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
-use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
+use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe, input_nml_file
 use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
 use constants_mod, only : PI
@@ -1052,14 +1051,14 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
      resg(i) = cc%growth_previous_day_tmp ! kg C per individual per year
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
 
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         write(*,'("####### vegn_carbon_int_ppa #0, cohort ",i2.2)') i
         __DEBUG1__(cc%nindivs)
         __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bwood, cc%nsc)
         __DEBUG5__(cc%leaf_N, cc%root_N, cc%sapwood_N, cc%wood_N, cc%stored_N)
      endif
      cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         __DEBUG1__(cc%carbon_gain)
      endif
 
@@ -1086,7 +1085,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, soilc, tsoil, theta, diag)
      if (track_vegn_nitrogen) &
          cc%stored_N = cc%stored_N + deltaNL*sp%leaf_N_retrans_frac   &
                                    + deltaNR*sp%root_N_retrans_frac
-     if (is_watch_point()) then
+     if (is_watch_point(2)) then
         __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaNR)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
      endif

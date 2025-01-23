@@ -28,6 +28,8 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: land_numerics_init
+
 public :: bisect    ! finds a position of point in array of bounds
 public :: lin_int   ! linear interpolation
 public :: ludcmp, lubksb, lubksb_and_improve ! LU decomposition and back substitution
@@ -43,9 +45,9 @@ public :: gammaL, gammaU ! incomplete gamma
 public :: gamma ! because ifort 11 does not have built-in gamma
 public :: gammaln ! ln(gamma); useful for ratio of gamma functions
 
-public :: rank_descending ! rank the input array in descending order
+public :: erfi ! imaginary error function
 
-public :: numerics_init
+public :: rank_descending ! rank the input array in descending order
 ! ==== end of public interfaces ==============================================
 
 
@@ -62,7 +64,7 @@ interface nearest
    module procedure nearest1D, nearest2D, nearestUG
 end interface
 
-logical :: module_is_initialized =.FALSE.
+logical :: module_is_initialized = .FALSE.
 ! ==== module constants ======================================================
 character(len=*), parameter :: mod_name = 'land_numerics'
 #include "../shared/version_variable.inc"
@@ -89,16 +91,29 @@ type :: horiz_remap_type
        dstPE(:) => NULL()    ! PE that requests and then uses the data
 end type horiz_remap_type
 
+! constants and precomputed coefficients of Dawson function
+integer, parameter :: DAWSON_NMAX = 6
+real,    parameter :: DAWSON_H    = 0.4
+real               :: dawson_c(DAWSON_NMAX) ! coefficients precomputed on initialization
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
 ! ============================================================================
 ! Initializes the numerics module.
-subroutine numerics_init()
-  module_is_initialized =.TRUE.
+subroutine land_numerics_init()
+  integer :: i
+
+  if (module_is_initialized) return
   call log_version(version, mod_name, thisfile)
-end subroutine numerics_init
+
+  ! pre-compute coefficients for Dawson function
+  do i = 0, DAWSON_NMAX-1
+     dawson_c(i+1)=exp(-(DAWSON_H*(2.0*i+1.0))**2)
+  enddo
+
+  module_is_initialized =.TRUE.
+end subroutine land_numerics_init
 
 
 ! ============================================================================
@@ -1577,6 +1592,53 @@ real function gammaln(xx)
 end function gammaln
 
 ! ==============================================================================
+! returns imaginary error function: \int_0^x \exp(x^2) dx
+real function erfi(x)
+   real :: x
+   erfi = exp(x**2)*dawson(x)
+end function erfi
+
+! ==============================================================================
+! returns Dawson's integral: \exp(-x^2) \int_0^x \exp(x^2) dx
+! W. H. Press, S.A. Teukolsky, W.T. Vetterling, and B.P. Flannery.
+! Numerical Recipes. The Art of Scientific Computing. 3rd Ed.
+! Cambridge University Press, 2007.
+real function dawson(x) result(ans)
+  real, intent(in) :: x
+
+  real, parameter :: A1=2.0/3.0, A2=0.4, A3=2.0/7.0
+  real :: d1,d2,e1,e2,sum,x2,xp,xx
+  integer :: i, n0
+
+  if(.not.module_is_initialized) then
+    call my_error(mod_name,'module was not initialized',FATAL)
+  endif
+
+  if (abs(x) < 0.2) then
+     ! Use series expansion.
+     x2=x*x
+     ans=x*(1.0-A1*x2*(1.0-A2*x2*(1.0-A3*x2)));
+  else
+     ! Use sampling theorem representation.
+     xx=abs(x)
+     n0=2*int(0.5*xx/DAWSON_H+0.5)
+     xp=xx-n0*DAWSON_H
+     e1=exp(2.0*xp*DAWSON_H)
+     e2=e1*e1
+     d1=n0+1
+     d2=d1-2.0
+     sum=0.0
+     do i = 1, size(dawson_c)
+        sum = sum + dawson_c(i)*(e1/d1+1.0/(d2*e1))
+        d1 = d1 + 2.0
+        d2 = d2 - 2.0
+        e1 = e1*e2
+     enddo
+     ans=0.5641895835*SIGN(exp(-xp*xp),x)*sum;
+  endif
+end function dawson
+
+! ==============================================================================
 ! Reports error, including file name and line.
 subroutine my_error(mod_name, message, mode, file, line)
 
@@ -1596,6 +1658,5 @@ subroutine my_error(mod_name, message, mode, file, line)
   endif
   call error_mesg(mod_name, mesg, mode)
 end subroutine
-
 
 end module land_numerics_mod

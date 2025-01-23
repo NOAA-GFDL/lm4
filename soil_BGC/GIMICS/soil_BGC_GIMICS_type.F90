@@ -3,7 +3,7 @@ module soil_BGC_GIMICS_type_mod
 #include "../../shared/debug.inc"
 
 
-use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
+use fms_mod, only: input_nml_file, check_nml_error, &
         stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, string, lowercase
 use time_manager_mod, only: time_type, time_type_to_real
 use constants_mod, only : PI,tfreeze
@@ -111,6 +111,7 @@ contains
                                                        ! for legacy surface resistance calculations
   procedure :: get_DOC => get_DOC_GIMICS ! returns DOC, by type and by layer
   procedure :: get_DON => get_zero_2D ! returns DON, by type and by layer
+  procedure :: get_layer_C => totC_by_layer_GIMICS ! returns total soil carbon by layer, kgC/m2
   procedure :: get_nit => get_zero_1D ! returns nitrate by layer, kgN/m2
   procedure :: get_amm => get_zero_1D ! returns ammonium by layer, kgN/m2
   procedure :: get_littC => get_littC_GIMICS ! returns litter carbon, by litter pool, kgC/m2
@@ -958,6 +959,22 @@ real function total_soil_C(soilc) result(answer)
            ) * dz(k)
   enddo
 end function
+
+! ============================================================================
+!> @brief Given soil carbon state, return total soil C by layer, kgC/m2
+subroutine totC_by_layer_GIMICS(soilc, values)
+  class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
+  real,                     intent(out) :: values(:) ! (num_l)
+
+  integer :: k
+
+  values(:) = 0.0
+  do k = 1, min(size(values),num_l)
+     values(k) = ( C_density(soilc%rhiz(k)) * soilc%fRhiz(k)     &
+                 + C_density(soilc%bulk(k)) * (1-soilc%fRhiz(k)) &
+                 ) * dz(k)
+  enddo
+end subroutine
 
 ! ============================================================================
 !> @brief Given a BGC pool, calculate total volumetric density of carbon, kgC/m3

@@ -1,6 +1,6 @@
 module soil_BGC_SIMPLE_type_mod
 
-use fms_mod, only: input_nml_file, check_nml_error, file_exist, close_file, &
+use fms_mod, only: input_nml_file, check_nml_error, &
         stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
 
@@ -57,6 +57,7 @@ contains
                                        ! for litter evaporation resistance calculations
   procedure :: get_DOC => get_zero_2D
   procedure :: get_DON => get_zero_2D
+  procedure :: get_layer_C => totC_by_layer_SIMPLE
   procedure :: get_nit => get_zero_1D
   procedure :: get_amm => get_zero_1D
   procedure :: get_littC => get_littC_SIMPLE
@@ -283,6 +284,19 @@ real function total_C_SIMPLE(soilc) result(tot_C)
   tot_C = sum(soilc%fast_soil_C(:))+sum(soilc%slow_soil_C(:)) &
         + sum(soilc%litter_SIMPLE_C(:,:))
 end function
+
+!> @brief Given soil carbon state, return total soil C by layer
+subroutine totC_by_layer_SIMPLE(soilc, values)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure
+  real,                     intent(out) :: values(:) ! (num_l)
+
+  integer :: k
+
+  values(:) = 0.0
+  do k = 1, min(size(values),num_l)
+     values(k) = soilc%fast_soil_C(k) + soilc%slow_soil_C(k)
+  enddo
+end subroutine
 
 !> @brief Given soil carbon state, return total soil nitrogen
 !! @return total soil nitrogen, kgN/m2

@@ -3,7 +3,7 @@ module vegn_tile_mod
 #include "../shared/debug.inc"
 
 use fms_mod,            only : error_mesg, WARNING, FATAL
-use constants_mod,      only : tfreeze, hlf
+use constants_mod,      only : tfreeze, hlf, epsln
 
 use land_constants_mod, only : MAX_SOIL_LEV, NBANDS, N_C_TYPES, N_LITTER_POOLS
 use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
@@ -22,7 +22,8 @@ use vegn_data_mod, only : &
      do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohorts_can_be_merged, leaf_area_from_biomass, plant_C
+     cohorts_can_be_merged, leaf_area_from_biomass, plant_C, &
+     get_vegn_wet_frac
 
 implicit none
 private
@@ -57,6 +58,8 @@ public :: vegn_seed_N_supply
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+
+public :: vegn_tile_fw_fs ! return LAI average fs and fw
 
 integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
           ! fires can burn; dimension of daily history arrays in vegn_tile
@@ -108,6 +111,12 @@ type :: vegn_tile_type
    real :: harv_pool_C(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate_C(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
    real :: harv_pool_N(N_HARV_POOLS) = 0.0 ! harvested nitrogen pool
+
+   ! the four amount variables below are only for diagnostics
+   real :: amount_wood_harv_C = 0.0 ! amount of wood C harvested in the last event, kg C/m2
+   real :: amount_wood_harv_N = 0.0 ! amount of wood N harvested in the last event, kg N/m2
+   real :: amount_wood_cleared_C = 0.0 ! amount of wood C cleared in the last event, kg C/m2
+   real :: amount_wood_cleared_N = 0.0 ! amount of wood N cleared in the last event, kg N/m2
 
    ! uptake-related variables
    real :: root_distance(MAX_SOIL_LEV) ! characteristic half-distance between fine roots, m
@@ -196,6 +205,8 @@ type :: vegn_tile_type
    real :: past_areaburned_mdf (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
    real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire first day, for computing fire coalescence.
    real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires
+
+   real :: aerodyn_height          = 0.0 ! aerodynamic height of vegetation as whole, m
 
    ! it is probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
@@ -351,6 +362,12 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(harv_pool_C)
   __MERGE__(harv_rate_C)
   __MERGE__(harv_pool_N)
+
+  ! diagnostics of harvested or cleared wood amount
+  __MERGE__(amount_wood_harv_C)
+  __MERGE__(amount_wood_harv_N)
+  __MERGE__(amount_wood_cleared_C)
+  __MERGE__(amount_wood_cleared_N)
 
   ! do we need to merge these?
   __MERGE__(ssc_out)
@@ -1027,6 +1044,31 @@ function vegn_tile_LAI(vegn) result(LAI) ; real LAI
      LAI = LAI + vegn%cohorts(i)%lai * vegn%cohorts(i)%layerfrac
   enddo
 end function vegn_tile_LAI
+
+! ============================================================================
+! calculate overall fraction of vegetation canopies covered by water or snow
+subroutine vegn_tile_fw_fs(vegn,fw_diag,fs_diag)
+  type(vegn_tile_type), intent(in) :: vegn
+  real, intent(out) :: fw_diag, fs_diag
+  integer :: i
+  real :: fw,fs,LAI
+
+  fw_diag=0.
+  fs_diag=0.
+
+  LAI = vegn_tile_LAI(vegn)
+
+  if (LAI.gt.epsln) then
+     do i = 1,vegn%n_cohorts
+        call get_vegn_wet_frac ( vegn%cohorts(i), fw, fs )
+        fw_diag = fw_diag + vegn%cohorts(i)%lai * vegn%cohorts(i)%layerfrac * fw
+        fs_diag = fs_diag + vegn%cohorts(i)%lai * vegn%cohorts(i)%layerfrac * fs
+     enddo
+     fw_diag = max(fw_diag/LAI,0.)
+     fs_diag = max(fs_diag/LAI,0.)
+  end if
+
+end subroutine vegn_tile_fw_fs
 
 ! ============================================================================
 ! returns total stem area index

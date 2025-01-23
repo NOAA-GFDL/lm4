@@ -7,9 +7,8 @@ module soil_mod
 
 
 use mpp_mod, only: input_nml_file
-
-use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
-     stdlog, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+use fms_mod, only: error_mesg, string, check_nml_error, stdlog, mpp_pe, &
+     mpp_root_pe, FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
@@ -207,8 +206,7 @@ integer :: i_river_NH4     = NO_TRACER
 ! ---- diagnostic field IDs
 ! unused:
 integer ::  &
-!     id_nsoilcohorts, &
-    id_lwc, id_swc, id_psi, id_temp, &
+    id_lwc, id_swc, id_psi, id_temp, id_K_x, id_K_z, id_K_macro_x, id_K_macro_z, &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
     id_hie, id_hsn, id_hbf, id_hif, id_hal, id_hnu, id_hsc, &
     id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, &
@@ -668,6 +666,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   call send_tile_data_r0d_fptr(id_Qmax,         soil_Qmax_ptr)
   call send_tile_data_r1d_fptr(id_w_fc,         soil_w_fc_ptr)
   call send_tile_data_r1d_fptr(id_alpha,        soil_alpha_ptr)
+  call send_tile_data_r1d_fptr(id_K_macro_z,    soil_K_macro_z_ptr)
+  call send_tile_data_r1d_fptr(id_K_macro_x,    soil_K_macro_x_ptr)
   call send_tile_data_r1d_fptr(id_refl_dry_dir, soil_refl_dry_dir_ptr)
   call send_tile_data_r1d_fptr(id_refl_dry_dif, soil_refl_dry_dif_ptr)
   call send_tile_data_r1d_fptr(id_refl_sat_dir, soil_refl_sat_dir_ptr)
@@ -820,8 +820,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_Qmax = register_tiled_static_field ( module_name, 'soil_Qmax', axes(1:1),  &
        'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
-!   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
-!        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
 !   id_deadmic_total_C = register_tiled_diag_field ( module_name, 'tot_dmic_C', axes(1:1),  &
 !        lnd%time, 'total dead microbe carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
 !   id_deadmic_total_N = register_tiled_diag_field ( module_name, 'tot_dmic_N', axes(1:1),  &
@@ -968,6 +966,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, lnd%time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
   id_thermal_cond =  register_tiled_diag_field ( module_name, 'soil_tcon', &
        axes, lnd%time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
+  id_K_x =  register_tiled_diag_field ( module_name, 'soil_K_x', &
+       axes, lnd%time, 'soil hydraulic conductivity in horizontal', 'kg/(m2 s)',  missing_value=-100.0 )
+  id_K_z =  register_tiled_diag_field ( module_name, 'soil_K_z', &
+       axes, lnd%time, 'soil hydraulic conductivity in vertical', 'kg/(m2 s)',  missing_value=-100.0 )
 
   id_surface_water = register_tiled_diag_field (module_name, 'surface_water', &
        axes(1:1), lnd%time, 'surface water storage', 'm', missing_value=-100.0 )
@@ -1018,6 +1020,12 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes, 'soil field capacity', missing_value=-1.0 )
   id_alpha = register_tiled_static_field ( module_name, 'soil_alpha',  &
        axes, 'soil microscopic length scale', missing_value=-1.0 )
+  id_K_macro_z = register_tiled_static_field ( module_name, 'soil_K_macro_z',  &
+       axes, 'Vertical conductance due to macroporosity', units='kg/(m2 s)',   &
+       missing_value=-100.0 )
+  id_K_macro_x = register_tiled_static_field ( module_name, 'soil_K_macro_x',  &
+       axes, 'Horizontal conductance due to macroporosity', units='kg/(m2 s)', &
+       missing_value=-100.0 )
   id_refl_dry_dir = register_tiled_static_field ( module_name, 'refl_dry_dir',  &
        (/id_ug, id_band/), 'reflectance of dry soil for direct light', &
        missing_value=-1.0 )
@@ -2572,6 +2580,8 @@ end subroutine soil_step_1
   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
   if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
+  if (id_K_x > 0) call send_tile_data(id_K_x,  K_x, diag)
+  if (id_K_z > 0) call send_tile_data(id_K_z,  K_z, diag)
 
   ! CMOR variables
   if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)

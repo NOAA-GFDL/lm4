@@ -67,11 +67,12 @@ type :: atmos_land_boundary_type
         cd_m      => NULL(), &   ! drag coefficient for momentum, dimensionless
         cd_t      => NULL(), &   ! drag coefficient for tracers, dimensionless
         ustar     => NULL(), &   ! turbulent wind scale, m/s
-        bstar     => NULL(), &   ! turbulent buoyancy scale, m/s
+        bstar     => NULL(), &   ! turbulent buoyancy scale, m/s2
         wind      => NULL(), &   ! abs wind speed at the bottom of the atmos, m/s
         z_bot     => NULL(), &   ! height of the bottom atmospheric layer above the surface, m
         drag_q    => NULL(), &   ! product of cd_q by wind
-        p_surf    => NULL()      ! surface pressure, Pa
+        p_surf    => NULL(), &   ! surface pressure, Pa
+        con_atm   => NULL()      ! conductance between atmosphere and canopy, m/s
 
    real, dimension(:,:,:), pointer :: & ! (grid index, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
@@ -96,6 +97,7 @@ type :: land_data_type
         albedo_nir_dif => NULL(),  & ! albedo for diffuse NIR radiation
         rough_mom      => NULL(),  & ! surface roughness length for momentum, m
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
+        rsl_scale      => NULL(),  & ! roughness sublayer scale, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)

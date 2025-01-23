@@ -1,7 +1,8 @@
 module snow_tile_mod
 #include <fms_platform.h>
 
-use fms_mod, only : file_exist, input_nml_file, check_nml_error, close_file, stdlog
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog
 use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_tile_selectors_mod, only : tile_selector_type
@@ -152,8 +153,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')

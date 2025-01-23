@@ -667,10 +667,14 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
              + wood_harvested*frac_wood_med
         vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) &
              + wood_harvested*frac_wood_slow
+        ! store harvested wood amount, for diagnostics
+        vegn%amount_wood_harv_C = wood_harvested
      else
         ! this is land clearance: everything goes into "cleared" pool
         vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
              + wood_harvested
+        ! store cleared wood amount, for diagnostics
+        vegn%amount_wood_cleared_C = wood_harvested
      endif
 
      ! distribute wood and living biomass between fast and slow intermediate
@@ -977,12 +981,23 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
           + sum(wood_harv_C)*frac_wood_slow*(1-frac_wood_wasted)
      vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) &
           + sum(wood_harv_N)*frac_wood_slow*(1-frac_wood_wasted)
+     ! store harvested wood amount, for diagnostics. We could send the diagnostics
+     ! from here, but we are currently not merging the diag buffers when merging
+     ! land tiles, and therefore the output would be incorrect if the tiles
+     ! that are just harvested are merged after land use transitions and before
+     ! dumping the diag (which is likely). Same note applies to amount_wood_cleared_*
+     ! below
+     vegn%amount_wood_harv_C = sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%amount_wood_harv_N = sum(wood_harv_N)*(1-frac_wood_wasted)
   else
      ! this is land clearance: everything goes into "cleared" pool
      vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
           + sum(wood_harv_C)*(1-frac_wood_wasted)
      vegn%harv_pool_N(HARV_POOL_CLEARED) = vegn%harv_pool_N(HARV_POOL_CLEARED) &
           + sum(wood_harv_N)*(1-frac_wood_wasted)
+     ! cleared wood amount, for diagnostics
+     vegn%amount_wood_cleared_C = sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%amount_wood_cleared_N = sum(wood_harv_N)*(1-frac_wood_wasted)
   endif
 
   vegn%litter_buff_C(:,LITT_CWOOD) = vegn%litter_buff_C(:,LITT_CWOOD) + &

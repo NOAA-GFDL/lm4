@@ -22,6 +22,7 @@ contains
                                                        ! for legacy surface resistance calculations
   procedure (get_real_2D),   deferred, pass :: get_DOC ! returns DOC, by type and by layer
   procedure (get_real_2D),   deferred, pass :: get_DON ! returns DON, by type and by layer
+  procedure (get_real_1D),   deferred, pass :: get_layer_C ! returns total soil carbon by layer, kgC/m2
   procedure (get_real_1D),   deferred, pass :: get_nit ! returns nitrate by layer, kgN/m2
   procedure (get_real_1D),   deferred, pass :: get_amm ! returns ammonium by layer, kgN/m2
   procedure (get_real_1D),   deferred, pass :: get_littC ! returns litter carbon, by litter pool, kgC/m2

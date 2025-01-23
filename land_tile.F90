@@ -1,8 +1,8 @@
 module land_tile_mod
 
-use fms_mod, only : file_exist, close_file, mpp_pe, mpp_root_pe, &
-     input_nml_file, check_nml_error, error_mesg, stdlog, FATAL
-
+use fms_mod, only : mpp_pe, mpp_root_pe, check_nml_error, error_mesg, stdlog, &
+                  & FATAL
+use mpp_mod, only: input_nml_file
 use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
      glac_tile_type, new_glac_tile, delete_glac_tile, glac_is_selected, &
@@ -158,7 +158,12 @@ type :: land_tile_type
    real, allocatable :: Sdn_dir(:,:), Sdn_dif(:,:)
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
 
-   real :: land_d, land_z0m, land_z0s, grnd_z0m, grnd_z0s
+   real :: land_d, land_z0m, land_z0s, land_RSL, grnd_z0m, grnd_z0s
+   real :: bstar = 0.0 ! turbulent buoyancy scale, m/s2. It is a member of tile structure
+   ! and stored in the restarts only because update_land_bc_fast [where it is used to
+   ! calculate roughness sublayer depth] is called on initialization before atmos is able
+   ! to pass stability data down, so to reproduce across restarts land has to retrieve
+   ! previous value from the exiting IC.
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
    ! black-background long-wave radiative properties of the vegetation cohorts
    real, allocatable :: vegn_refl_lw(:)  ! reflectance
@@ -299,7 +304,6 @@ subroutine init_tile_map()
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=tile_merge_nml)
-     call close_file (unit)
   endif
 
   allocate(land_tile_map(lnd%ls:lnd%le))

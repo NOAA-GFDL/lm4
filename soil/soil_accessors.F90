@@ -96,6 +96,26 @@ subroutine soil_alpha_ptr(t,i,p)
     endif
 end subroutine
 
+subroutine soil_K_macro_z_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%k_macro_z(i)
+    endif
+end subroutine
+
+subroutine soil_K_macro_x_ptr(t,i,p)
+    type(land_tile_type),pointer::t
+    integer,intent(in)::i
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%k_macro_x(i)
+    endif
+end subroutine
+
 subroutine soil_uptake_T_ptr(t,p)
     type(land_tile_type),pointer::t
     real,pointer::p
