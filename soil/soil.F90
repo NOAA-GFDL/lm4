@@ -289,13 +289,14 @@ subroutine read_soil_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
+  character(256) :: msg   ! error message
 
   call read_soil_data_namelist(use_single_geo,gw_option)
 
   call log_version(version, module_name, &
   __FILE__)
-  read (input_nml_file, nml=soil_nml, iostat=io)
-  ierr = check_nml_error(io, 'soil_nml')
+  read (input_nml_file, nml=soil_nml, iostat=io, iomsg=msg)
+  ierr = check_nml_error(io, 'soil_nml :: '//trim(msg))
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_nml)
