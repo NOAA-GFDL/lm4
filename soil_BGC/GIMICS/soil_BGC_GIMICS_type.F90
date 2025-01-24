@@ -142,13 +142,20 @@ real :: dt_fast_hr ! fast (physical) time step [hr]
 
 ! namelist
 real :: litt_theta_mod = 0.1 ! Modifies litt theta (unitless)
+real :: theta_thres = 0.9    ! Modifies Vmax for Lm fluxes into Mr (unitless)
+real :: thetaFmin_dry = 0.0    ! Modifies Vmax for Lm fluxes into Mr (unitless)
+real :: thetaFmin_wet = 0.0    ! Modifies Vmax for Lm fluxes into Mr (unitless)
 
 real :: Vmod_Mr_Lm = 10.0    ! Modifies Vmax for Lm fluxes into Mr (unitless)
 real :: Vmod_Mr_Ls = 2.0     ! Modifies Vmax for Ls fluxes into Mr (unitless)
 real :: Vmod_Mr_Ca = 10.0    ! Modifies Vmax for Ca fluxes into Mr (unitless)
+real :: Vmod_Mr_DOC = 10.0    ! Modifies Vmax for Ca fluxes into Mr (unitless)
+
 real :: Vmod_Mk_Lm = 3.0     ! Modifies Vmax for Lm fluxes into Mk (unitless)
 real :: Vmod_Mk_Ls = 3.0     ! Modifies Vmax for Ls fluxes into Mk (unitless)
 real :: Vmod_Mk_Ca = 2.0     ! Modifies Vmax for Ca fluxes into Mk (unitless)
+real :: Vmod_Mk_DOC = 2.0     ! Modifies Vmax for Ca fluxes into Mk (unitless)
+
 real :: Vslope     = 0.063   ! Regression coefficient (ln(mgC/mgM/hr)/Celsius) (Eq 1 in Wieder et al., 2015)
 real :: Vint       = 5.47    ! Regression intercept (ln(mgC/mgM/hr)) (Eq 1 in Wieder et al., 2015)
 real :: aV         = 8e-6    ! Tuning coefficient (unitless) (Eq 1 in Wieder et al., 2015)
@@ -176,6 +183,7 @@ real :: eCa_Mr = 0.55       ! Microbial growth efficiency for fluxes from Ca to 
 real :: eLm_Mk = 0.75       ! Microbial growth efficiency for fluxes from Lm to Mk (mg/mg)
 real :: eLs_Mk = 0.35       ! Microbial growth efficiency for fluxes from Ls to Mk (mg/mg)
 real :: eCa_Mk = 0.75       ! Microbial growth efficiency for fluxes from Ca to Mk (mg/mg)
+real :: e_slope = 0.0       ! Microbial growth efficiency for fluxes from Ca to Mk (mg/mg)
 
 real :: Kmod_oxid_Mr = 4.0  ! Further modifies Km for oxidation of Cc
 real :: Kmod_oxid_Mk = 4.0  ! Further modifies Km for oxidation of Cc
@@ -187,7 +195,21 @@ real :: w_Ca = 0.1          ! Fluxes from Ca decomposition to DOC (mg/mg)
 real :: fMrTau_DOC = 0.5    ! Partition between Ca and DOC for Mr turnover Fluxes excluding those to Cc and Cp
 real :: fMkTau_DOC = 0.5    ! Partition between Ca and DOC for Mk turnover Fluxes excluding those to Cc and Cp
 
+real :: fMrTau_Cp_a1  = 0.3      ! modifications from Zhang et al. (2019), from 0.3 to 0.13
+real :: fMrTau_Cp_a2  = 0.2      ! modifications from Zhang et al. (2019), from 0.2 to 0.02
+real :: fMrTau_Cc_a3  = -3.0     ! modifications from Zhang et al. (2019), from -3 to -2.61
+real :: fMrTau_Cc_a4  = 0.1      ! modifications from Zhang et al. (2019), from 0.1 to 1.06
+real :: fMrTau_Cc_a5  = 0.3     ! modifications from Zhang et al. (2019), from 0.3 to 8.93
+real :: fMrTau_Cc_a3_litt  = -3.0     ! modifications from Zhang et al. (2019), from -3 to -2.61
+real :: fMrTau_Cc_a4_litt  = 0.1      ! modifications from Zhang et al. (2019), from 0.1 to 1.06
+real :: fMrTau_Cc_a5_litt  = 0.3     ! modifications from Zhang et al. (2019), from 0.3 to 8.93
+
+real :: Desorb_kd  = 1.0      ! modifications from Zhang et al. (2019)
+real :: Desorb_kdp = 0.0
+real :: Desorb_clay = -1.5
+
 logical :: highT_limit = .FALSE.    ! if FALSE, no limitation on decomposition for high temperature
+logical :: lowT_limit  = .FALSE.    ! if FALSE, no limitation on decomposition for high temperature
 logical :: DOC_cycling = .FALSE.    ! if FALSE, no doc cycling
 
 real :: min_anaerobic_resp_factor = 0.05
@@ -252,15 +274,15 @@ character(32) :: theta_func_soil = 'CORPSE' ! or 'Yan2018', 'NONE'
 character(32) :: theta_func_litt = 'CORPSE' ! or 'ORCHIDEE', 'Yan2018', 'NONE'
 
 namelist /soil_BGC_GIMICS_nml/ &
-    litt_theta_mod, Vmod_Mr_Lm, Vmod_Mr_Ls, Vmod_Mr_Ca, Vmod_Mk_Lm, Vmod_Mk_Ls, Vmod_Mk_Ca, Vslope, Vint, aV, &
+    litt_theta_mod, theta_thres, thetaFmin_dry, thetaFmin_wet, Vmod_Mr_Lm, Vmod_Mr_Ls, Vmod_Mr_Ca, Vmod_Mr_DOC, Vmod_Mk_Lm, Vmod_Mk_Ls, Vmod_Mk_Ca, Vmod_Mk_DOC, Vslope, Vint, aV, &
     Kmod_Mr_Lm, Kmod_Mr_Ls, Kmod_Mr_Ca, Kmod_Mk_Lm, Kmod_Mk_Ls, Kmod_Mk_Ca, Kslope_Lm, Kslope_Ls, Kslope_Ca, Kint, aK, &
-    fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, Kmod_oxid_Mr, Kmod_oxid_Mk, &
-    w_Lm, w_Ls, w_Ca, fMrTau_DOC, fMkTau_DOC, &
+    fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, e_slope, Kmod_oxid_Mr, Kmod_oxid_Mk, &
+    w_Lm, w_Ls, w_Ca, &
     theta_func_litt, theta_func_soil, &
-    highT_limit, DOC_cycling, &
+    highT_limit,  lowT_limit, DOC_cycling, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, theta_func_orchidee_min, theta_func_orchidee_max, &
     tau_calib, tau_beta, cw_r_cw, cw_z_cw, lf_f_cw, cw_r_lf, cw_z_lf, lf_f_lf, &
-    fMrTau_DOC, fMkTau_DOC, &
+    fMrTau_DOC, fMkTau_DOC, fMrTau_Cp_a1, fMrTau_Cp_a2, fMrTau_Cc_a3, fMrTau_Cc_a4, fMrTau_Cc_a5, fMrTau_Cc_a3_litt, fMrTau_Cc_a4_litt, fMrTau_Cc_a5_litt, Desorb_kd, Desorb_kdp, Desorb_clay, &
 ! -----
     init_Mr, init_Mk, init_litt_dz, r_rhiz, litt_density, min_litt_dz, const_litt_dz, &
     K_turb, K_sfc_turb, K_diff, do_microbe_turb, &
@@ -305,7 +327,8 @@ integer, parameter :: &
      THETA_F_NONE     = 0, &
      THETA_F_ORCHIDEE = 1, &
      THETA_F_YAN2018  = 2, &
-     THETA_F_CORPSE   = 3
+     THETA_F_CORPSE   = 3, &
+     THETA_F_A        = 4
 
 integer :: theta_func_litt_option = -1 ! integer option corresponding to theta_func_litt namelist parameter
 integer :: theta_func_soil_option = -1 ! integer option corresponding to theta_func_soil namelist parameter
@@ -353,11 +376,12 @@ subroutine read_soil_BGC_GIMICS_namelist()
      theta_func_soil_option = THETA_F_CORPSE
   case ('none')
      theta_func_soil_option = THETA_F_NONE
+  case ('afunc')
+     theta_func_soil_option = THETA_F_A
   case default
      call error_mesg('read_soil_BGC_GIMICS_namelist',&
-         'value "'//trim(theta_func_litt)//'" of theta_func_soil is incorrect : use "Yan2018", "CORPSE", or "none"', FATAL)
+         'value "'//trim(theta_func_soil)//'" of theta_func_soil is incorrect : use "Yan2018", "CORPSE", "afunc", or "none"', FATAL)
   end select
-
 
   ! store time step in different units in module variables, for convenience
   delta_time = time_type_to_real(lnd%dt_fast) ! [s]
@@ -1129,21 +1153,21 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   !      For some reason, protectedC and microbes are not included?
   ! ml: microbes should be also moved via turbation, but not protected C.
   call turbation(soilc%litt(:)%metabolicLitterC, soilc%rhiz(:)%metabolicLitterC, soilc%bulk(:)%metabolicLitterC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_metabolicC, id_lturb_metabolicC, diag, 'metabolicC')
+                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_metabolicC, id_lturb_metabolicC, diag, 'metabolicC')
   call turbation(soilc%litt(:)%structuralLitterC, soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_structuralC, id_lturb_structuralC, diag, 'structuralC')
+                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_structuralC, id_lturb_structuralC, diag, 'structuralC')
   call turbation(soilc%litt(:)%chemResistantC, soilc%rhiz(:)%chemResistantC, soilc%bulk(:)%chemResistantC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_chemResistantC, id_lturb_chemResistantC, diag, 'chemResistantC')
+                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_chemResistantC, id_lturb_chemResistantC, diag, 'chemResistantC')
   call turbation(soilc%litt(:)%availableC, soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
-  call turbation(soilc%litt(:)%DOC, soilc%rhiz(:)%DOC, soilc%bulk(:)%DOC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_diff, id_sturb_DOC, id_lturb_DOC, diag, 'DOC')
+                 soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
+  call turbation2(soilc%litt(:)%DOC, soilc%rhiz(:)%DOC, soilc%bulk(:)%DOC, &
+                 soilc%fRhiz, soilc%litt(:)%dz, K_diff, decomp_theta, decomp_porosity, decomp_moist, id_sturb_DOC, id_lturb_DOC, diag, 'DOC')
   if (do_microbe_turb) then
      call turbation(soilc%litt(:)%microbesR, soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR, &
-                    soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_microbesR, id_lturb_microbesR, diag, 'microbesR', &
+                    soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_microbesR, id_lturb_microbesR, diag, 'microbesR', &
                     allow_flux_to_sfc_litter=.TRUE.)
      call turbation(soilc%litt(:)%microbesK, soilc%rhiz(:)%microbesK, soilc%bulk(:)%microbesK, &
-                    soilc%fRhiz, soilc%litt(:)%dz, K_turb, id_sturb_microbesk, id_lturb_microbesK, diag, 'microbesK', &
+                    soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_microbesk, id_lturb_microbesK, diag, 'microbesK', &
                     allow_flux_to_sfc_litter=.TRUE.)
   ! perhaps it would be useful to have "else" statement here to send zeros to the
   ! diagnostics of microbe tendencies due to turbation
@@ -1228,7 +1252,7 @@ end subroutine debug_GIMICS_pool
 
 ! ============================================================================
 !> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
-subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, id_turb_tend, id_litt_tend, diag, tag, &
+subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity, moist, id_turb_tend, id_litt_tend, diag, tag, &
     allow_flux_to_sfc_litter)
   real, intent(inout) :: litt(N_LITTER_POOLS)  !< concentration in litter(s), [kg/m3]
   real, intent(inout) :: rhiz(:)  !< concentration in rhizosphere, [kg/m3]
@@ -1236,6 +1260,9 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, id_turb_tend, id_
   real, intent(in)    :: fRhiz(:) !< fraction of rhizosphere, [m3/m3]
   real, intent(in)    :: dz_litt(N_LITTER_POOLS) !< litter thickness, [m]
   real, intent(in)    :: K_turb(:)
+  real, intent(in)    :: theta(:)         !< volume of water per volume of air [m3/m3]
+  real, intent(in)    :: porosity(:)      !< volume of air per volume of soil [m3/m3]
+  real, intent(in)    :: moist(:)         !< volume of water per volume of soil [m3/m3]
   integer, intent(in) :: id_turb_tend !< diagnostic id for turbation tendency field
   integer, intent(in) :: id_litt_tend(N_LITTER_POOLS) !< diagnostic ids for turbation tendencies in litter
   type(diag_buff_type), intent(inout) :: diag !< diagnostic buffer
@@ -1246,15 +1273,45 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, id_turb_tend, id_
 
   real, dimension(size(rhiz)) :: &
      c,     & ! average concentration in layer, [kg/m3]
-     tend     ! tendency due to turbation, [kg/(m3 yr)]
+     tend,  & ! tendency due to turbation, [kg/(m3 yr)]
+     turb_limit, moist_op  !
+
+
   real :: f   ! proportionality factor for negative tendency application, unitless
   integer :: k
   real :: d   ! distance between centers of litter and soil layers, [m]
   real :: sfcFlux(N_LITTER_POOLS) ! flux from each litter pool to soil, [kg/(m2 yr)]
   logical :: allow_flux_to_litt ! allow flux from soil to litter
 
+
   allow_flux_to_litt = .FALSE.
   if (present (allow_flux_to_sfc_litter)) allow_flux_to_litt = allow_flux_to_sfc_litter
+
+
+
+!do k = 1,size(rhiz)
+!        moist_op(k) = 0.65 * porosity(k)
+!
+!        if (moist(k) .lt. moist_op(k)) then
+!            turb_limit(k) = 1.0
+!        else
+!            turb_limit(k) = ((porosity(k) - moist(k))/(porosity(k) - moist_op(k)))**0.75
+!        endif
+!enddo
+
+
+
+do k = 1,size(rhiz)
+
+        if (theta(k) .lt. theta_thres) then
+            turb_limit(k) = 1.0
+        else
+            turb_limit(k) = 0.0
+        endif
+
+enddo
+
+
 
   ! calculate average concentration in soil
   do k = 1,size(rhiz)
@@ -1280,7 +1337,130 @@ subroutine turbation(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, id_turb_tend, id_
   enddo
 
   ! diffusion in soil
-  call diffusion(c, K_turb, sum(sfcFlux), tend)
+  call diffusion(c, K_turb, turb_limit, sum(sfcFlux), tend)
+
+  !do k = 1,size(rhiz)
+  !tend(k) = tend(k)*turb_limit(k)
+  !enddo
+
+  ! update soil concentrations
+  do k = 1, size(rhiz)
+     ! We apply turbation tendency differently depending on its sign: if a bug
+     ! goes through the soil and consumed matter (negative tendency), it
+     ! presumably does so proportionally to the concentrations in each of the soil
+     ! pieces it encounters (rhiz or bulk). On the other hand, when it deposits
+     ! carbon (positive tendency), it presumably drops the same concentration in
+     ! rhiz or bulk.
+     !
+     ! The true mechanism of the exchange is probably much more complicated, as
+     ! the consumption/dropping happens simultaneously; it also could be very
+     ! different for crioturbation
+     if (tend(k).ge.0) then
+        ! positive tendency: apply the same concentration increase to rhizosphere and
+        ! bulk soil
+        rhiz(k) = rhiz(k) + tend(k)*dt_fast_yr
+        bulk(k) = bulk(k) + tend(k)*dt_fast_yr
+     else
+        ! negative tendency: reduce rhizosphere and bulk soil concentration proportionally
+        f = (c(k)+tend(k)*dt_fast_yr)/c(k)
+        rhiz(k) = rhiz(k)*f
+        bulk(k) = bulk(k)*f
+     endif
+  enddo
+  ! update litter concentrations
+  do k = 1, N_LITTER_POOLS
+     litt(k) = litt(k) - sfcFlux(k)/dz_litt(k)*dt_fast_yr
+  enddo
+
+  ! send soil tendencies to diagnostics
+  call send_tile_data(id_turb_tend, tend, diag)
+  ! send soil tendencies to diagnostics
+  do k = 1,N_LITTER_POOLS
+     call send_tile_data(id_litt_tend(k), -sfcFlux(k)/dz_litt(k), diag)
+  enddo
+  ! slm: possibly accumulate tendency for equilibrium concentrations
+
+  ! Detect the situation when diffusion tendency leads to negative concentrations.
+  call check_var_range(rhiz, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'rhiz', FATAL)
+  call check_var_range(bulk, 0.0, HUGE(1.0), 'after turbation of '//trim(tag), 'bulk', FATAL)
+  do k = 1,N_LITTER_POOLS
+     call check_var_range(litt(k), 0.0, HUGE(1.0), 'after turbation of '//trim(tag), trim(l_diagname(k))//'litt', FATAL)
+  enddo
+end subroutine
+
+
+
+!DOC diffusion is not limited by soil water saturation
+! ============================================================================
+!> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
+subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity, moist, id_turb_tend, id_litt_tend, diag, tag, &
+    allow_flux_to_sfc_litter)
+  real, intent(inout) :: litt(N_LITTER_POOLS)  !< concentration in litter(s), [kg/m3]
+  real, intent(inout) :: rhiz(:)  !< concentration in rhizosphere, [kg/m3]
+  real, intent(inout) :: bulk(:)  !< concentration in bulk soil, [kg/m3]
+  real, intent(in)    :: fRhiz(:) !< fraction of rhizosphere, [m3/m3]
+  real, intent(in)    :: dz_litt(N_LITTER_POOLS) !< litter thickness, [m]
+  real, intent(in)    :: K_turb(:)
+  real, intent(in)    :: theta(:)         !< volume of water per volume of air [m3/m3]
+  real, intent(in)    :: porosity(:)      !< volume of air per volume of soil [m3/m3]
+  real, intent(in)    :: moist(:)         !< volume of water per volume of soil [m3/m3]
+  integer, intent(in) :: id_turb_tend !< diagnostic id for turbation tendency field
+  integer, intent(in) :: id_litt_tend(N_LITTER_POOLS) !< diagnostic ids for turbation tendencies in litter
+  type(diag_buff_type), intent(inout) :: diag !< diagnostic buffer
+  character(*), intent(in) :: tag !< textual tag for error messages
+  logical, intent(in), optional :: allow_flux_to_sfc_litter !< if TRUE, turbation flux
+                      !! from soil to surface litter is allowed; otherwise only flux from
+                      !! fitter to soil is allowed. Default if FALSE
+
+  real, dimension(size(rhiz)) :: &
+     c,     & ! average concentration in layer, [kg/m3]
+     tend,  & ! tendency due to turbation, [kg/(m3 yr)]
+     turb_limit, moist_op  !
+
+
+  real :: f   ! proportionality factor for negative tendency application, unitless
+  integer :: k
+  real :: d   ! distance between centers of litter and soil layers, [m]
+  real :: sfcFlux(N_LITTER_POOLS) ! flux from each litter pool to soil, [kg/(m2 yr)]
+  logical :: allow_flux_to_litt ! allow flux from soil to litter
+
+  allow_flux_to_litt = .FALSE.
+  if (present (allow_flux_to_sfc_litter)) allow_flux_to_litt = allow_flux_to_sfc_litter
+
+  do k = 1,size(rhiz)
+     turb_limit(k) = 1.0
+  enddo
+
+  ! calculate average concentration in soil
+  do k = 1,size(rhiz)
+     c(k) = rhiz(k)*fRhiz(k) + bulk(k)*(1-fRhiz(k))
+  enddo
+  ! calculate fluxes from litter to soil
+  do k = 1,N_LITTER_POOLS
+     ! slm: it is questionable if we should use dz_litt to calculate gradient: presumably
+     !      diffusion between litter and soil should not decrease as the litter gets
+     !      thicker, but this formulation would make it so, because we divide by dz_litt.
+     !      E.g., difusion from 20cm-thick liter would be almost 4 times slower than from
+     !      5cm. Perhaps we should impose some maximum on d?
+     d    = dz_litt(k)/2 + zfull(1) ! distance between centers of litter and top soil layer, [m]
+     sfcFlux(k) = K_sfc_turb*(litt(k)-c(1))/d ! flux from litter to soil, [kg/(m2 yr)]
+     if (.not.allow_flux_to_litt) then
+        sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+     endif
+     if (is_watch_point()) then
+        write(*,'(a20,"(",a3,"):")',advance='NO') trim(tag),trim(l_diagname(k))
+        __DEBUG5__(litt(k),c(1),dz_litt(k),d,sfcFlux(k)*dt_fast_yr)
+     endif
+     sfcFlux(k) = min(sfcFlux(k),litt(k)*dz_litt(k)/dt_fast_yr) ! to avoid depleting litter below zero
+  enddo
+
+  ! diffusion in soil
+  call diffusion(c, K_turb, turb_limit, sum(sfcFlux), tend)
+
+  !do k = 1,size(rhiz)
+  !tend(k) = tend(k)*turb_limit(k)
+  !enddo
+
   ! update soil concentrations
   do k = 1, size(rhiz)
      ! We apply turbation tendency differently depending on its sign: if a bug
@@ -1328,9 +1508,10 @@ end subroutine
 
 ! ============================================================================
 !> @brief Calculate tendency due to vertical diffusion
-subroutine diffusion(C,D,F0,tend)
+subroutine diffusion(C,D,turb_limit,F0,tend)
   real, intent(in)  :: C(:) !< transported quantity, by layer, [kg/m3]
   real, intent(in)  :: D(:) !< coefficients of diffusion (at the layer's bottom), [m2/yr]
+  real, intent(in)  :: turb_limit(:) !<
   real, intent(in)  :: F0   !< flux into the soil at the soil surface, [kg/(m2 yr)]
   real, intent(out) :: tend(:) !< tendencies due to diffusion [kg/(m3 yr)]
 
@@ -1339,11 +1520,11 @@ subroutine diffusion(C,D,F0,tend)
       ! positive downward. flux(0) is on the top of the soil, flux(num_l) -- at the soil bottom
   flux(0) = F0
   do k = 1, num_l-1
-     flux(k) = D(k)*(C(k)-C(k+1))/(zfull(k+1)-zfull(k))
+     flux(k) = D(k)*(C(k)-C(k+1))/(zfull(k+1)-zfull(k))*turb_limit(k)
   enddo
   flux(num_l) = 0.0
   do k = 1,num_l
-     tend(k) = (flux(k-1)-flux(k))/dz(k)
+     tend(k) = ((flux(k-1)-flux(k))/dz(k))
   enddo
 end subroutine
 
@@ -1489,8 +1670,8 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   real,    intent(in) :: lf_f          !< leaf litter fraction accessible by microbes
   logical, intent(in) :: is_sfc_litter !< TRUE is the pool is surface litter: protected C is always zero in this case
 
-  real :: Vmax_Mr_Lm, Vmax_Mr_Ls, Vmax_Mr_Ca, Vmax_Mk_Lm, Vmax_Mk_Ls, Vmax_Mk_Ca, &
-          Km_Mr_Lm,   Km_Mr_Ls,   Km_Mr_Ca,   Km_Mk_Lm,   Km_Mk_Ls,   Km_Mk_Ca,   &
+  real :: Vmax_Mr_Lm, Vmax_Mr_Ls, Vmax_Mr_Ca, Vmax_Mr_DOC, Vmax_Mk_Lm, Vmax_Mk_Ls, Vmax_Mk_Ca, Vmax_Mk_DOC, &
+          Km_Mr_Lm,   Km_Mr_Ls,   Km_Mr_Ca,   Km_Mr_DOC, Km_Mk_Lm,   Km_Mk_Ls,   Km_Mk_Ca,   Km_Mk_DOC, &
           fMrTau_Cp, fMkTau_Cp, fMrTau_Cc, fMkTau_Cc
 
   real :: Vmax_base
@@ -1532,16 +1713,34 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   else
      select case(theta_func_soil_option)
      ! slm: should we have ORCHIDEE option for soil too?
+
+
      case (THETA_F_YAN2018)
      !Generalized, mechanistic soil moisture function from Yan et al. (2018)
         if (moist .lt. moist_op) then
-            pool%thetaF = ((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2))
+            pool%thetaF = max(ThetaFmin_dry,((0.1 + moist_op)/(0.1 + moist)) * ((moist/moist_op)**(1+yan_theta_a*2)))
         else
-            pool%thetaF = ((porosity - moist)/(porosity - moist_op))**0.75
+            pool%thetaF = max(ThetaFmin_wet,((porosity - moist)/(porosity - moist_op))**0.75)
         endif
+
+
      case (THETA_F_CORPSE)
         ! CORPSE moisture function
         pool%thetaF = theta_func(theta*litt_theta_mod,1-theta*litt_theta_mod,substrate_diffusion_exp,gas_diffusion_exp,min_anaerobic_resp_factor, min_dry_resp_factor)
+
+
+
+     case (THETA_F_A)
+
+     if(theta <= 0.3) then
+     pool%thetaF = 0.2;
+     else if(theta <= 0.6) then
+     pool%thetaF = 0.2+0.8*(theta-0.3)/0.3;
+     else
+     pool%thetaF = exp(2.3*(0.6-theta));
+     endif
+
+
      case (THETA_F_NONE)
         pool%thetaF = 1.0
      case default
@@ -1550,26 +1749,40 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   endif
 
   if (highT_limit) then
-    Vmax_base =  pool%thetaF * exp(Vslope*T+Vint) * aV * (1/(1+exp(0.4*(T-45))))
+
+    if (lowT_limit) then
+    Vmax_base =  pool%thetaF * max( exp(Vint)*aV, exp(Vslope*T+Vint)*aV) * (1/(1+exp(0.4*(T-45))))
+    else
+    Vmax_base =  pool%thetaF * exp(Vslope*T+Vint)*aV * (1/(1+exp(0.4*(T-45))))
+    endif
   else
-    Vmax_base =  pool%thetaF * exp(Vslope*T+Vint) * aV
+
+    if (lowT_limit) then
+    Vmax_base =  pool%thetaF * max( exp(Vint)*aV, exp(Vslope*T+Vint)*aV)
+    else
+    Vmax_base =  pool%thetaF * exp(Vslope*T+Vint)*aV
+    endif
   endif
 
   Vmax_Mr_Lm = Vmax_base * Vmod_Mr_Lm ! mgC/mgM/h
   Vmax_Mr_Ls = Vmax_base * Vmod_Mr_Ls
   Vmax_Mr_Ca = Vmax_base * Vmod_Mr_Ca
+  Vmax_Mr_DOC = Vmax_base * Vmod_Mr_DOC
 
   Vmax_Mk_Lm = Vmax_base * Vmod_Mk_Lm
   Vmax_Mk_Ls = Vmax_base * Vmod_Mk_Ls
   Vmax_Mk_Ca = Vmax_base * Vmod_Mk_Ca
+  Vmax_Mk_DOC = Vmax_base * Vmod_Mk_DOC
 
   Km_Mr_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mr_Lm ! kgC/m3
   Km_Mr_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mr_Ls
-  Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(fClay)))
+  Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca
+  Km_Mr_DOC = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
   Km_Mk_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mk_Lm
   Km_Mk_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mk_Ls
-  Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
+  Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca
+  Km_Mk_DOC = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
 
   if (is_sfc_litter) then
@@ -1580,30 +1793,27 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
      pool%DecompMrLm  = Vmax_Mr_Lm * pool%microbesR * ((pool%metabolicLitterC  * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)/(Km_Mr_Lm+(pool%metabolicLitterC  * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)))
      pool%DecompMrLs  = Vmax_Mr_Ls * pool%microbesR * ((pool%structuralLitterC * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)/(Km_Mr_Ls+(pool%structuralLitterC * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)))
      pool%DecompMrCa  = Vmax_Mr_Ca * pool%microbesR * (pool%availableC/(Km_Mr_Ca+pool%availableC))
-     pool%DecompMrDOC = Vmax_Mr_Ca * pool%microbesR * (pool%DOC/(Km_Mr_Ca+pool%DOC))
+     pool%DecompMrDOC = Vmax_Mr_DOC * pool%microbesR * (pool%DOC/(Km_Mr_DOC+pool%DOC))
      pool%OxidMrCc    = Vmax_Mr_Ls * pool%microbesR * (pool%chemResistantC/(Kmod_oxid_Mr*Km_Mr_Ls+pool%chemResistantC)) ! kgC/m3/h
 
      pool%DecompMkLm  = Vmax_Mk_Lm * pool%microbesK * ((pool%metabolicLitterC  * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)/(Km_Mk_Lm+(pool%metabolicLitterC  * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)))
      pool%DecompMkLs  = Vmax_Mk_Ls * pool%microbesK * ((pool%structuralLitterC * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)/(Km_Mk_Ls+(pool%structuralLitterC * (cw_z * (2 * cw_r - cw_z) / cw_r**2) * lf_f)))
      pool%DecompMkCa  = Vmax_Mk_Ca * pool%microbesK * (pool%availableC/(Km_Mk_Ca+pool%availableC))
-     pool%DecompMkDOC = Vmax_Mk_Ca * pool%microbesK * (pool%DOC/(Km_Mk_Ca+pool%DOC))
+     pool%DecompMkDOC = Vmax_Mk_DOC * pool%microbesK * (pool%DOC/(Km_Mk_DOC+pool%DOC))
      pool%OxidMkCc    = Vmax_Mk_Ls * pool%microbesK * (pool%chemResistantC/(Kmod_oxid_Mk*Km_Mk_Ls+pool%chemResistantC))
   else
      pool%DecompMrLm  = Vmax_Mr_Lm * pool%microbesR * (pool%metabolicLitterC/(Km_Mr_Lm+pool%metabolicLitterC)) ! kgC/m3/h
      pool%DecompMrLs  = Vmax_Mr_Ls * pool%microbesR * (pool%structuralLitterC/(Km_Mr_Ls+pool%structuralLitterC))
      pool%DecompMrCa  = Vmax_Mr_Ca * pool%microbesR * (pool%availableC/(Km_Mr_Ca+pool%availableC))
-     pool%DecompMrDOC = Vmax_Mr_Ca * pool%microbesR * (pool%DOC/(Km_Mr_Ca+pool%DOC))
+     pool%DecompMrDOC = Vmax_Mr_DOC * pool%microbesR * (pool%DOC/(Km_Mr_DOC+pool%DOC))
      pool%OxidMrCc    = Vmax_Mr_Ls * pool%microbesR * (pool%chemResistantC/(Kmod_oxid_Mr*Km_Mr_Ls+pool%chemResistantC)) ! kgC/m3/h
 
      pool%DecompMkLm  = Vmax_Mk_Lm * pool%microbesK * (pool%metabolicLitterC/(Km_Mk_Lm+pool%metabolicLitterC))
      pool%DecompMkLs  = Vmax_Mk_Ls * pool%microbesK * (pool%structuralLitterC/(Km_Mk_Ls+pool%structuralLitterC))
      pool%DecompMkCa  = Vmax_Mk_Ca * pool%microbesK * (pool%availableC/(Km_Mk_Ca+pool%availableC))
-     pool%DecompMkDOC = Vmax_Mk_Ca * pool%microbesK * (pool%DOC/(Km_Mk_Ca+pool%DOC))
+     pool%DecompMkDOC = Vmax_Mk_DOC * pool%microbesK * (pool%DOC/(Km_Mk_DOC+pool%DOC))
      pool%OxidMkCc    = Vmax_Mk_Ls * pool%microbesK * (pool%chemResistantC/(Kmod_oxid_Mk*Km_Mk_Ls+pool%chemResistantC))
   endif
-
-  pool%Resp = (1-eLm_Mr)*pool%DecompMrLm*(1-w_Lm) + (1-eLs_Mr)*pool%DecompMrLs*(1-w_Ls) + (1-eCa_Mr)*pool%DecompMrCa*(1-w_Ca) +(1-eCa_Mr)*pool%DecompMrDOC + & ! kgC/m3/h
-              (1-eLm_Mk)*pool%DecompMkLm*(1-w_Lm) + (1-eLs_Mk)*pool%DecompMkLs*(1-w_Ls) + (1-eCa_Mk)*pool%DecompMkCa*(1-w_Ca) +(1-eCa_Mk)*pool%DecompMkDOC
 
 
  !if (is_sfc_litter) then
@@ -1611,16 +1821,20 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   pool%MrTau = tau_calib * 5.2e-4 * exp(0.3*fI_Lm) * pool%microbesR**tau_beta ! kgC/m3/h
   pool%MkTau = tau_calib * 2.4e-4 * exp(0.1*fI_Lm) * pool%microbesK**tau_beta
 
-
   if (is_sfc_litter) then
      fMrTau_Cp = 0.0
      fMkTau_Cp = 0.0
+
+     fMrTau_Cc = min(1.0-fMrTau_Cp, fMrTau_Cc_a4_litt*exp(fMrTau_Cc_a3_litt*fI_Lm))  ! 0.0315
+     fMkTau_Cc = min(1.0-fMkTau_Cp, fMrTau_Cc_a5_litt*exp(fMrTau_Cc_a3_litt*fI_Lm))  ! 0.0946
   else
-     fMrTau_Cp = 0.3*exp(1.3*fClay) ! 0.3646 unitless
-     fMkTau_Cp = 0.2*exp(0.8*fClay) ! 0.2255
+     fMrTau_Cp = min(1.0, fMrTau_Cp_a1*exp(1.3*fClay)) ! 0.3646 unitless
+     fMkTau_Cp = min(1.0, fMrTau_Cp_a2*exp(0.8*fClay)) ! 0.2255
+
+     fMrTau_Cc = min(1.0-fMrTau_Cp, fMrTau_Cc_a4*exp(fMrTau_Cc_a3*fI_Lm))  ! 0.0315
+     fMkTau_Cc = min(1.0-fMkTau_Cp, fMrTau_Cc_a5*exp(fMrTau_Cc_a3*fI_Lm))  ! 0.0946
   endif
-  fMrTau_Cc = 0.1*exp(-3*fI_Lm)  ! 0.0315
-  fMkTau_Cc = 0.3*exp(-3*fI_Lm)  ! 0.0946
+
   !print *, fMrTau_Cp,fMkTau_Cp,fMrTau_Cc,fMkTau_Cc
 
   pool%metabolicLitterC  = pool%metabolicLitterC  - (pool%DecompMrLm+pool%DecompMkLm)*dt_fast_hr ! kgC/m3
@@ -1634,31 +1848,40 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
      pool%Desorb     = 0.0
      pool%protectedC = 0.0
   else
-     pool%Desorb = (1.5e-5*exp(-1.5*fClay))*pool%protectedC ! kgC/m3/h
+     pool%Desorb = (Desorb_kd * 1.5e-5*exp(Desorb_clay*fClay) * exp(Desorb_kdp * pool%protectedC) )*pool%protectedC ! kgC/m3/h
      pool%protectedC = pool%protectedC + (fMrTau_Cp*pool%MrTau + fMkTau_Cp*pool%MkTau - pool%Desorb)*dt_fast_hr ! kgC/m3
   endif
 
 
   if (DOC_cycling) then
+     pool%Resp = (1-max(0.01,eLm_Mr-e_slope*T))*pool%DecompMrLm*(1-w_Lm) + (1-max(0.01,eLs_Mr-e_slope*T))*pool%DecompMrLs*(1-w_Ls) + (1-max(0.01,eCa_Mr-e_slope*T))*pool%DecompMrCa*(1-w_Ca) +(1-max(0.01,eCa_Mr-e_slope*T))*pool%DecompMrDOC + & ! kgC/m3/h
+                 (1-max(0.01,eLm_Mk-e_slope*T))*pool%DecompMkLm*(1-w_Lm) + (1-max(0.01,eLs_Mk-e_slope*T))*pool%DecompMkLs*(1-w_Ls) + (1-max(0.01,eCa_Mk-e_slope*T))*pool%DecompMkCa*(1-w_Ca) +(1-max(0.01,eCa_Mk-e_slope*T))*pool%DecompMkDOC
+
      pool%availableC     = pool%availableC        - (pool%DecompMrCa+pool%DecompMkCa)*dt_fast_hr &
                                                   + (pool%OxidMrCc+pool%OxidMkCc)*dt_fast_hr     &
                                                   + ((1-fMrTau_Cp-fMrTau_Cc)*(1-fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(1-fMkTau_DOC)*pool%MkTau)*dt_fast_hr ! kgC/m3
-
 
      pool%DOC            = pool%DOC               - (pool%DecompMrDOC+pool%DecompMkDOC)*dt_fast_hr &
                                                   + pool%Desorb*dt_fast_hr &
                                                   + ((1-fMrTau_Cp-fMrTau_Cc)*(fMrTau_DOC)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*(fMkTau_DOC)*pool%MkTau)*dt_fast_hr &
                                                   + ((pool%DecompMrLm+pool%DecompMkLm)*w_Lm + (pool%DecompMrLs+pool%DecompMkLs)*w_Ls + (pool%DecompMrCa+pool%DecompMkCa)*w_Ca)*dt_fast_hr
+
+     pool%microbesR = pool%microbesR + (max(0.01,eLm_Mr-e_slope*T)*pool%DecompMrLm*(1-w_Lm) + max(0.01,eLs_Mr-e_slope*T)*pool%DecompMrLs*(1-w_Ls) + max(0.01,eCa_Mr-e_slope*T)*pool%DecompMrCa*(1-w_Ca) + max(0.01,eCa_Mr-e_slope*T)*pool%DecompMrDOC - pool%MrTau)*dt_fast_hr ! kgC/m3
+     pool%microbesK = pool%microbesK + (max(0.01,eLm_Mk-e_slope*T)*pool%DecompMkLm*(1-w_Lm) + max(0.01,eLs_Mk-e_slope*T)*pool%DecompMkLs*(1-w_Ls) + max(0.01,eCa_Mk-e_slope*T)*pool%DecompMkCa*(1-w_Ca) + max(0.01,eCa_Mk-e_slope*T)*pool%DecompMkDOC - pool%MkTau)*dt_fast_hr
   else
+     pool%Resp = (1-max(0.01,eLm_Mr-e_slope*T))*pool%DecompMrLm + (1-max(0.01,eLs_Mr-e_slope*T))*pool%DecompMrLs + (1-max(0.01,eCa_Mr-e_slope*T))*pool%DecompMrCa + & ! kgC/m3/h
+                 (1-max(0.01,eLm_Mk-e_slope*T))*pool%DecompMkLm + (1-max(0.01,eLs_Mk-e_slope*T))*pool%DecompMkLs + (1-max(0.01,eCa_Mk-e_slope*T))*pool%DecompMkCa
+
      pool%availableC     = pool%availableC        - (pool%DecompMrCa+pool%DecompMkCa)*dt_fast_hr &
                                                   + (pool%OxidMrCc+pool%OxidMkCc)*dt_fast_hr     &
                                                   + ((1-fMrTau_Cp-fMrTau_Cc)*pool%MrTau + (1-fMkTau_Cp-fMkTau_Cc)*pool%MkTau)*dt_fast_hr & ! kgC/m3
                                                   + pool%Desorb*dt_fast_hr
      pool%DOC               = 0.0
-  endif
 
-  pool%microbesR = pool%microbesR + (eLm_Mr*pool%DecompMrLm*(1-w_Lm) + eLs_Mr*pool%DecompMrLs*(1-w_Ls) + eCa_Mr*pool%DecompMrCa*(1-w_Ca) + eCa_Mr*pool%DecompMrDOC - pool%MrTau)*dt_fast_hr ! kgC/m3
-  pool%microbesK = pool%microbesK + (eLm_Mk*pool%DecompMkLm*(1-w_Lm) + eLs_Mk*pool%DecompMkLs*(1-w_Ls) + eCa_Mk*pool%DecompMkCa*(1-w_Ca) + eCa_Mk*pool%DecompMkDOC - pool%MkTau)*dt_fast_hr
+     pool%microbesR = pool%microbesR + (max(0.01,eLm_Mr-e_slope*T)*pool%DecompMrLm + max(0.01,eLs_Mr-e_slope*T)*pool%DecompMrLs + max(0.01,eCa_Mr-e_slope*T)*pool%DecompMrCa - pool%MrTau)*dt_fast_hr ! kgC/m3
+     pool%microbesK = pool%microbesK + (max(0.01,eLm_Mk-e_slope*T)*pool%DecompMkLm + max(0.01,eLs_Mk-e_slope*T)*pool%DecompMkLs + max(0.01,eCa_Mk-e_slope*T)*pool%DecompMkCa - pool%MkTau)*dt_fast_hr
+
+  endif
 
 end subroutine update_GIMICS_pool
 
@@ -1716,7 +1939,7 @@ subroutine add_root_exudates_GIMICS(soilc, exudateC, exudateN, ammonium, nitrate
 !   if(present(nitrate))  NO3=nitrate
 
   do k=1,num_l
-     if (soilc%fRhiz(k)>0) then
+     if (soilc%fRhiz(k)>1.0e-10) then
          deltaRhiz = exudateC(k)/(dz(k)*soilc%fRhiz(k)) ! kgC/m3 of rhizosphere
          deltaBulk = 0.0
          ! slm: should we add some protection from very small rhizosphere fractions that may
