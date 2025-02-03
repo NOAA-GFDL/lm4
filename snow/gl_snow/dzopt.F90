@@ -86,7 +86,7 @@ subroutine dzopt_init(dzopt, depth)
   class(dzopt_t), intent(inout) :: dzopt
   real,           intent(in)    :: depth !< snow depth
 
-  real    :: dz, d1, scale, z
+  real    :: z, dz, d1, l1
   integer :: k, n
 
   ! Determine the number of layers needed for a given depth, so that the entire
@@ -99,8 +99,6 @@ subroutine dzopt_init(dzopt, depth)
      dz = min(dz*opt_layer_R, opt_layer_max)
   enddo
   ! z > depth, and n is at least 2
-
-  ! allocate storage
   dzopt%n = n+1 ! reserve space for one more layers in case a thin layer at the bottom
                 ! needs to be inserted
   if (allocated(dzopt%z).or.allocated(dzopt%l)) &
@@ -108,8 +106,9 @@ subroutine dzopt_init(dzopt, depth)
   allocate(dzopt%z(dzopt%n)) ! boundaries of the layers, m
   allocate(dzopt%l(dzopt%n)) ! layer number corresponding to layer boundaries
 
-  ! initialize depths of optimal layer tops and layer numbers: calculation of layer
-  ! boundaries must be exactly the same as above, where the number of layers is estimated
+  ! initialize depths of optimal layer tops and layer numbers. NOTE that calculation
+  ! of layer boundaries must be exactly the same as in the above code where the number
+  ! of layers is calculated
   dzopt%l(1) = 0.0; dzopt%z(1) = 0.0; dz = opt_layer_top;
   do k = 2,dzopt%n
      dzopt%l(k) = k-1
@@ -117,64 +116,40 @@ subroutine dzopt_init(dzopt, depth)
      dz         = min(dz*opt_layer_R, opt_layer_max)
   enddo
 
-  if (depth<=0.0) then
-     if (is_watch_point()) then
-        write(*,*) "#### dzopt_init: zero snow depth ####"
-        __DEBUG1__(depth)
-        call dzopt%print()
-     endif
-     return
-  endif
-
-  d1 = depth - opt_layer_bot ! depth to the near-soil layer
-  d1 = max(d1,dzopt%z(2))    ! to avoid division by zero for snow thinner
-                             ! than opt_layer(1)/2-opt_layer_bot
-  k = bisect(dzopt%z(:), d1) ! 1 <= k <= size(dzopt%z(:))-1
+  d1 = max(depth-opt_layer_bot,0.0) ! depth to the near-soil layer
+  k  = bisect(dzopt%z(:), d1)       ! k is between 1 and size(dzopt%z(:))-1
   dz = dzopt%z(k+1) - dzopt%z(k) ! thickness of optimal layer at the depth d1
 
-  ! scale the optimal layer depths so that the given snow depth covers the
-  ! integer number of them -- possibly including a thin layer at the bottom
-  ! added to better resolve gradients at the soil-snow interface
-  if (is_watch_point()) then
-     write(*,*) "#### dzopt_init 1 ####"
-     __DEBUG3__(depth,opt_layer_bot,d1)
-     __DEBUG3__(k,   dzopt%z(k),   dzopt%l(k))
-     __DEBUG3__(k+1, dzopt%z(k+1), dzopt%l(k+1))
-     __DEBUG1__(dz)
-!      call dzopt%print()
-  endif
-
-  if (dz<=opt_layer_bot) then
-      ! bottom layer is thin enough as it is
+  ! If necessary, add a thin layer at the bottom to better resolve gradients
+  ! at the soil-snow interface
+  if (dz>opt_layer_bot) then
+      l1 = dzopt%layer(d1);
+      dzopt%z(k+1) = d1     ; dzopt%l(k+1) = l1
+      dzopt%z(k+2) = depth  ; dzopt%l(k+2) = l1+1
       dzopt%n = k+2
-  else
-      ! scale layers to fit integer number in depth
-      if (d1 < (dzopt%z(k)+dzopt%z(k+1))/2) then
-         scale = d1/dzopt%z(k)
-      else
-         scale = d1/dzopt%z(k+1)
-         k = k+1
       endif
-      dzopt%z(:) = dzopt%z(:)*scale
 
-      if(depth > dzopt%z(k)) then
-         ! add a thin layer at the bottom
-         dzopt%z(k+1) = depth
-         dzopt%n      = k+1
+  ! Eliminate duplicate values that can arise when the boundary of the
+  ! added bottom layer happens to be precisely equal to the boundary
+  ! of the existing one.
+  z = dzopt%z(1); n = 1
+  do k = 2,dzopt%n
+     if (dzopt%z(k) == z) then
+        ! skip this array item
       else
-         dzopt%n      = k
+        n = n+1
+        dzopt%z(n) = dzopt%z(k)
+        dzopt%l(n) = dzopt%l(k)
+        z = dzopt%z(n)
       endif
-  endif
-
-  if (is_watch_point()) then
-     write(*,*) "#### dzopt_init 2 ####"
-     __DEBUG2__(scale,depth)
-     call dzopt%print()
-  endif
+  enddo
+  dzopt%n = n
 end subroutine dzopt_init
 
-!>\brief  Finds a position of point in array of bounds. Returns i, such that x is
-!!  between xx(i) and xx(i+1).
+!>\brief  Given an 1D array xx of interval bounds in ascending order, and a value x,
+!!  finds a position of point x in array xx. Returns i, such that x is
+!!  between xx(i) and xx(i+1); for x below the lowest bound in xx returns 1;
+!!  for x above the upper bound returns size(xx)-1
 real function bisect(xx, x)
   real, intent(in)              :: xx(:)     !< array of boundaries
   real, intent(in)              :: x         !< point to locate
@@ -182,17 +157,15 @@ real function bisect(xx, x)
   ! ---- local vars
   integer :: low, high, mid
   integer :: n              ! size of the input array
-  logical :: ascending      ! if true, the coordinates are in ascending order
 
   n = size(xx)
 
   ! find the coordinates
   if (x >= xx(1).and.x<=xx(n)) then
      low = 1; high = n
-     ascending = xx(n) > xx(1)
      do while (high-low > 1)
         mid = (low+high)/2
-        if (ascending.eqv.xx(mid) <= x) then
+        if (xx(mid) <= x) then
            low = mid
         else
            high = mid
