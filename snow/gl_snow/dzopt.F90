@@ -38,7 +38,7 @@ end type dzopt_t
 
 
 ! ---- namelist
-real :: opt_layer_top = 0.05 !< thickness of the top optimal layer, m
+real :: opt_layer_top = 0.01 !< thickness of the top optimal layer, m
 real :: opt_layer_bot = 0.03 !< thickness of the optimal layer at the bottom of the snowpack, m
 real :: opt_layer_max = 1.0  !< maximum optimum layer thickness, m
 real :: opt_layer_R   = 1.5  !< ratio of thicknesses of two adjacent layers in the middle of the snowpack, unitless
