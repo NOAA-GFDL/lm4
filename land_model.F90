@@ -2546,6 +2546,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
  !   call s%print()
   endif
 
+  ! update_cana_tracers is called before snow%step2 because it calculates the deposition
+  ! of tracers on the snow
+  call update_cana_tracers(tile, l, tr_flux, dfdtr, &
+           precip_l, precip_s, p_surf, ustar, con_g_turb, con_v_v, con_v_stem, con_st_v, r_bl_h2o, con_atm )
+
   call tile%snow%step2 ( snow_subl, &
              vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
              delta_Tg,  Mg_imp,  &
@@ -2704,9 +2709,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      __DEBUG1__(tile%cana%tr(ico2))
      __DEBUG4__(fco2_0,Dfco2Dq,vegn_fco2, DOC_to_atmos)
   endif
-
-  call update_cana_tracers(tile, l, tr_flux, dfdtr, &
-           precip_l, precip_s, p_surf, ustar, con_g_turb, con_v_v, con_v_stem, con_st_v, r_bl_h2o, con_atm )
 
   ! update_land_bc_fast updates land_refl_dif and land_refl_dir: therefore send the
   ! upward fluxes to diag now so that they match calculated fsw. It does not matter
