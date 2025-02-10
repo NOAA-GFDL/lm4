@@ -1274,12 +1274,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   allocate(wetdconc(lnd%ls:lnd%le, size(cplr2land%lprec,2), N_SNOW_TRACERS))
   allocate(drydep  (lnd%ls:lnd%le, size(cplr2land%lprec,2), N_SNOW_TRACERS))
-  allocate(precip  (lnd%ls:lnd%le, size(cplr2land%lprec,2))) ! total precipitation
+  allocate(precip  (lnd%ls:lnd%le, size(cplr2land%lprec,2)                )) ! total precipitation
   allocate(buffer  (lnd%ls:lnd%le)) ! buffer for override data
 
   ! set wet deposition of Light Absorbing Particles
   wetdconc(:,:,:) = 0.0; wetdep_set(:) = .FALSE.
-  ! try to get wet deposition variables from the atmosphere (GEX)
+  ! try to get wet deposition variables from data override or from the atmosphere (through GEX)
   precip = cplr2land%lprec + cplr2land%fprec
   do n = 1,N_SNOW_TRACERS
      ! wet deposition conc. in precip [ppm] ->[mg/m2/s]/[kg/m2/s] conc. in prcp.
@@ -1290,21 +1290,21 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         do m = 1, size(wetdconc,2)
            wetdconc(:,m,n) = buffer(:)
         enddo
-        cycle
-     endif
-     m = gex_get_index(MODEL_ATMOS,MODEL_LAND,wetdep_gex_name(n))
-     call error_mesg('gex_deposition_init',wetdep_gex_name(n)//' is GEX tracer '//string(m),NOTE)
-     if (m>0) then
-        ! convert flux to concentration [ppm]
-        where (precip>1.0e-9)
-           wetdconc(:,:,n) = cplr2land%gex_fields(:,:,m)/precip(:,:)*1e6
-        elsewhere
-           wetdconc(:,:,n) = 0.0
-        end where
-        ! filter out negatives
-        wetdconc(:,:,n) = max(wetdconc(:,:,n),0.0)
+     else
+        m = gex_get_index(MODEL_ATMOS,MODEL_LAND,wetdep_gex_name(n))
+        call error_mesg('gex_deposition_init',wetdep_gex_name(n)//' is GEX tracer '//string(m),NOTE)
+        if (m>0) then
+           ! convert flux to concentration [ppm]
+           where (precip>1.0e-9)
+              wetdconc(:,:,n) = cplr2land%gex_fields(:,:,m)/precip(:,:)*1e6
+           elsewhere
+              wetdconc(:,:,n) = 0.0
+           end where
+           ! filter out negatives
+           wetdconc(:,:,n) = max(wetdconc(:,:,n),0.0)
 
-        wetdep_set(n) = .TRUE.
+           wetdep_set(n) = .TRUE.
+        endif
      endif
   enddo
 
