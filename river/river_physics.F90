@@ -1,4 +1,5 @@
 module river_physics_mod
+#include "../shared/debug.inc"
 
 !-----------------------------------------------------------------------
 !                   GNU General Public License
@@ -26,14 +27,14 @@ module river_physics_mod
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
   use mpp_domains_mod, only : mpp_get_update_size, mpp_get_update_pelist
   use fms_mod,         only : stdlog
-  use fms_mod,         only : check_nml_error
+  use fms_mod,         only : check_nml_error, WARNING
   use diag_manager_mod,only : register_diag_field, send_data
   use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
   use lake_mod,        only : large_dyn_small_stat, use_reservoir, lake_abstraction, ResMin, ResMax
   use lake_tile_mod,   only : num_l
   use constants_mod,   only : tfreeze, hlf, DENS_H2O
-  use land_debug_mod,  only : set_current_point_sg, is_watch_cell
+  use land_debug_mod,  only : set_current_point_sg, is_watch_cell, check_var_range
   use land_data_mod,   only : log_version
 
   implicit none
@@ -545,13 +546,32 @@ contains
                      influx_c(River%num_phys+1:River%num_species)
             end if
 
+            if (is_watch_cell()) then
+               write(*,*) 'Inputs to river abstraction conditional:'
+               __DEBUG1__(do_river_abstraction)
+               __DEBUG1__(irr_demand(i,j))   
+               __DEBUG1__(abst_thres)
+               __DEBUG1__(River%storage_c(i,j,1))
+            end if
 
             if(do_river_abstraction.and.irr_demand(i,j)>abst_thres.and.River%storage_c(i,j,1)==0.)then
               River%abst(i,j) = min(irr_demand(i,j), &
                                     River%storage(i,j)+River%lake_outflow(i,j)/DENS_H2O-River%threshold(i,j)) !m3
               River%abst(i,j) = max(0., River%abst(i,j)) !m3
               irr_demand(i,j) = max(0., irr_demand(i,j) - River%abst(i,j))  !m3
+            !   call check_var_range(River%abst(i,j),0.0,0.1, 'Abstraction Check: ','River%abst(i,j)',WARNING)
+              if (is_watch_cell()) then
+                  write(*,*) 'river abstraction is occuring at this point'
+                  __DEBUG1__(River%storage(i,j))   
+                  __DEBUG1__(River%lake_outflow(i,j))
+                  __DEBUG1__(River%threshold(i,j))
+                  __DEBUG1__(River%abst(i,j))
+               end if
+            
             else
+              if (is_watch_cell()) then
+                  write(*,*) 'no abstraction'
+              end if 
               River%abst(i,j) = 0. !m3
             endif
 
