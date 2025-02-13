@@ -389,7 +389,6 @@ type :: soil_tile_type
    real :: irr_area2frac_input_et = 0. !m2, per tile frac
    real :: irr_area2frac_real_et = 0. !m2, per tile frac
 
-   real :: r_pores ! surface pore radius, m
 end type soil_tile_type
 
 ! ==== module data ===========================================================
