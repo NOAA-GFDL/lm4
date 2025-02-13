@@ -1012,6 +1012,9 @@ subroutine update_fire_data(time)
   endif
 
   ! SSR: Check lightning data
+  ! RW
+  !print*,"RWtest: lightning"
+  !print*,lightning_in
   do l = lnd%ls, lnd%le
      call check_var_range(lightning_in(l), 0.0, 1e37, 'update_fire_data', 'lightning', FATAL)
   end do

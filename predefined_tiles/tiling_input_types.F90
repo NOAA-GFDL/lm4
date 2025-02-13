@@ -57,6 +57,7 @@ type :: soil_predefined_type
  !miscellanous
  integer :: nsoil,nc_grpid,nband
  real,allocatable,dimension(:) :: frac
+ integer,allocatable,dimension(:) :: texture
  !soil
  real,allocatable,dimension(:) :: dat_w_sat
  real,allocatable,dimension(:) :: dat_awc_lm2

@@ -269,6 +269,8 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
                   tile_parameters%soil%hidx_k(tid)            &
               )
      case default
+         print*,"RW_test: tile type is:"
+         print*,tile_parameters%metadata%ttype(itile)
          call land_error_message('land_cover_cold_start_0d_predefined_tiles: unknow tile type',FATAL)
      end select
      call insert(tile,tiles)
@@ -591,6 +593,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   !call check_h5err(status)
 
   !Retrieve the parameters
+  call get_parameter_data(grpid,"soil_text_new_15cm",nsoil,soil%texture)
   call get_parameter_data(grpid,"dat_w_sat",nsoil,soil%dat_w_sat)
   call get_parameter_data(grpid,"dat_awc_lm2",nsoil,soil%dat_awc_lm2)
   call get_parameter_data(grpid,"dat_k_sat_ref",nsoil,soil%dat_k_sat_ref)

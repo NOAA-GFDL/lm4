@@ -389,7 +389,7 @@ type :: soil_tile_type
    real :: irr_area2frac_input_et = 0. !m2, per tile frac
    real :: irr_area2frac_real_et = 0. !m2, per tile frac
 
-   
+   real :: r_pores ! surface pore radius, m
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -482,6 +482,7 @@ real    :: log_rho_max           = 2.0
 real    :: z_ref                 = 0.0       ! depth where [psi/k]_sat = [psi/k]_sat_ref
 real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
 real    :: Dpsi_min_const        = -1.e16
+logical :: use_lookup_table_soil_properties = .FALSE. ! if TRUE, use soil properties from lookup tabel in hydroblocks
 
 real, dimension(n_dim_soil_types) :: &
   dat_w_sat=&
@@ -563,7 +564,7 @@ logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to repro
 logical :: override_soil_e_depth = .FALSE.
 real :: soil_e_depth = 2.0
                                ! The two ways of calculating zfull are mathematically identical, but they differ
-                               ! in the lowest bits of answer.                           
+                               ! in the lowest bits of answer.
 integer, public :: MAX_HLSP_K = 1
 integer, public :: MAX_HLSP_J = 20  
 
@@ -600,7 +601,8 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_z0_momentum,           dat_tf_depr,     clay,       &
      peat_soil_e_depth,         peat_kx0, repro_zms, &
      anisotropy_ratio, use_depth_to_bedrock, override_soil_e_depth, soil_e_depth, &
-     MAX_HLSP_K, MAX_HLSP_J
+     MAX_HLSP_K, MAX_HLSP_J, &
+     use_lookup_table_soil_properties
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -677,11 +679,11 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
 
   ! register selector for all soil tiles
   call register_tile_selector('soil', long_name='soil',&
-       tag = SEL_SOIL, idata1 = 0, area_depends_on_time=.false. )
+       tag = SEL_SOIL, idata1 = 0, area_depends_on_time=.FALSE. )
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_soil_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_SOIL, idata1 = i, area_depends_on_time=.false. )
+          tag = SEL_SOIL, idata1 = i, area_depends_on_time=.FALSE. )
   enddo
   num_sfc_layers = 0
   sub_layer_min = 0
@@ -825,12 +827,12 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%gtos              (num_l),  &
             ptr%gtosh             (num_l)   )
 
- allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
+            allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
 
- allocate ( ptr%hlsp%lwc(num_l), &
-            ptr%hlsp%swc(num_l), &
-            ptr%hlsp%temp(num_l) )
-
+            allocate ( ptr%hlsp%lwc(num_l), &
+                       ptr%hlsp%swc(num_l), &
+                       ptr%hlsp%temp(num_l) )
+           
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -911,11 +913,11 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%gtos          (num_l),  &
             ptr%gtosh     (num_l)  )
 
- allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
+            allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
 
- allocate ( ptr%hlsp%lwc(num_l), &
-            ptr%hlsp%swc(num_l), &
-            ptr%hlsp%temp(num_l) )
+            allocate ( ptr%hlsp%lwc(num_l), &
+                       ptr%hlsp%swc(num_l), &
+                       ptr%hlsp%temp(num_l) )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -966,17 +968,21 @@ subroutine delete_soil_tile(ptr)
   deallocate(ptr)
 end subroutine delete_soil_tile
 
+subroutine soil_data_init_0d(soil)
+ type(soil_tile_type), intent(inout) :: soil
+
+ call soil_data_init_0d_lookup(soil,soil%tag)
+
+end subroutine
 
 ! ============================================================================
-subroutine soil_data_init_0d(soil)
+subroutine soil_data_init_0d_lookup(soil,k)
   type(soil_tile_type), intent(inout) :: soil
 
   integer :: k, l
   real    :: comp_local
   real    :: z ! depth at top of current layer
-
-  k = soil%tag
-
+  
   soil%pars%vwc_sat           = dat_w_sat            (k)
   soil%pars%awc_lm2           = dat_awc_lm2          (k)
   soil%pars%k_sat_ref         = dat_k_sat_ref        (k)
@@ -1070,7 +1076,7 @@ subroutine soil_data_init_0d(soil)
   else
       soil%pars%Qmax = max(0.0,10**(.4833*log10(clay(k))+2.3282)*(1.0-dat_w_sat(k))*2650*1e-6)
   endif
-end subroutine soil_data_init_0d
+end subroutine soil_data_init_0d_lookup
 
 subroutine calculate_soil_e_depth_ksat(zs,kb,ksat200,ksat0)
 
@@ -1206,6 +1212,11 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%hand_ecdf = tile_parameters%hand_ecdf(itile,:)
   soil%pars%hand_bedges = tile_parameters%hand_bedges(itile,:)
 
+  if (use_lookup_table_soil_properties) then
+     call soil_data_init_0d_lookup(soil,tile_parameters%texture(itile))
+     return
+  endif
+
   !Print out the parameter values
   if (is_watch_point()) then
      call dpri('vwc_sat',soil%pars%vwc_sat); write(*,*)
@@ -1247,7 +1258,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
      call dpri('tile_hlsp_length',soil%pars%tile_hlsp_length); write(*,*)
      call dpri('tile_hlsp_slope',soil%pars%tile_hlsp_slope); write(*,*)
      call dpri('tile_hlsp_elev',soil%pars%tile_hlsp_elev); write(*,*)
-     call dpri('tile_elevation',soil%pars%tile_elevation); write(*,*)     
+     call dpri('tile_elevation',soil%pars%tile_elevation); write(*,*)  
      call dpri('tile_hlsp_hpos',soil%pars%tile_hlsp_hpos); write(*,*)
      call dpri('tile_hlsp_width',soil%pars%tile_hlsp_width); write(*,*)
   endif
@@ -1324,12 +1335,19 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
       do l = 1, num_l
         soil%alpha(l) = sqrt(alpha_inf_sq+(alpha_sfc_sq-alpha_inf_sq) &
                     *exp(-zfull(l)/soil%pars%soil_e_depth))
+        if (isnan(soil%alpha(l))) then
+           print*,"RWtestalpha:",soil%alpha(l)
+           print*,"RWtestksatgw:",soil%pars%k_sat_gw
+           print*,"RWtestksatsfc",soil%pars%k_sat_sfc
+           print*,"RWtestksatref",soil%pars%k_sat_ref
+           print*,"RWtestsoildepth",soil%pars%soil_e_depth
+        endif
       enddo
   else
       soil%pars%k_sat_sfc = soil%pars%k_sat_ref
       soil%alpha = 1.0
   endif
-
+  
   soil%pars%tau =    &
     (soil%pars%k_sat_gw*aspect*soil%pars%hillslope_length) &
      / ((soil%pars%k_sat_sfc+k_macro_x_local)*soil%pars%soil_e_depth)
@@ -1745,24 +1763,24 @@ end function soil_ave_theta2
 
 
 ! ============================================================================
- function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(in)                 :: depth ! m, averaging depth
-  integer, intent(out) :: layer
-  real    :: w ! averaging weight
-  real    :: N ! normalizing factor for averaging
-  integer :: k
-
-  A = 0 ; N = 0
-  do k = 1, num_l
-     w = dz(k) * exp(-zfull(k)/depth) !m
-     A = A +max(soil%wl(k)/(dens_h2o*dz(k)),0.0) * w ! kg/m2 / (kg/m3 * m) * m = m
-     N = N + w !m
-     if (zhalf(k+1).gt.depth) exit
-  enddo
-  A = A/N ! m / m = 1
-  layer = k
-end function soil_ave_theta3
+function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
+    type(soil_tile_type), intent(in) :: soil
+    real, intent(in)                 :: depth ! m, averaging depth
+    integer, intent(out) :: layer
+    real    :: w ! averaging weight
+    real    :: N ! normalizing factor for averaging
+    integer :: k
+  
+    A = 0 ; N = 0
+    do k = 1, num_l
+       w = dz(k) * exp(-zfull(k)/depth) !m
+       A = A +max(soil%wl(k)/(dens_h2o*dz(k)),0.0) * w ! kg/m2 / (kg/m3 * m) * m = m
+       N = N + w !m
+       if (zhalf(k+1).gt.depth) exit
+    enddo
+    A = A/N ! m / m = 1
+    layer = k
+  end function soil_ave_theta3
 
 
 ! ============================================================================
