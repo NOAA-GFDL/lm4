@@ -4,20 +4,21 @@ module land_tracer_driver_mod
 
 use constants_mod,      only: rdgas,wtmair,grav,pi,pstd_mks,avogno,DENS_H2O,epsln, WTMH2O
 use field_manager_mod , only: MODEL_ATMOS, MODEL_LAND, parse
-use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, FATAL
-use fms_mod,            only: mpp_clock_id, mpp_clock_begin, mpp_clock_end , CLOCK_MODULE
+use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, WARNING, FATAL
+use fms_mod,            only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, CLOCK_MODULE
 use ieee_arithmetic
 use mpp_mod,            only: input_nml_file
 use table_printer_mod
 
 use cana_tile_mod,      only: canopy_air_mass_for_tracers
+use snow_tile_mod,      only: N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
 use land_constants_mod, only: d608,kin_visc_air,dyn_visc_air
 use land_data_mod,      only: lnd, log_version
 use land_debug_mod,     only: is_watch_point, check_var_range
 use land_dust_mod,      only: land_dust_init, land_dust_end, update_land_dust
 use land_tracers_mod,   only: ntcana, isphum, ico2
 use land_tile_mod,      only: land_tile_type, land_tile_grnd_T, loop_over_tiles, first_elmt, land_tile_enum_type, land_tile_map
-use land_tile_diag_mod, only: set_default_diag_filter, register_tiled_diag_field, send_tile_data
+use land_tile_diag_mod, only: diag_buff_type, set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use sat_vapor_pres_mod, only: compute_qs
 use soil_tile_mod,      only: num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types, LEAF
 use soil_carbon_mod,    only: SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, soil_carbon_option
@@ -227,7 +228,10 @@ integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter
 integer :: id_h2_sws, id_h2_sopt, id_h2_sup, id_h2_moist_r1, id_h2_moist_r2
 integer :: id_h2_frac_r_litter, id_h2_frac_r_inactive, id_h2_frac_r_snow, id_h2_frac_r_bact
 
-integer :: id_ddep_noy, id_ddep_nhx, id_ddep_bc, id_ddep_oa
+integer :: id_ddep_noy, id_ddep_nhx
+integer :: id_ddep_bc, id_ddep_bc_neg, id_ddep_bc_neg_freq
+integer :: id_ddep_oa, id_ddep_oa_neg, id_ddep_oa_neg_freq
+integer :: id_ddep_md, id_ddep_md_neg, id_ddep_md_neg_freq
 integer :: id_acid_ratio
 
 integer :: nomphilic, nbcphilic, nomphobic, nbcphobic,nsoa, nh2
@@ -292,12 +296,27 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    ! (2) it must set trdata(:)%is_generic to FALSE for the tracers it claims
 
    !hard-coded deposition fields for cmip -  need to be defined early for sanity checks later
-   id_ddep_bc  = register_tiled_diag_field(diag_name, 'bc_ddep', &
-                                          (/id_ug/),  lnd%time, 'bc dry deposition', 'kg/m2/s', &
-                                          missing_value=-1.0)
-   id_ddep_oa  = register_tiled_diag_field(diag_name, 'oa_ddep', &
-                                          (/id_ug/),  lnd%time, 'oa dry deposition', 'kg/m2/s', &
-                                          missing_value=-1.0)
+   id_ddep_bc  = register_tiled_diag_field(diag_name, 'bc_ddep', (/id_ug/),  lnd%time, &
+            'dry deposition of black carbon', 'kg/m2/s', missing_value=-1.0e20)
+   id_ddep_bc_neg  = register_tiled_diag_field(diag_name, 'bc_ddep_neg', (/id_ug/),  lnd%time, &
+            'negative dry deposition of black carbon', 'kg/m2/s', missing_value=-1.0e20)
+   id_ddep_bc_neg_freq  = register_tiled_diag_field(diag_name, 'bc_ddep_neg_freq', (/id_ug/),  lnd%time, &
+            'frequency of negative dry deposition of black carbon', 'kg/m2/s', missing_value=-1.0e20)
+
+   id_ddep_oa  = register_tiled_diag_field(diag_name, 'oa_ddep', (/id_ug/),  lnd%time, &
+            'dry deposition of organic aerosols', 'kg/m2/s', missing_value=-1.0e20)
+   id_ddep_oa_neg  = register_tiled_diag_field(diag_name, 'oa_ddep_neg', (/id_ug/),  lnd%time, &
+            'negative dry deposition of organic aerosols', 'kg/m2/s', missing_value=-1.0e20)
+   id_ddep_oa_neg_freq  = register_tiled_diag_field(diag_name, 'oa_ddep_neg_freq', (/id_ug/),  lnd%time, &
+            'frequency of negative dry deposition of organic aerosols', 'kg/m2/s', missing_value=-1.0e20 )
+
+   id_ddep_md  = register_tiled_diag_field(diag_name, 'md_ddep', (/id_ug/),  lnd%time, &
+            'dry deposition of mineral dust', 'kg/m2/s', missing_value=-1.0e20)
+   id_ddep_md_neg  = register_tiled_diag_field(diag_name, 'md_ddep_neg', (/id_ug/),  lnd%time, &
+            'negative dry deposition of mineral dust', 'kg/m2/s', missing_value=-1.0e20)
+   id_ddep_md_neg_freq  = register_tiled_diag_field(diag_name, 'md_ddep_neg_freq', (/id_ug/),  lnd%time, &
+            'frequency of negative dry deposition of mineral dust', 'kg/m2/s', missing_value=-1.0e20 )
+
    id_ddep_noy = register_tiled_diag_field(diag_name, 'noy_ddep', &
                                           (/id_ug/),  lnd%time, 'noy dry deposition', 'mole/m2/s', &
                                           missing_value=-1.0)
@@ -795,7 +814,10 @@ end subroutine land_tracer_driver_end
 ! updates concentration of tracers in the canopy air, taking into account dry
 ! deposition and exchange with the atmosphere
 subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
-   precip_l, precip_s, pressure, ustar, con_g, con_v_v, con_v_stem, stomatal_cond, r_bl_h2o, con_atm )
+   precip_l, precip_s, pressure, ustar, con_g, con_v_v, con_v_stem, stomatal_cond, r_bl_h2o, con_atm, &
+   ! output
+   dep_to_snow )
+
    type(land_tile_type), intent(inout) :: tile
    integer :: l ! grid cell indices (global)
    real, intent(in) :: tr_flux(:) ! fluxes of tracers
@@ -812,6 +834,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    ! canopy (that is, multiplied by LAI), for water vapor, m/s
    real, intent(in) :: r_bl_h2o
    real, intent(in) :: con_atm !Ra from flux exchange
+   ! output
+   real, intent(out):: dep_to_snow(N_SNOW_TRACERS) ! dry deposition of snow tracers, kg/m2/s
 
    integer :: tr      ! tracer index
    integer :: k       ! cohort index
@@ -851,7 +875,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    real    :: alpha_aer, gamma_aer, A_aer, cg_aer_v, cg_aer_g
    real    :: fw_avg, fs_avg, rh
 
-   real    :: ddep_oa,ddep_bc,ddep_noy,ddep_nhx
+   real    :: ddep_oa, ddep_bc, ddep_md, ddep_noy, ddep_nhx
    real    :: ustar_mod, tcond
 
    real    :: e_RH, acid_ratio, acid, base, ustar_s
@@ -870,7 +894,8 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
 
    ! update non-generic tracers, e.g.:
    call update_land_dust(tile, l, tr_flux, dfdtr, &
-   precip_l, precip_s, pressure, ustar, con_g, con_v_v )
+              precip_l, precip_s, pressure, ustar, con_g, con_v_v, &
+              ddep_md )
    ! wind10 is not passed to this subroutine yet
 
    call mpp_clock_begin (land_tracer_ddep_clock)
@@ -1217,15 +1242,13 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
          !save temporary array for
          if (id_ddep_noy.gt.0 .and. trdata(tr)%nb_n_ox.gt.0)  ddep_noy = ddep_noy + ddep*trdata(tr)%nb_n_ox
          if (id_ddep_nhx.gt.0 .and. trdata(tr)%nb_n_red.gt.0) ddep_nhx = ddep_nhx + ddep*trdata(tr)%nb_n_red
-         if (id_ddep_oa.gt.0) then
-            if (tr .eq. nomphilic) ddep_oa  = ddep_oa + ddep
-            if (tr .eq. nomphobic) ddep_oa  = ddep_oa + ddep
-            if (tr .eq. nsoa)      ddep_oa  = ddep_oa + ddep
-         end if
-         if (id_ddep_bc.gt.0) then
-            if (tr .eq. nbcphilic) ddep_bc  = ddep_bc + ddep
-            if (tr .eq. nbcphobic) ddep_bc  = ddep_bc + ddep
-         end if
+
+         if (tr .eq. nomphilic) ddep_oa  = ddep_oa + ddep
+         if (tr .eq. nomphobic) ddep_oa  = ddep_oa + ddep
+         if (tr .eq. nsoa)      ddep_oa  = ddep_oa + ddep
+
+         if (tr .eq. nbcphilic) ddep_bc  = ddep_bc + ddep
+         if (tr .eq. nbcphobic) ddep_bc  = ddep_bc + ddep
 
          if (associated(tile%vegn)) then
             do iw=1,nwet_diag
@@ -1275,14 +1298,25 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
          end if
          end if
 
-
-
-
-
    end do
 
-   call send_tile_data(id_ddep_bc,  ddep_bc, tile%diag)
-   call send_tile_data(id_ddep_oa,  ddep_oa, tile%diag)
+   ! send the deposition to the diagnostics and remove negatives
+   call diag_ddep(ddep_bc, id_ddep_bc, id_ddep_bc_neg, id_ddep_bc_neg_freq, tile%diag)
+   call diag_ddep(ddep_oa, id_ddep_oa, id_ddep_oa_neg, id_ddep_oa_neg_freq, tile%diag)
+   call diag_ddep(ddep_md, id_ddep_md, id_ddep_md_neg, id_ddep_md_neg_freq, tile%diag)
+
+   ! set up dry deposition of laight-absorbing particles to snow
+   dep_to_snow(:)          = 0.0
+   dep_to_snow(SNOW_TR_BC) = ddep_bc
+   dep_to_snow(SNOW_TR_OM) = ddep_oa
+   dep_to_snow(SNOW_TR_MD) = ddep_md
+
+!    call check_var_range(ddep_bc, 0.0, HUGE(1.0), 'update_cana_tracers', 'ddep_bc', WARNING)
+!    call check_var_range(ddep_oa, 0.0, HUGE(1.0), 'update_cana_tracers', 'ddep_oa', WARNING)
+!    call check_var_range(ddep_md, 0.0, HUGE(1.0), 'update_cana_tracers', 'ddep_md', WARNING)
+
+!    call send_tile_data(id_ddep_bc,  ddep_bc,  tile%diag)
+!    call send_tile_data(id_ddep_oa,  ddep_oa,  tile%diag)
    call send_tile_data(id_ddep_noy, ddep_noy, tile%diag)
    call send_tile_data(id_ddep_nhx, ddep_nhx, tile%diag)
 
@@ -1302,6 +1336,26 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
 
    call mpp_clock_end(land_tracer_ddep_clock)
    call mpp_clock_end(land_tracer_clock)
+
+contains
+   subroutine diag_ddep(ddep, id_ddep, id_negatives, id_negative_freq, diag)
+      real,    intent(in) :: ddep             ! dry deposition, updated to be positive
+      integer, intent(in) :: id_ddep          ! diag ID of dry deposition, prior to update (that is, including negatives)
+      integer, intent(in) :: id_negatives     ! diag ID of the negative deposit, to keep track of average negative deposition
+      integer, intent(in) :: id_negative_freq ! diag ID of the frequency of negatives
+      type(diag_buff_type), intent(inout) :: diag ! diagnostic buffer of the tile
+
+      real :: freq
+
+      call send_tile_data(id_ddep, ddep, diag)
+      call send_tile_data(id_negatives,  min(ddep,0.0), diag)
+      if (ddep<0.0) then
+         freq=1.0
+      else
+         freq=0.0
+      endif
+      call send_tile_data(id_negative_freq, freq, diag)
+   end subroutine
 
 end subroutine update_cana_tracers
 

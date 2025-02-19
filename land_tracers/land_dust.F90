@@ -417,7 +417,8 @@ end function laminar_conductance
 
 ! ==============================================================================
 subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
-     precip_l, precip_s, p_surf, ustar, con_g, con_v_v )
+     precip_l, precip_s, p_surf, ustar, con_g, con_v_v, &
+     dep_to_snow )
   type(land_tile_type), intent(inout) :: tile
   integer :: l ! unstructured grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
@@ -429,6 +430,9 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   real, intent(in) :: con_g ! aerodynamic conductance between canopy air and ground for tracers
   real, intent(in) :: con_v_v(:) ! aerodynamic conductance between canopy air and canopy for tracers
         ! note that con_v is for entire canopy of cohort, per unit area of cohort, *not* for unit leaf area
+  real, intent(out):: dep_to_snow ! total deposition of dust to snow, kg/m2/s
+        ! Currently, the total dust deposition is sent to snow: more sophisticated treatment
+        ! could distinguish the deposition on snow-free canopy or snow-free ground.
 
   ! ---- local constants
   real , parameter :: &
@@ -519,6 +523,10 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
      else
         cv = 0 ; cg = 0; con_v_lam = 0 ; con_g_lam = 0 ; vdep = 0
      endif
+! Q for Paul: We do scavenging even if do_deposition for this tracer is off.
+!  - Does it violate balance calculation if the interactive deposition is "off”?
+!  - Should it be done only if the deposition is "on”?
+!  - Do we need scavenging at all? Perhaps it is a very small term and could be ignored?
      scav = 3./4.*canopy_air_mass_for_tracers* &
            (precip_l*trdata(tr)%alpha_r/R_r/DENS_H2O +  &
             precip_s*trdata(tr)%alpha_s/R_s/DENS_SNOW)
@@ -555,6 +563,9 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
      fatm_tot = fatm_tot + f_atm
      emis_tot = emis_tot + emis(tr)
   enddo
+
+  dep_to_snow = wdep_tot+ddep_tot
+
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
   call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
