@@ -68,7 +68,7 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point, check_temp_range, &
      check_var_range, land_error_message, log_date
-use debug_crop_mod, only: debug_crop, debug_crop_1
+use vegn_debug_crop_mod, only: debug_crop, debug_crop_1
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
      co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
@@ -329,7 +329,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  integer :: n_accum, nmn_acm, ndy_acm
+  integer :: n_accum, nmn_acm
   type(land_restart_type) :: restart1, restart2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
@@ -354,7 +354,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  ndy_acm = 0
   call open_land_restart(restart1,'INPUT/vegn1.nc',restart_1_exists)
   call open_land_restart(restart2,'INPUT/vegn2.nc',restart_2_exists)
 
@@ -373,11 +372,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      ! read global variables
      call read_data(restart2%rhandle, "n_accum", n_accum)
      call read_data(restart2%rhandle, "nmn_acm", nmn_acm)
-     if(field_exists(restart2,'ndy_acm')) then
-       call read_data(restart2%rhandle,'ndy_acm',ndy_acm)
-     else
-       ndy_acm = 0
-     endif
 
      ! read cohort data
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
@@ -636,7 +630,6 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      tile%vegn%n_accum = n_accum
      tile%vegn%nmn_acm = nmn_acm
-     tile%vegn%ndy_acm = ndy_acm
 
      if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
 
@@ -1334,7 +1327,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   integer ::  i, j
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  integer :: n_accum, nmn_acm, ndy_acm
+  integer :: n_accum, nmn_acm
 
   character(267) :: filename
   type(land_restart_type) :: restart1, restart2 ! restart file i/o object
@@ -1376,23 +1369,21 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_text_data(restart2,'species_names','textlen','nspecies',spnames)
 
   ! store global variables
-  ! find first tile and get n_accum, nmn_acm and ndy_acm from it
-  n_accum = 0; nmn_acm = 0; ndy_acm = 0
+  ! find first tile and get n_accum and nmn_acm from it
+  n_accum = 0; nmn_acm = 0
   ce = first_elmt(land_tile_map)
   do while (loop_over_tiles(ce,tile))
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
-        ndy_acm = tile%vegn%ndy_acm
      endif
   enddo
-  ! n_accum, nmn_acm  and ndy_acm are currently the same for all tiles; we only call mpp_max
+  ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max
   ! to handle the situation when there are no tiles in the current domain
-  call mpp_max(n_accum); call mpp_max(nmn_acm); call mpp_max(ndy_acm)
+  call mpp_max(n_accum); call mpp_max(nmn_acm)
 
   call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps within the month')
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
-  call add_scalar_data(restart2,'ndy_acm',ndy_acm,'number of accumulated steps within the day')
 
   call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
   call add_cohort_data(restart2,'hite', cohort_height_ptr, 'vegetation height','m')
@@ -2232,7 +2223,6 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   vegn%psist_av  = vegn%psist_av + psist
 
   vegn%n_accum   = vegn%n_accum+1
-  vegn%ndy_acm   = vegn%ndy_acm+1
 
   ! --- accumulate values for daily averaging
   vegn%tc_daily    = vegn%tc_daily + cana_T
@@ -2979,10 +2969,6 @@ subroutine update_vegn_slow( )
      if (year1 /= year0) then
         tile%vegn%lambda     = 0
         tile%vegn%fuel       = 0
-     endif
-
-     if ( day1 /= day0) then
-        tile%vegn%ndy_acm  = 0
      endif
 
      ! zstar diagnostics

@@ -11,27 +11,28 @@ use diag_manager_mod, only : register_static_field, send_data
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
 use land_debug_mod, only : string_from_time, land_error_message, check_conservation, &
-     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range, is_watch_point
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
-     nspecies, spdata, agf_bs, NO_DATE, NO_CROP, MAIZE, SOYBEAN, RICE, SPRING_WHEAT, &
-     WINTER_WHEAT, IDLE, ACTIVE_ON_CROP_SCHEDULE, ACTIVE_ON_LM3_SCHEDULE, crop_name, landuse_name
+     nspecies, spdata, agf_bs, NO_DATE, NO_CROP, &
+     IRRIGATED_MAIZE, IRRIGATED_SOYBEAN, IRRIGATED_RICE, IRRIGATED_SPRING_WHEAT, IRRIGATED_WINTER_WHEAT, &
+     RAINFED_MAIZE, RAINFED_SOYBEAN, RAINFED_RICE, RAINFED_SPRING_WHEAT, RAINFED_WINTER_WHEAT, &
+     IDLE, ACTIVE_ON_CROP_SCHEDULE, ACTIVE_ON_LM3_SCHEDULE, crop_name, landuse_name
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
-use soil_tile_mod, only : num_l, LEAF, CWOOD
+use soil_tile_mod, only : num_l, dz, LEAF, CWOOD
 use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_type
 use soil_util_mod, only : add_root_litter
-use vegn_cohort_mod, only : update_biomass_pools
+use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
 use vegn_crop_mod, only: vegn_crop_init, compute_crop_calendars, vegn_crop_end, save_crop_restart
-use debug_crop_mod, only: debug_crop
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
@@ -230,7 +231,7 @@ subroutine vegn_harvesting_init(id_ug)
             'day of year when crops are harvested', 'day', missing_value = -1.0 )
      id_crop_planting_day = register_static_field ( 'vegn', 'crop_planting_day', (/id_ug/), &
             'day of year when crops are planted', 'day', missing_value = -1.0 )
-     if ( id_crop_harvest_day  > 0 ) used = send_data ( id_crop_harvest_day,  crop_harvest_day,  lnd%time )
+     if ( id_crop_harvest_day > 0 )  used = send_data ( id_crop_harvest_day, crop_harvest_day, lnd%time )
      if ( id_crop_planting_day > 0 ) used = send_data ( id_crop_planting_day, crop_planting_day, lnd%time )
 
      select case (trim(lowercase(crop_distribution)))
@@ -305,28 +306,25 @@ subroutine vegn_harvesting_init(id_ug)
   ! calculate total land and soil areas
   tot_area_land = sum(lnd%ug_area)
   call mpp_sum(tot_area_land)
-
   if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call vegn_crop_init( id_ug )
 end subroutine vegn_harvesting_init
-
 ! ============================================================================
 subroutine vegn_harvesting_end
    if (allocated(crop_harvest_day))  deallocate(crop_harvest_day)
    if (allocated(crop_planting_day)) deallocate(crop_planting_day)
    if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call vegn_crop_end()
 end subroutine vegn_harvesting_end
-
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_year, L)
+subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_year, l)
   type(land_tile_type), intent(inout) :: tile
   logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
   integer, intent(in) :: day_of_year ! current day of year
-  integer, intent(in) :: L ! index of current grid cell in unstructured grid
+  integer, intent(in) :: l ! index of current grid cell in unstructured grid
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
   if (crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
-     call compute_crop_calendars(tile%vegn, tile%diag, L)
+     call compute_crop_calendars(tile%vegn, tile%diag, L, verbose=.false.)
   endif
 
   associate(vegn=>tile%vegn)
@@ -349,10 +347,10 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
            call vegn_plant_crop (tile)
         endif
      case (CROP_SCHEDULE_PRESCRIBED)
-        if (end_of_day.AND.day_of_year==nint(crop_harvest_day(L))) then
+        if (end_of_day.AND.day_of_year==nint(crop_harvest_day(l))) then
            call vegn_harvest_cropland (tile)
         endif
-        if (end_of_day.AND.day_of_year==nint(crop_planting_day(L))) then
+        if (end_of_day.AND.day_of_year==nint(crop_planting_day(l))) then
            call vegn_plant_crop (tile)
         endif
      case (CROP_SCHEDULE_COMPUTED)
@@ -407,8 +405,6 @@ subroutine vegn_graze_pasture(tile)
      call vegn_graze_pasture_lm3(tile, min_lai_for_grazing_past, grazing_intensity_past)
   endif
 end subroutine vegn_graze_pasture
-
-
 ! ============================================================================
 subroutine vegn_graze_rangeland(tile)
   type(land_tile_type), intent(inout) :: tile
@@ -419,7 +415,6 @@ subroutine vegn_graze_rangeland(tile)
      call vegn_graze_pasture_lm3(tile, min_lai_for_grazing_range, grazing_intensity_range)
   endif
 end subroutine vegn_graze_rangeland
-
 ! ============================================================================
 subroutine vegn_harvest_cropland(tile)
   type(land_tile_type), intent(inout) :: tile
@@ -441,7 +436,6 @@ subroutine vegn_plant_crop(tile, chosen_crop)
      ! do nothing at the moment -- later add turning phenology on
   endif
 end subroutine vegn_plant_crop
-
 ! ============================================================================
 subroutine vegn_cut_forest(tile, new_landuse)
   type(land_tile_type), intent(inout) :: tile
@@ -454,7 +448,6 @@ subroutine vegn_cut_forest(tile, new_landuse)
      call vegn_cut_forest_lm3(tile, new_landuse)
   endif
 end subroutine vegn_cut_forest
-
 ! ============================================================================
 subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
   type(land_tile_type), intent(inout) :: tile
@@ -464,10 +457,13 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
   ! ---- local vars
   real ::  bdead0, balive0, bleaf0, blv0, bfroot0 ! initial combined biomass pools
   real ::  bdead1, balive1, bleaf1, blv1, bfroot1 ! updated combined biomass pools
-  integer :: i
+  integer :: i,k
   real :: carbon_lost
   real :: delta_leaf, delta_root, delta_wood
-  real,dimension(N_C_TYPES) :: leaflitter_C,woodlitter_C,bglitter_C,leaflitter_N,woodlitter_N,bglitter_N
+  real,dimension(N_C_TYPES) :: leaflitter_C,woodlitter_C,leaflitter_N,woodlitter_N
+  real :: bglitter_C(num_l,N_C_TYPES) ! below-ground (root) C litter, by layer
+  real :: bglitter_N(num_l,N_C_TYPES) ! below-ground (root) N litter, by layer
+  real :: profile(num_l) ! normalized root litter profile: sum(profile) == 1.0
   real :: wood_n2c
 
   associate(vegn=>tile%vegn,soil=>tile%soil)
@@ -538,21 +534,27 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
            delta_wood=bdead0-bdead1
         endif
 
-        leaflitter_C=(/(delta_leaf)*sp%fsc_liv,(delta_leaf)*(1-sp%fsc_liv),0.0/)*grazing_residue
-        woodlitter_C=(/(delta_wood)*sp%fsc_wood,(delta_wood)*(1-sp%fsc_wood),0.0/)*agf_bs*grazing_residue
-        bglitter_C=(/(sp%fsc_froot*(delta_root) +(1-agf_bs)*sp%fsc_wood*(delta_wood)),&
-                      (1.0-sp%fsc_froot)*(delta_root) +(1-agf_bs)*(1.0-sp%fsc_wood)*(delta_wood),0.0/)*grazing_residue
-
+        leaflitter_C = [ delta_leaf*sp%fsc_liv,  delta_leaf*(1-sp%fsc_liv),  0.0 ] * grazing_residue
+        woodlitter_C = [ delta_wood*sp%fsc_wood, delta_wood*(1-sp%fsc_wood), 0.0 ] * grazing_residue * agf_bs
+        call cohort_root_litter_profile(cc,dz,profile)
+        do k = 1,num_l
+           bglitter_C(k,:) = profile(k) * grazing_residue * &
+               [      sp%fsc_froot *delta_root + (1-agf_bs)*     sp%fsc_wood *delta_wood, &
+                 (1.0-sp%fsc_froot)*delta_root + (1-agf_bs)*(1.0-sp%fsc_wood)*delta_wood, &
+                 0.0  ]
+        enddo
         ! We are not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
         vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
            leaflitter_N=leaflitter_C/sp%leaf_live_c2n
            woodlitter_N=woodlitter_C/sp%leaf_live_c2n
-           bglitter_N=(/grazing_residue*(sp%fsc_froot*(delta_root)/sp%froot_live_c2n +(1-agf_bs)*sp%fsc_wood*(delta_wood)*wood_n2c),&
-                        grazing_residue*((1-sp%fsc_froot)*(delta_root)/sp%froot_live_c2n +  (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood)*wood_n2c),&
-                        0.0/)
-
+           do k = 1,num_l
+              bglitter_N(k,:) = profile(k) * grazing_residue * &
+                   [    sp%fsc_froot *delta_root/sp%froot_live_c2n + (1-agf_bs)*   sp%fsc_wood *delta_wood*wood_n2c, &
+                     (1-sp%fsc_froot)*delta_root/sp%froot_live_c2n + (1-agf_bs)*(1-sp%fsc_wood)*delta_wood*wood_n2c, &
+                     0.0  ]
+           enddo
            cc%stored_N = cc%stored_N - delta_leaf/sp%leaf_live_c2n - delta_wood*wood_n2c - delta_root/sp%froot_live_c2n
            vegn%harv_pool_N(HARV_POOL_PAST) = vegn%harv_pool_N(HARV_POOL_PAST) + &
                 delta_leaf/sp%leaf_live_c2n*(1-grazing_residue) + delta_wood*agf_bs*wood_n2c*(1-grazing_residue)
@@ -573,8 +575,8 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
                [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue
 
-          vegn%fsc_pool_bg=vegn%fsc_pool_bg + bglitter_C(1)
-          vegn%ssc_pool_bg = vegn%ssc_pool_bg + bglitter_C(2)
+          vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(bglitter_C(:,C_FAST))
+          vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(bglitter_C(:,C_SLOW))
 
 
           vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + &
@@ -582,8 +584,8 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue/sp%wood_c2n
 
-          vegn%fsn_pool_bg=vegn%fsn_pool_bg + bglitter_N(1)
-          vegn%ssn_pool_bg = vegn%ssn_pool_bg + bglitter_N(2)
+          vegn%fsn_pool_bg = vegn%fsn_pool_bg + sum(bglitter_N(:,C_FAST))
+          vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(bglitter_N(:,C_SLOW))
        endif
      case default
         call error_mesg('vegn_graze_pasture_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
@@ -592,8 +594,6 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
   enddo
   end associate ! vegn, soil
 end subroutine vegn_graze_pasture_lm3
-
-
 ! ================================================================================
 subroutine vegn_harvest_crop_lm3(tile)
   type(land_tile_type), intent(inout) :: tile
@@ -687,8 +687,6 @@ subroutine vegn_harvest_crop_lm3(tile)
   enddo
   end associate ! vegn
 end subroutine vegn_harvest_crop_lm3
-
-
 ! ============================================================================
 ! for now cutting forest is the same as harvesting cropland --
 ! we basically cut down everything, leaving only seeds
@@ -755,10 +753,14 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
              + wood_harvested*frac_wood_med
         vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) &
              + wood_harvested*frac_wood_slow
+        ! store harvested wood amount, for diagnostics
+        vegn%amount_wood_harv_C = wood_harvested
      else
         ! this is land clearance: everything goes into "cleared" pool
         vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
              + wood_harvested
+        ! store cleared wood amount, for diagnostics
+        vegn%amount_wood_cleared_C = wood_harvested
      endif
 
      ! distribute wood and living biomass between fast and slow intermediate
@@ -849,7 +851,6 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
   enddo
   end associate ! vegn
 end subroutine vegn_cut_forest_lm3
-
 ! ============================================================================
 subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, max_grazing_height)
   type(land_tile_type), intent(inout) :: tile
@@ -925,7 +926,6 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
 
   call check_conservation_2(tile,'vegn_graze_pasture_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_graze_pasture_ppa
-
 ! ============================================================================
 ! NOTE that the PPA harvest would not work properly if applied only once per year, because
 ! at the end of the year the leaves are down in NH, and therefore harvest amount will be
@@ -992,7 +992,6 @@ subroutine vegn_harvest_crop_ppa(tile)
 
   call check_conservation_2(tile,'vegn_harvest_crop_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_harvest_crop_ppa
-
 ! ============================================================================
 subroutine vegn_cut_forest_ppa(tile, new_landuse)
   type(land_tile_type), intent(inout) :: tile
@@ -1065,12 +1064,23 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
           + sum(wood_harv_C)*frac_wood_slow*(1-frac_wood_wasted)
      vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) &
           + sum(wood_harv_N)*frac_wood_slow*(1-frac_wood_wasted)
+     ! store harvested wood amount, for diagnostics. We could send the diagnostics
+     ! from here, but we are currently not merging the diag buffers when merging
+     ! land tiles, and therefore the output would be incorrect if the tiles
+     ! that are just harvested are merged after land use transitions and before
+     ! dumping the diag (which is likely). Same note applies to amount_wood_cleared_*
+     ! below
+     vegn%amount_wood_harv_C = sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%amount_wood_harv_N = sum(wood_harv_N)*(1-frac_wood_wasted)
   else
      ! this is land clearance: everything goes into "cleared" pool
      vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
           + sum(wood_harv_C)*(1-frac_wood_wasted)
      vegn%harv_pool_N(HARV_POOL_CLEARED) = vegn%harv_pool_N(HARV_POOL_CLEARED) &
           + sum(wood_harv_N)*(1-frac_wood_wasted)
+     ! cleared wood amount, for diagnostics
+     vegn%amount_wood_cleared_C = sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%amount_wood_cleared_N = sum(wood_harv_N)*(1-frac_wood_wasted)
   endif
 
   vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
@@ -1092,7 +1102,6 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
 
   call check_conservation_2(tile,'vegn_cut_forest_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_cut_forest_ppa
-
 ! ============================================================================
 ! this function uses the same rule as LM3 does for biogeographic C3/C4,
 ! distribution except it disregards the biomass, that is returns the
@@ -1113,7 +1122,6 @@ function biogeographic_physiology_type(temp, precip) result (pt)
     pt=PT_C3
   endif
 end function biogeographic_physiology_type
-
 ! ============================================================================
 subroutine vegn_plant_crop_ppa(tile, chosen_crop)
   type(land_tile_type), intent(inout) :: tile
@@ -1130,7 +1138,7 @@ subroutine vegn_plant_crop_ppa(tile, chosen_crop)
   real :: lmass0, fmass0, heat0, cmass0, nmass0
 
   call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
-
+ 
   ! prepare cropland for planting: right now just kill all vegetation; in the
   ! future we possibly need to add some soil carbon mixing by plows, perhaps
   ! other agricultural processes
@@ -1168,15 +1176,25 @@ subroutine vegn_plant_crop_ppa(tile, chosen_crop)
        case default
           call land_error_message('vegn_plant_crop_ppa: unknown physiology type '//string(pt)//'; this should never happen.', FATAL)
         end select
-     case (MAIZE)
+     case (IRRIGATED_MAIZE)
        crop_species_idx = maize_crop_idx
-     case (SOYBEAN)
+     case (IRRIGATED_SOYBEAN)
        crop_species_idx = soybean_crop_idx
-     case (RICE)
+     case (IRRIGATED_RICE)
        crop_species_idx = rice_crop_idx
-     case (SPRING_WHEAT)
+     case (IRRIGATED_SPRING_WHEAT)
        crop_species_idx = spring_wheat_crop_idx
-     case (WINTER_WHEAT)
+     case (IRRIGATED_WINTER_WHEAT)
+       crop_species_idx = winter_wheat_crop_idx
+     case (RAINFED_MAIZE)
+       crop_species_idx = maize_crop_idx
+     case (RAINFED_SOYBEAN)
+       crop_species_idx = soybean_crop_idx
+     case (RAINFED_RICE)
+       crop_species_idx = rice_crop_idx
+     case (RAINFED_SPRING_WHEAT)
+       crop_species_idx = spring_wheat_crop_idx
+     case (RAINFED_WINTER_WHEAT)
        crop_species_idx = winter_wheat_crop_idx
      case default
         call land_error_message('vegn_plant_crop_ppa: invalid crop type number='//string(chosen_crop)//'; this should never happen.', FATAL)
@@ -1185,7 +1203,6 @@ subroutine vegn_plant_crop_ppa(tile, chosen_crop)
      call error_mesg('vegn_plant_crop_ppa','Unknown crop distribution option; this should never happen.', FATAL)
   end select
 
-  ! plant crops:
   ! borrow biomass (crop_seed_density) from harvest pools, in order of preference
   seedC(:) = 0.0; seedN(:) = 0.0
   do i = 1, size(seed_source_pools)
@@ -1210,7 +1227,6 @@ subroutine vegn_plant_crop_ppa(tile, chosen_crop)
 
   call check_conservation_2(tile,'vegn_plant_crop_ppa', lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_plant_crop_ppa
-
 ! ============================================================================
 ! transport crops horizontally to satisfy demand on the planting day
 subroutine crop_seed_transport(day_of_year)
@@ -1328,7 +1344,7 @@ subroutine crop_seed_transport(day_of_year)
   ! - conservation check part 2
 
 end subroutine crop_seed_transport
-
+! ============================================================================
 subroutine crop_seed_supply(vegn, crop_seed_supply_C, crop_seed_supply_N)
    type(vegn_tile_type), intent(in) :: vegn
    real, intent(out) :: crop_seed_supply_C, crop_seed_supply_N
@@ -1339,7 +1355,7 @@ subroutine crop_seed_supply(vegn, crop_seed_supply_C, crop_seed_supply_N)
       crop_seed_supply_N = 0.0
    endif
 end subroutine crop_seed_supply
-
+! ============================================================================
 subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C, crop_seed_demand_N)
    type(vegn_tile_type), intent(in) :: vegn
    integer, intent(in) :: l ! index of grid cell
@@ -1361,12 +1377,12 @@ subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C, crop_seed_
      endif
    endif
 end subroutine
-
+! ============================================================================
 subroutine save_harvesting_restart(tile_dim_length,timestamp)
    integer, intent(in) :: tile_dim_length
    character(*), intent(in) :: timestamp
 
    if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) call save_crop_restart(tile_dim_length,timestamp)
 end subroutine save_harvesting_restart
-
+! ============================================================================
 end module

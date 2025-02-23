@@ -2,7 +2,6 @@ module land_tile_io_mod
 
 use netcdf, only: NF90_MAX_NAME, NF90_FILL_DOUBLE, NF90_FILL_INT
 use fms_mod, only : error_mesg, FATAL, mpp_pe
-use fms_io_mod, only : get_instance_filename
 use fms2_io_mod, only: FmsNetcdfUnstructuredDomainFile_t, open_file, close_file, &
      read_data, write_data, register_axis, register_field, register_variable_attribute, &
      write_restart, variable_exists, get_dimension_size, compressed_start_and_count

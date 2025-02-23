@@ -44,7 +44,7 @@ use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
-use debug_crop_mod, only: debug_crop
+use vegn_debug_crop_mod, only: debug_crop
 
 implicit none
 private

@@ -1,15 +1,9 @@
 module vegn_data_mod
 
-#ifdef INTERNAL_FILE_NML
-use mpp_mod, only: input_nml_file
-#else
-use fms_mod, only: open_namelist_file
-#endif
-
 use constants_mod, only : PI, TFREEZE
-use fms_mod, only : &
-     file_exist, check_nml_error, &
-     close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog, stdout, string, lowercase, &
+                  & error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
@@ -31,15 +25,14 @@ integer, public, parameter :: & ! indices of carbon chemical species
     C_SLOW = 2, & ! lignin (slow)
     C_MIC  = 3    ! microbial products
 
-
 integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
 integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
   ! by "natural" it means non-human-maintained, so secondary vegetation
   ! grassland will be included.
- integer, public, parameter :: SCND_AGE_SEL_TAG = 4 ! tag for the secondary vegetation age selectors
+integer, public, parameter :: SCND_AGE_SEL_TAG = 4 ! tag for the secondary vegetation age selectors
 
- integer, public, parameter :: & ! life form of the plant
+integer, public, parameter :: & ! life form of the plant
  FORM_GRASS = 0, &
  FORM_WOODY = 1
  ! in future, possibly add mosses...
@@ -49,38 +42,44 @@ integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
  NO_DATE      = 0, &
  NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has zero crop area.
                      ! In such cases the crop tile is treated the same way as it was before vegn_crop_mod was introduced.
- MAIZE        = 1, &
- SOYBEAN      = 2, &
- RICE         = 3, &
- SPRING_WHEAT = 4, &
- WINTER_WHEAT = 5, &
- num_crop_types = 5, &
+ IRRIGATED_MAIZE        = 1, &
+ IRRIGATED_SOYBEAN      = 2, &
+ IRRIGATED_RICE         = 3, &
+ IRRIGATED_SPRING_WHEAT = 4, &
+ IRRIGATED_WINTER_WHEAT = 5, &
+ RAINFED_MAIZE          = 6, &
+ RAINFED_SOYBEAN        = 7, &
+ RAINFED_RICE           = 8, &
+ RAINFED_SPRING_WHEAT   = 9, &
+ RAINFED_WINTER_WHEAT   = 10, &
+ num_crop_types = 10, &
  num_crop_seasons = 2, &
  num_crop_periods = 3, &
  num_crop_water_sources = 2, &
  num_crop_cal = 6, &
- IRRIGATED = 1, &
- RAINFED = 2, &
  MAIN_SEASON = 1, &
  SECOND_SEASON = 2
- character(len=12), public, parameter :: &
- crop_name(0:num_crop_types) = (/'No_crop     ','Maize       ','Soybean     ','Rice        ','Spring_Wheat','Winter_Wheat'/)
+
+ character(len=24), public, parameter :: crop_name(0:num_crop_types) = &
+                (/'No_crop                 ','irrigated_Maize         ','irrigated_Soybean       ', 'irrigated_Rice          ', &
+                  'irrigated_Spring_Wheat  ','irrigated_Winter_Wheat  ','rainfed_Maize           ','rainfed_Soybean          ', &
+                  'rainfed_Rice            ','rainfed_Spring_Wheat    ','rainfed_Winter_Wheat    '/)
+                              
  character(len= 9), public, parameter :: water_source_name(num_crop_water_sources) = (/'irrigated','rainfed  '/)
- character(len=13), public, parameter :: season_name(num_crop_seasons) = (/'main_season  ','second_season'/)
- character(len=3),  public, parameter :: selection_name(num_crop_seasons) = (/'1st','2nd'/)
+ character(len=16), public, parameter :: season_name(num_crop_seasons) = (/'first_season  ','second_season'/)
  character(len=8),  public, parameter :: period_name(num_crop_periods) = (/'optimal ','earliest','latest  '/)
 
- integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
+integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
  SP_C3GRASS   = 1, & ! c3 grass
  SP_TEMPDEC   = 2, & ! temperate deciduous
  SP_TROPICAL  = 3, & ! non-grass tropical
  SP_EVERGR    = 4    ! non-grass evergreen
- character(len=12), parameter :: lm3_species_name(0:N_LM3_SPECIES-1) = &
+character(len=12), parameter :: lm3_species_name(0:N_LM3_SPECIES-1) = &
     (/'c4grass  ',  'c3grass  ' ,  'tempdec  ', 'tropical ','evergreen'/)
 
- integer, public, parameter :: n_dim_vegn_types = 9
- integer, public, parameter :: MSPECIES = N_LM3_SPECIES+n_dim_vegn_types-1
+integer, public, parameter :: n_dim_vegn_types = 9
+integer, public, parameter :: MSPECIES = N_LM3_SPECIES+n_dim_vegn_types-1
 
 integer, public, parameter :: & ! physiology types
  PT_C3        = 0, &
@@ -174,7 +173,7 @@ public :: &
     vegn_to_use,  input_cover_types, &
     mcv_min, mcv_lai, use_bucket, vegn_index_constant, &
     critical_root_density, &
-    spdata, &
+    spdata, splist, &
     min_cosz, &
     agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
@@ -444,6 +443,18 @@ type spec_data_type
   real    :: alloc_allowed_over_limit = 10.0
   real    :: tau_smooth_Nstress       = 0.0
 
+  ! dry deposition related parameters                                                                                          
+  !based on deciduous by default                                                                                               
+  real    :: r_cus     = 2500.    !dry cuticle resistance, SO2, s/m
+  real    :: r_cuo     = 6000.    !dry cuticle resistance, O3, s/m
+  real    :: r_stems   = 1000.    !dry stem resistance, SO2, s/m
+  real    :: r_stemo   = 3000.    !dry stem resistance, O3, s/m
+  real    :: r_cus_wet = 100.     !wet cuticle resistance, SO2, s/m
+  real    :: r_cuo_wet = 400.     !wet cuticle resistance, O3, s/m
+  real    :: A_aer     = 6.25e-3  !characteristic aerosol radius for deposition, m
+  real    :: gamma_aer = 0.56     !Sc power for aerosol deposition, unitless
+  real    :: alpha_aer = 0.8      !parameter for Eim (aerosol deposition), unitless
+
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22
   real    :: fire_duration = 86400.0 ! average fire duration, s
@@ -472,6 +483,9 @@ end type
 
 ! ---- species parameters ----------------------------------------------------
 type(spec_data_type), allocatable, protected :: spdata(:)
+
+! ---- list of species names, for by-species diagnostic axis attribute
+character(len=:), allocatable, protected :: splist ! list of species names
 
 ! ---- namelist --------------------------------------------------------------
 logical, protected :: use_bucket = .false.
@@ -675,23 +689,9 @@ subroutine read_vegn_data_namelist()
   character(256) :: sname, lname ! strings for selector names
   real :: age0, age1 ! shorthands for boundaries of age buckets
 
-  call log_version(version, module_name, &
-  __FILE__)
-#ifdef INTERNAL_FILE_NML
+  call log_version(version, module_name, __FILE__)
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')
-#else
-  if (file_exist('input.nml')) then
-     unit = open_namelist_file()
-     ierr = 1;
-     do while (ierr /= 0)
-        read (unit, nml=vegn_data_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'vegn_data_nml')
-     enddo
-10   continue
-     call close_file (unit)
-  endif
-#endif
 
   unit=stdlog()
   write (unit, nml=vegn_data_nml)
@@ -827,6 +827,13 @@ subroutine read_vegn_data_namelist()
   spdata(:)%fact_crit_fire = max(0.0,spdata(:)%fact_crit_fire)
   where (spdata(:)%cnst_crit_fire/=0) spdata(:)%fact_crit_fire=0.0
   write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
+
+  ! create a list of species names
+  splist = trim(spdata(0)%name)
+  do i = 1,nspecies-1
+    splist = splist//", "//trim(spdata(i)%name)
+  enddo
+!   write(*,*) splist
 
   call print_species_data(stdout(),.TRUE.)
   call print_species_data(stdlog(),.TRUE.)
@@ -1178,6 +1185,17 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tau_smooth_alloc)
   __GET_SPDATA_REAL__(alloc_allowed_over_limit)
   __GET_SPDATA_REAL__(tau_smooth_Nstress)
+  ! dry deposition
+  !dry deposition parameters    
+  __GET_SPDATA_REAL__(r_cus)
+  __GET_SPDATA_REAL__(r_cuo)
+  __GET_SPDATA_REAL__(r_stems)
+  __GET_SPDATA_REAL__(r_stemo)
+  __GET_SPDATA_REAL__(r_cus_wet)
+  __GET_SPDATA_REAL__(r_cuo_wet)
+  __GET_SPDATA_REAL__(A_aer)
+  __GET_SPDATA_REAL__(gamma_aer)
+  __GET_SPDATA_REAL__(alpha_aer)  
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
   __GET_SPDATA_REAL__(fire_duration)
@@ -1562,7 +1580,18 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'alloc_allowed_over_limit', spdata(idx)%alloc_allowed_over_limit)
   call add_row(table, 'tau_smooth_Nstress', spdata(idx)%tau_smooth_Nstress)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(idx)%max_n_stress_for_seed_production)
-
+  
+  !dry deposition parameters                                                                                        
+  call add_row(table, 'r_cus',spdata(idx)%r_cus)
+  call add_row(table, 'r_cuo',spdata(idx)%r_cuo)
+  call add_row(table, 'r_stems',spdata(idx)%r_stems)
+  call add_row(table, 'r_stemo',spdata(idx)%r_stemo)
+  call add_row(table, 'r_cus_wet',spdata(idx)%r_cus_wet)
+  call add_row(table, 'r_cuo_wet',spdata(idx)%r_cuo_wet)
+  call add_row(table, 'A_aer',spdata(idx)%A_aer)
+  call add_row(table, 'gamma_aer',spdata(idx)%gamma_aer)
+  call add_row(table, 'alpha_aer',spdata(idx)%alpha_aer)
+  
   call add_row(table, 'dat_height',       spdata(idx)%dat_height)
   call add_row(table, 'dat_lai',          spdata(idx)%dat_lai)
   call add_row(table, 'dat_root_density', spdata(idx)%dat_root_density)
