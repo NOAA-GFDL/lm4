@@ -488,6 +488,10 @@ subroutine land_model_init &
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
   call land_tracer_driver_init(id_ug,id_zfull)
+
+  !get gex indices [needs to be done before update_land_bc fast]
+  id_gex_lnd2atm_test = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'test')  
+  
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
@@ -534,8 +538,6 @@ subroutine land_model_init &
      call send_tile_data(id_ug_face, real(lnd%ug_face), tile%diag)
      call send_tile_data(id_ug_pe,   real(pe),          tile%diag)
   enddo
-
-  id_gex_lnd2atm_test = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'test')
 
   call mpp_clock_end(landInitClock)
 
@@ -3692,7 +3694,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%rough_heat     (l,k) = tile%land_z0s
   land2cplr%rsl_scale      (l,k) = tile%land_RSL
 
-  if (id_gex_lnd2atm_test) then
+  if (id_gex_lnd2atm_test.gt.0) then
       land2cplr%gex_lnd2atm(l,k,id_gex_lnd2atm_test) = 1.
   end if
 
