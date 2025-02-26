@@ -323,7 +323,7 @@ integer :: id_sg_face, id_ug_face, id_ug_pe
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
 ! real, parameter :: init_value = Z'FFF0000000000001'
 real, parameter :: init_value = 0.0
-real, parameter :: kg_to_mg = 1.0e-6 ! conversion factor kg -> mg
+real, parameter :: kg_to_mg = 1.0e6 ! conversion factor kg -> mg
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
