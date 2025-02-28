@@ -3148,6 +3148,7 @@ subroutine calc_fire_derivs(&
    ! slm: kludge to make derivative function compile.If we use this function, we must
    ! change it to average over species in the tiles somehow.
    integer :: vegn_cohort_1_species
+
    vegn_cohort_1_species = vegn%cohorts(1)%species
 
 !!!! NOTE:

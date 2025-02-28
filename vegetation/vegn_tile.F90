@@ -20,11 +20,10 @@ use vegn_data_mod, only : &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
      tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
-     do_bl_max_merge
+     do_bl_max_merge, num_crop_periods, num_crop_seasons, num_crop_types, IDLE
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohorts_can_be_merged, leaf_area_from_biomass, plant_C, &
-     get_vegn_wet_frac
+     cohorts_can_be_merged, leaf_area_from_biomass, plant_C, get_vegn_wet_frac
 
 use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
@@ -64,6 +63,7 @@ public :: vegn_seed_N_supply
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+public :: crop_type
 
 public :: vegn_tile_fw_fs ! return LAI average fs and fw
 
@@ -75,6 +75,39 @@ interface new_vegn_tile
    module procedure vegn_tile_ctor
    module procedure vegn_tile_copy_ctor
 end interface
+
+! ======= types related to crops =================================================================
+
+ type :: crop_type
+   real :: tc_av_climate(12)
+   real :: precip_av_climate(12)
+   real :: T_mid_mth(12)
+   real :: P_mid_mth(12)
+
+   ! crop_calendars(:,iperiod,iseason,ipref) = The cropping period of a crop.
+   ! The first dimension is of size 2 for the planting and harvesting dates.
+   ! iperiod=1,2,3 for the optimal, earliest and latest cropping periods of the crop.
+   ! iseason=1,2 for the 1st and 2nd season of the crop.
+   ! ipref denotes the crop preference hierarchy. ipref=1 is the preferred crop, ipref=2 is the second most preferred, etc.
+   ! Preference is determined by MIRCA2000 area, with the crop type of largest area given highest preference.
+   integer :: crop_calendars(2, num_crop_periods, num_crop_seasons, num_crop_types)
+
+   ! potential_crop is the crop preference hierarchy. Determined at initialization and static thereafter.
+   ! There are very few grid cells where the MIRCA data has non-zero crop area for all five major crops.
+   ! The last N values of potential_crop are filled with the value of NO_CROP, where N = the number of major crops which have zero area.
+   integer :: potential_crop(num_crop_types)
+
+   ! If conditions are suitable for one or more crops then one or two cropping periods are assigned to array chosen_calendars.
+   ! The first calendar chosen is the crop of highest preference for which conditions are suitable.
+   ! If conditions are not suitable for the crop of highest preference, then suitablilty is tested for the next highest preference, etc.
+   ! This calendar is loaded into chosen_calendars(:,:,1). This is referred to as the 1st crop.
+   ! The crop suitability is checked for the next crop on the priority list for possible double-cropping.
+   ! is loaded into chosen_calendars(:,2) if conditions are suitable for 2nd crop on the same land tile.
+
+   integer :: chosen_calendars(2,num_crop_seasons)
+   integer :: chosen_crop(num_crop_seasons)
+   integer :: status = IDLE
+ end type crop_type
 
 ! ==== types =================================================================
 type :: vegn_tile_type
@@ -142,7 +175,7 @@ type :: vegn_tile_type
    real :: theta_av_fire = 0.0
    real :: psist_av = 0.0 ! soil water stress index
    real :: tsoil_av = 0.0 ! bulk soil temperature
-   real :: tc_av    = 0.0 ! leaf temperature
+   real :: tc_av    = 0.0 ! canopy air temperature
    real :: precip_av= 0.0 ! precipitation
 
    ! accumulation counters for long-term averages (monthly and annual). Having
@@ -217,6 +250,7 @@ type :: vegn_tile_type
    ! it is probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
    real :: rh =0.0 ! soil carbon lost to the atmosphere
+   type(crop_type) :: Crop
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
@@ -226,7 +260,6 @@ real, public :: &
      csw = 2106.0    ! specific heat of water (ice)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
 
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)
@@ -930,10 +963,6 @@ subroutine vegn_add_bliving ( vegn, delta, deltaN )
   call update_biomass_pools(vegn%cohorts(1))
 end subroutine vegn_add_bliving
 
-
-
-
-
 ! ============================================================================
 ! given a vegetation patch, destination kind of transition, and "transition
 ! intensity" value, this function returns a fraction of tile that will
@@ -966,7 +995,6 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
      pri = max(min(tau,1.0),0.0)
   endif
 end function vegn_tran_priority
-
 
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
@@ -1104,7 +1132,6 @@ subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   enddo
 end subroutine vegn_tile_stock_pe
 
-
 ! ============================================================================
 ! returns total carbon in the tile, kg C/m2
 function vegn_tile_carbon(vegn) result(carbon) ; real carbon
@@ -1150,7 +1177,6 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
   nitrogen = nitrogen + sum(vegn%litter_buff_N)
 end function vegn_tile_nitrogen
 
-
 ! ============================================================================
 ! returns heat content of the vegetation, J/m2
 function vegn_tile_heat (vegn) result(heat) ; real heat
@@ -1168,7 +1194,6 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
             )*vegn%cohorts(i)%nindivs
   enddo
 end function vegn_tile_heat
-
 
 ! ============================================================================
 ! returns tag of the tile

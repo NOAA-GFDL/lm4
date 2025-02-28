@@ -2005,8 +2005,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
      if(sp%phent == PHEN_DECIDUOUS) then ! deciduous species
         ! actually either fact_crit_phen or cnst_crit_phen is zero, enforced
         ! by logic in the vegn_data.F90
-        theta_crit = sp%cnst_crit_phen &
-              + wilt*sp%fact_crit_phen
+        theta_crit = sp%cnst_crit_phen + wilt*sp%fact_crit_phen
         theta_crit = max(0.0,min(1.0, theta_crit))
         psi_stress_crit = sp%psi_stress_crit_phen
         if (      (psi_stress_crit <= 0. .and. vegn%theta_av_phen < theta_crit) &
@@ -2276,10 +2275,21 @@ subroutine deplete_pool(pool, rate, dest, accum)
 
    real :: delta ! change in pool over time step, kg
 
-   rate  = MAX( 0.0, MIN(rate, pool/dt_fast_yr) ) ! adjust rate
-   delta = rate * dt_fast_yr
-   dest  = dest + delta
-   pool  = pool - delta
+   if(rate == pool/dt_fast_yr) then
+     ! In the special case where rate = pool/dt_fast_yr, it is possible
+     ! that rate * dt_fast_yr may result in a value of rate that is not
+     ! identically equal to pool, which it should be. The code in this
+     ! part of the if block ensures that it will be. -- pjp
+     rate  = MAX( 0.0, rate)
+     delta = pool
+     dest  = dest + pool
+     pool = 0.0
+   else
+     rate  = MAX( 0.0, MIN(rate, pool/dt_fast_yr) ) ! adjust rate
+     delta = rate * dt_fast_yr
+     dest  = dest + delta
+     pool  = pool - delta
+   endif
    if (present(accum)) accum = accum + delta ! increment accumulator
 end subroutine deplete_pool
 
