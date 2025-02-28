@@ -6,18 +6,18 @@ module soil_carbon_mod
 #include "../shared/debug.inc"
 
 use land_constants_mod, only : Rugas
-use fms_mod, only: check_nml_error, input_nml_file, &
-            stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
+use mpp_mod, only: input_nml_file
+use fms_mod, only: check_nml_error, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
+                 & FATAL, NOTE
 use vegn_data_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 use land_data_mod, only: log_version
 use land_debug_mod, only: is_watch_point, check_var_range
-#endif
 
+#endif
 
 implicit none
 
 private
-
 
 ! ==== public interfaces =====================================================
 public :: soil_pool
@@ -142,7 +142,9 @@ end type soil_pool
 !==== module variables =======================================================
 
 !---- namelist ---------------------------------------------------------------
-character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by-layer', or 'CORPSE', or 'CORPSE-N'
+character(32) :: soil_carbon_model_to_use = 'SIMPLE' ! or 'SIMPLE-by-layer', 'CENTURY-like', 'CENTURY-like-by-layer',
+                                       ! or 'CORPSE', or 'CORPSE-N'. 'SIMPLE' is synonymous to 'CENTURY-like' in all
+                                       ! options.
 logical                   :: use_rhizosphere_cohort=.FALSE.  ! Use 2 fixed cohorts for rhizosphere and bulk soil if true
 logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
 real,dimension(N_C_TYPES) :: Ea=(/37e3,54e3,50e3/)          ! Activation energy (kJ/mol)
@@ -275,8 +277,7 @@ subroutine read_soil_carbon_namelist
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')
@@ -288,9 +289,9 @@ subroutine read_soil_carbon_namelist
 
   ! parse soil carbon option
   select case (soil_carbon_model_to_use)
-  case('CENTURY-like')
+  case('CENTURY-like','SIMPLE')
     soil_carbon_option = SOILC_CENTURY
-  case('CENTURY-like-by-layer')
+  case('CENTURY-like-by-layer','SIMPLE-by-layer')
     soil_carbon_option = SOILC_CENTURY_BY_LAYER
   case('CORPSE')
     soil_carbon_option = SOILC_CORPSE
@@ -394,7 +395,7 @@ subroutine dissolve_carbon(pool,theta)
               C_litterMobility=C_flavor_relative_solubility,N_protectedMobility=N_protected_solubility,&
               N_litterMobility=N_flavor_relative_solubility)
 
-  if(is_watch_point()) then
+  if(is_watch_point(2)) then
      __DEBUG2__(C_dissolved,protectedC_dissolved)
      __DEBUG2__(N_dissolved,protectedN_dissolved)
   endif
@@ -411,7 +412,7 @@ subroutine deposit_dissolved_C(pool)
 
   deposited_C(:) = min(pool%dissolved_carbon(:), max(0.0, DOC_deposition_rate*pool%dissolved_carbon(:)))
   pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
-  if (is_watch_point()) then
+  if (is_watch_point(2)) then
      __DEBUG1__(pool%dissolved_carbon)
      __DEBUG1__(DOC_deposition_rate)
      __DEBUG1__(deposited_C)

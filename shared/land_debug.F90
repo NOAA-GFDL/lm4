@@ -39,6 +39,16 @@ public :: log_date
 public :: string_from_time
 public :: dpri
 
+interface is_watch_point
+   module procedure is_watch_point_1
+   module procedure is_watch_point_n
+end interface is_watch_point
+
+interface is_watch_cell
+   module procedure is_watch_cell_1
+   module procedure is_watch_cell_n
+end interface is_watch_cell
+
 interface dpri
    module procedure debug_printout_r0d
    module procedure debug_printout_i0d
@@ -88,6 +98,7 @@ integer :: watch_point(4)=[0,0,0,1] ! coordinates of the point of interest,
            ! i, j, subgrid tile, cubic sphere face
 integer :: start_watching(6) = [    1, 1, 1, 0, 0, 0 ] ! YYYY, MM, DD, HH, MM, SS
 integer :: stop_watching(6)  = [ 9999, 1, 1, 0, 0, 0 ] ! YYYY, MM, DD, HH, MM, SS
+integer :: watch_detail_level = 1
 logical :: watch_conservation = .FALSE. ! if true, conservation check reports are
            ! printed for watch_point, in addition to regular debug output
 logical :: print_hex_debug = .FALSE. ! if TRUE, hex representation of debug
@@ -104,7 +115,7 @@ real    :: temp_lo = 120.0 ! lower limit of "reasonable" temperature range, deg 
 real    :: temp_hi = 373.0 ! upper limit of "reasonable" temperature range, deg K
 
 namelist/land_debug_nml/ watch_point, &
-   start_watching, stop_watching, watch_conservation, &
+   start_watching, stop_watching, watch_detail_level, watch_conservation, &
    value_format, print_hex_debug, label_len, trim_labels, &
    do_checksums, &
    temp_lo, temp_hi
@@ -146,7 +157,7 @@ subroutine land_debug_init()
   watched_tile(:) = .FALSE. ; watched_cell(:) = .FALSE.
 
   ! construct the label format string for output
-  fixed_label_format = '(a'//trim(string(label_len))//')'
+  fixed_label_format = '(a'//trim(string(label_len))//',x)'
 
   ! construct value format
   if (trim(lowercase(value_format))=='short') then
@@ -338,31 +349,43 @@ logical function is_watch_time()
 end function is_watch_time
 
 ! ============================================================================
-logical function is_watch_point()
+logical function is_watch_point_1()
+  is_watch_point_1 = is_watch_point_n(1)
+end function is_watch_point_1
+
+logical function is_watch_point_n(detail_level)
+  integer, intent(in) :: detail_level ! detail level
+
   integer :: thread
   thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
-  is_watch_point=.FALSE.
+  is_watch_point_n=.FALSE.
+  if (watch_detail_level<detail_level) return
   if (.not.watched_tile(thread)) return
   if (.not.is_watch_time()) return
-  is_watch_point=.TRUE.
-end function is_watch_point
+  is_watch_point_n=.TRUE.
+end function is_watch_point_n
 
 ! ============================================================================
 ! returns true, if the watch point is within the grid cell, regardless of
 ! the tile number
+logical function is_watch_cell_1()
+  is_watch_cell_1 = is_watch_cell_n(1)
+end function is_watch_cell_1
 
-logical function is_watch_cell()
+logical function is_watch_cell_n(detail_level)
+  integer, intent(in) :: detail_level
+
   integer :: thread
   thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
 
-  is_watch_cell = .FALSE.
+  is_watch_cell_n = .FALSE.
+  if (watch_detail_level<detail_level) return
   if (.not.watched_cell(thread)) return
   if (.not.is_watch_time()) return
-  is_watch_cell = .TRUE.
-
-end function is_watch_cell
+  is_watch_cell_n = .TRUE.
+end function is_watch_cell_n
 
 
 ! ============================================================================
@@ -479,7 +502,7 @@ subroutine print_label(description)
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_label_format,advance='NO')trim(description)
   else
-     write(*,'(x,a,g23.16)',advance='NO')trim(description)
+     write(*,'(x,a,x)',advance='NO')trim(description)
   endif
 end subroutine print_label
 

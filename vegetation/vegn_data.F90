@@ -1,9 +1,9 @@
 module vegn_data_mod
 
 use constants_mod, only : PI, TFREEZE
-use fms_mod, only : &
-     input_nml_file, check_nml_error, &
-     stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
+use mpp_mod, only: input_nml_file
+use fms_mod, only : check_nml_error, stdlog, stdout, string, lowercase, &
+                  & error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
@@ -91,6 +91,10 @@ integer, public, parameter :: &
  TREES_SQUEEZE_GRASS  = 2, & ! sapling canopies squeeze grass canopies
  TREES_TOP_GRASS      = 3    ! saplings always overtop the grass
 
+integer, public, parameter :: &
+ GRASS_MERGE_BY_DBH    = 1,  & ! merge grass cohorts based on tussocks 'DBH'
+ GRASS_MERGE_BY_HEIGHT = 2     ! merge grass cohorts based on height
+
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
  M_LU_TYPES = 7, & ! including irrigated cropland
@@ -168,6 +172,7 @@ public :: &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
+    height_merge_rel, grass_merge_option, &
     nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
     tree_grass_option, reserved_grass_frac, &
 
@@ -423,6 +428,18 @@ type spec_data_type
   real    :: alloc_allowed_over_limit = 10.0
   real    :: tau_smooth_Nstress       = 0.0
 
+  ! dry deposition related parameters
+  !based on deciduous by default
+  real    :: r_cus     = 2500.    !dry cuticle resistance, SO2, s/m
+  real    :: r_cuo     = 6000.    !dry cuticle resistance, O3, s/m
+  real    :: r_stems   = 1000.    !dry stem resistance, SO2, s/m
+  real    :: r_stemo   = 3000.    !dry stem resistance, O3, s/m
+  real    :: r_cus_wet = 100.     !wet cuticle resistance, SO2, s/m
+  real    :: r_cuo_wet = 400.     !wet cuticle resistance, O3, s/m
+  real    :: A_aer     = 6.25e-3  !characteristic aerosol radius for deposition, m
+  real    :: gamma_aer = 0.56     !Sc power for aerosol deposition, unitless
+  real    :: alpha_aer = 0.8      !parameter for Eim (aerosol deposition), unitless
+
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22
   real    :: fire_duration = 86400.0 ! average fire duration, s
@@ -554,6 +571,9 @@ real, protected :: treeline_mort = 2.0 ! mortality rate above treeline, 1/year
 real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that permits merge of two cohorts
 real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
 real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allows merge of grass cohorts
+real, protected :: height_merge_rel = 0.1 ! max relative height difference that allows merge of grass cohorts
+character(32) :: grass_merge_criteria = 'by-DBH' ! or 'by-height' -- method used to define if grass cohorts are allowed to merge
+integer, protected :: grass_merge_option = -1 ! grass merge method, GRASS_MERGE_BY_DBH or GRASS_MERGE_BY_HEIGHT
 character(24)   :: NSC_target_to_use = 'from-blmax' ! or 'from-bsw'
 logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are merged when cohorts are merged
 
@@ -625,7 +645,7 @@ namelist /vegn_data_nml/ &
   nat_mortality_splits_tiles, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, NSC_target_to_use, &
   do_bl_max_merge, &
-  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+  DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, height_merge_rel, grass_merge_criteria, &
   permafrost_depth_thresh, permafrost_freq_thresh, &
   tree_grass_competition, reserved_grass_frac, &
 
@@ -657,8 +677,7 @@ subroutine read_vegn_data_namelist()
   character(256) :: sname, lname ! strings for selector names
   real :: age0, age1 ! shorthands for boundaries of age buckets
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')
@@ -712,6 +731,18 @@ subroutine read_vegn_data_namelist()
      call error_mesg('read_vegn_namleist', 'option tree_grass_competition="'// &
           trim(tree_grass_competition)//'" is invalid, use "pure-ppa", "trees-squeeze-grass", or "trees-top-grass"', FATAL)
   endif
+
+  ! parse grass cohort merging options
+  select case (trim(lowercase(grass_merge_criteria)))
+  case ('by-dbh')
+     grass_merge_option = GRASS_MERGE_BY_DBH
+  case ('by-height')
+     grass_merge_option = GRASS_MERGE_BY_HEIGHT
+  case default
+     call error_mesg('read_vegn_namleist', 'option grass_merge_criteria="'// &
+          trim(tree_grass_competition)//'" is invalid, use "by-DBH-and-NSC" or "by-height"', FATAL)
+  end select
+
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
      call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)
@@ -1157,6 +1188,17 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tau_smooth_alloc)
   __GET_SPDATA_REAL__(alloc_allowed_over_limit)
   __GET_SPDATA_REAL__(tau_smooth_Nstress)
+  ! dry deposition
+  !dry deposition parameters
+  __GET_SPDATA_REAL__(r_cus)
+  __GET_SPDATA_REAL__(r_cuo)
+  __GET_SPDATA_REAL__(r_stems)
+  __GET_SPDATA_REAL__(r_stemo)
+  __GET_SPDATA_REAL__(r_cus_wet)
+  __GET_SPDATA_REAL__(r_cuo_wet)
+  __GET_SPDATA_REAL__(A_aer)
+  __GET_SPDATA_REAL__(gamma_aer)
+  __GET_SPDATA_REAL__(alpha_aer)
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
   __GET_SPDATA_REAL__(fire_duration)
@@ -1541,6 +1583,17 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'alloc_allowed_over_limit', spdata(idx)%alloc_allowed_over_limit)
   call add_row(table, 'tau_smooth_Nstress', spdata(idx)%tau_smooth_Nstress)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(idx)%max_n_stress_for_seed_production)
+
+  !dry deposition parameters
+  call add_row(table, 'r_cus',spdata(idx)%r_cus)
+  call add_row(table, 'r_cuo',spdata(idx)%r_cuo)
+  call add_row(table, 'r_stems',spdata(idx)%r_stems)
+  call add_row(table, 'r_stemo',spdata(idx)%r_stemo)
+  call add_row(table, 'r_cus_wet',spdata(idx)%r_cus_wet)
+  call add_row(table, 'r_cuo_wet',spdata(idx)%r_cuo_wet)
+  call add_row(table, 'A_aer',spdata(idx)%A_aer)
+  call add_row(table, 'gamma_aer',spdata(idx)%gamma_aer)
+  call add_row(table, 'alpha_aer',spdata(idx)%alpha_aer)
 
   call add_row(table, 'dat_height',       spdata(idx)%dat_height)
   call add_row(table, 'dat_lai',          spdata(idx)%dat_lai)

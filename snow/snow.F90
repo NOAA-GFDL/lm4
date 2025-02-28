@@ -5,8 +5,9 @@ module snow_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : error_mesg, input_nml_file, check_nml_error, &
-     stdlog, mpp_pe, mpp_root_pe, FATAL, NOTE
+use mpp_mod, only: input_nml_file
+use fms_mod, only : error_mesg, check_nml_error, stdlog, mpp_pe, &
+                  & mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -94,8 +95,7 @@ subroutine read_snow_namelist()
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
 
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   read (input_nml_file, nml=snow_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_nml')
