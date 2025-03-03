@@ -8,6 +8,7 @@ module soil_mod
 use mpp_mod, only: input_nml_file
 use fms_mod, only: error_mesg, string, check_nml_error, stdlog, mpp_pe, &
                  & mpp_root_pe, FATAL, WARNING, NOTE
+use fms2_io_mod, only: file_exists
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
@@ -89,7 +90,7 @@ use mpp_domains_mod, only : mpp_get_UG_compute_domain, mpp_get_compute_domain, m
 ! Test tridiagonal solution for advection
 use land_numerics_mod, only : tridiag
 
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
+use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file, read_data
 
 implicit none
 private
@@ -693,7 +694,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
       !deallocate(topo_mean, topo_mean_SG)
 
       if(trim(elev_scale_to_use)=="OBS")then
-          pslope_exist = file_exist('INPUT/precip_s2p.nc', lnd%sg_domain)
+          pslope_exist = file_exists('INPUT/precip_s2p.nc')!, lnd%sg_domain)
           if (pslope_exist) then
               call error_mesg('soil_init', 'reading precipitation slope from file', NOTE)
           else
@@ -701,7 +702,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
           endif
           allocate(precip_s2p(lnd%ls:lnd%le,12))
           do i = 1,12
-            call read_data('INPUT/precip_s2p.nc','s2p_'//month_name(i), precip_s2p(:,i), lnd%sg_domain, lnd%ug_domain)
+            ! call read_data('INPUT/precip_s2p.nc','s2p_'//month_name(i), precip_s2p(:,i), lnd%sg_domain, lnd%ug_domain)
+
           enddo
           !where(precip_s2p<0.) precip_s2p=0.
           do ll = lnd%ls, lnd%le

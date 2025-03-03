@@ -16,8 +16,8 @@ use diag_manager_mod, only : register_static_field, &
      send_data
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, query_method, NO_TRACER
-use transition_io_mod, only : transition_io_init, infile_T, varset_T, new_infile_LUH2
-use transitions_input_mod, only : do_irrigation
+use transition_io_mod, only : transition_io_init, infile_T, varset_T
+use land_transitions_mod, only : do_irrigation
 
 use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
@@ -266,8 +266,8 @@ subroutine land_dust_init (id_ug, mask)
   irrigation_fraction(:) = 0.0
   if (use_irrigation_frac) then
      ! open state and irrigation files
-     fstate=>new_infile_LUH2(lu_state_file,lu_static_file)
-     firrig=>new_infile_LUH2(lu_irrig_file,lu_static_file)
+        call fstate%init(lu_state_file, lu_static_file, 'luh2')
+        call firrig%init(lu_irrig_file, lu_static_file, 'luh2')
 
      vstate%name='land fraction occupied by crops'
      virrig%name='land fraction occupied by irrigated crops'

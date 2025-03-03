@@ -100,12 +100,9 @@ use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      nitrogen_cons_tol, heat_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
-use transitions_input_mod, only : read_transitions_namelist
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
-     save_land_transitions_restart, &
-     lake_transitions_init, lake_transitions_end, lake_transitions, &
-     save_lake_transitions_restart
+     save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
@@ -424,7 +421,6 @@ subroutine land_model_init &
   ! be after land_tile_diag_init
   call read_land_io_namelist()
   call read_predefined_tiles_namelist()
-  call read_transitions_namelist() ! Must be called before soil and lake
   call read_soil_namelist()
   call read_hlsp_namelist() ! Must be called after read_soil_namelist
   call read_vegn_namelist()
@@ -519,7 +515,7 @@ subroutine land_model_init &
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
   call land_transitions_init (id_ug, id_cellarea)
-  call lake_transitions_init (id_ug)
+!   call lake_transitions_init (id_ug)
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
@@ -666,7 +662,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! restart anyway
   call land_tracer_driver_end()
   call land_transitions_end()
-  call lake_transitions_end()
+!   call lake_transitions_end()
   call glac_end ()
   call lake_end ()
   call soil_end ()
@@ -756,7 +752,7 @@ subroutine land_model_restart(timestamp)
 
   ! [6] save component model restarts
   call save_land_transitions_restart(timestamp_)
-  call save_lake_transitions_restart(timestamp_)
+!   call save_lake_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
@@ -3088,7 +3084,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call vegn_nat_mortality_ppa( )
   call fire_transitions(lnd%time)
   call land_transitions(lnd%time)
-  call lake_transitions(lnd%time)
+!   call lake_transitions(lnd%time)
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then

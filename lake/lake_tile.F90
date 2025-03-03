@@ -14,7 +14,7 @@ use land_io_mod, only : init_cover_field, domain_read_data
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 use tiling_input_types_mod, only : lake_predefined_type
 use land_debug_mod, only : is_watch_point
-use transitions_input_mod, only : do_lake_change
+! use transitions_input_mod, only : do_lake_change
 
 implicit none
 private

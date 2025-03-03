@@ -19,7 +19,7 @@ use tiling_input_types_mod, only : soil_predefined_type
 use land_debug_mod, only : is_watch_point
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
                        open_file, read_data, get_variable_num_dimensions
-use transitions_input_mod, only : do_lake_change
+! use transitions_input_mod, only : do_lake_change
 
 implicit none
 private
