@@ -265,6 +265,8 @@ subroutine land_dust_init (id_ug, mask)
   allocate(irrigation_fraction(lnd%ls:lnd%le))
   irrigation_fraction(:) = 0.0
   if (use_irrigation_frac) then
+        allocate(fstate)
+        allocate(firrig)
      ! open state and irrigation files
         call fstate%init(lu_state_file, lu_static_file, 'luh2')
         call firrig%init(lu_irrig_file, lu_static_file, 'luh2')

@@ -1570,8 +1570,20 @@ end subroutine groundwater_abstraction
 
     ntiles = mpp_get_ntile_count(domain)
     tile_id = mpp_get_tile_id(domain)
+    write (*,*) '#################################'
+    write (*,*) 'tile_id array: ', tile_id
+    write (*,*) 'tile_id before: ', tile_id(1)
+    ! write (*,*) 'river_src_file: ', trim(river_src_file)
+
+
+    if (tile_id(1) > 6) then
+        write (*,*) 'I found a tile_id greater than 6!'
+
+    end if
 
     if (ntiles>1) then
+        write(*,*) 'ntiles: ', ntiles
+        write(*,*) 'tile_id(1): ', tile_id(1)
         L = len(trim(river_src_file))
         write(river_src_file, '(a,a,i1,a)') trim(river_src_file(1:L-2)), 'tile', tile_id(1), '.nc'
     endif
@@ -1754,7 +1766,12 @@ end subroutine groundwater_abstraction
     call mpp_update_domains(River%travel, domain)
     call read_data(fileobj, "celllength", River%reach_length, &
                    corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
+    ! write(*,*) '################################################'          
+    ! write(*,*) 'River Reach Length Before:', River%reach_length
+    ! write(*,*) 'River%landfrac:', River%landfrac
+    ! write(*,*) 'lake_frac:', lake_frac
     River%reach_length = River%reach_length * River%landfrac * (1.-lake_frac)
+    ! write(*,*) 'River Reach Length After:', River%reach_length
     if (land_area_called_cellarea) then
         call read_data(fileobj, "cellarea", River%land_area, &
                        corner=(/isc, jsc/), edge_lengths=(/isize, jsize/))
@@ -1769,7 +1786,10 @@ end subroutine groundwater_abstraction
 
     exists = open_file(fileobj, river_threshold_file, "read")
     if(exists)then
-       call read_field(fileobj, 'Threshold', threshold) !kg/m2
+       call read_field(fileobj, 'Threshold', threshold,fill=-1e8) !kg/m2
+    !    write(*,*) 'Threshold:', threshold
+    !    write(*,*) 'lnd%ug_cellarea:', lnd%ug_cellarea
+    !    write(*,*) 'DENS_H2O:', DENS_H2O
        threshold = threshold*lnd%ug_cellarea/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
        where (threshold<0.0) threshold = 0.0
        call mpp_pass_UG_to_SG(lnd%ug_domain,threshold,River%threshold)
@@ -1780,7 +1800,7 @@ end subroutine groundwater_abstraction
 
     exists = open_file(fileobj, env_flow_file, "read")
     if(exists)then
-       call read_field(fileobj, 'Env_flow', env_flow) !kg/(m2 s)
+       call read_field(fileobj, 'Env_flow', env_flow,fill=-1e8) !kg/(m2 s)
        env_flow = env_flow*lnd%ug_cellarea/DENS_H2O !kg/(m2 s) * m2 / kg/m3 = m3/s
        where (env_flow<0.0) env_flow = 0.0
        call mpp_pass_UG_to_SG(lnd%ug_domain,env_flow,River%env_flow)
