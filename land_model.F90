@@ -298,7 +298,8 @@ integer :: &
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
-integer, allocatable :: id_gex_atm2lnd(:)
+integer, allocatable :: id_gex_atm2lnd_diag(:)
+integer, allocatable :: id_gex_lnd2atm_diag(:)
 
 ! IDs of CMOR/CMIP variables
 integer :: id_sftlf, id_sftgif ! static fractions
@@ -316,6 +317,8 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
 integer :: id_treeFrac_L, id_grassFrac_L, id_grassFracC3_L, id_grassFracC4_L
 
 integer :: id_sg_face, id_ug_face, id_ug_pe
+
+integer :: id_gex_lnd2atm_test
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -495,6 +498,10 @@ subroutine land_model_init &
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
   call land_tracer_driver_init(id_ug,id_zfull)
+
+  !get gex indices [needs to be done before update_land_bc fast]
+  id_gex_lnd2atm_test = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'test')
+
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
@@ -1296,7 +1303,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         if (m>0) then
            ! convert flux to concentration [ppm]
            where (precip>1.0e-9)
-              wetdconc(:,:,n) = cplr2land%gex_fields(:,:,m)/precip(:,:)*1e6
+              wetdconc(:,:,n) = cplr2land%gex_atm2lnd(:,:,m)/precip(:,:)*1e6
            elsewhere
               wetdconc(:,:,n) = 0.0
            end where
@@ -1320,7 +1327,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         ! try to get dry deposition flux from the atmosphere (GEX)
         m = gex_get_index(MODEL_ATMOS,MODEL_LAND,drydep_gex_name(n))
         if (m>0) then
-              drydep(:,:,n) = cplr2land%gex_fields(:,:,m)*kg_to_mg ! to convert kg/(m2 s) -> mg/(m2 s)
+              drydep(:,:,n) = cplr2land%gex_atm2lnd(:,:,m)*kg_to_mg ! to convert kg/(m2 s) -> mg/(m2 s)
         endif
      endif
   enddo
@@ -1344,7 +1351,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
 !$OMP                                  wetdconc, drydep, drydep_overridden, &
-!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_gex_atm2lnd) &
+!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_gex_atm2lnd_diag) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,n)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
@@ -1384,7 +1391,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            drydep_overridden(:), drydep(l,k,:),  &   ! EZSNOW added -- fluxes of dry deposition [mg m-2 s-1]
            wetdconc(l,k,:),  &                       ! EZSNOW added -- concentrations for wet deposition [ppm]
            ! output:
-           runoff(l), runoff_c(l,:) )
+           runoff(l), runoff_c(l,:) &
+        )
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
@@ -1400,8 +1408,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
 
         do n=1,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
-           if (id_gex_atm2lnd(n).gt.0) then
-              call send_tile_data(id_gex_atm2lnd(n), cplr2land%gex_fields(l,k,n),tile%diag)
+           if (id_gex_atm2lnd_diag(n).gt.0) then
+              call send_tile_data(id_gex_atm2lnd_diag(n), cplr2land%gex_atm2lnd(l,k,n),tile%diag)
            end if
         end do
 
@@ -3987,6 +3995,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%rough_mom      (l,k) = 0.1
   land2cplr%rough_heat     (l,k) = 0.1
   land2cplr%rsl_scale      (l,k) = 0.0
+  land2cplr%gex_lnd2atm    (l,k,:) = 0.0
 
   ! Calculate radiative surface temperature. lwup cannot be calculated here
   ! based on the available temperatures because it is a result of the implicit
@@ -4020,6 +4029,10 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%rough_heat     (l,k) = tile%land_z0s
   land2cplr%rsl_scale      (l,k) = tile%land_RSL
 
+  if (id_gex_lnd2atm_test.gt.0) then
+     land2cplr%gex_lnd2atm(l,k,id_gex_lnd2atm_test) = 1.0
+  endif
+
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
      call dpri('land2cplr%mask',land2cplr%mask(l,k));             write(*,*)
@@ -4029,7 +4042,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      call dpri('land2cplr%albedo',land2cplr%albedo(l,k));         write(*,*)
      call dpri('land2cplr%rough_mom',land2cplr%rough_mom(l,k));   write(*,*)
      call dpri('land2cplr%rough_heat',land2cplr%rough_heat(l,k)); write(*,*)
-     call dpri('land2cplr%rsl_scale',land2cplr%rsl_scale(l,k)); write(*,*)
+     call dpri('land2cplr%rsl_scale',land2cplr%rsl_scale(l,k));   write(*,*)
      call dpri('land2cplr%tr',land2cplr%tr(l,k,:));               write(*,*)
      write(*,*)'#### update_land_bc_fast ### end of output ####'
   endif
@@ -4055,6 +4068,12 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
   call send_tile_data(id_grnd_T,     grnd_T,     tile%diag)
   call send_tile_data(id_displ,      tile%land_d,      tile%diag)
+
+  do m = 1,gex_get_n_ex(MODEL_LAND,MODEL_ATMOS)
+     if (id_gex_lnd2atm_diag(m).gt.0) then
+        call send_tile_data(id_gex_lnd2atm_diag(m), land2cplr%gex_lnd2atm(l,k,m) ,tile%diag)
+     end if
+  enddo
 
   ! CMOR variables
   call send_tile_data(id_snd, max(snow_depth,0.0),     tile%diag)
@@ -4612,16 +4631,23 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_gsnow   = register_tiled_diag_field ( module_name, 'gsnow', axes, time, &
              'sens heat into ground from snow', 'W/m2', missing_value=-1.0e+20 )
 
-  allocate(id_gex_atm2lnd(gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)))
-
+  allocate(id_gex_atm2lnd_diag(gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)))
   do n=1,gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
-      id_gex_atm2lnd(n) = register_tiled_diag_field ( module_name, &
-          trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
-          trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
-          trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
-          missing_value=-1.0e+20 )
+      id_gex_atm2lnd_diag(n) = register_tiled_diag_field ( module_name, &
+         trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name))//'_gex_atm2lnd', axes, time, &
+         trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_name)), &
+         trim(gex_get_property(MODEL_ATMOS,MODEL_LAND,n,gex_units)), &
+         missing_value=-1.0e+20 )
   end do
 
+  allocate(id_gex_lnd2atm_diag(gex_get_n_ex(MODEL_LAND,MODEL_ATMOS)))
+  do n=1,gex_get_n_ex(MODEL_LAND,MODEL_ATMOS)
+      id_gex_lnd2atm_diag(n) = register_tiled_diag_field ( module_name, &
+         trim(gex_get_property(MODEL_LAND,MODEL_ATMOS,n,gex_name))//'_gex_lnd2atm', axes, time, &
+         trim(gex_get_property(MODEL_LAND,MODEL_ATMOS,n,gex_name)), &
+         trim(gex_get_property(MODEL_LAND,MODEL_ATMOS,n,gex_units)), &
+         missing_value=-1.0e+20 )
+  end do
 
   call add_tiled_diag_field_alias ( id_gsnow, module_name, 'gflux', axes, time, &
              'obsolete, please use "gsnow" instead', 'W/m2', missing_value=-1.0e+20 )
@@ -5140,13 +5166,14 @@ subroutine realloc_land2cplr ( bnd )
   type(land_data_type), intent(inout) :: bnd     ! data to allocate
 
   ! ---- local vars
-  integer :: n_tiles
+  integer :: n_tiles, n_gex_lnd2atm
 
   call dealloc_land2cplr(bnd, dealloc_discharges=.FALSE.)
 
   bnd%domain    = lnd%sg_domain
   bnd%ug_domain = lnd%ug_domain
-  n_tiles = max_n_tiles()
+  n_tiles       = max_n_tiles()
+  n_gex_lnd2atm = gex_get_n_ex(MODEL_LAND,MODEL_ATMOS)
 
   ! allocate data according to the domain boundaries
   allocate( bnd%mask(lnd%ls:lnd%le,n_tiles) )
@@ -5164,6 +5191,7 @@ subroutine realloc_land2cplr ( bnd )
   allocate( bnd%rough_heat(lnd%ls:lnd%le,n_tiles) )
   allocate( bnd%rsl_scale(lnd%ls:lnd%le,n_tiles) )
   allocate( bnd%rough_scale(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%gex_lnd2atm(lnd%ls:lnd%le,n_tiles,n_gex_lnd2atm) )
 
   bnd%mask              = .FALSE.
   bnd%tile_size         = init_value
@@ -5179,6 +5207,7 @@ subroutine realloc_land2cplr ( bnd )
   bnd%rough_heat        = init_value
   bnd%rsl_scale         = init_value
   bnd%rough_scale       = init_value
+  bnd%gex_lnd2atm       = init_value
 
   ! in contrast to the rest of the land boundary condition fields, discharges
   ! are specified per grid cell, not per tile; therefore they should not be
@@ -5229,6 +5258,7 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%rsl_scale )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
+  __DEALLOC__( bnd%gex_lnd2atm )
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )
@@ -5250,14 +5280,13 @@ subroutine realloc_cplr2land( bnd )
 
   ! ---- local vars
   integer :: kd
-  integer :: n_gex_fields ! number of exchanged fields
+  integer :: n_gex_atm2lnd ! number of exchanged fields
 
   call dealloc_cplr2land(bnd)
 
   ! allocate data according to the domain boundaries
   kd = max_n_tiles()
-  n_gex_fields = gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
-
+  n_gex_atm2lnd = gex_get_n_ex(MODEL_ATMOS,MODEL_LAND)
 
 
   allocate( bnd%t_flux(lnd%ls:lnd%le,kd) )
@@ -5272,7 +5301,7 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%p_surf(lnd%ls:lnd%le,kd) )
   allocate( bnd%tr_flux(lnd%ls:lnd%le,kd,ntcana) )
   allocate( bnd%dfdtr(lnd%ls:lnd%le,kd,ntcana) )
-  allocate( bnd%gex_fields(lnd%ls:lnd%le,kd,n_gex_fields) )
+  allocate( bnd%gex_atm2lnd(lnd%ls:lnd%le,kd,n_gex_atm2lnd) )
 
 
   allocate( bnd%lwdn_flux(lnd%ls:lnd%le,kd) )
@@ -5304,7 +5333,7 @@ subroutine realloc_cplr2land( bnd )
   bnd%p_surf                 = init_value
   bnd%tr_flux                = init_value
   bnd%dfdtr                  = init_value
-  bnd%gex_fields             = init_value
+  bnd%gex_atm2lnd            = init_value
 
   bnd%lwdn_flux              = init_value
   bnd%swdn_flux              = init_value
@@ -5355,7 +5384,7 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%drag_q )
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
-  __DEALLOC__( bnd%gex_fields )
+  __DEALLOC__( bnd%gex_atm2lnd )
 
   __DEALLOC__( bnd%con_atm )
 

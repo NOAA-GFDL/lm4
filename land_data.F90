@@ -78,7 +78,7 @@ type :: atmos_land_boundary_type
         dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value,
                                  ! including evap over surface specific humidity
 
-   real, dimension(:,:,:), pointer :: gex_fields => NULL() !generic exchange fields
+   real, dimension(:,:,:), pointer :: gex_atm2lnd => NULL() !generic exchange fields
 
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type atmos_land_boundary_type
@@ -103,6 +103,8 @@ type :: land_data_type
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
+
+   real, pointer, dimension(:,:,:) :: gex_lnd2atm => NULL() ! (grid_index, tile, gex field)
 
    ! NOTE that in contrast to most of the other fields in this structure, the discharges
    ! hold data per-gridcell, rather than per-tile basis. This, and the order of updates,
