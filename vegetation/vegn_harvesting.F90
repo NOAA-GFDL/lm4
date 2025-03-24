@@ -21,7 +21,7 @@ use vegn_data_mod, only : do_ppa, &
      nspecies, spdata, agf_bs, NO_DATE, NO_CROP, &
      IRRIGATED_MAIZE, IRRIGATED_SOYBEAN, IRRIGATED_RICE, IRRIGATED_SPRING_WHEAT, IRRIGATED_WINTER_WHEAT, &
      RAINFED_MAIZE, RAINFED_SOYBEAN, RAINFED_RICE, RAINFED_SPRING_WHEAT, RAINFED_WINTER_WHEAT, &
-     IDLE, ACTIVE_ON_CROP_SCHEDULE, ACTIVE_ON_LM3_SCHEDULE, crop_name, landuse_name
+     crop_name, landuse_name
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_map, &
      first_elmt, loop_over_tiles, land_tile_nitrogen, land_tile_carbon
 use soil_tile_mod, only : num_l, dz, LEAF, CWOOD
@@ -323,10 +323,11 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
   logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
   integer, intent(in) :: day_of_year ! current day of year
   integer, intent(in) :: l ! index of current grid cell in unstructured grid
+  logical :: a_crop_is_active
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
   if (crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
-     call compute_crop_calendars(tile%vegn, tile%diag, L, verbose=.false.)
+     call compute_crop_calendars(tile%vegn, tile%diag, L)
   endif
 
   associate(vegn=>tile%vegn)
@@ -356,41 +357,53 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
            call vegn_plant_crop (tile)
         endif
      case (CROP_SCHEDULE_COMPUTED)
-        if (end_of_year) then
-           if(vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
+        if(end_of_year) then
+           if(vegn%Crop%grass_is_active) then
               call vegn_harvest_cropland (tile)
-              vegn%Crop%status = IDLE
+              vegn%Crop%grass_is_active = .FALSE.
            endif
            if(vegn%Crop%chosen_calendars(1,1) == NO_DATE .AND. vegn%Crop%chosen_calendars(1,2) == NO_DATE) then
               ! There is no crop to plant so plant grass on the LM3 schedule.
               call vegn_plant_crop (tile, chosen_crop=NO_CROP)
-              vegn%Crop%status = ACTIVE_ON_LM3_SCHEDULE
+              vegn%Crop%grass_is_active = .TRUE.
            endif
         endif
-        if (end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(1,1) .or. day_of_year==vegn%Crop%chosen_calendars(1,2))) then
+        if(end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(1,1) .or. day_of_year==vegn%Crop%chosen_calendars(1,2))) then
            ! Today is either the main or second season planting date
-           if (vegn%Crop%status == ACTIVE_ON_LM3_SCHEDULE) then
+           if(vegn%Crop%grass_is_active) then
               ! harvest grass before planting crop
               call vegn_harvest_cropland (tile)
-              vegn%Crop%status = IDLE
+              vegn%Crop%grass_is_active = .FALSE.
            endif
-           if (vegn%Crop%status == IDLE) then
-              ! There is no crop currently growing, so plant a crop
-              if(day_of_year==vegn%Crop%chosen_calendars(1,1)) then
-                call vegn_plant_crop (tile, chosen_crop=vegn%Crop%chosen_crop(1))
-                vegn%Crop%status = ACTIVE_ON_CROP_SCHEDULE
-              else if(day_of_year==vegn%Crop%chosen_calendars(1,2)) then
-                call vegn_plant_crop (tile, chosen_crop=vegn%Crop%chosen_crop(2))
-                vegn%Crop%status = ACTIVE_ON_CROP_SCHEDULE
-              endif
+           a_crop_is_active = vegn%Crop%chosen_crop_is_active(1) .or. vegn%Crop%chosen_crop_is_active(2)
+           if(day_of_year==vegn%Crop%chosen_calendars(1,1)) then
+             ! Today is the 1st crop's planting date
+             if(.not.a_crop_is_active) then
+               call vegn_plant_crop (tile, chosen_crop=vegn%Crop%chosen_crop(1))
+               vegn%Crop%chosen_crop_is_active(1) = .TRUE.
+             endif
+           else if(day_of_year==vegn%Crop%chosen_calendars(1,2)) then
+             ! Today is the 2nd crop's planting date
+             if(.not.a_crop_is_active) then
+               call vegn_plant_crop (tile, chosen_crop=vegn%Crop%chosen_crop(2))
+               vegn%Crop%chosen_crop_is_active(2) = .TRUE.
+             endif
            endif
         endif
-        if (end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(2,1) .or. day_of_year==vegn%Crop%chosen_calendars(2,2))) then
-           ! Today is either the main or second season harvest date
-           if(vegn%Crop%status == ACTIVE_ON_CROP_SCHEDULE) then
-              ! A crop is in the ground and ready to harvest
-              call vegn_harvest_cropland (tile)
-              vegn%Crop%status = IDLE
+        if(end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(2,1) .or. day_of_year==vegn%Crop%chosen_calendars(2,2))) then
+           ! Today is either the main or second season harvest date. A crop is in the ground and ready to harvest.
+           if(day_of_year==vegn%Crop%chosen_calendars(2,1)) then
+             ! Today is the 1st crop's harvest date
+             if(vegn%Crop%chosen_crop_is_active(1)) then
+               call vegn_harvest_cropland (tile)
+               vegn%Crop%chosen_crop_is_active(1) = .FALSE.
+             endif
+           else if(day_of_year==vegn%Crop%chosen_calendars(2,2)) then
+             ! Today is the 2nd crop's harvest date
+             if(vegn%Crop%chosen_crop_is_active(2)) then
+               call vegn_harvest_cropland (tile)
+               vegn%Crop%chosen_crop_is_active(2) = .FALSE.
+             endif
            endif
         endif
      end select ! crop_schedule_option
@@ -1154,8 +1167,7 @@ subroutine vegn_plant_crop_ppa(tile, chosen_crop)
   ! prepare cropland for planting: right now just kill all vegetation; in the
   ! future we possibly need to add some soil carbon mixing by plows, perhaps
   ! other agricultural processes
-  if (clear_crop_before_planting) &
-        call vegn_cut_forest_ppa(tile, tile%vegn%landuse)
+  if (clear_crop_before_planting) call vegn_cut_forest_ppa(tile, tile%vegn%landuse)
 
   ! determine crop species: now using the same biogeography rules that LM3 was using
   ! to determine c3/c4 photosynthesis type

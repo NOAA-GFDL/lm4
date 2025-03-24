@@ -37,7 +37,6 @@ integer, public, parameter :: & ! life form of the plant
  FORM_WOODY = 1
  ! in future, possibly add mosses...
 
- integer, public, parameter :: IDLE = 0, ACTIVE_ON_CROP_SCHEDULE = 1, ACTIVE_ON_LM3_SCHEDULE = 2
  integer, public, parameter :: &
  NO_DATE      = 0, &
  NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has zero crop area.

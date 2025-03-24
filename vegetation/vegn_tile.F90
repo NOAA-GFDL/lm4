@@ -20,7 +20,7 @@ use vegn_data_mod, only : &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
      tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
-     do_bl_max_merge, num_crop_periods, num_crop_seasons, num_crop_types, IDLE
+     do_bl_max_merge, num_crop_periods, num_crop_seasons, num_crop_types
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C, get_vegn_wet_frac
@@ -106,7 +106,22 @@ end interface
 
    integer :: chosen_calendars(2,num_crop_seasons)
    integer :: chosen_crop(num_crop_seasons)
-   integer :: status = IDLE
+
+   ! Once a crop is planted the farmer is commited to a harvest date. Therefore, the calendar of a crop cannot be changed while the crop
+   ! is actively growing. The crop calendars of the potential crops are updated monthly to allow for changes due to a changing climate.
+   ! However, this should not be done for any crop that is active. Because it is not possible for a crop to be active unless it is a
+   ! chosen crop, the array that keeps track of what is active is named "chosen_crop_is_active"
+   logical :: chosen_crop_is_active(num_crop_seasons)
+   ! Array chosen_crop_is_active_int is used only for io.
+
+   ! The model also needs to know if grass is active
+   logical :: grass_is_active
+
+   ! Array chosen_crop_is_active_int is used only for io.
+   ! Land model io tools do not handle logicals.
+   ! As a getaround, chosen_crop_is_active is convered to integer
+   ! prior to output then converted back to logical after input.
+   integer :: chosen_crop_is_active_int(num_crop_seasons)
  end type crop_type
 
 ! ==== types =================================================================

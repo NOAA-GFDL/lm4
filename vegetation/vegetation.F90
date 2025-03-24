@@ -60,8 +60,8 @@ use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
-use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point, check_temp_range, &
-     check_var_range, land_error_message, log_date
+use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
+     check_var_range, land_error_message
 use vegn_debug_crop_mod, only: debug_crop, debug_crop_1
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
@@ -340,8 +340,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  integer :: n_accum
-  integer :: nmn_acm
+  integer :: n_accum, nmn_acm
   type(land_restart_type) :: restart1, restart2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
@@ -2611,7 +2610,6 @@ subroutine update_vegn_slow( )
   real :: dheat ! heat residual due to cohort merging
   real :: w ! smoothing weight
   real :: age_increment ! slow time step in years, for average year length in our calendar
-  real :: daily_tca
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -2779,18 +2777,18 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
 
         call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
-        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0)
 
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
-           call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
+           call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
            if (do_phenology) call vegn_phenology_ppa (tile)
-           call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
+           call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
         endif
      endif
-     call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0,nmass0)
 
      call debug_crop(tile%vegn,'update_vegn_slow_7')
 
@@ -2798,14 +2796,14 @@ subroutine update_vegn_slow( )
         if (.not.do_ppa) call vegn_phenology_lm3 (tile%vegn,tile%soil)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
-     call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0,nmass0)
 
      call debug_crop(tile%vegn,'update_vegn_slow_8')
 
      if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
-     call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 10',lmass0,fmass0,cmass0,nmass0)
 
      call debug_crop(tile%vegn,'update_vegn_slow_9')
 
@@ -2848,15 +2846,15 @@ subroutine update_vegn_slow( )
      enddo
      ! - sanity checks
 
-     call check_conservation_2(tile,'update_vegn_slow',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 12',lmass0,fmass0,cmass0,nmass0)
 
      ! perhaps we need to move that either inside vegn_reproduction_ppa, or after that
      if (do_ppa.and.year1 /= year0) then
         call vegn_relayer_cohorts_ppa(tile%vegn)
-        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0,nmass0)
+        call check_conservation_2(tile,'update_vegn_slow 13',lmass0,fmass0,cmass0,nmass0)
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
         tile%e_res_2 = tile%e_res_2 - dheat
-        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0,nmass0)
+        call check_conservation_2(tile,'update_vegn_slow 14',lmass0,fmass0,cmass0,nmass0)
         ! update DBH_ys
         do ii = 1, tile%vegn%n_cohorts
            tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
@@ -2869,7 +2867,7 @@ subroutine update_vegn_slow( )
 
      if (do_ppa.and.day1 /= day0) then
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
-        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 15',lmass0,fmass0,cmass0)
      endif
 
      call debug_crop(tile%vegn,'update_vegn_slow_13')

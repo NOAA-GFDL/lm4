@@ -94,7 +94,6 @@ subroutine debug_crop(vegn, tag)
   call dpri('crop_calendars(2,1,1,10)',vegn%Crop%crop_calendars(2,1,1,10))
   call dpri('crop_calendars(1,1,2,10)',vegn%Crop%crop_calendars(1,1,2,10))
   call dpri('crop_calendars(2,1,2,10)',vegn%Crop%crop_calendars(2,1,2,10))
-  call dpri('status',vegn%Crop%status)
   call dpri('LAI',vegn_tile_LAI(vegn))
   write(*,*)
 
