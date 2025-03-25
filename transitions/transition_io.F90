@@ -49,6 +49,7 @@ character(len=*), parameter :: module_name = 'transitions_io_mod'
 !! that the valid values mask is the same does not change in time, and that the same
 !! normalization factor (if any) must be applied to all of them
 type :: infile_T
+  logical         :: initialized = .FALSE.
   character(1024) :: path      = '' !< file path
   character(1024) :: static    = '' !< static path
   character(16)   :: data_type = '' !< type of input data (LUH1 or LUH2). Due to differences
@@ -134,6 +135,7 @@ subroutine infile_init(this, path, static, data_type)
       trim(static)//'" could not be opened.', FATAL)
   ! get time axis
   call get_time_axis(this%ncobj,this%time_in)
+  this%initialized = .TRUE.
 end subroutine infile_init
 
 ! ============================================================================
@@ -151,6 +153,7 @@ subroutine infile_destroy(this)
   if (allocated(this%norm_in)) deallocate(this%norm_in)
   this%nlon_in = -1; this%nlat_in = -1
   this%grid_initialized = .FALSE.
+  this%initialized = .FALSE.
 end subroutine infile_destroy
 
 ! ==== end of infile_T member functions ======================================
