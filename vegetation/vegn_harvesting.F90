@@ -28,7 +28,7 @@ use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
 use vegn_cohort_mod, only : update_biomass_pools, cohort_root_litter_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_BGC_SIMPLE_type_mod, only: soil_BGC_SIMPLE_t
-use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen, add_litter
+use soil_BGC_CORPSE_type_mod, only: soil_BGC_CORPSE_t, do_CORPSE_nitrogen => do_nitrogen
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 
 implicit none
@@ -826,16 +826,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
   if (grazing_freq==GRAZING_DAILY) then
      ! move local pools to litter right away; in case of grazing_daily_litter_bug buffC
      ! and buffN are zero, so nothing happens
-     select type (soilc => tile%soilc)
-     class is (soil_BGC_SIMPLE_t)
-        soilc%litter_SIMPLE_C(:,LITT_LEAF) = soilc%litter_SIMPLE_C(:,LITT_LEAF) + buffC(:)
-     class is (soil_BGC_CORPSE_t)
-        call add_litter(soilc%litter_corpse(LITT_LEAF),buffC,buffN)
-     class default
-        call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-     end select
-     ! for litterfall diagnostics
-     vegn%litterfall_C(:,LITT_LEAF) = vegn%litterfall_C(:,LITT_LEAF) + buffC(:)
+     call tile%soilc%add_soil_matter(vegn, leaf_litter_C=buffC, leaf_litter_N=buffN )
   endif
   end associate ! vegn
 
