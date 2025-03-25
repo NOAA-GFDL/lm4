@@ -84,8 +84,6 @@ real :: min_lai_for_grazing_range = 0.0     ! no grazing if LAI lower than this 
   ! grazing frequency; still goes through intermediate pools in case of annual grazing.
 real :: max_grazing_height_past  = 9999.0  ! m, no grazing of vegetation above this height.
 real :: max_grazing_height_range = 3.0     ! m, no grazing of vegetation above this height.
-logical :: grazing_daily_litter_bug = .FALSE. ! if TRUE, PPA daily grazing stores the litter in intermediate
-                                           ! buffers, instead of moving it immediately to litter pools
 
 real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested in PPA, m
 real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting in PPA
@@ -119,7 +117,6 @@ namelist/harvesting_nml/ do_harvesting, &
      grazing_intensity_past, grazing_intensity_range, &
      max_grazing_height_past, max_grazing_height_range, &
      min_lai_for_grazing_past, min_lai_for_grazing_range, &
-     grazing_daily_litter_bug, &
      ! wood harvesting and clearance parameters
      wood_harv_DBH, frac_trampled, &
      frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
@@ -812,7 +809,7 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      ! NOTE that the code below is more convoluted than it could be, to preserve the
      ! numerical answers of the previous version. The straightforward version would accumulate
      ! buffC and buffN and then deal with them after the loop.
-     if (grazing_freq.ne.GRAZING_DAILY .or. grazing_daily_litter_bug) then
+     if (grazing_freq.ne.GRAZING_DAILY) then
         ! litter goes to intermediate pool directly
         vegn%litter_buff_C(:,LITT_LEAF) = vegn%litter_buff_C(:,LITT_LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
         vegn%litter_buff_N(:,LITT_LEAF) = vegn%litter_buff_N(:,LITT_LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
@@ -824,8 +821,6 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      end associate
   enddo
   if (grazing_freq==GRAZING_DAILY) then
-     ! move local pools to litter right away; in case of grazing_daily_litter_bug buffC
-     ! and buffN are zero, so nothing happens
      call tile%soilc%add_soil_matter(vegn, leaf_litter_C=buffC, leaf_litter_N=buffN )
   endif
   end associate ! vegn
