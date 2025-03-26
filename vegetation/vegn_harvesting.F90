@@ -802,26 +802,20 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      cc%bl     = cc%bl     * (1-grazing_intensity)
      cc%leaf_N = cc%leaf_N * (1-grazing_intensity)
 
-     ! add litter
-     ! if grazing is daily, litter goes directly to the soil litter pools; otherwise (in
-     ! case of annual grazing) it goes into intermediate buffers to be gradually transferred
-     ! into the soil pools later.
-     ! NOTE that the code below is more convoluted than it could be, to preserve the
-     ! numerical answers of the previous version. The straightforward version would accumulate
-     ! buffC and buffN and then deal with them after the loop.
-     if (grazing_freq.ne.GRAZING_DAILY) then
-        ! litter goes to intermediate pool directly
-        vegn%litter_buff_C(:,LITT_LEAF) = vegn%litter_buff_C(:,LITT_LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-        vegn%litter_buff_N(:,LITT_LEAF) = vegn%litter_buff_N(:,LITT_LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-     else
-        ! accumulate litter in local pools
-        buffC(:) = buffC(:) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-        buffN(:) = buffN(:) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
-     endif
-     end associate
+     ! accumulate litter input
+     buffC(:) = buffC(:) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     buffN(:) = buffN(:) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     end associate ! cohorts and spdata
   enddo
+  ! If grazing is daily, litter goes directly to the soil litter pools; otherwise (in
+  ! case of annual grazing), it goes into intermediate buffers to be gradually transferred
+  ! into the soil pools later.
   if (grazing_freq==GRAZING_DAILY) then
      call tile%soilc%add_soil_matter(vegn, leaf_litter_C=buffC, leaf_litter_N=buffN )
+  else
+     ! litter goes to intermediate pool directly
+     vegn%litter_buff_C(:,LITT_LEAF) = vegn%litter_buff_C(:,LITT_LEAF) + buffC(:)
+     vegn%litter_buff_N(:,LITT_LEAF) = vegn%litter_buff_N(:,LITT_LEAF) + buffN(:)
   endif
   end associate ! vegn
 
