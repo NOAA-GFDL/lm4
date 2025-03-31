@@ -8,7 +8,7 @@ use fms_mod, only: error_mesg, check_nml_error, stdlog, mpp_pe, mpp_root_pe, low
        string, FATAL, WARNING, NOTE
 use land_data_mod,  only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message, check_var_range
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : NBANDS, dens_ice
 use constants_mod,  only : tfreeze, hlv, hlf, PI, dens_h2o
 
 use snow_opt_layers_mod, only: snow_opt_layers_init, dzopt_t
@@ -29,14 +29,12 @@ public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
 public :: lap_albedo_include_om
 
-public :: LAI_ext, LAI_ssa, eps, rho_water, rho_ice
+public :: LAI_ext, LAI_ssa, eps, rho_water
 
 integer, parameter :: TR_BC = 1      !< Index of black carbon - tracer 1
 integer, parameter :: TR_MD = 2      !< Index of mineral dust - tracer 2
 integer, parameter :: TR_OM = 3      !< Index of organic carbon - tracer 3
 
-real, parameter :: rho_ice = 917.0 ! ice density [kg / m^3]
-! real, parameter :: rho_water = 997.0 ! water density [kg / m^3]
 real, parameter :: rho_water = dens_h2o ! water density [kg / m^3]
 real, parameter :: rho_refrozen = 300.0 ! refrozen water assumed density [kg / m^3]
 real, parameter :: thickness_for_surface_optical_props = 0.03 ! [m] 3cm as in Vionnet et al., 2012 - updated to 5cm
@@ -1646,7 +1644,7 @@ subroutine merge_layers(s1,s2)
    ! sum        dz_old                          dz_new [if any]
 
    if ( ws3-(s1%ws + s2%ws) > 0.0) then ! overall freezing
-    ! dz3 = (s1%ws + s2%ws)/old_rho + max(0.0, ws3-(s1%ws + s2%ws))/rho_ice
+    ! dz3 = (s1%ws + s2%ws)/old_rho + max(0.0, ws3-(s1%ws + s2%ws))/dens_ice
     dz3 = (s1%ws + s2%ws)/old_rho + (ws3-(s1%ws + s2%ws))/rho_refrozen
    else ! overall melting, maintain old density
     dz3 = ws3/old_rho

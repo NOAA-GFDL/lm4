@@ -8,7 +8,7 @@ use fms_mod, only : input_nml_file, check_nml_error, stdlog, mpp_pe, mpp_root_pe
        FATAL, WARNING, NOTE, error_mesg
 use time_manager_mod, only: time_type_to_real
 use constants_mod, only : GRAV, HLF, HLV, TFREEZE, PI
-use land_constants_mod, only : NBANDS, BAND_NIR, BAND_VIS, &
+use land_constants_mod, only : NBANDS, BAND_NIR, BAND_VIS, dens_ice, &
 ! MODIS BRDF model parameters
     g_iso, g0_iso, g1_iso, g2_iso, &
     g_vol, g0_vol, g1_vol, g2_vol, &
@@ -17,7 +17,7 @@ use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
 use snicar_mod, only: compute_snicar_albedo
-use snowpack_mod, only : snowpack_t, snow_layer_type, rho_water, rho_ice, LAI_ext, LAI_ssa, eps, &
+use snowpack_mod, only : snowpack_t, snow_layer_type, rho_water, LAI_ext, LAI_ssa, eps, &
     add_liquid_to_layer, compute_snow_grain_shape, merge_layers
 use snow_tile_mod, only : N_SNOW_TRACERS, snow_sw_properties, cpw, clw, csw
 
@@ -624,7 +624,7 @@ real Crmax, Crmin, gamma_e
         ! MODEL BY VIONNET ET AL., 2012
         theta_crocus = 0.05
         theta = theta_crocus
-        wlmax = theta * rho_water * depth_snow_layer * (1.0 - rho_snow_layer/rho_ice)
+        wlmax = theta * rho_water * depth_snow_layer * (1.0 - rho_snow_layer/dens_ice)
         ! wlmax = theta * rho_water * depth_snow_layer
         ! write(*,*) "wlmax2", wlmax
     case(WLMAX_ANDERSON)
@@ -2541,7 +2541,7 @@ subroutine snow_compaction(s, dt, verbose)
             if (s%snow(il)%ws > min_ws) then
                 s%snow(il)%dz = s%snow(il)%dz * (1 + delta_depth)
                 ! only in this case do check that density makes sense
-                if ((rho < 0.0).or.(rho > rho_ice)) then
+                if ((rho < 0.0).or.(rho > dens_ice)) then
                     write(*,*) "rho = ", rho
                     write(*,*) "eta = ", eta
                     write(*,*) "sph = ", s%snow(il)%sph
@@ -2642,8 +2642,8 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             s%snow(il)%wl = s%snow(il)%wl - freeze
             if (s%snow(il)%wl < 0.0) call land_error_message("Error in snow_melt_and_freeze in snow_evolution_mod: wl < 0 value found!", FATAL)
             ! set max layer density after freezing
-            if ((s%snow(il)%ws + s%snow(il)%wl)/s%snow(il)%dz > rho_ice) then
-                s%snow(il)%dz = (s%snow(il)%ws + s%snow(il)%wl) / (0.95 * rho_ice)
+            if ((s%snow(il)%ws + s%snow(il)%wl)/s%snow(il)%dz > dens_ice) then
+                s%snow(il)%dz = (s%snow(il)%ws + s%snow(il)%wl) / (0.95 * dens_ice)
             endif
             hCap1 = s%snow(il)%hCap()
             DTnew = (heat0  - s%snow(il)%wl*HLF) / hCap1
@@ -3207,8 +3207,8 @@ subroutine compute_albedo_malinka(s, cosz)
 
   ! //
    ! z = snow_depth
-!    x = n**2 * r * S_abs_ice * rho_ice
-   x = n**2 * grain_radius * S_abs_ice * rho_ice
+!    x = n**2 * r * S_abs_ice * dens_ice
+   x = n**2 * grain_radius * S_abs_ice * dens_ice
    omega_ice = 1.0 - (x*Tdiff)/(x + Tdiff)
    S_ext_ice = S_abs_ice/(1-omega_ice)
    ! S_ext_tot = S_ext_ice + ceqns * S_ext_bc
@@ -3262,7 +3262,7 @@ subroutine compute_albedo_rozenberg(s, cosz)
     rho_snow = s%nearsurf_rho
     snow_depth = s%depth()
 
-   x = n**2 * grain_radius * S_abs_ice * rho_ice
+   x = n**2 * grain_radius * S_abs_ice * dens_ice
 !    x = n**2 * r * S_abs_ice * rho_snow
 !    omega_ice = 1.0 - (x*Tdiff)/(x + Tdiff)
    write(*,*) "*", x*Tdiff
@@ -3276,7 +3276,7 @@ subroutine compute_albedo_rozenberg(s, cosz)
    omega0 = (S_ext_ice * omega_ice + ceqns * LAI_ext(1) * LAI_ssa(1))/S_ext_tot
    gamma = sqrt(3.0*(1-omega0)*(1-omega0*g))
    y = 4.0*sqrt( (1.0-omega0)/(3.0*(1.0-omega0*g)))
-!    write(*,*) "Rozenberg : omega_ice, x, Tdiff, n, Sabsice, rhoice", omega_ice, x, Tdiff, n, S_abs_ice, rho_ice
+!    write(*,*) "Rozenberg : omega_ice, x, Tdiff, n, Sabsice, rhoice", omega_ice, x, Tdiff, n, S_abs_ice, dens_ice
 !    write(*,*) "Rozenberg : snowe_depth, rho, S_ext_tot, S_ext_ice", snow_depth, rho_snow, S_ext_tot, S_ext_ice
 !    write(*,*) "Rozenberg : gamma, tau, y, y2", gamma, tau,y,  y*(1.0-3.0/7.0*(1.0+2.0*cosz))
    term1 = sinh( gamma*tau + y*(1.0-3.0/7.0*(1.0+2.0*cosz))    ) / sinh(gamma*tau + y)
