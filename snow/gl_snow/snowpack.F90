@@ -29,13 +29,12 @@ public :: lap_albedo_include_bc
 public :: lap_albedo_include_md
 public :: lap_albedo_include_om
 
-public :: LAI_ext, LAI_ssa, eps, rho_water
+public :: LAI_ext, LAI_ssa, eps
 
 integer, parameter :: TR_BC = 1      !< Index of black carbon - tracer 1
 integer, parameter :: TR_MD = 2      !< Index of mineral dust - tracer 2
 integer, parameter :: TR_OM = 3      !< Index of organic carbon - tracer 3
 
-real, parameter :: rho_water = dens_h2o ! water density [kg / m^3]
 real, parameter :: rho_refrozen = 300.0 ! refrozen water assumed density [kg / m^3]
 real, parameter :: thickness_for_surface_optical_props = 0.03 ! [m] 3cm as in Vionnet et al., 2012 - updated to 5cm
 ! optical properties od BC, MD and OC (respectively) from Veronica's paper
@@ -284,7 +283,7 @@ real function snow_heat_conductance(snow, surfT, surfP) result(res)
       endif
   case (HEAT_COND_YEN)
       rho_snow = (snow%ws + snow%wl)/snow%dz ! [kg m^-3]
-      res = max(lmin, al*(rho_snow/rho_water)**expon) ! YEN 1981, CROCUS
+      res = max(lmin, al*(rho_snow/dens_h2o)**expon) ! YEN 1981, CROCUS
       ! res = 0.023 + (7.75*1E-5 * rho_snow + 1.105 * 1E-6 * rho_snow**2) * (2.29 - 0.023) ! JORDAN 1991, SHRESTA 2006
 
   case default
@@ -687,7 +686,7 @@ subroutine snowpack_check_bounds(s, message)
     if (s%snow(il)%ws > 1E-3) then
       ! rho_snow_il = (s%snow(il)%ws +s%snow(il)%wl)/s%snow(il)%dz
       rho_snow_il = (s%snow(il)%ws)/s%snow(il)%dz ! there can be temporary water during the time step
-      if (rho_snow_il<0.0 .or. rho_snow_il > rho_water) then
+      if (rho_snow_il<0.0 .or. rho_snow_il > dens_h2o) then
         bound_exceeded = .TRUE.
         write(*,*) "Detected snow density out of bounds: rho snow = ", rho_snow_il
         write(*,*) "ws > 0:", s%snow(il)%ws
