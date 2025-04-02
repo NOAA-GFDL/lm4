@@ -250,7 +250,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
   real, parameter :: stored_N_tol = 1e-16 ! acceptable negative value of stored N, relative to total_N
 
   germ_f = 1.0
-  if (present(germination_factor)) germ_f = 1.0
+  if (present(germination_factor)) germ_f = germination_factor
 
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa input #####'
