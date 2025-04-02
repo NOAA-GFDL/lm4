@@ -11,7 +11,7 @@
 ! is available. Indeed, the possibility of cultivating a particular crop at all may depend on the
 ! availability of irrigation. This yields "rainfed" and "irrigated" dates. The rainfed and irrigated
 ! calendars often differ where climates are arid or semi-arid, but are most often identical where
-! precipitation is adaquate. In all cases, planting and harvests dates are set the the value of
+! precipitation is adaquate. In all cases, planting and harvests dates are set to the value of
 ! "NO_DATE" when climatic conditions do not allow cultivation. For example, an arid location where
 ! irrigation is available may have the rainfed dates set to NO_DATE and have valid calendar dates
 ! for the irrigated calendar. These dates, taken together, are referred to as a crop calendar.
@@ -61,7 +61,7 @@
                           IRRIGATED_MAIZE, IRRIGATED_SOYBEAN, IRRIGATED_RICE, IRRIGATED_SPRING_WHEAT, IRRIGATED_WINTER_WHEAT, &
                           RAINFED_MAIZE,   RAINFED_SOYBEAN,   RAINFED_RICE,   RAINFED_SPRING_WHEAT,   RAINFED_WINTER_WHEAT, &
                           crop_name, num_crop_types, num_crop_cal, num_crop_seasons, num_crop_periods, LU_CROP, &
-                          landuse_name, water_source_name
+                          landuse_name, water_source_name, landuse_longname
  use land_data_mod, only: lnd
  use land_tile_io_mod, only: land_restart_type, init_land_restart, open_land_restart, save_land_restart, &
                              free_land_restart, add_restart_axis, add_tile_data, get_tile_data, field_exists, add_int_tile_data, get_int_tile_data
@@ -72,6 +72,7 @@
  use land_io_mod, only: init_cover_field, read_field
  use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
  use land_debug_mod, only: check_var_range
+ use vegn_debug_crop_mod, only: date_string, is_crop_watchpoint ! watchpoint_code
 
  implicit none
  private
@@ -131,8 +132,7 @@
  real, parameter, dimension(0:num_m) :: central_D_Rice             = (/.5373, .5415, .5347, .5185, .4977/) ! fraction of 24 hour day
  real, parameter, dimension(0:num_m) :: variance_D_Rice            = (/.001309, .001683, .001709, .001265, .000884/) ! fraction^2
 
-!integer, parameter :: GP_Maize = 149, GP_Soy = 142,  GP_Rice = 137
- integer, parameter :: GP_Maize = 175, GP_Soy = 142,  GP_Rice = 137 ! debug_pjp
+ integer, parameter :: GP_Maize = 149, GP_Soy = 142,  GP_Rice = 137
  real,    parameter :: SI_crit_Maize = 26.0, SI_crit_Soy = 28.0, SI_crit_Rice = 20.0, SI_crit_SW = 22.0, SI_crit_WW = 30.0
 
  real, dimension(0:num_m) :: central_T_Maize, central_P_Maize, variance_P_Maize ! model units
@@ -176,7 +176,8 @@
             max_T_for_vernalization, min_planting_T_Wheat, absolute_min_T_for_Wheat
  contains
 !============================================================================
- subroutine compute_crop_calendars(vegn,diag,L)
+ subroutine compute_crop_calendars(watchpoint_unit, crop_watchpoint, vegn, diag, L) ! watchpoint_code
+ integer, intent(in) :: watchpoint_unit, crop_watchpoint(3) ! watchpoint_code
  type(vegn_tile_type), intent(inout) :: vegn
  type(diag_buff_type), intent(inout) :: diag
  integer, intent(in) :: L ! index of grid cell which contains this tile
@@ -184,7 +185,7 @@
  integer :: iph, iseason, mth, iwater, ipref, pot_crop, iperiod, day_beg, day_opt, day_end
  logical :: new_month
  real, dimension(12) :: rhs
- character(len=256) :: outname, text
+ character(len=512) :: outname, text
  character(len=24) :: crp_name
 
  integer, dimension(2) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
@@ -205,11 +206,14 @@
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%P_mid_mth)
     crop_loop_1: do ipref=1,num_crop_types
       pot_crop = vegn%Crop%potential_crop(ipref)
+      if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                                                 ! watchpoint_code
+        write(watchpoint_unit,'(2(a,i2),a)') ' debug1: ipref=',ipref,' pot_crop=',pot_crop,'='//trim(crop_name(pot_crop)) ! watchpoint_code
+      endif                                                                                                               ! watchpoint_code
       if(pot_crop == NO_CROP) exit crop_loop_1
-      if(pot_crop == IRRIGATED_SPRING_WHEAT .or. RAINFED_SPRING_WHEAT) then
+      if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == RAINFED_SPRING_WHEAT) then
         aPTTtH_range = aPTTtH_range_SW
         Wheat_type = 'SW'
-      else if(pot_crop == IRRIGATED_WINTER_WHEAT .or. RAINFED_WINTER_WHEAT) then
+      else if(pot_crop == IRRIGATED_WINTER_WHEAT .or. pot_crop == RAINFED_WINTER_WHEAT) then
         aPTTtH_range = aPTTtH_range_WW
         Wheat_type = 'WW'
       endif
@@ -217,7 +221,7 @@
         call CCA_Wheat(L, vegn, Wheat_type, central_T(:,pot_crop), variance_T(:,pot_crop), central_P(:,pot_crop), & ! intent(in)
                        variance_P(:,pot_crop), central_D(:,pot_crop), variance_D(:,pot_crop), & ! intent(in)
                        SI_crit(pot_crop), max_planting_SI_SW, Tbase_Wheat, aPTTtH_range, &      ! intent(in)
-                       length_of_vernalization_period, max_T_for_vernalization, min_planting_T_Wheat, & ! intent(in)
+                       length_of_vernalization_period, max_T_for_vernalization, min_planting_T_Wheat, watchpoint_unit, crop_watchpoint, & ! intent(in) watchpoint_code
                        pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
         if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == IRRIGATED_WINTER_WHEAT) then
           vegn%Crop%crop_calendars(:,1,MAIN_SEASON,ipref) = (/pday(1), hday(1)/)
@@ -246,9 +250,36 @@
         vegn%Crop%crop_calendars(:,3,MAIN_SEASON,  ipref) = (/ pday_end(1), hday_end(1)/)
         vegn%Crop%crop_calendars(:,3,SECOND_SEASON,ipref) = (/ pday_end(2), hday_end(2)/)
       endif
+      if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                                                      ! watchpoint_code
+        if(vegn%Crop%crop_calendars(1,1,MAIN_SEASON,ipref) == NO_DATE) then                                                    ! watchpoint_code
+          text = ' The CCA has determined that conditions are unsuitable for cultivation of '//trim(crop_name(pot_crop))       ! watchpoint_code
+          write(watchpoint_unit,'(a)') 'watchpoint subroutine compute_crop_calendars 1: '//date_string()//trim(text)           ! watchpoint_code
+        else                                                                                                                   ! watchpoint_code
+          text = ' optimal planting and harvest dates for 1st season '//trim(crop_name(pot_crop))//' ='                        ! watchpoint_code
+          write(watchpoint_unit,'(a,2i4)') 'watchpoint subroutine compute_crop_calendars 2: '//date_string()//trim(text), &    ! watchpoint_code
+          vegn%Crop%crop_calendars(:,1,MAIN_SEASON,ipref)                                                                      ! watchpoint_code
+          if(vegn%Crop%crop_calendars(1,1,SECOND_SEASON,ipref) == NO_DATE) then                                                ! watchpoint_code
+            text = ' The CCA has determined that conditions are unsuitable for a second season of '//trim(crop_name(pot_crop)) ! watchpoint_code
+            write(watchpoint_unit,'(a)') 'watchpoint subroutine compute_crop_calendars 3: '//date_string()//trim(text)         ! watchpoint_code
+          else                                                                                                                 ! watchpoint_code
+            text = ' optimal planting and harvest dates for 2nd season '//trim(crop_name(pot_crop))//' ='                      ! watchpoint_code
+            write(watchpoint_unit,'(a,2i4)') 'watchpoint subroutine compute_crop_calendars 4: '//date_string()//trim(text), &  ! watchpoint_code
+            vegn%Crop%crop_calendars(:,1,SECOND_SEASON,ipref)                                                                  ! watchpoint_code
+          endif                                                                                                                ! watchpoint_code
+        endif                                                                                                                  ! watchpoint_code
+      endif                                                                                                                    ! watchpoint_code
     enddo crop_loop_1
 
     call crop_selection(vegn)
+
+    if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                                             ! watchpoint_code
+      write(watchpoint_unit,'(a)') 'watchpoint subroutine compute_crop_calendars 5: '//date_string()// &            ! watchpoint_code
+      ' chosen_crops = '//trim(crop_name(vegn%Crop%chosen_crop(1)))//' '//trim(crop_name(vegn%Crop%chosen_crop(2))) ! watchpoint_code
+      write(watchpoint_unit,'(a,2i8)') 'watchpoint subroutine compute_crop_calendars 6: '//date_string()// &        ! watchpoint_code
+      ' planting day = ',vegn%Crop%chosen_calendars(1,1),vegn%Crop%chosen_calendars(1,2)                            ! watchpoint_code
+      write(watchpoint_unit,'(a,2i8)') 'watchpoint subroutine compute_crop_calendars 7: '//date_string()// &        ! watchpoint_code
+      ' harvest  day = ',vegn%Crop%chosen_calendars(2,1),vegn%Crop%chosen_calendars(2,2)                            ! watchpoint_code
+    endif                                                                                                           ! watchpoint_code
  endif ! if(new_month)
 
  call send_tile_data(id_T_ave, vegn%Crop%tc_av_climate,diag)
@@ -1072,8 +1103,8 @@
  end subroutine CCA_Maize_Soybean_Rice
 !======================================================================================================================================================
  subroutine CCA_Wheat(L, vegn, Wtype, central_T, variance_T, central_P, variance_P, central_D, variance_D, & ! intent(in)
-                      SI_crit, max_planting_SI_SW, Tbase, aPTTtH_range, & ! intent(in)
-                      length_of_vernalization_period, max_T_for_vernalization, min_planting_T, & ! intent(in)
+                      SI_crit, max_planting_SI_SW, Tbase, aPTTtH_range, length_of_vernalization_period, & ! intent(in)
+                      max_T_for_vernalization, min_planting_T, watchpoint_unit, crop_watchpoint, & ! intent(in) watchpoint_code
                       pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
 
 ! 1. Compute dates of accumulated photo-thermal time at intervals of 200 units, from zero to 800, for each
@@ -1112,9 +1143,9 @@
  real, intent(in) :: SI_crit, max_planting_SI_SW, Tbase, aPTTtH_range(2)
  integer, intent(in) :: length_of_vernalization_period
  real, intent(in) :: max_T_for_vernalization, min_planting_T
+ integer, intent(in) :: watchpoint_unit, crop_watchpoint(3) ! watchpoint_code
  integer, dimension(num_water), intent(out) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
 
- character(len=12) :: chwater(num_water)
  integer :: k, k2, k2m, k2p, km, kp, daybeg, crossing_point, kautumn, k_of_ann_SI_min, kk, kkp, k_of_ann_SI_max, doy, iwater
  real :: Temp, Prec, TSI_test, DSI_test, dlen
  real :: PSI_test(2), SI_test(2) ! first element for irrigated, second for rainfed
@@ -1125,9 +1156,8 @@
  integer :: hday_list(num_test_days) ! Remember the values for each test date then choose the one that corresponds to the annual minimum suitability index.
  real :: aPTTtH_list(num_test_days)  ! Remember the values for each test date then choose the one that corresponds to the annual minimum suitability index.
  logical :: passes_other_criteria
+ character(len=256) :: text ! watchpoint_code
 
- chwater(1) = 'irrigated '//Wtype
- chwater(2) = 'rainfed '//Wtype
  pday = NO_DATE
  hday = NO_DATE
  hday_list = NO_DATE
@@ -1160,12 +1190,24 @@
      SI_test(2) = SI_test(2) + TSI_test + DSI_test + PSI_test(2)
      if(SI_test(1) > SI_crit) then
        SI(k,:) = unsuitable ! If irrigated Wheat exceeds critical, then so does rainfed.
+       if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                             ! watchpoint_code
+         text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &               ! watchpoint_code
+                ' if planted on day     because the suitability index exceeds critical'                ! watchpoint_code
+         write(text(81:83),'(i3)') 5*k                                                                 ! watchpoint_code
+         write(watchpoint_unit,'(a)') 'watchpoint subroutine CCA_Wheat 1: '//date_string()//trim(text) ! watchpoint_code
+       endif                                                                                           ! watchpoint_code
        cycle k_loop_1
      endif
    enddo ! do crossing_point=0,num_m
    SI(k,1) = SI_test(1) ! Conditions are suitable for planting irrigated Wheat on day of the year 5*k, provided it passes the tests in k_loop_2 and k_loop_3
    if(SI_test(2) > SI_crit) then
      SI(k,2) = unsuitable
+     if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                             ! watchpoint_code
+       text = ' Conditions are unsuitable for rainfed '//Wtype// &                                   ! watchpoint_code
+              ' if planted on day     because the suitability index exceeds critical'                ! watchpoint_code
+       write(text(61:63),'(i3)') 5*k                                                                 ! watchpoint_code
+       write(watchpoint_unit,'(a)') 'watchpoint subroutine CCA_Wheat 2: '//date_string()//trim(text) ! watchpoint_code
+     endif                                                                                           ! watchpoint_code
    else
      SI(k,2) = SI_test(2) ! Conditions are suitable for planting rainfed Wheat on day of the year 5*k, provided it passes the tests in k_loop_2 and k_loop_3
    endif
@@ -1181,12 +1223,25 @@
        if(T_goes_below_5C_during_GP(5*k, hday_list(k), vegn%Crop%T_mid_mth)) then
          SI(k,iwater) = unsuitable ! Step 8
          passes_other_criteria = .false.
+         if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                             ! watchpoint_code
+           text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &               ! watchpoint_code
+                ' if planted on day     because the climatological mean temperature'// &                 ! watchpoint_code
+                ' drops below 5°C during what would othwise be a suitable growing period'                ! watchpoint_code
+           write(text(81:83),'(i3)') 5*k                                                                 ! watchpoint_code
+           write(watchpoint_unit,'(a)') 'watchpoint subroutine CCA_Wheat 3: '//date_string()//trim(text) ! watchpoint_code
+         endif                                                                                           ! watchpoint_code
        endif
      endif
      if(Wtype == 'WW') then
        if(.not.vernalization_is_possible(5*k, crossing_day_400(k), vegn%Crop%T_mid_mth, length_of_vernalization_period, max_T_for_vernalization)) then
          SI(k,iwater) = unsuitable ! Step 8
          passes_other_criteria = .false.
+         if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                                                         ! watchpoint_code
+           text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &                                           ! watchpoint_code
+                  ' if planted on day     because the evolution of climatological mean temperature does not allow for vernalization' ! watchpoint_code
+           write(text(81:83),'(i3)') 5*k                                                                                             ! watchpoint_code
+           write(watchpoint_unit,'(a)') 'watchpoint subroutine CCA_Wheat 4: '//date_string()//trim(text)                             ! watchpoint_code
+         endif                                                                                                                       ! watchpoint_code
        endif
      endif
    enddo k_loop_2
@@ -1197,6 +1252,11 @@
      if(Temp < min_planting_T) then
        SI(k,iwater) = unsuitable ! Step 7
        passes_other_criteria = .false.
+       if(is_crop_watchpoint(L,vegn,crop_watchpoint)) then                                                                      ! watchpoint_code
+         text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &                                        ! watchpoint_code
+                ' because the climatological mean temperature is below 5°C on what would otherwise be a suitable planting date' ! watchpoint_code
+         write(watchpoint_unit,'(a,i3)') 'watchpoint subroutine CCA_Wheat 5: '//date_string()//trim(text)//'  doy=',5*k         ! watchpoint_code
+       endif                                                                                                                    ! watchpoint_code
      endif
    enddo k_loop_3
 
@@ -1637,8 +1697,8 @@
      call crop_selection(tile%vegn)
    enddo
    deallocate(MIRCA_crop_frac, crop_frac_tmp, potential_crop)
-
  endif ! if(restart_exists)
+
 !------------------------------------------------------------------------------------------------------------------------------------------------------
 ! Convert units of means and variances
  central_T_Maize  = central_T_Maize_orig_units + TFREEZE
