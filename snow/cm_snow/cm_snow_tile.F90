@@ -5,8 +5,9 @@ module cm_snow_tile_mod
 use mpp_mod, only: input_nml_file
 use fms_mod, only : check_nml_error, stdlog, mpp_pe, mpp_root_pe, FATAL
 use time_manager_mod, only: time_type_to_real
-use constants_mod,only: tfreeze, hlf
+use constants_mod, only: tfreeze, hlf
 use land_tile_selectors_mod, only : tile_selector_type
+use land_constants_mod, only : dens_ice
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, land_error_message
 
@@ -63,6 +64,7 @@ contains
     procedure :: set_wsi => cm_snow_set_wsi
     procedure :: ice => cm_snow_get_total_ice
     procedure :: liq => cm_snow_get_total_liq
+    procedure :: porosity => cm_snow_ave_porosity
     procedure :: get_depth_area => cm_snow_get_depth_area
     procedure :: lai_im => cm_snow_lai  ! both lai_im and lai_em return zero
     procedure :: lai_em => cm_snow_lai
@@ -351,6 +353,12 @@ real function cm_snow_get_total_liq(snow) result(liq)
   liq = sum(snow%wl(:))
 end function
 
+! average porosity of snowpack (fraction of air+water-filled pores in the unit volume of snow)
+real function cm_snow_ave_porosity(snow) result(p)
+  class(cm_snow_tile_type), intent(in) :: snow
+  p = 1.0 - snow_density/dens_ice
+  p = min(1.0,max(0.0,p))
+end function
 
 subroutine cm_snow_get_depth_area(snow, snow_depth, snow_area)
   class(cm_snow_tile_type), intent(in) :: snow
