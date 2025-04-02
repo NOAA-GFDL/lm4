@@ -61,6 +61,7 @@ contains
   procedure(func_set_real_0Di),        deferred :: set_Ti
   procedure(func_get_real_0D),         deferred :: ice
   procedure(func_get_real_0D),         deferred :: liq
+  procedure(func_get_real_0D),         deferred :: porosity ! average porosity of snowpack (fraction of air+water-filled pores in the unit volume of snow)
   procedure(func_get_depth_area),      deferred :: get_depth_area
   procedure(func_get_real_1D),         deferred :: lai_im
   procedure(func_get_real_1D),         deferred :: lai_em

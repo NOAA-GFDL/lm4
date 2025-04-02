@@ -7,7 +7,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only : FATAL
 use constants_mod, only : tfreeze, hlf
 
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : NBANDS, dens_ice
 use land_tile_selectors_mod, only : tile_selector_type
 use land_data_mod, only : log_version, lnd
 use land_debug_mod, only : is_watch_point, is_watch_cell, land_error_message
@@ -68,6 +68,7 @@ contains
 
     procedure :: ice => gl_snow_get_total_ice
     procedure :: liq => gl_snow_get_total_liq
+    procedure :: porosity => gl_snow_ave_porosity
     procedure :: get_depth_area => gl_snow_get_depth_area
     procedure :: lai_im => gl_snow_lai_im
     procedure :: lai_em => gl_snow_lai_em
@@ -866,14 +867,27 @@ end subroutine
 
 real function gl_snow_get_total_ice(snow) result(ice)
   class(gl_snow_tile_type), intent(in) :: snow
-  ! ice = sum(snow%ws(:))
   ice = snow%sp%ice()
 end function
 
 real function gl_snow_get_total_liq(snow) result(liq)
   class(gl_snow_tile_type), intent(in) :: snow
-  ! liq = sum(snow%wl(:))
   liq = snow%sp%liq()
+end function
+
+real function gl_snow_ave_porosity(snow) result(p)
+  class(gl_snow_tile_type), intent(in) :: snow
+
+  real :: d   ! depth of snowpack, m
+  real :: dens_snow ! average density of snowpack
+  d = snow%sp%depth()
+  if (d>0.0) then
+     dens_snow = snow%sp%ice()/d
+     p = 1.0 - dens_snow/dens_ice
+  else
+     p = 1.0
+  endif
+  p = min(1.0,max(0.0,p))
 end function
 
 subroutine gl_snow_get_depth_area(snow, snow_depth, snow_area)
