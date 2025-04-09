@@ -5,7 +5,8 @@ module vegn_harvesting_mod
 use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, WARNING, &
      mpp_pe, check_nml_error, stdlog, mpp_root_pe, lowercase
-use mpp_mod, only: mpp_sum, input_nml_file
+use mpp_mod, only : mpp_sum, input_nml_file
+use mpp_domains_mod, only : mpp_global_sum, BITWISE_EXACT_SUM, mpp_pass_UG_to_SG
 use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year
@@ -1111,6 +1112,11 @@ subroutine crop_seed_transport(day_of_year)
   real :: f_supply_C, f_supply_N ! fraction of the supply that gets spent
   real :: f_demand_C, f_demand_N ! fraction of the demand that gets satisfied
 
+  ! supply/demand on unstructured grid
+  real, dimension (lnd%ls:lnd%le) :: &
+        crop_seed_supply_C_UG, crop_seed_supply_N_UG, &
+        crop_seed_demand_C_UG, crop_seed_demand_N_UG
+
   real :: btot0, btot1 ! total carbon, for conservation check only
   real :: ntot0, ntot1 ! total nitrogen, for conservation check only
 
@@ -1124,28 +1130,32 @@ subroutine crop_seed_transport(day_of_year)
         btot0 = btot0 + lnd%ug_area(l) * tile%frac * land_tile_carbon(tile)
         ntot0 = ntot0 + lnd%ug_area(l) * tile%frac * land_tile_nitrogen(tile)
      end do
+     ! this will likely not reproduce across PE count, but that is OK since it is only
+     ! used for conservaton checks
      call mpp_sum(btot0); call mpp_sum(ntot0)
   end if
   ! - conservation check part 1
 
-  total_seed_supply_C = 0.0; total_seed_demand_C = 0.0
-  total_seed_supply_N = 0.0; total_seed_demand_N = 0.0
-  ce = first_elmt(land_tile_map, lnd%ls)
-  do while (loop_over_tiles(ce,tile,l))
-     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+  crop_seed_supply_C_UG(:) = 0.0; crop_seed_demand_C_UG(:) = 0.0
+  crop_seed_supply_N_UG(:) = 0.0; crop_seed_demand_N_UG(:) = 0.0
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile))
+        if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
-     total_seed_supply_C = total_seed_supply_C + crop_seed_supply_C*tile%frac*lnd%ug_area(l)
-     total_seed_supply_N = total_seed_supply_N + crop_seed_supply_N*tile%frac*lnd%ug_area(l)
-     call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C,crop_seed_demand_N)
-     total_seed_demand_C = total_seed_demand_C + crop_seed_demand_C*tile%frac*lnd%ug_area(l)
-     total_seed_demand_N = total_seed_demand_N + crop_seed_demand_N*tile%frac*lnd%ug_area(l)
+        call crop_seed_supply(tile%vegn,crop_seed_supply_C,crop_seed_supply_N)
+        crop_seed_supply_C_UG(l) = crop_seed_supply_C_UG(l) + crop_seed_supply_C*tile%frac*lnd%ug_area(l)
+        crop_seed_supply_N_UG(l) = crop_seed_supply_N_UG(l) + crop_seed_supply_N*tile%frac*lnd%ug_area(l)
+        call crop_seed_demand(tile%vegn,l,day_of_year,crop_seed_demand_C,crop_seed_demand_N)
+        crop_seed_demand_C_UG(l) = crop_seed_demand_C_UG(l) + crop_seed_demand_C*tile%frac*lnd%ug_area(l)
+        crop_seed_demand_N_UG(l) = crop_seed_demand_N_UG(l) + crop_seed_demand_N*tile%frac*lnd%ug_area(l)
+     enddo
   enddo
   ! sum totals globally
-  call mpp_sum(total_seed_demand_C, pelist=lnd%pelist)
-  call mpp_sum(total_seed_demand_N, pelist=lnd%pelist)
-  call mpp_sum(total_seed_supply_C, pelist=lnd%pelist)
-  call mpp_sum(total_seed_supply_N, pelist=lnd%pelist)
+  total_seed_demand_C = land_global_sum_UG(crop_seed_demand_C_UG)
+  total_seed_demand_N = land_global_sum_UG(crop_seed_demand_N_UG)
+  total_seed_supply_C = land_global_sum_UG(crop_seed_supply_C_UG)
+  total_seed_supply_N = land_global_sum_UG(crop_seed_supply_N_UG)
   ! if either demand or supply are zeros we don't need (or can't) transport anything
   if (total_seed_demand_C==0)then
      return
@@ -1213,6 +1223,19 @@ subroutine crop_seed_transport(day_of_year)
   ! - conservation check part 2
 
 end subroutine crop_seed_transport
+
+! given an array on structural grid, calculates sum of all elements in a way that
+! is supposed to reproduce across different PE counts and layouts
+function land_global_sum_UG(a) result(s)
+  real, intent(in) :: a(:) ! data to sum up
+  real :: s ! resulting sum
+
+  real :: a2D(lnd%is:lnd%ie,lnd%js:lnd%je) ! input field on structured grid
+
+  a2D = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain, a, a2D)
+  s = mpp_global_sum(lnd%sg_domain, a2D, flags=BITWISE_EXACT_SUM)
+end function
 
 subroutine crop_seed_supply(vegn, crop_seed_supply_C, crop_seed_supply_N)
    type(vegn_tile_type), intent(in) :: vegn
