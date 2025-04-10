@@ -2155,7 +2155,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   real :: harv_pool_nitrogen_loss(N_HARV_POOLS)
   integer :: k, N
 
-  call debug_crop(vegn,'beginning of vegn_step_3')
+! call debug_crop(vegn,'beginning of vegn_step_3')
   associate(cc=>vegn%cohorts)
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
   ! depth for 95% of root according to Jackson distribution
@@ -2271,7 +2271,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   endif
   end associate
 
-  call debug_crop(vegn,'end of vegn_step_3')
+! call debug_crop(vegn,'end of vegn_step_3')
 end subroutine vegn_step_3
 
 ! ===========================================================================
@@ -2645,7 +2645,7 @@ subroutine update_vegn_slow( )
      ! + conservation check, part 1: calculate the pre-transition totals
      call check_conservation_1(tile,lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_0')
+!    call debug_crop(tile%vegn,'update_vegn_slow_0')
 
      if (day1 /= day0) then
         do ii = 1, tile%vegn%n_cohorts
@@ -2665,7 +2665,7 @@ subroutine update_vegn_slow( )
 
      call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_1')
+!    call debug_crop(tile%vegn,'update_vegn_slow_1')
 
      ! monthly averaging
      if (month1 /= month0) then
@@ -2708,7 +2708,7 @@ subroutine update_vegn_slow( )
 
      call check_conservation_2(tile,'update_vegn_slow 2',lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_2')
+!    call debug_crop(tile%vegn,'update_vegn_slow_2')
 
      ! annual averaging
      if (year1 /= year0) then
@@ -2743,13 +2743,13 @@ subroutine update_vegn_slow( )
         enddo
       endif
 
-     call debug_crop(tile%vegn,'update_vegn_slow_3')
+!    call debug_crop(tile%vegn,'update_vegn_slow_3')
 
      if (year1 /= year0 .and. do_biogeography) then
         call vegn_biogeography(tile%vegn)
      endif
 
-     call debug_crop(tile%vegn,'update_vegn_slow_4')
+!    call debug_crop(tile%vegn,'update_vegn_slow_4')
 
      call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0,nmass0)
 
@@ -2757,7 +2757,7 @@ subroutine update_vegn_slow( )
         call redistribute_peat_carbon(tile%soil)
      endif
 
-     call debug_crop(tile%vegn,'update_vegn_slow_5')
+!    call debug_crop(tile%vegn,'update_vegn_slow_5')
 
      if (month1 /= month0.and.do_patch_disturbance) then
         call update_fuel(tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
@@ -2765,7 +2765,7 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 4',lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_6')
+!    call debug_crop(tile%vegn,'update_vegn_slow_6')
 
      if (day1 /= day0 .and. do_cohort_dynamics) then
         N = tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts(1:N)
@@ -2790,7 +2790,7 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_7')
+!    call debug_crop(tile%vegn,'update_vegn_slow_7')
 
      if  (month1 /= month0 .and. do_phenology) then
         if (.not.do_ppa) call vegn_phenology_lm3 (tile%vegn,tile%soil)
@@ -2798,18 +2798,18 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_8')
+!    call debug_crop(tile%vegn,'update_vegn_slow_8')
 
      if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
      call check_conservation_2(tile,'update_vegn_slow 10',lmass0,fmass0,cmass0,nmass0)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_9')
+!    call debug_crop(tile%vegn,'update_vegn_slow_9')
 
      call vegn_harvesting(tile, year0/=year1, month0/=month1, day0/=day1, doy, l)
 
-     call debug_crop(tile%vegn,'update_vegn_slow_10')
+!    call debug_crop(tile%vegn,'update_vegn_slow_10')
 
      if (year1 /= year0) then
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
@@ -2863,14 +2863,14 @@ subroutine update_vegn_slow( )
         enddo
      endif
 
-     call debug_crop(tile%vegn,'update_vegn_slow_12')
+!    call debug_crop(tile%vegn,'update_vegn_slow_12')
 
      if (do_ppa.and.day1 /= day0) then
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         call check_conservation_2(tile,'update_vegn_slow 15',lmass0,fmass0,cmass0)
      endif
 
-     call debug_crop(tile%vegn,'update_vegn_slow_13')
+!    call debug_crop(tile%vegn,'update_vegn_slow_13')
 
      ! ---- increment tile ages
      call send_tile_data(id_age_since_disturbance,   tile%vegn%age_since_disturbance,   tile%diag)
@@ -3110,7 +3110,7 @@ subroutine update_vegn_slow( )
      endif
   enddo
 
-  call debug_crop_1('update_vegn_slow_14')
+! call debug_crop_1('update_vegn_slow_14')
 
   if (year1 /= year0) then
     if (do_ppa) then
@@ -3121,7 +3121,7 @@ subroutine update_vegn_slow( )
     endif
   endif
 
-  call debug_crop_1('update_vegn_slow_15')
+! call debug_crop_1('update_vegn_slow_15')
 
   if(soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
      ! Knock soil carbon cohorts down to their maximum number.
@@ -3151,7 +3151,7 @@ subroutine update_vegn_slow( )
      tile%vegn%litterfall_C(:,:) = 0.0 ! reset for the accumulation on next time step
   enddo
 
-  call debug_crop_1('update_vegn_slow_16')
+! call debug_crop_1('update_vegn_slow_16')
 
   ! override with static vegetation
   if(day1/=day0) &

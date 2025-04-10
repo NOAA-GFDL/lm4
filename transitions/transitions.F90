@@ -507,7 +507,7 @@ subroutine land_transitions (time)
            if (tile%vegn%landuse == LU_CROP) then
               crop = tile%vegn%Crop
               crop_exists = .TRUE.
-              call debug_crop(tile%vegn,'preexisting crop tile before transitions')
+!             call debug_crop(tile%vegn,'preexisting crop tile before transitions')
            endif
         endif
      enddo
@@ -522,9 +522,9 @@ subroutine land_transitions (time)
            if (tile%vegn%landuse == LU_CROP) then
               if(crop_exists) then
                  tile%vegn%Crop = crop
-                 call debug_crop(tile%vegn,'preexisting crop tile after transitions')
+!                call debug_crop(tile%vegn,'preexisting crop tile after transitions')
               else
-                 call debug_crop(tile%vegn,'new crop tile after transitions')
+!                call debug_crop(tile%vegn,'new crop tile after transitions')
               endif
            endif
         endif

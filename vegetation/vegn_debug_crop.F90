@@ -14,8 +14,8 @@ private
 
 public :: debug_crop
 public :: debug_crop_1
-public :: date_string ! watchpoint_code
-public :: is_crop_watchpoint ! watchpoint_code
+public :: debug_crop_2
+public :: date_string
 
 contains
 
@@ -118,7 +118,7 @@ subroutine debug_crop_1(tag)
 
 end subroutine debug_crop_1
 ! ============================================================================
-  function date_string() result(string) ! watchpoint_code
+  function date_string() result(string)
   character(len=19) :: string
   integer :: year,month,day,hour,minute,second
 
@@ -132,21 +132,18 @@ end subroutine debug_crop_1
   write(string(18:19),'(i2.2)') second
   end function date_string
 ! ============================================================================
-  logical function is_crop_watchpoint(L,vegn,crop_watchpoint) ! watchpoint_code
-  integer, intent(in) :: L
+subroutine debug_crop_2(vegn, tag)
   type(vegn_tile_type), intent(in) :: vegn
-  integer, intent(in) :: crop_watchpoint(3)
+  character(*),         intent(in) :: tag
+  integer :: k
 
-  if(vegn%landuse /= LU_CROP) then
-    is_crop_watchpoint = .FALSE.
-    return
-  endif
-  if(crop_watchpoint(1) == lnd%i_index(L) .and. crop_watchpoint(2) == lnd%j_index(L) .and. crop_watchpoint(3) == lnd%sg_face) then
-    is_crop_watchpoint = .TRUE.
-  else
-    is_crop_watchpoint = .FALSE.
-  endif
-  end function is_crop_watchpoint
+  if (.not.is_watch_cell())    return
+  if (vegn%landuse.ne.LU_CROP) return
+
+  call log_date('#### debug_crop_2: '//trim(tag)//' ',lnd%time)
+  write(*,*)
+
+end subroutine debug_crop_2
 ! ============================================================================
 
 end module vegn_debug_crop_mod
