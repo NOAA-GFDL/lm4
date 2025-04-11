@@ -205,9 +205,9 @@
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%P_mid_mth)
     crop_loop_1: do ipref=1,num_crop_types
       pot_crop = vegn%Crop%potential_crop(ipref)
-      text = ' debug1: ipref =   , pot_crop =    = '//trim(crop_name(pot_crop))
-      write(text(17:19),'(i3)') ipref    ! watchpoint_code
-      write(text(32:34),'(i3)') pot_crop ! watchpoint_code
+      text = ' watchpoint subroutine compute_crop_calendars 0: ipref =   , pot_crop =    = '//trim(crop_name(pot_crop))
+      write(text(57:59),'(i3)') ipref    ! watchpoint_code
+      write(text(72:74),'(i3)') pot_crop ! watchpoint_code
       call debug_crop_2(vegn, text)      ! watchpoint_code
       if(pot_crop == NO_CROP) exit crop_loop_1
       if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == RAINFED_SPRING_WHEAT) then
@@ -256,19 +256,29 @@
           call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
         else                                                                                                                   ! watchpoint_code
           text = ' watchpoint subroutine compute_crop_calendars 2:'// &                                                        ! watchpoint_code
-                 ' optimal planting and harvest dates for 1st season '//trim(crop_name(pot_crop))//' ='                        ! watchpoint_code
+                 ' planting date range for 1st season '//trim(crop_name(pot_crop))//' ='                                       ! watchpoint_code
           nn = len_trim(text)                                                                                                  ! watchpoint_code 
-          write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(:,1,MAIN_SEASON,ipref)                                       ! watchpoint_code
+          write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(1,2:3,MAIN_SEASON,ipref)                                     ! watchpoint_code
           call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
+          text = ' watchpoint subroutine compute_crop_calendars 3:'// &                                                        ! watchpoint_code
+                 ' harvest  date range for 1st season '//trim(crop_name(pot_crop))//' ='                                       ! watchpoint_code
+          nn = len_trim(text)                                                                                                  ! watchpoint_code 
+          write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(2,2:3,MAIN_SEASON,ipref)                                     ! watchpoint_code
+          call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code 
           if(vegn%Crop%crop_calendars(1,1,SECOND_SEASON,ipref) == NO_DATE) then                                                ! watchpoint_code
-            text = ' watchpoint subroutine compute_crop_calendars 3:'// &                                                      ! watchpoint_code
+            text = ' watchpoint subroutine compute_crop_calendars 4:'// &                                                      ! watchpoint_code
                    ' The CCA has determined that conditions are unsuitable for a second season of '//trim(crop_name(pot_crop)) ! watchpoint_code
             call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
           else                                                                                                                 ! watchpoint_code
-            text = ' watchpoint subroutine compute_crop_calendars 4:'// &                                                      ! watchpoint_code
-                   ' optimal planting and harvest dates for 2nd season '//trim(crop_name(pot_crop))//' ='                      ! watchpoint_code
-            nn = len_trim(text)                                                                                                ! watchpoint_code
-            write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(:,1,SECOND_SEASON,ipref)                                   ! watchpoint_code
+            text = ' watchpoint subroutine compute_crop_calendars 5:'// &                                                      ! watchpoint_code
+                   ' planting date range for 2nd season '//trim(crop_name(pot_crop))//' ='                                     ! watchpoint_code
+            nn = len_trim(text)                                                                                                ! watchpoint_code 
+            write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(1,2:3,SECOND_SEASON,ipref)                                 ! watchpoint_code
+            call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
+            text = ' watchpoint subroutine compute_crop_calendars 6:'// &                                                      ! watchpoint_code
+                   ' harvest  date range for 2nd season '//trim(crop_name(pot_crop))//' ='                                     ! watchpoint_code
+            nn = len_trim(text)                                                                                                ! watchpoint_code 
+            write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(2,2:3,SECOND_SEASON,ipref)                                 ! watchpoint_code
             call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
           endif                                                                                                                ! watchpoint_code
         endif                                                                                                                  ! watchpoint_code
@@ -276,14 +286,14 @@
 
     call crop_selection(vegn)
 
-    text = ' watchpoint subroutine compute_crop_calendars 5: chosen_crops = '// &                  ! watchpoint_code
+    text = ' watchpoint subroutine compute_crop_calendars 7: chosen_crops = '// &                  ! watchpoint_code
     trim(crop_name(vegn%Crop%chosen_crop(1)))//' '//trim(crop_name(vegn%Crop%chosen_crop(2)))      ! watchpoint_code
     call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-    text = ' watchpoint subroutine compute_crop_calendars 6: planting day = '                      ! watchpoint_code
+    text = ' watchpoint subroutine compute_crop_calendars 8: planting day = '                      ! watchpoint_code
     nn = len_trim(text)                                                                            ! watchpoint_code
     write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(1,1),vegn%Crop%chosen_calendars(1,2) ! watchpoint_code
     call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-    text = ' watchpoint subroutine compute_crop_calendars 7: harvest  day = '                      ! watchpoint_code
+    text = ' watchpoint subroutine compute_crop_calendars 9: harvest  day = '                      ! watchpoint_code
     nn = len_trim(text)                                                                            ! watchpoint_code
     write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(2,1),vegn%Crop%chosen_calendars(2,2) ! watchpoint_code
     call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
