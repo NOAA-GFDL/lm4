@@ -242,6 +242,14 @@ contains
             else
               V2A_l = 0.
             endif
+            if (is_watch_cell()) then
+                write(*,*) '############################  Before first influx calc ############################'
+                write(*,'(a,g30.16)') 'River%inflow  (i,j)', River%inflow  (i,j)
+                write(*,'(a,g30.16)') 'River%infloc  (i,j)', River%infloc  (i,j)
+                write(*,*) '###################################################################################'
+
+            endif
+
             influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow ! m3/s * kg/m3 * s =kg
             influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow ! J m3/kg /s * kg/m3 * s = J
 
@@ -260,6 +268,7 @@ contains
 
                 ! terminal, all-land cell (must have lake)
                      if (is_watch_cell()) then
+                         write(*,*) '############################  TERMINAL CELL! ############################'
                          write(*,*) 'cur_travel:', cur_travel
                          write(*,*) 'tot_area:', tot_area
                          write(*,*) 'lake_area:', lake_area
@@ -343,8 +352,11 @@ contains
                 ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
                 if (tot_area.gt.0.) then
                      if (is_watch_cell()) then
+                         write(*,*) '############################  NON-TERMINAL CELL! ############################'
+                         write(*,*) 'Before influx'
                          write(*,*) 'cur_travel:', cur_travel
                          write(*,*) 'tot_area:', tot_area
+                         write(*,'(a,g30.16,99(x,a,g30.16))')'l=1 wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1)
                          write(*,*) 'lake_area:', lake_area
                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
@@ -355,10 +367,15 @@ contains
                          write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
                          write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
                          write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
-                         write(*,*) 'River%inflow_temp(i,j)', tfreeze+River%inflow_c(i,j,2)/(clw*(River%inflow(i,j)-River%inflow_c(i,j,1))+csw*River%inflow_c(i,j,1))
+                        !  write(*,*) 'River%inflow_temp(i,j)', tfreeze+River%inflow_c(i,j,2)/(clw*(River%inflow(i,j)-River%inflow_c(i,j,1))+csw*River%inflow_c(i,j,1))
                          write(*,*) 'River%infloc_temp(i,j)', tfreeze+River%infloc_c(i,j,2)/(clw*(River%infloc(i,j)-River%infloc_c(i,j,1))+csw*River%infloc_c(i,j,1))
                      endif
                      h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
+                     if (is_watch_cell()) then
+                         write(*,'(a,g30.16)')'influx:',influx
+                         write(*,'(a,g30.16)')'influx_c(1):',influx_c(1)
+                         write(*,'(a,g30.16)')'tot_area:',tot_area
+                     endif
                      lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/tot_area
                      lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
                      lake_T (i,j,1) = tfreeze + &
@@ -367,51 +384,42 @@ contains
                       print*,'WARNING: Lake temperature was too high. Adjusted.'
                       !lake_T (i,j,1) = 372.0
                      endif                        
-
-                     if (is_watch_cell()) then
-                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                     endif
-                      if (is_watch_cell()) then
-                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                     endif
                      if (is_watch_cell()) then
                          write(*,*) 'before lake_abstraction'
+                         write(*,'(a,g30.16,99(x,a,g30.16))')'l=1 wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1)
                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
-                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
-                         write(*,*) 'Afrac_rsv(i,j):', Afrac_rsv(i,j)
-                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
-                         write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
+                        !  write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                        !  write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
+                        !  write(*,*) 'Afrac_rsv(i,j):', Afrac_rsv(i,j)
+                        !  write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
+                        !  write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
                      endif
                      is_terminal = .False.
-                     call lake_abstraction( is_terminal, &
-                                            irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
-                                            influx, influx_c(1:2), &
-                                            tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
-                                            lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:),lake_dhcap(i,j,:), &
-                                            River%lake_abst(i,j), River%lake_habst(i,j), &
-                                            rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)
-                     if (is_watch_cell()) then
-                         write(*,*) 'after lake_abstraction'
-                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
-                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
-                         write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
-                         write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
-                         write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
-                         write(*,*) 'rsv_outflow_s:', rsv_outflow_s
-                         write(*,*) 'rsv_outflow_h:', rsv_outflow_h
-                         write(*,*) 'vr1:', vr1
-                     endif
+                    !  call lake_abstraction( is_terminal, &
+                    !                         irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
+                    !                         influx, influx_c(1:2), &
+                    !                         tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
+                    !                         lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:),lake_dhcap(i,j,:), &
+                    !                         River%lake_abst(i,j), River%lake_habst(i,j), &
+                    !                         rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)
+                    !  if (is_watch_cell()) then
+                    !      write(*,*) 'after lake_abstraction'
+                    !      write(*,'(a,g30.16,99(x,a,g30.16))')'l=1 wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1)
+                    !      write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                    !      write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                    !      write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                    !      write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                    !      write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
+                    !      write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
+                    !      write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
+                    !      ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
+                    !      write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
+                    !      write(*,*) 'rsv_outflow_s:', rsv_outflow_s
+                    !      write(*,*) 'rsv_outflow_h:', rsv_outflow_h
+                    !      write(*,*) 'vr1:', vr1
+                    !  endif
                      ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
                      !h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
                      !                       -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
@@ -433,6 +441,13 @@ contains
                              if (is_watch_cell()) write(*,*) 'qt[1]/A', qt/lake_area
                              if (lake_width_sill(i,j) .gt. 0.) then
                                  t_scale = lake_whole_area(i,j)/(0.9*lake_width_sill(i,j)*sqrt(h0))
+                                 if (is_watch_cell()) then
+                                    write(*,'(a,g30.20)') 't_scale', t_scale
+                                    write(*,'(a,g30.20)') 'lake_width_sill', lake_width_sill(i,j)
+                                    write(*,'(a,g30.20)') 'h0', h0
+                                    write(*,'(a,g30.20)') 'lake_whole_area', lake_whole_area(i,j)
+                                    write(*,'(a,g30.20)') 'qt', qt
+                                 endif
                                  qt = qt * (1. - (1.+River%dt_slow/t_scale)**(-2) ) !if t_scale == 0. ?
                                  if (.not.use_lake_area_bug) qt = qt * lake_whole_area(i,j)/lake_area
                                endif
@@ -471,7 +486,7 @@ contains
                               write(*,*) 'ql/A,qs/A,A',ql/lake_area,qs/lake_area,lake_area
                          do lev = 1, num_lake_lev
                            if (is_watch_cell() .and. lev.le.10) &
-                               write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
+                               write(*,'(a,i3,99(x,a,g30.16))')'l=',lev,&
                                    'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
                                    'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
                            liq_this_lev = max(0.,min(liq_to_flow, tot_area*lake_wl(i,j,lev)))
@@ -537,11 +552,11 @@ contains
                    endif !tot_area.gt.0.
               endif !River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.
 
-                if (is_watch_cell()) then
-                   write(*,*)'River%lake_outflow  (i,j)', River%lake_outflow  (i,j)
-                   write(*,*)'River%lake_outflow_c(i,j,:):', River%lake_outflow_c(i,j,:)
-                   write(*,*)'lake_outflow_temp:', tfreeze + River%lake_outflow_c(i,j,2)/(clw*(River%lake_outflow(i,j)-River%lake_outflow_c(i,j,1))+csw*River%lake_outflow_c(i,j,1))
-                end if
+                ! if (is_watch_cell()) then
+                !    write(*,*)'River%lake_outflow  (i,j)', River%lake_outflow  (i,j)
+                !    write(*,*)'River%lake_outflow_c(i,j,:):', River%lake_outflow_c(i,j,:)
+                !    write(*,*)'lake_outflow_temp:', tfreeze + River%lake_outflow_c(i,j,2)/(clw*(River%lake_outflow(i,j)-River%lake_outflow_c(i,j,1))+csw*River%lake_outflow_c(i,j,1))
+                ! end if
 
             ! ZMS Bypass rivers for tracers.
             if (River%num_c > 0) then
@@ -583,11 +598,10 @@ contains
                 ! avail is volume to be split between outflow and new storage
                 avail = River%storage(i,j) + River%lake_outflow(i,j) / DENS_H2O !kg / kg/m3 = m3
                 if(is_watch_cell())then
-                  write(*,*)"before river abst and outflow"
-                  write(*,*)'storage', River%storage(i,j)
-                  write(*,*)'storage_c', River%storage_c(i,j,:)
-                  write(*,*)'avail', avail
-                  write(*,*)'River_temp:', tfreeze + River%storage_c(i,j,2) /( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
+                    write(*,*)"river storage and lake outflow"
+                    write(*,'(a,g30.20)')'storage:', River%storage(i,j)
+                    write(*,'(a,g30.20)')'lake_outflow:', River%lake_outflow(i,j)                   
+                    write(*,'(a,g30.20)')'avail:', avail
                 endif
                 ! determine total water storage at end of step
                 if (River%reach_length(i,j) .gt. 0.) then
@@ -612,12 +626,12 @@ contains
                              ((River%lake_outflow(i,j)-River%abst(i,j)*DENS_H2O)/(DENS_H2O*River%dt_slow)-Q0) &
                              /(1.+dQ_dV*(River%dt_slow+lake_whole_area(i,j)*dh_dQ))
                         endif
-                        if(is_watch_cell())then
-                          write(*,*)"Q0:",Q0
-                          write(*,*)"dQ_dV:",dQ_dV
-                          write(*,*)"dh_dQ:",dh_dQ
-                          write(*,*)"lake_whole_area(i,j):",lake_whole_area(i,j)
-                        endif
+                        ! if(is_watch_cell())then
+                        !   write(*,*)"Q0:",Q0
+                        !   write(*,*)"dQ_dV:",dQ_dV
+                        !   write(*,*)"dh_dQ:",dh_dQ
+                        !   write(*,*)"lake_whole_area(i,j):",lake_whole_area(i,j)
+                        ! endif
                       else if (algor.eq.'nonlin') then   ! assume all inflow at start of step
                         if ((avail-River%abst(i,j)) .gt. 0.) then
                             River%storage(i,j) = ((avail-River%abst(i,j))**(1.-River%o_exp) &
@@ -628,8 +642,16 @@ contains
                           endif
                       endif
                   endif
+
                 ! determine total water outflow during step
                 River%outflow(i,j) = (avail - River%abst(i,j) - River%storage(i,j)) / River%dt_slow !m3/s
+                if (is_watch_cell()) then
+                    write(*,'(a,g30.20)') 'avail:', avail
+                    write(*,'(a,g30.20)') 'abst:', River%abst(i,j)
+                    write(*,'(a,g30.20)') 'storage:', River%storage(i,j)
+                    write(*,'(a,g30.20)') 'River%dt_slow:', River%dt_slow
+                    write(*,'(a,g30.20)') 'outflow:', River%outflow(i,j)
+                endif
                 if(use_reservoir.or.River%abst(i,j)>0.)then
                   if(River%outflow(i,j)<0.)then
                     River%outflow(i,j) = 0.
@@ -753,22 +775,22 @@ contains
                   end if
               end if
 
-                if (is_watch_cell()) then
-                   write(*,*)"after river abst and outflow"
-                   write(*,*)'avail', avail
-                   write(*,*)'storage', River%storage(i,j)
-                   write(*,*)'storage_c', River%storage_c(i,j,:)
-                   write(*,*)'irr_demand(i,j):', irr_demand(i,j)
-                   write(*,*)'abst:', River%abst(i,j)
-                   write(*,*)'outflow*dt_slow', River%outflow(i,j)*River%dt_slow
-                   write(*,*)'balance', avail-River%storage(i,j)-River%abst(i,j)-River%outflow(i,j)*River%dt_slow
-                   write(*,*)'outflow:', River%outflow(i,j)
-                   write(*,*)'outflow_c(:):', River%outflow_c(i,j,:)
-                   write(*,*)'abstflow_c(:):', River%abstflow_c(i,j,:)
-                   write(*,*)'outflow_temp:', tfreeze + River%outflow_c(i,j,2)/(clw*(River%outflow(i,j)-River%outflow_c(i,j,1))+csw*River%outflow_c(i,j,1))
-                   write(*,*)'abstflow_temp:', tfreeze + River%abstflow_c(i,j,2)/(clw*(River%abst(i,j)/River%dt_slow-River%abstflow_c(i,j,1))+csw*River%abstflow_c(i,j,1))
-                   write(*,*)'River_temp:', tfreeze + River%storage_c(i,j,2) /( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
-                end if
+                ! if (is_watch_cell()) then
+                !    write(*,*)"after river abst and outflow"
+                !    write(*,*)'avail', avail
+                !    write(*,*)'storage', River%storage(i,j)
+                !    write(*,*)'storage_c', River%storage_c(i,j,:)
+                !    write(*,*)'irr_demand(i,j):', irr_demand(i,j)
+                !    write(*,*)'abst:', River%abst(i,j)
+                !    write(*,*)'outflow*dt_slow', River%outflow(i,j)*River%dt_slow
+                !    write(*,*)'balance', avail-River%storage(i,j)-River%abst(i,j)-River%outflow(i,j)*River%dt_slow
+                !    write(*,*)'outflow:', River%outflow(i,j)
+                !    write(*,*)'outflow_c(:):', River%outflow_c(i,j,:)
+                !    write(*,*)'abstflow_c(:):', River%abstflow_c(i,j,:)
+                !    write(*,*)'outflow_temp:', tfreeze + River%outflow_c(i,j,2)/(clw*(River%outflow(i,j)-River%outflow_c(i,j,1))+csw*River%outflow_c(i,j,1))
+                ! !    write(*,*)'abstflow_temp:', tfreeze + River%abstflow_c(i,j,2)/(clw*(River%abst(i,j)/River%dt_slow-River%abstflow_c(i,j,1))+csw*River%abstflow_c(i,j,1))
+                !    write(*,*)'River_temp:', tfreeze + River%storage_c(i,j,2) /( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
+                ! end if
 
 
             endif
@@ -787,10 +809,12 @@ contains
           endif
         enddo
       enddo
+      
 
 
 
     if (cur_travel .gt. 0) call do_halo_update(River, halo_update(cur_travel))
+        ! do for all cells at current number of steps from river mouth
 
     ! ---- diagnostic section
     if (id_ice > 0) used = send_data (id_ice, &
@@ -1630,11 +1654,15 @@ contains
            do k = 1, nlev(i,j)
               if(is_watch_cell().and.wrk(i,j,k)>0.)then
                 write(*,*)'k:',k
-                write(*,*)'wrk(i,j,k):', wrk(i,j,k)
                 write(*,*)'wrk_c(i,j,:,k):', wrk_c(i,j,:,k)
                 write(*,*)'wrk_temp:', tfreeze + wrk_c(i,j,2,k)/(clw*(wrk(i,j,k)-wrk_c(i,j,1,k))+csw*wrk_c(i,j,1,k))
-              endif
+                write(*,'(a,g30.16)') 'River%inflow(i,j) before = ', River%inflow(i,j)
+                write(*,'(a,g30.16)') 'wrk(i,j,k) = ', wrk(i,j,k)
+              end if
               River%inflow(i,j)   = River%inflow(i,j) + wrk(i,j,k)
+              if (is_watch_cell()) then
+                write(*,'(a,g30.16)') 'River%inflow(i,j) after = ', River%inflow(i,j)
+              end if
               River%inflow_c(i,j,:) = River%inflow_c(i,j,:) + wrk_c(i,j,:,k)
            end do
         end do

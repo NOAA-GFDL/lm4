@@ -3309,11 +3309,22 @@ end subroutine soil_step_1
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
 
-  IF (PUSH_DOWN_SFC_EXCESS) THEN
-     CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  if (is_watch_cell()) then
+    write(*,*)'Checking on lrunf_nu before soil_push_down_excess'
+    __DEBUG1__(lrunf_nu)
   endif
-  if (push_up_sfc_excess) then
-     call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+
+!!! AP, April 1 2025 --> Commented out to test if this is causing problems with the water conservation 
+!   IF (PUSH_DOWN_SFC_EXCESS) THEN
+!      CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+!   endif
+!   if (push_up_sfc_excess) then
+!      call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+!   endif
+
+  if (is_watch_cell()) then
+    write(*,*)'Checking on lrunf_nu after soil_push_down_excess'
+    __DEBUG1__(lrunf_nu)
   endif
 
   if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???

@@ -1570,20 +1570,20 @@ end subroutine groundwater_abstraction
 
     ntiles = mpp_get_ntile_count(domain)
     tile_id = mpp_get_tile_id(domain)
-    write (*,*) '#################################'
-    write (*,*) 'tile_id array: ', tile_id
-    write (*,*) 'tile_id before: ', tile_id(1)
+    ! write (*,*) '#################################'
+    ! write (*,*) 'tile_id array: ', tile_id
+    ! write (*,*) 'tile_id before: ', tile_id(1)
     ! write (*,*) 'river_src_file: ', trim(river_src_file)
 
 
-    if (tile_id(1) > 6) then
-        write (*,*) 'I found a tile_id greater than 6!'
+    ! if (tile_id(1) > 6) then
+    !     write (*,*) 'I found a tile_id greater than 6!'
 
-    end if
+    ! end if
 
     if (ntiles>1) then
-        write(*,*) 'ntiles: ', ntiles
-        write(*,*) 'tile_id(1): ', tile_id(1)
+        ! write(*,*) 'ntiles: ', ntiles
+        ! write(*,*) 'tile_id(1): ', tile_id(1)
         L = len(trim(river_src_file))
         write(river_src_file, '(a,a,i1,a)') trim(river_src_file(1:L-2)), 'tile', tile_id(1), '.nc'
     endif

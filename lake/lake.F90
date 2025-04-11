@@ -88,6 +88,7 @@ logical, public :: use_reservoir        = .false.
 real, public    :: ResMin               = 0.1 !public for river_physics
 real, public    :: ResMax               = 0.75
 logical :: prohibit_shallowlake = .false.
+logical :: lake_area_bug      = .false. ! If True, reproduces buggy behavior in older code where lake area may be larger than tile area
 
 namelist /lake_nml/ init_temp, init_w,       &
                     use_rh_feedback, cpw, clw, csw, &
@@ -96,7 +97,7 @@ namelist /lake_nml/ init_temp, init_w,       &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
 		    K_z_background, K_z_min, K_z_factor, &
 		    lake_depth_max, lake_depth_min, max_plain_slope, &
-          do_lake_abstraction, use_reservoir, ResMin, ResMax, prohibit_shallowlake
+          do_lake_abstraction, use_reservoir, ResMin, ResMax, prohibit_shallowlake, lake_area_bug
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
@@ -361,7 +362,12 @@ subroutine lake_init ( id_ug )
     ce = first_elmt(land_tile_map(l))
     do while(loop_over_tiles(ce,tile))
       if (.not.associated(tile%lake)) cycle
-      tile%lake%pars%whole_area = max(tile%lake%pars%whole_area, tile%frac*lnd%ug_area(l))
+      ! If you are trying to reproduce older version of the code, the following section will cause issues. AP fixed on April 11, 2025
+        if (lake_area_bug) then ! Default setting is false, so will not run this line unless user sets to true in lake_nml
+            tile%lake%pars%whole_area = tile%lake%pars%whole_area ! This will reproduce old code if lake_area_bug is set to true
+        else ! This is the default behavior. Does not reproduce old code.
+            tile%lake%pars%whole_area = max(tile%lake%pars%whole_area, tile%frac*lnd%ug_area(l))
+        endif
     enddo
   enddo
 
