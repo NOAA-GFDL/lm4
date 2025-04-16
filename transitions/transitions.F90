@@ -103,14 +103,15 @@ integer :: overshoot_opt = -1 ! selector for overshoot handling options, for eff
 integer :: conservation_opt = -1 ! selector for non-conservation handling options, for efficiency
 
 ! translation of luh2 names and LM3 landuse types
-character(5) :: luh2name(12)
-integer      :: luh2type(12)
+character(5) :: luh2name(13)
+integer      :: luh2type(13)
 integer :: idata
-data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
+data (luh2name(idata), luh2type(idata), idata = 1, 13) / &
    'primf', LU_NTRL, &
    'primn', LU_NTRL, &
    'secdf', LU_SCND, &
    'secdn', LU_SCND, &
+   'pltns', LU_SCND, &
    'urban', LU_CROP, &
    'c3ann', LU_CROP, &
    'c4ann', LU_CROP, &
@@ -351,6 +352,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secmf_harv')
      call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secyf_harv')
      call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secnf_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'pltns_harv')
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
