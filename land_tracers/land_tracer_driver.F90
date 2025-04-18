@@ -4,7 +4,7 @@ module land_tracer_driver_mod
 
 use constants_mod,      only: rdgas,wtmair,grav,pi,pstd_mks,avogno,DENS_H2O,epsln, WTMH2O
 use field_manager_mod , only: MODEL_ATMOS, MODEL_LAND, parse
-use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, WARNING, FATAL
+use fms_mod,            only: lowercase, stdout, stdlog, mpp_pe, mpp_root_pe, check_nml_error, error_mesg, WARNING, FATAL, NOTE
 use fms_mod,            only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, CLOCK_MODULE
 use ieee_arithmetic
 use mpp_mod,            only: input_nml_file
@@ -42,7 +42,7 @@ public :: update_cana_tracers
 ! ==== end of public interfaces ==============================================
 
 
-real, parameter  :: litter_leaf_density_C = 0.03/2.*1000. !https://doi.org/10.1093/sjaf/33.1.29
+real, parameter  :: litter_leaf_density_C = 0.03/2.*1000. !https://doi.org/10.1093/sjaf/33.1.29 [THIS SHOULD]
 real, parameter  :: litter_leaf_porosity = 0.955 !leaf: 0.955; Twig: 0.8; decomposing matter 0.45-0.55
 !NOTE: This is not correct. Wood in lm4p2 means "fallen branches" not duff.
 !real, parameter  :: litter_wood_density_C = 0.1/2. *1000. !https://doi.org/10.1093/sjaf/33.1.29
@@ -124,7 +124,11 @@ real    :: h2_depth        =  0.1     !depth over which water is averaged for h2
 real    :: h2_psi_ws       = -100e2   !minimum psi for HA-HOB activation (m) - 1MPa is 100m
 real    :: h2_psi_opt      = -0.5e2   !optimal psi for HA-HOB (m)
 real    :: h2_beta1        = 1.       !exponent (see Bertagni (GBC, 2021)
-real    :: h2_soilC_mod    = 10.      !in kgC/m2 (turned off if negative)
+
+character(32) :: h2_soilC_mod      = "NONE"         !name of the soilC parameterization
+real          :: h2_soilC_param(2) = (/-1,-1/)!Definition depends on soilC modulation
+                                              !Similar to Paulot (2021) but h2_soilC(1) is in in kgC/m2 (h2_soilC(2) is not used)
+                                              !For Reji (2024): h2_soilC(1) and h2_soilC(2) are unitless (a*soilC+b)
 real    :: h2_litterC_mod  = 1.       !scale litter depth (turned off if negative)
 
 logical :: pmod_lai_frz, pmod_lai_wet, pmod_lai_dry
@@ -138,7 +142,7 @@ namelist /land_tracer_driver_nml/ &
             A_aer_lake,A_aer_swamp,                  &
             gamma_aer_lake,gamma_aer_swamp,gamma_aer_desert,gamma_aer_frz,    &
             alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz,    &
-            h2_psi_ws, h2_psi_opt, h2_beta1, h2_km, h2_depth, h2_soilC_mod, h2_litterC_mod, &
+            h2_psi_ws, h2_psi_opt, h2_beta1, h2_km, h2_depth, h2_soilC_mod, h2_soilC_param, h2_litterC_mod, &
             c_snow, c_dry, c_wet, e_lai_dry,e_lai_wet,e_lai_frz, e_ustar, &
             r_snows_max, r_snows_max, b_lai_aer
 
@@ -158,6 +162,8 @@ real      :: wet_diag_thr(nwet_diag) = (/ 0.05,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0
 character(len=5) :: wet_str(nwet_diag)
 data wet_str/'wet05','wet10','wet20','wet30','wet40','wet50','wet60','wet70','wet80','wet90','wet95'/
 
+integer        :: h2_soilC_mod_id    !identifier for h2_soilC_mod
+
 !parameterization
 integer, parameter :: AEROSOL_DEFAULT = -1
 integer, parameter :: GAS_PARAM       = 0
@@ -165,6 +171,9 @@ integer, parameter :: GAS_DEFAULT     = 1
 integer, parameter :: GAS_BERTAGNI    = 2
 integer, parameter :: GAS_CODEP       = 3
 
+integer, parameter :: H2_SOILC_NO_MOD   = -1
+integer, parameter :: H2_SOILC_PAULOT21 = 1
+integer, parameter :: H2_SOILC_REJI25   = 2
 
 ! ---- data types -----------------------------------------------------------
 type :: tracer_data_type
@@ -227,7 +236,7 @@ integer :: id_h2_fm, id_h2_ft, id_h2_sdiff, id_h2_ilayer, id_h2_km
 integer :: id_h2_frac_water_pores_avg, id_h2_frac_ice_pores_avg
 integer :: id_h2_R_bact, id_h2_R_inactive, id_h2_R_snow, id_h2_R_litter
 integer :: id_h2_sws, id_h2_sopt, id_h2_sup, id_h2_moist_r1, id_h2_moist_r2
-integer :: id_h2_depth_litter
+integer :: id_h2_depth_litter, id_h2_soilC
 integer :: id_con_h2_no_snow, id_con_h2_no_litter
 
 integer :: id_ddep_noy, id_ddep_nhx
@@ -277,6 +286,29 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       unit=stdlog()
       write(unit, nml=land_tracer_driver_nml)
    endif
+
+   h2_soilc_mod_id = -1
+   if (trim(lowercase(h2_soilc_mod)).eq."paulot21") then
+      h2_soilC_mod_id = H2_SOILC_PAULOT21
+      if (h2_soilC_param(1) < 0) then
+         call error_mesg("land_tracer_driver","using default parameter for H2_PAULOT", NOTE)
+         h2_soilC_param(1) = 7 !kgC/m3
+      end if
+   elseif (trim(lowercase(h2_soilc_mod)).eq."reji25") then
+      h2_soilC_mod_id = H2_SOILC_REJI25
+
+      if (h2_soilC_param(1) < 0) then
+         call error_mesg("land_tracer_driver","using default parameter for H2_REJI", NOTE)
+         h2_soilC_param(1) = 0.0024
+         h2_soilC_param(2) = 0.00387
+
+         !soilC in %
+      end if
+   elseif (trim(lowercase(h2_soilc_mod)).eq."none") then
+      h2_soilC_mod_id = H2_SOILC_NO_MOD
+   else
+      call error_mesg("land_tracer_driver","SoilC H2 modulation not recognized", FATAL)
+   end if
 
    ! calculate time step
    dt  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
@@ -356,15 +388,16 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
          ! set up deposition parameters
          if(query_method('dry_deposition', MODEL_LAND, tr, method, parameters)) then
             if (.not. trdata(tr)%do_deposition) call error_mesg("land_tracer_driver","missmatch between atm and land configuration for "//trim(trdata(tr)%name), FATAL)
-            trdata(tr)%param_name = trim(method)
-            if (trim(method).eq."gas") then
+            method = trim(lowercase(method))
+            trdata(tr)%param_name = method
+            if (method.eq."gas") then
                trdata(tr)%parameterization = GAS_DEFAULT
                if (trdata(tr)%mw<0) call error_mesg("land_tracer_driver","mw is not defined for "//trim(trdata(tr)%name), FATAL)
-            elseif (trim(method).eq."aerosol") then
+            elseif (method.eq."aerosol") then
                trdata(tr)%parameterization = AEROSOL_DEFAULT
-            elseif (trim(method).eq."gas_bertagni") then
+            elseif (method.eq."gas_bertagni") then
                trdata(tr)%parameterization = GAS_BERTAGNI
-            elseif (trim(method).eq."gas_codep") then
+            elseif (method.eq."gas_codep") then
                trdata(tr)%parameterization = GAS_CODEP
                if (trdata(tr)%name.ne."nh3" .and. trdata(tr)%name.ne."so2") call error_mesg("land_tracer_driver_init", "codeposition is not implemented for "//trim(trdata(tr)%name), FATAL)
             else
@@ -680,6 +713,9 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
    id_h2_depth_litter  = register_tiled_diag_field(diag_name, 'h2_depth_litter', &
       (/id_ug/),  lnd%time, 'h2_depth_litter', &
       'm', missing_value=-1.0)
+   id_h2_soilC  = register_tiled_diag_field(diag_name, 'h2_soilC', &
+      (/id_ug/),  lnd%time, 'soilC used for H2 modulation', &
+      'kgC/m2', missing_value=-1.0)
    id_h2_R_bact  = register_tiled_diag_field(diag_name, 'h2_R_bact', &
       (/id_ug/),  lnd%time, 'h2_R_bact', &
       's/m', missing_value=-1.0)
@@ -694,17 +730,17 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       's/m', missing_value=-1.0)
 
    id_h2_km  = register_tiled_diag_field(diag_name, 'h2_km', &
-      (/id_ug/),  lnd%time, 'h2_km', &
+      (/id_ug/),  lnd%time, 'Km (H2)', &
       '1/s', missing_value=-1.0)
    id_h2_fm  = register_tiled_diag_field(diag_name, 'h2_fm', &
-      (/id_ug/),  lnd%time, 'h2_fm', &
+      (/id_ug/),  lnd%time, 'Moisture factor (H2)', &
       'unitless', missing_value=-1.0)
    id_h2_ft  = register_tiled_diag_field(diag_name, 'h2_ft', &
-      (/id_ug/),  lnd%time, 'h2_ft', &
+      (/id_ug/),  lnd%time, 'Temperature factor (H2)', &
       'unitless', missing_value=-1.0)
 
    id_h2_sdiff = register_tiled_diag_field(diag_name, 'h2_sdiff', &
-      (/id_ug/),  lnd%time, 'h2 soil diffusivity', &
+      (/id_ug/),  lnd%time, 'H2 soil diffusivity', &
       'm2/s', missing_value=-1.0)
 
    id_h2_sopt = register_tiled_diag_field(diag_name, 'h2_s_opt', &
@@ -1253,7 +1289,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
    call diag_ddep(ddep_oa, id_ddep_oa, id_ddep_oa_neg, id_ddep_oa_neg_freq, tile%diag)
    call diag_ddep(ddep_md, id_ddep_md, id_ddep_md_neg, id_ddep_md_neg_freq, tile%diag)
 
-   ! set up dry deposition of laight-absorbing particles to snow
+   ! set up dry deposition of light-absorbing particles to snow
    dep_to_snow(:)          = 0.0
    dep_to_snow(SNOW_TR_BC) = ddep_bc
    dep_to_snow(SNOW_TR_OM) = ddep_oa
@@ -1527,16 +1563,16 @@ real function con_h2(tile,p) result(con)
    real    :: f_T, f_M
    real    :: snow_depth, snow_area, Tsnow
 
-   real    :: R_inactive, R_snow, R_bact, inactive_layer, R_litter, R_litter_wood, R_litter_leaf
+   real    :: R_inactive, R_snow, R_bact, inactive_layer, R_litter, R_litter_leaf
 
    real    :: beta1, b, beta2, norm
-   real    :: litterC_leaf, litterC_wood
+   real    :: litterC_leaf
    real    :: depth_litter_leaf, depth_litter
    real    :: grnd_T
 
    real    :: h2_km_eff
    real    :: s_opt_avg, s_upc_avg, s_ws_avg
-   real    :: soil_C
+   real    :: soil_C, dz_C
 
    real, parameter :: s_up = 1. !no cap on h2 activity
 
@@ -1589,23 +1625,25 @@ real function con_h2(tile,p) result(con)
       b           = tile%soil%pars%chb
       beta1       = h2_beta1
 
-      if (h2_soilC_mod .gt. 0) then
+      if (h2_soilC_mod_id .gt. 0) then
          !get C for modulation do not include litter
          select case (soil_carbon_option)
          case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
             soil_C = sum(tile%soil%fast_soil_C(:))+sum(tile%soil%slow_soil_C(:))
+            dz_C = zhalf(num_l+1)
          case (SOILC_CORPSE, SOILC_CORPSE_N)
             do isoil = 1,num_l
                call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C_layer(isoil) )
             end do
             soil_C = sum(soil_C_layer(:))
+            dz_C = zhalf(num_l+1)
          case default
             call error_mesg("land_tracer_driver","soil carbon parameterization not recognized (h2_con)",FATAL)
          end select
       end if
 
-
       TOP_LAYER = .TRUE.
+      isoil     = 1
 
       !loop over soil layers
       do while (zhalf(isoil).lt.h2_depth)
@@ -1661,7 +1699,7 @@ real function con_h2(tile,p) result(con)
          call tile%snow%get_depth_area(snow_depth, snow_area)
          if (snow_depth.gt.epsln) then
             Tsnow  = tile%snow%sfc_temp()
-            R_snow = snow_depth/diff_H2_snow(Tsnow,p)
+            R_snow = snow_depth/diff_H2_snow(Tsnow,p,tile%snow%porosity())
          end if
       end if
 
@@ -1710,8 +1748,23 @@ real function con_h2(tile,p) result(con)
                                  frac_ice_pores_avg+frac_water_pores_avg,          &
                                  b )
 
-         if (h2_soilC_mod.gt.0) then
-            h2_km_eff = h2_km*soil_C/(soil_C+h2_soilC_mod)
+         !soilC in kg/m2
+         if (h2_soilC_mod_id.eq.H2_SOILC_PAULOT21) then
+            h2_km_eff = (h2_km*soil_C/dz_C)/(soil_C/dz_C+h2_soilC_param(1))
+         elseif (h2_soilC_mod_id.eq.H2_SOILC_REJI25) then
+            !assume soil density of 2650 kg/m3 -> convert to %
+            h2_km_eff = h2_km*(h2_soilC_param(1)*soil_C/dz_C*1./2650.*100.+h2_soilC_param(2))
+         elseif (h2_soilC_mod_id.eq.H2_SOILC_NO_MOD) then
+            h2_km_eff = h2_km
+         end if
+
+         !regardless, we turn off h2 uptake if there is no soilC
+         if (soil_C.le.epsln) h2_km_eff=0.
+
+         if (h2_km_eff.lt.0.) then
+            write(*,*) 'h2_km',h2_km,'soil_C',soil_C,'dz_C',dz_C,'mod (Reji)', &
+                 (h2_soilC_param(1)*soil_C/dz_C*1./2650.*100.+h2_soilC_param(2))
+            call error_mesg("land_tracer_driver","h2_km_eff<0",FATAL)
          end if
 
          R_bact = 1./max(sqrt(f_T*f_M*h2_km_eff*diff_H2),1.e-20)
@@ -1748,6 +1801,7 @@ real function con_h2(tile,p) result(con)
 
 !         R_litter = R_litter_wood + R_litter_leaf
          R_litter = R_litter_leaf
+         depth_litter = depth_litter_leaf
       end if
 
 
@@ -1770,6 +1824,8 @@ real function con_h2(tile,p) result(con)
       call send_tile_data(id_h2_R_inactive,R_inactive,        tile%diag)
       call send_tile_data(id_h2_ilayer,inactive_layer,        tile%diag)
       call send_tile_data(id_h2_depth_litter,depth_litter,    tile%diag)
+      call send_tile_data(id_h2_soilC,soil_C,                 tile%diag)
+
 
       call send_tile_data(id_h2_sws,    s_ws,  tile%diag)
       call send_tile_data(id_h2_sopt,   s_opt, tile%diag)
@@ -1790,9 +1846,8 @@ elemental real function diff_H2_air(T,p) result(D)
 
 end function diff_H2_air
 
-elemental real function diff_H2_snow(T,p) result(D)
-   real, intent(in) :: T,p
-   real, parameter  :: eff_snow_porosity = 0.65
+elemental real function diff_H2_snow(T,p,snow_porosity) result(D)
+   real, intent(in) :: T,p,snow_porosity
 
    !https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2009JD012459#jgrd15785-tbl-0001
    !D_eff = D * psi/tau^2
@@ -1813,7 +1868,7 @@ elemental real function diff_H2_snow(T,p) result(D)
    !porosity_res = max((porosity - porosity_off)/(1.-porosity_off),0.)
    !eff_snow_porosity   = porosity_res**1.61   => 0.645
 
-   D = diff_H2_air(T,p) * eff_snow_porosity
+   D = diff_H2_air(T,p) *  snow_porosity**(4./3.)
 
 end function diff_H2_snow
 
