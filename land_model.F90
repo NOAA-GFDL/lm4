@@ -34,6 +34,8 @@ use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_c
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
+use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis, land_fire_emis_end, &
+     n_fire_tr, fire_emis_type
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -300,6 +302,7 @@ integer :: &
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 integer, allocatable :: id_gex_atm2lnd_diag(:)
 integer, allocatable :: id_gex_lnd2atm_diag(:)
+type(fire_emis_type), allocatable, target :: frdata(:) ! fire emissions data
 
 ! IDs of CMOR/CMIP variables
 integer :: id_sftlf, id_sftgif ! static fractions
@@ -319,6 +322,8 @@ integer :: id_treeFrac_L, id_grassFrac_L, id_grassFracC3_L, id_grassFracC4_L
 integer :: id_sg_face, id_ug_face, id_ug_pe
 
 integer :: id_gex_lnd2atm_test
+integer :: id_gex_lnd2atm_frp
+integer :: id_gex_lnd2atm_fire_emis
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -498,6 +503,7 @@ subroutine land_model_init &
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
   call land_tracer_driver_init(id_ug,id_zfull)
+  call land_fire_emis_init(id_ug,frdata)   ! anp
 
   !get gex indices [needs to be done before update_land_bc fast]
   id_gex_lnd2atm_test = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'test')
@@ -644,6 +650,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! something else besides saving the restart, of if they want to save
   ! restart anyway
   call land_tracer_driver_end()
+  call land_fire_emis_end()   !anp
   call land_transitions_end()
   call glac_end ()
   call lake_end ()
@@ -2711,6 +2718,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call soil_step_3(tile%soil, tile%diag)
 
      call update_fire_fast(tile, p_surf, atmos_wind, l)
+
+     call land_fire_emis(tile,frdata)   !anp
   endif
 
   ! update co2 concentration in the canopy air. It would be more consistent to do that
@@ -4031,6 +4040,23 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if (id_gex_lnd2atm_test.gt.0) then
      land2cplr%gex_lnd2atm(l,k,id_gex_lnd2atm_test) = 1.0
+  endif
+
+  if (associated(tile%vegn)) then
+   id_gex_lnd2atm_frp = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'frp')
+   if (id_gex_lnd2atm_frp > 0) then
+      land2cplr%gex_lnd2atm(l,k,id_gex_lnd2atm_frp) = tile%vegn%fire_rad_power  !!!armanp
+   endif
+   if (n_fire_tr > 0) then
+      do tr = 1,n_fire_tr
+         id_gex_lnd2atm_fire_emis = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'fire_emis_'//trim(frdata(tr)%name))
+         if (id_gex_lnd2atm_fire_emis > 0) then
+            land2cplr%gex_lnd2atm(l,k,id_gex_lnd2atm_fire_emis) = tile%vegn%fire_emis_land(tr)  !!!armanp
+         else
+            call land_error_message('Error: fire_emis_'//trim(frdata(tr)%name)//' not found in gex_lnd2atm',FATAL)
+         endif
+      enddo
+   endif
   endif
 
   if(is_watch_point()) then
