@@ -796,13 +796,40 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
         ! rhizosphere pools
         f1 = s1%fRhiz(k)         ; f2 = s2%fRhiz(k)
         if (f1>0.or.f2>0) then
-           y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+	
+	!   if (.not.(x1*f1+x2*f2 .gt. 0)) then
+	!      __DEBUG5__(x1,f1,x2,f2,x1*f1+x2*f2)
+	!      call land_error_message('denominator is 0 in rhiz tile merge',FATAL)
+	!   endif
+	   
+        !   y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+	   
+	   if (x1*f1+x2*f2 > 0) then
+              y1 = x1*f1/(x1*f1+x2*f2)
+           else
+              y1 = 0.0
+           endif
+           y2 = 1.0 - y1
+	   
            call combine_GIMICS_pools(s2%rhiz(k),y2,s1%rhiz(k),y1)
         endif
         ! bulk pools
         f1 = 1.0 - s1%fRhiz(k)   ; f2 = 1.0 - s2%fRhiz(k)
         if (f1>0.or.f2>0) then
-           y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+	
+	 !  if (.not.(x1*f1+x2*f2 .gt. 0)) then
+	 !     call land_error_message('denominator is 0 in bulk tile merge',FATAL)
+	 !  endif
+	   
+         !  y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
+	 
+	   if (x1*f1+x2*f2 > 0) then
+              y1 = x1*f1/(x1*f1+x2*f2)
+           else
+              y1 = 0.0
+           endif
+           y2 = 1.0 - y1
+	   
            call combine_GIMICS_pools(s2%bulk(k),y2,s1%bulk(k),y1)
         endif
         ! update the rhizosphere fraction
