@@ -622,7 +622,7 @@ subroutine merge_land_tile_into_list(tile, list)
   ! try to find a tile that we can merge to
   ct = first_elmt(list)
   do while(loop_over_tiles(ct,ptr))
-     if (land_tiles_can_be_merged(tile,ptr)) then
+     if (land_tiles_can_be_merged(tile,ptr).and.ptr%frac>0.0) then
         call merge_land_tiles(tile,ptr)
         call delete_land_tile(tile)
         return ! break out of the subroutine

@@ -31,7 +31,7 @@ use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
-     erase, remove, insert, merge_land_tile_into_list, &
+     erase, remove, insert, merge_land_tile_into_list, delete_land_tile, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_diag_mod, only : cmor_name
 
@@ -656,7 +656,11 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(ts==te) exit ! break out of loop
      ptr=>current_tile(ts)
      call remove(ts)
-     call merge_land_tile_into_list(ptr,d_list)
+     if (ptr%frac > 0.0) then
+         call merge_land_tile_into_list(ptr,d_list)
+     else
+         call delete_land_tile(ptr)
+     endif	 
   enddo
   ! a_list is empty at this point
   call land_tile_list_end(a_list)
