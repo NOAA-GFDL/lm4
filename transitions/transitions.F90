@@ -23,7 +23,6 @@ use vegn_data_mod, only : &
      landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
-use snow_tile_mod, only : snow_tile_heat
 use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
@@ -103,14 +102,15 @@ integer :: overshoot_opt = -1 ! selector for overshoot handling options, for eff
 integer :: conservation_opt = -1 ! selector for non-conservation handling options, for efficiency
 
 ! translation of luh2 names and LM3 landuse types
-character(5) :: luh2name(12)
-integer      :: luh2type(12)
+character(5) :: luh2name(13)
+integer      :: luh2type(13)
 integer :: idata
-data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
+data (luh2name(idata), luh2type(idata), idata = 1, 13) / &
    'primf', LU_NTRL, &
    'primn', LU_NTRL, &
    'secdf', LU_SCND, &
    'secdn', LU_SCND, &
+   'pltns', LU_SCND, &
    'urban', LU_CROP, &
    'c3ann', LU_CROP, &
    'c4ann', LU_CROP, &
@@ -351,6 +351,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secmf_harv')
      call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secyf_harv')
      call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'secnf_harv')
+     call input_tran(LU_SCND,LU_SCND)%addvar(ftran,'pltns_harv')
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
@@ -547,7 +548,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
+     if(associated(ptr%snow)) snow_heat0 = snow_heat0 + ptr%snow%snow_tile_heat()*ptr%frac ! EZSNOW
   enddo
 
   ! calculate the area that can participate in land transitions
@@ -660,7 +661,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
          call merge_land_tile_into_list(ptr,d_list)
      else
          call delete_land_tile(ptr)
-     endif	 
+     endif
   enddo
   ! a_list is empty at this point
   call land_tile_list_end(a_list)
@@ -699,10 +700,12 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%soil)) soil_heat1 = soil_heat1 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
+     if(associated(ptr%snow)) snow_heat1 = snow_heat1 + ptr%snow%snow_tile_heat()*ptr%frac ! EZSNOW
   enddo
-  call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
-  call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
+    ! EZSNOW //FIXME: I have temporarily removed checks as snow merging tiles can chance ice and water, but not their total [not currently used]
+  call check_conservation ('liquid + frozen water', lmass0+fmass0, lmass1+fmass1, 1e-6) ! EZSNOW
+!   call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
+!   call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
   call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
   call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
 ! heat content of vegetation may not conserve because of the cohort merging issues

@@ -7,7 +7,11 @@ use fms2_io_mod, only: open_file, close_file, FmsNetcdfFile_t, get_variable_size
      read_data, get_variable_num_dimensions
 use constants_mod, only : pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
 
-use land_constants_mod, only : MAX_SOIL_LEV, NBANDS, N_C_TYPES, N_LITTER_POOLS, LITT_LEAF
+use land_constants_mod, only : MAX_SOIL_LEV, NBANDS, N_C_TYPES, N_LITTER_POOLS, LITT_LEAF, &
+! MODIS BRDF model parameters
+    g_iso, g0_iso, g1_iso, g2_iso, &
+    g_vol, g0_vol, g1_vol, g2_vol, &
+    g_geo, g0_geo, g1_geo, g2_geo
 use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : tile_selector_type, SEL_SOIL, register_tile_selector
 
@@ -85,20 +89,6 @@ real,    parameter :: t_ref            = 293
 real,    parameter :: g_RT             = grav / (rvgas*t_ref)
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
-
-! from the modis brdf/albedo product user guide:
-real, parameter :: g_iso  = 1.
-real, parameter :: g_vol  = 0.189184
-real, parameter :: g_geo  = -1.377622
-real, parameter :: g0_iso = 1.0
-real, parameter :: g1_iso = 0.0
-real, parameter :: g2_iso = 0.0
-real, parameter :: g0_vol = -0.007574
-real, parameter :: g1_vol = -0.070987
-real, parameter :: g2_vol =  0.307588
-real, parameter :: g0_geo = -1.284909
-real, parameter :: g1_geo = -0.166314
-real, parameter :: g2_geo =  0.041840
 
 ! geohydrology option selector (not used by lm2)
 integer, parameter, public ::   &

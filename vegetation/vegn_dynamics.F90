@@ -2301,8 +2301,12 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
   integer :: i ! cohort iterator
   integer :: k1
 
-  real :: btot0, btot1 ! total carbon, for conservation check only
-  real :: ntot0, ntot1 ! total nitrogen, for conservation check only
+  real :: btot0, btot1 ! total carbon, for conservation check only, kgC m-2
+  real :: ntot0, ntot1 ! total nitrogen, for conservation check only, kgN m-2
+
+  real :: germ_factor  ! factor reducing germination, unitless in range [0, 1]. In this
+                       ! subroutine, it is used to prevent weeds growth on croplands,
+                       ! if this option is selected in harvesting_nml
 
   ! + conservation check part 1
   if (do_check_conservation) then
@@ -2389,18 +2393,17 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
            write(*,*)
         enddo
      endif
+
      if (tile%vegn%landuse==LU_CROP .and. .not.allow_weeds_on_crops) then
-        call add_seedlings_ppa(tile%vegn,tile%soil,tile%soilc, &
-                (ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
-                (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
-                germination_factor = 0.0) ! no seeds germinate
-        ! This also means that the crops are not allowed to reproduce by themselves.
+        germ_factor = 0.0 ! no weed seeds germinate. Note tha this also means that the
+                          ! crops are  not allowed to reproduce by themselves.
      else
-        call add_seedlings_ppa(tile%vegn,tile%soil,tile%soilc, &
-                (ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
-                (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
-                germination_factor = 1.0) ! do not modify natural seed germination
+        germ_factor = 1.0 ! do not modify natural seed germination
      endif
+     call add_seedlings_ppa( tile%vegn,tile%soil,tile%soilc, &
+                            (ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
+                            (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:), &
+                            germination_factor = germ_factor )
      k = k+1
   enddo
 
