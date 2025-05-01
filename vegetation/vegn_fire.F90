@@ -245,6 +245,7 @@ logical  ::  do_multiday_fires = .FALSE.
 logical  ::  do_crownfires = .FALSE.
 logical  ::  FireMIP_ltng = .FALSE.
 real     ::  mdf_threshold = 1.0
+logical  ::  do_fireline_fire_intensity = .FALSE.    !!! armanp
 
 ! slm moved from vegn_data
 logical :: split_past_tiles = .TRUE.
@@ -290,7 +291,8 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     f_theta_style, theta_psi2, theta_psi3, theta_gom2, theta_gom3, &   ! SSR20160203
                     magic_scalar, &   ! SSR20160222
                     split_past_tiles, &
-                    do_multiday_fires, do_crownfires, FireMIP_ltng, mdf_threshold  !!! dsward_opt
+                    do_multiday_fires, do_crownfires, FireMIP_ltng, mdf_threshold, &  !!! dsward_opt
+                    do_fireline_fire_intensity   !!! armanp
 !---- end of namelist --------------------------------------------------------
 real :: dt_fast      ! fast time step, s
 
@@ -383,7 +385,7 @@ integer :: & ! diag field IDs
     id_BAperFire0_DERIVwrt_fireDur, id_BAperFire0_DERIVwrt_ROSmax, &
     id_tropType, &   ! SSR20160211
     id_mdf_BA_tot,  id_mdf_Nfires, &  !!! dsward_mdf
-    id_crown_scorch_frac, id_fire_intensity, id_fire_rad_power    !!! dsward added
+    id_crown_scorch_frac, id_fire_intensity, id_fire_rad_power, id_fire_line_len    !!! dsward added
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -789,8 +791,11 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   id_crown_scorch_frac = register_tiled_diag_field (diag_mod_name, 'crown_scorch_frac',axes, &
        time, 'Fraction of burned area ', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_rad_power = register_tiled_diag_field (diag_mod_name, 'fire_rad_power',axes, &
-       time, 'Fire radiative power ', 'W/fire', &
+       id_fire_rad_power = register_tiled_diag_field (diag_mod_name, 'fire_rad_power',axes, &
+       time, 'Fire radiative power ', 'kW', &
+       missing_value=-1.0)
+  id_fire_line_len = register_tiled_diag_field (diag_mod_name, 'fire_line_len',axes, &
+       time, 'Fire line length', 'm', &
        missing_value=-1.0)
 !!! dsward_crownfires end
   id_fire_duration_ave = register_tiled_diag_field (diag_mod_name, 'fire_duration_ave',axes, &
@@ -1063,6 +1068,8 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
              year1, month1, day1
   real    :: BF_mth, BF_mth_mult, &
              BA_mth, BA_mth_mult
+  real    :: BF_day, BF_day_mult, &
+             BA_day, BA_day_mult
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -1076,9 +1083,14 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
   ! do monthly processes inside slow subroutines?
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
-  if (month1/=month0) then
+
+! !!! armanp: calls update_fire_Fk every day
+!  if (day1/=day0) then
      call update_fire_Fk(tile%vegn,tile%diag,l)
-  endif
+!  endif
+!  if (month1/=month0) then
+!     call update_fire_Fk(tile%vegn,tile%diag,l)
+!  endif
 
   if (burns_as_ntrl(tile)) then
      ! Update conditions for fire
@@ -1091,20 +1103,30 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
      call send_tile_data(id_mdf_BA_tot, tile%vegn%total_BA_mdf,              tile%diag)
      call send_tile_data(id_mdf_Nfires, sum(tile%vegn%past_fires_mdf(2:30)), tile%diag)
   elseif (burns_as_agri(tile)) then
-     if (month1/=month0) then
-        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth)
+     if (day1/=day0) then
+        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
+        BF_day_mult = BF_day * 86400.0/dt_fast
+        BA_day_mult = BA_day * 86400.0/dt_fast
+     else
+        BF_day_mult = 0.0
+        BA_day_mult = 0.0
+     endif
+     call send_tile_data_BABF_forAgri(tile%diag,BF_day_mult,BA_day_mult)
+
+!     if (month1/=month0) then
+!        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
 
         ! Make sure that when todays BA is calculated as the average over all
         ! fast time steps, it equals the total amount of burning that actually
         ! occurred. Note that this will make this time step value look INSANE,
         ! but that is only a problem when looking at sub-daily diagnostics.
-        BF_mth_mult = BF_mth * 86400.0/dt_fast
-        BA_mth_mult = BA_mth * 86400.0/dt_fast
-     else
-        BF_mth_mult = 0.0
-        BA_mth_mult = 0.0
-     endif
-     call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
+!        BF_mth_mult = BF_mth * 86400.0/dt_fast
+!        BA_mth_mult = BA_mth * 86400.0/dt_fast
+!     else
+!        BF_mth_mult = 0.0
+!        BA_mth_mult = 0.0
+!     endif
+!     call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
   endif
   ! conservation check, part 2: calculate totals
   call check_conservation_2(tile,'update_fire_fast',lmass0,fmass0,cmass0,nmass0)
@@ -1137,7 +1159,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     real   ::   wind_forFire
     real   ::   ROS, LB, HB, gW, BAperFire_0
     real   ::   ROSmax, fire_dur, C_beta   ! SSR20151009
-    real   ::   ROS_surface,crown_scorch_frac,fire_intensity  !!! dsward_crownfires added
+    real   ::   ROS_surface,crown_scorch_frac,fire_intensity,fire_line_length  !!! dsward_crownfires added
     integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones
     integer :: k ! cohort iterator
     real    :: weight ! normalization factor for fire parameter averaging
@@ -1201,10 +1223,6 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
 
     call vegn_fire_ROS(vegn,fire_fn_rh,theta,fire_fn_theta,wind_forFire,ROS_surface,LB,HB,gW,ROSmax,C_beta,kop)   ! SSR20151216 !!! dsward_kop added kop
 
-!!! dsward_crownfires
-    call vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
-!!! dsward_crownfires end
-
     ! calculate fire duration as a weighted average of the species in the
     ! canopy; the weight is the fraction of canopy occupied by each species.
     fire_dur = 0.0; weight = 0.0
@@ -1223,6 +1241,12 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
        fire_dur = spdata(cc(1)%species)%fire_duration
     endif
     end associate
+
+!!! armanp moved here to add fire_dur
+!!! dsward_crownfires
+    call vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac, &
+            fire_intensity,LB,fire_dur,fire_line_length)
+!!! dsward_crownfires end
 
     call vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)   ! SSR20151009
 
@@ -1290,6 +1314,9 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     call send_tile_data(id_tropType,    1.0*vegn%trop_code,      diag)
     call send_tile_data(id_crown_scorch_frac, crown_scorch_frac, diag)
     call send_tile_data(id_fire_intensity,    fire_intensity,    diag)
+    call send_tile_data(id_fire_rad_power,   vegn%fire_rad_power,diag) 
+    call send_tile_data(id_fire_line_len,fire_line_length,diag)
+
 
     ! Print diagnostics if really small BAperFire_0
     if (0.<BAperFire_0 .AND. BAperFire_0<min_fire_size) then
@@ -1407,17 +1434,19 @@ subroutine update_multiday_fires(vegn,tile_area)
 end subroutine update_multiday_fires
 !!! dsward_mdf end
 
-subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth)
+subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth,BF_day,BA_day)
   type(vegn_tile_type), intent(inout) :: vegn
   type(time_type), intent(in)  :: Time
   real, intent(in) :: tile_area_km2
   real, intent(out):: BF_mth, BA_mth   ! Total burned area (km2) or burned fraction of tile
+  real, intent(out):: BF_day, BA_day   ! Total burned area (km2) or burned fraction of tile
 
   ! Calculate burned fraction
-  call vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
+  call vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth,BA_day,BF_day)
 
   ! accumulate burned fraction since last burn (SSR: after vegn_disturbance.F90)
-  vegn%burned_frac = vegn%burned_frac + BF_mth
+!  vegn%burned_frac = vegn%burned_frac + BF_mth !!!armanp commented
+  vegn%burned_frac = vegn%burned_frac + BF_day
 
   ! dsward added for fire_switch off case
   if (vegn%burned_frac.gt.1.0) then
@@ -1933,7 +1962,7 @@ subroutine vegn_fire_In(latitude,lightning,In)
 
     real :: cloud2ground_frac
 
-    cloud2ground_frac = 1. / (5.16 + 2.16*cos(latitude))
+    cloud2ground_frac = 1. / (5.16 + 2.16*cos(3.*latitude)) !!!added boreal fire fix by Rui 
     if (FireMIP_ltng) cloud2ground_frac = 1. !!! dsward added for FireMIP lightning file
     In = lightning * cloud2ground_frac * In_c2g_ign_eff
     In = In * dt_fast/86400.
@@ -2139,17 +2168,18 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
 end subroutine vegn_fire_ROS
 
 !!! dsward_crownfires
-subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
+subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac, &
+                fire_intensity,LB,fire_dur,fire_line_length)
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(in) :: soil
     real, intent(in)    :: theta,theta_extinction
     real, intent(in)    :: ROS_surface
-
+    real, intent(in)    :: LB, fire_dur
     real, intent(out)   :: crown_scorch_frac  ! Fraction of burned area that experiences crown scorch (and
                                               ! therefore augmented ROS)
     real, intent(out)   :: fire_intensity     ! Intensity of fire [kJ/kg(DM)]
     real, intent(out)   :: ROS                ! Rate of spread augmented by crown fire amount
-
+    real, intent(out)   :: fire_line_length
     real, parameter     :: CL_parameter = 0.333    ! Crown-length parameter from Thonicke et al. (2010)
     real, parameter     :: H_parameter = 18000.    ! Fuel heat content from Thonicke et al. (2010)
     real                :: F_parameter        ! Fuel bulk density parameter from Thonicke et al. (2010)
@@ -2196,7 +2226,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
     FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45
-    fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
+    fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s] [kW/m]
 
     SH_parameter = F_parameter * (fire_intensity**0.6667)
     crown_scorch_frac = ((SH_parameter-height+CL_parameter)/CL_parameter)*0.01 ! percent to fraction
@@ -2205,11 +2235,23 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
 
     if (do_crownfires) then
         ROS = ROS_surface*(1.-crown_scorch_frac)+ROS_surface*3.34*(crown_scorch_frac)
+        fire_intensity = ROS * FC_parameter * H_parameter  !!! [kJ/m/s] [kW/m]
     else
         ROS = ROS_surface
     endif
 
-    vegn%fire_rad_power = vegn%fire_rad_power + fire_intensity * 1.e3 * (1./46.4) * dt_fast / 86400. ! [W/m]
+   !!! armanp: Assuming fires develop an elliptical shape the fire_line can be considered (half?) the
+   !!! perimeter of the shape of fire which can be estimated as pi * (0.5*(a**2 + b**2))**0.5
+   !!! a = half the length of major axis = 0.5 * ROS * fire_duration
+   !!! b = a / lenght_to_breadth_ratio
+
+    fire_line_length = pi * (0.5 * ((0.5 * ROS * fire_dur)**2 + (0.5 * ROS * fire_dur / LB)**2))**0.5
+!    vegn%fire_line_len = vegn%fire_line_len + fire_line_length
+    if (do_fireline_fire_intensity) then
+            vegn%fire_rad_power = vegn%fire_rad_power + fire_intensity * (fire_line_length) * 0.2 * dt_fast / 86400. ![kW] 20%radf
+    else
+            vegn%fire_rad_power = vegn%fire_rad_power + fire_intensity * (1./46.4) * dt_fast / 86400. ! [kW]
+    endif
 end subroutine vegn_fire_intensity
 !!! dsward_crownfires end
 
@@ -2607,6 +2649,7 @@ subroutine vegn_burn_ppa(tile)
   tile%vegn%csmoke_pool = tile%vegn%csmoke_pool + burned_C
   tile%vegn%Nsmoke_pool = tile%vegn%Nsmoke_pool + burned_N
   tile%vegn%csmoke_rate = tile%vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
+  tile%vegn%csmoke_rate_daily = tile%vegn%csmoke_pool    ! kg C/(m2 day) !!!armanp
   ! what do we do with Nsmoke_pool?
 !  tile%vegn%Nsmoke_rate = tile%vegn%Nsmoke_rate * days_per_year ! kg N/(m2 yr)
   call check_conservation_2(tile,'vegn_burn_ppa 3',lmass0,fmass0,cmass0,nmass0)
@@ -2778,6 +2821,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   vegn%csmoke_pool = vegn%csmoke_pool + burned_C + sum(burned_litt_C)
   vegn%Nsmoke_pool = vegn%Nsmoke_pool + burned_N + sum(burned_litt_N)
   vegn%csmoke_rate = vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
+  vegn%csmoke_rate_daily = vegn%csmoke_pool    ! kg C/(m2 day) !!!armanp
 
   tile_circum_m2 = (((tile_area_m2*burned_frac)/3.1415927)**0.5)*2.*3.1415927
   num_pixel_scale = 1.
@@ -2810,6 +2854,7 @@ subroutine vegn_fire_sendtiledata_Cburned(diag, tile_vegn)
        call send_tile_data(id_burn_Cemit_CO2,tile_vegn%burn_Cemit_CO2,diag) !!! dsward_FMIP
        call send_tile_data(id_burn_Cemit_CO,tile_vegn%burn_Cemit_CO,diag) !!! dsward_FMIP
        call send_tile_data(id_fire_rad_power,tile_vegn%fire_rad_power,diag) !!! dsward_int
+!       call send_tile_data(id_fire_line_len,tile_vegn%fire_line_len,diag)
     else
        call send_tile_data(id_burn_Cemit,0.0,diag)
        call send_tile_data(id_burn_Cemit_noCWL,0.0,diag)   ! SSR20151227
@@ -2826,16 +2871,18 @@ subroutine vegn_fire_sendtiledata_Cburned(diag, tile_vegn)
        call send_tile_data(id_burn_Cemit_CO2,0.0,diag) !!! dsward_FMIP
        call send_tile_data(id_burn_Cemit_CO,0.0,diag) !!! dsward_FMIP
        call send_tile_data(id_fire_rad_power,0.0,diag) !!! dsward_int
+!       call send_tile_data(id_fire_line_len,0.0,diag)
     endif
 
 end subroutine vegn_fire_sendtiledata_Cburned
 
 
-subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
+subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth,BA_day,BF_day)
   type(vegn_tile_type), intent(inout) :: vegn
   type(time_type), intent(in)  :: Time
   real, intent(in) :: tile_area_km2
   real, intent(out)   ::  BA_mth, BF_mth
+  real, intent(out)   ::  BA_day, BF_day
   real :: num_days
 
   num_days = days_in_month(Time)
@@ -2844,13 +2891,16 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
   ! they need to be multiplied by the number of days in the month.
   if (vegn%landuse==LU_CROP) then
      BF_mth = vegn%Fcrop * num_days
+     BF_day = vegn%Fcrop * 1. !!!armanp 
   elseif (vegn%landuse==LU_PAST) then
      BF_mth = vegn%Fpast * num_days
+     BF_day = vegn%Fpast * 1. !!!armanp
   endif
 
   ! BF cannot be > 1!
   if (BF_mth > 1.0) then
      call check_var_range(BF_mth, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_mth', WARNING)
+
      if (vegn%landuse==LU_CROP) then
         write(*,*) 'Setting BF_mth for this CROP tile to 1.0.'
      elseif (vegn%landuse==LU_PAST) then
@@ -2861,6 +2911,20 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 
   BA_mth = BF_mth * tile_area_km2
 
+  ! BF cannot be > 1!
+  if (BF_day > 1.0) then 
+     call check_var_range(BF_day, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_day', WARNING)
+
+     if (vegn%landuse==LU_CROP) then
+        write(*,*) 'Setting BF_day for this CROP tile to 1.0.'
+     elseif (vegn%landuse==LU_PAST) then
+        write(*,*) 'Setting BF_day for this PAST tile to 1.0.'
+     endif
+     BF_day = 1.0
+  endif
+    
+  BA_day = BF_day * tile_area_km2
+
   if (is_watch_point()) then
      write(*,*) '##### checkpoint vegn_fire_BA_agri #####'
      if (vegn%landuse==LU_CROP) then
@@ -2869,6 +2933,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
         write(*,*) 'PAST tile. Fpast = ', vegn%Fpast
      endif
      write(*,*) 'BF_mth', BF_mth
+     write(*,*) 'BF_day', BF_day
      write(*,*) '########################################'
   endif
 
