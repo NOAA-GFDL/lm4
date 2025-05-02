@@ -836,7 +836,8 @@
        pday1 = flip_flop(NO_DATE, dopt1, dbeg1, dend1, K1, DE1, DO1, B1, E1, I1)
        if(B1 .and. E1) exit loop1
        if(pday1 == 0) cycle loop1
-       hday1 =  pday1+GP_1
+       hday1 = pday1 + GP_1
+       if(hday1 > 365) hday1 = hday1 - 365
        if(no_overlap(pday1, hday1, pday2, hday2)) then
          !----------------------------------
           dble_cropping_calendar(1,1) = pday1
@@ -866,7 +867,8 @@
        pday2 = flip_flop(NO_DATE, dopt2, dbeg2, dend2, K2, DE2, DO2, B2, E2, I2)
        if(B2 .and. E2) exit loop2
        if(pday2 == 0) cycle loop2
-       hday2 =  pday2+GP_2
+       hday2 = pday2 + GP_2
+       if(hday2 > 365) hday2 = hday2 - 365
        if(no_overlap(pday1, hday1, pday2, hday2)) then
          !----------------------------------
           dble_cropping_calendar(1,2) = pday2
@@ -891,6 +893,7 @@
    loop3: do
      pday1 = flip_flop(NO_DATE, dopt1, dbeg1, dend1, K1, DE1, DO1, B1, E1, I1)
      hday1 = pday1 + GP_1
+     if(hday1 > 365) hday1 = hday1 - 365
      if(B1 .and. E1) exit loop3
      if(pday1 == 0) cycle loop3
      I2 = .false. ! Tells function flip_flop within loop4 that it needs to initialize. It must initialize each interation of loop3.
@@ -902,6 +905,7 @@
        if(B2 .and. E2) exit loop4
        if(pday2 == 0) cycle loop4
        hday2 = pday2 + GP_2
+       if(hday2 > 365) hday2 = hday2 - 365
        if(no_overlap(pday1, hday1, pday2, hday2)) then
         !----------------------------------
          dble_cropping_calendar(1,1) = pday1
