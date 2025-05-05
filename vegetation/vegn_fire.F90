@@ -246,6 +246,8 @@ logical  ::  do_crownfires = .FALSE.
 logical  ::  FireMIP_ltng = .FALSE.
 real     ::  mdf_threshold = 1.0
 logical  ::  do_fireline_fire_intensity = .FALSE.    !!! armanp
+logical  ::  cloud2ground_bug = .FALSE.
+logical  ::  do_daily_agri_fires = .FALSE.
 
 ! slm moved from vegn_data
 logical :: split_past_tiles = .TRUE.
@@ -292,7 +294,9 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     magic_scalar, &   ! SSR20160222
                     split_past_tiles, &
                     do_multiday_fires, do_crownfires, FireMIP_ltng, mdf_threshold, &  !!! dsward_opt
-                    do_fireline_fire_intensity   !!! armanp
+                    do_fireline_fire_intensity, &  !!! armanp
+                    cloud2ground_bug, do_daily_agri_fires
+
 !---- end of namelist --------------------------------------------------------
 real :: dt_fast      ! fast time step, s
 
@@ -791,7 +795,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   id_crown_scorch_frac = register_tiled_diag_field (diag_mod_name, 'crown_scorch_frac',axes, &
        time, 'Fraction of burned area ', 'dimensionless', &
        missing_value=-1.0)
-       id_fire_rad_power = register_tiled_diag_field (diag_mod_name, 'fire_rad_power',axes, &
+  id_fire_rad_power = register_tiled_diag_field (diag_mod_name, 'fire_rad_power',axes, &
        time, 'Fire radiative power ', 'kW', &
        missing_value=-1.0)
   id_fire_line_len = register_tiled_diag_field (diag_mod_name, 'fire_line_len',axes, &
@@ -1085,12 +1089,9 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
   call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
 
 ! !!! armanp: calls update_fire_Fk every day
-!  if (day1/=day0) then
-     call update_fire_Fk(tile%vegn,tile%diag,l)
-!  endif
-!  if (month1/=month0) then
-!     call update_fire_Fk(tile%vegn,tile%diag,l)
-!  endif
+  if (month1/=month0 .or. (day1/=day0 .and. do_daily_agri_fires)) then
+    call update_fire_Fk(tile%vegn,tile%diag,l)
+  endif
 
   if (burns_as_ntrl(tile)) then
      ! Update conditions for fire
@@ -1103,30 +1104,34 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
      call send_tile_data(id_mdf_BA_tot, tile%vegn%total_BA_mdf,              tile%diag)
      call send_tile_data(id_mdf_Nfires, sum(tile%vegn%past_fires_mdf(2:30)), tile%diag)
   elseif (burns_as_agri(tile)) then
-     if (day1/=day0) then
-        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
-        BF_day_mult = BF_day * 86400.0/dt_fast
-        BA_day_mult = BA_day * 86400.0/dt_fast
+     if (do_daily_agri_fires) then
+        if (day1/=day0) then
+           call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
+           BF_day_mult = BF_day * 86400.0/dt_fast
+           BA_day_mult = BA_day * 86400.0/dt_fast
+        else
+           BF_day_mult = 0.0
+           BA_day_mult = 0.0
+        endif
+        call send_tile_data_BABF_forAgri(tile%diag,BF_day_mult,BA_day_mult)
+
      else
-        BF_day_mult = 0.0
-        BA_day_mult = 0.0
+
+       if (month1/=month0) then
+         call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
+
+         ! Make sure that when todays BA is calculated as the average over all
+         ! fast time steps, it equals the total amount of burning that actually
+         ! occurred. Note that this will make this time step value look INSANE,
+         ! but that is only a problem when looking at sub-daily diagnostics.
+         BF_mth_mult = BF_mth * 86400.0/dt_fast
+         BA_mth_mult = BA_mth * 86400.0/dt_fast
+       else
+         BF_mth_mult = 0.0
+         BA_mth_mult = 0.0
+       endif
+       call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
      endif
-     call send_tile_data_BABF_forAgri(tile%diag,BF_day_mult,BA_day_mult)
-
-!     if (month1/=month0) then
-!        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
-
-        ! Make sure that when todays BA is calculated as the average over all
-        ! fast time steps, it equals the total amount of burning that actually
-        ! occurred. Note that this will make this time step value look INSANE,
-        ! but that is only a problem when looking at sub-daily diagnostics.
-!        BF_mth_mult = BF_mth * 86400.0/dt_fast
-!        BA_mth_mult = BA_mth * 86400.0/dt_fast
-!     else
-!        BF_mth_mult = 0.0
-!        BA_mth_mult = 0.0
-!     endif
-!     call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
   endif
   ! conservation check, part 2: calculate totals
   call check_conservation_2(tile,'update_fire_fast',lmass0,fmass0,cmass0,nmass0)
@@ -1445,8 +1450,11 @@ subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth,BF_day,BA_day)
   call vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth,BA_day,BF_day)
 
   ! accumulate burned fraction since last burn (SSR: after vegn_disturbance.F90)
-!  vegn%burned_frac = vegn%burned_frac + BF_mth !!!armanp commented
-  vegn%burned_frac = vegn%burned_frac + BF_day
+  if (do_daily_agri_fires) then
+    vegn%burned_frac = vegn%burned_frac + BF_day
+  else
+    vegn%burned_frac = vegn%burned_frac + BF_mth
+  endif
 
   ! dsward added for fire_switch off case
   if (vegn%burned_frac.gt.1.0) then
@@ -1962,7 +1970,12 @@ subroutine vegn_fire_In(latitude,lightning,In)
 
     real :: cloud2ground_frac
 
-    cloud2ground_frac = 1. / (5.16 + 2.16*cos(3.*latitude)) !!!added boreal fire fix by Rui 
+! Rabin et al. (2018)
+    if (cloud2ground_bug) then
+       cloud2ground_frac = 1. / (5.16 + 2.16*cos(latitude))
+    else
+       cloud2ground_frac = 1. / (5.16 + 2.16*cos(3.*latitude)) !!!added boreal fire fix by Rui 
+    endif
     if (FireMIP_ltng) cloud2ground_frac = 1. !!! dsward added for FireMIP lightning file
     In = lightning * cloud2ground_frac * In_c2g_ign_eff
     In = In * dt_fast/86400.
