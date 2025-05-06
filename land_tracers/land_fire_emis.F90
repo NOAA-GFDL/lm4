@@ -99,12 +99,12 @@ subroutine land_fire_emis_init(id_ug,frdata)
  call get_number_tracers (MODEL_ATMOS, num_tracers=nt_atmos)
  
   n_fire_tr = 0
-! see if any of the atmos_tracers have bb_emis is lm4
+! see if any of the atmos_tracers have bb_emis is land:lm4
   do tr = 1, nt_atmos
      call get_tracer_names (MODEL_ATMOS, tr, name = name)
      trind = get_tracer_index(MODEL_ATMOS,name)
      if(query_method('emissions2dbb', MODEL_ATMOS, trind, method, parameters)) then
-        if (trim(method)=='lm4') then
+        if (trim(method)=='land:lm4') then
         n_fire_tr=n_fire_tr+1
         endif
      endif
@@ -119,7 +119,7 @@ allocate(frdata(1:n_fire_tr))
      trind = get_tracer_index(MODEL_ATMOS,name)
      method = ''; parameters = ''
      if(query_method('emissions2dbb', MODEL_ATMOS, trind, method, parameters)) then
-        if (trim(method)=='lm4') then
+        if (trim(method)=='land:lm4') then
         i = i + 1
         frdata(i)%name = trim(name)
         frdata(i)%tr_atm = get_tracer_index(MODEL_ATMOS,name)
