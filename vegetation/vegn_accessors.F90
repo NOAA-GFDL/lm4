@@ -110,7 +110,6 @@ DEFINE_VEGN_ACCESSOR_0D(real,tc_pheno)
 DEFINE_VEGN_ACCESSOR_0D(real,tc_dorm)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
-DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate_daily)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_wl)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_ws)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_hl)
@@ -122,8 +121,6 @@ DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_N)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_rate_C)
 DEFINE_VEGN_ACCESSOR_1D(real,drop_seed_C)
 DEFINE_VEGN_ACCESSOR_1D(real,drop_seed_N)
-
-DEFINE_VEGN_ACCESSOR_1D(real,fire_emis_land) !!!dsward_cpl
 
 DEFINE_COHORT_ACCESSOR(real,Tv)
 DEFINE_COHORT_ACCESSOR(real,Wl)
