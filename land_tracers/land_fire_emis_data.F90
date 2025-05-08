@@ -1,10 +1,11 @@
 module land_fire_emis_data_mod
 
-use mpp_mod, only: stdout, stdlog
+use fms_mod, only: stdout, stdlog, error_mesg, string, NOTE, FATAL
 use field_manager_mod, only: fm_field_name_len, &
      fm_type_name_len, MODEL_ATMOS, MODEL_LAND, parse
 use tracer_manager_mod, only: NO_TRACER, get_number_tracers, get_tracer_names, &
      get_tracer_index, query_method
+use gex_mod, only : gex_get_index
 
 use vegn_data_mod, only: nspecies, spdata
 use land_data_mod, only: log_version
@@ -16,35 +17,38 @@ private
 ! ---- public interfaces
 public :: init_fire_emis_data
 public :: fire_emis_type
-public :: n_fire_tr ! number of fire tracers
+public :: n_fire_tr  ! number of fire tracers
+public :: tr_gex_frp ! index of fire radiative power in GEX array of fields
 public :: frdata
 
 
 ! ---- module constants
-character(len=*), parameter :: module_name = 'glac_tile_mod'
+character(*), parameter :: module_name = 'land_fire_emis_data_mod'
+character(*), parameter :: data_error_header = 'FIRE TRACER DATA FATAL ERROR'
 #include "../shared/version_variable.inc"
 
 ! ---- structure holding fire emission data
 type fire_emis_type
   character(fm_field_name_len) :: name = ''  ! name of the tracer
   integer :: tr_atm  = NO_TRACER ! index of this tracer in atmos tracer array
-  real    :: fire_mw = 1.0                            ! molecular weights of fire tracers
+  integer :: tr_gex  = NO_TRACER ! index of this tracer in GEX tracer array
+  real    :: fire_mw = 1.0       ! molecular weight of this fire tracers
   real    :: efactors(6) = (/ 93., 127., 127., 88., 63., 63. /)  ! emission factors for fire emissions of the tracer species
 end type
 
 ! module variables
 logical :: module_is_initialized =.FALSE.
 
-integer, protected :: n_fire_tr ! number of fire tracers
+integer, protected :: n_fire_tr  =  0 ! number of fire tracers
+integer, protected :: tr_gex_frp = -1 ! index of fire radiative power in GEX array of fields
 type(fire_emis_type), allocatable, protected :: frdata(:) ! fire emissions data
-
 contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 ! Read fire emission data from field tables and initialize data structures.
 subroutine init_fire_emis_data()
 
   integer :: i, nsp, tr
-  integer :: trind
+  integer :: total_errors
   character(fm_field_name_len) :: name ! name of the vegn tracer
   character(fm_type_name_len)  :: typ  ! type of the vegn tracer
   integer :: nt_atmos
@@ -52,6 +56,8 @@ subroutine init_fire_emis_data()
   character(len=500) :: parameters
   real    :: value ! temporary storage for parsing input
   type(table_printer_type) :: table
+
+  if (module_is_initialized) return ! do nothing further
 
   call log_version(version, module_name, __FILE__)
 
@@ -62,27 +68,32 @@ subroutine init_fire_emis_data()
   ! see if any of the atmos_tracers have bb_emis is land:lm4
   do tr = 1, nt_atmos
      call get_tracer_names (MODEL_ATMOS, tr, name = name)
-     trind = get_tracer_index(MODEL_ATMOS,name)
-     if(query_method('emissions2dbb', MODEL_ATMOS, trind, method, parameters)) then
+     if(query_method('emissions2dbb', MODEL_ATMOS, tr, method, parameters)) then
         if (trim(method)=='land:lm4') then
            n_fire_tr=n_fire_tr+1
         endif
      endif
   enddo
 
+  if (n_fire_tr .eq. 0) then
+     call error_mesg(module_name, 'No interactive fire emission tracers found in ATMOS tracer table', NOTE)
+     module_is_initialized = .TRUE.
+     return
+  endif
+
   allocate(frdata(1:n_fire_tr))
 
-  i = 0
+  i = 0; total_errors = 0
   ! register the frdata info
   do tr = 1, nt_atmos
      call get_tracer_names (MODEL_ATMOS, tr, name = name)
-     trind = get_tracer_index(MODEL_ATMOS,name)
      method = ''; parameters = ''
-     if(query_method('emissions2dbb', MODEL_ATMOS, trind, method, parameters)) then
+     if(query_method('emissions2dbb', MODEL_ATMOS, tr, method, parameters)) then
         if (trim(method)=='land:lm4') then
            i = i + 1
            frdata(i)%name = trim(name)
            frdata(i)%tr_atm = get_tracer_index(MODEL_ATMOS,name)
+           frdata(i)%tr_gex = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'fire_emis_'//frdata(i)%name)
            if ( parse(parameters, 'mw', value) > 0 ) then
               frdata(i)%fire_mw = value
            endif
@@ -91,20 +102,36 @@ subroutine init_fire_emis_data()
                  frdata(i)%efactors(nsp+1) = value
               endif
            enddo
+           if (frdata(i)%tr_gex.le.0) then
+              total_errors = total_errors + 1
+              call error_mesg(data_error_header, &
+                    'Tracer "fire_emis_'//trim(frdata(tr)%name)//'" not found in gex_lnd2atm', NOTE)
+           endif
         endif
      endif
   enddo
 
+  tr_gex_frp = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'frp')
+  if (tr_gex_frp.le.0) then
+     total_errors = total_errors + 1
+     call error_mesg(data_error_header, &
+           'Tracer "frp" not found in gex_lnd2atm', NOTE)
+  endif
+
   ! log tracer information
   call init_with_headers(table, frdata(:)%name)
   call add_row(table, 'atm.tr.number',   frdata(:)%tr_atm)
-  call add_row(table, 'fire_mw',  frdata(:)%fire_mw)
+  call add_row(table, 'GEX.tr.number',   frdata(:)%tr_gex)
+  call add_row(table, 'fire_mw',         frdata(:)%fire_mw)
   do nsp = 0, nspecies-1
      call add_row(table, 'ef_'//trim(spdata(nsp)%name),frdata(:)%efactors(nsp+1))
   enddo
-!   call print(table,stdlog(),transposed=.TRUE.)
-  call print(table,stdlog())
-  call print(table,stdout())
+  call print(table,stdlog(),transposed=.TRUE.)
+  call print(table,stdout(),transposed=.TRUE.)
+  if (total_errors > 0) then
+     call error_mesg(module_name, trim(string(total_errors))//' errors found in species parameters tables, look for "'//&
+                                  data_error_header//'" in this output', FATAL)
+  endif
 
   module_is_initialized = .TRUE.
 end subroutine init_fire_emis_data
