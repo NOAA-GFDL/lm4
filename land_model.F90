@@ -34,8 +34,8 @@ use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_c
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
-use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis, land_fire_emis_end, &
-     n_fire_tr, fire_emis_type
+use land_fire_emis_data_mod, only: init_fire_emis_data, n_fire_tr, frdata
+use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis, land_fire_emis_end
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -302,7 +302,6 @@ integer :: &
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 integer, allocatable :: id_gex_atm2lnd_diag(:)
 integer, allocatable :: id_gex_lnd2atm_diag(:)
-type(fire_emis_type), allocatable, target :: frdata(:) ! fire emissions data
 
 ! IDs of CMOR/CMIP variables
 integer :: id_sftlf, id_sftgif ! static fractions
@@ -432,6 +431,7 @@ subroutine land_model_init &
   call read_glac_namelist()
   call read_snow_namelist()
   call read_cana_namelist()
+  call init_fire_emis_data()
 
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
   steps_per_day = 86400.0/delta_time
@@ -503,7 +503,7 @@ subroutine land_model_init &
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
   call land_tracer_driver_init(id_ug,id_zfull)
-  call land_fire_emis_init(id_ug,frdata)   ! anp
+  call land_fire_emis_init(id_ug)   ! anp
 
   !get gex indices [needs to be done before update_land_bc fast]
   id_gex_lnd2atm_test = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'test')
@@ -2719,7 +2719,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
      call update_fire_fast(tile, p_surf, atmos_wind, l)
 
-     call land_fire_emis(tile,frdata)   !anp
+     call land_fire_emis(tile)   !anp
   endif
 
   ! update co2 concentration in the canopy air. It would be more consistent to do that
