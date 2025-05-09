@@ -2,33 +2,16 @@ module land_fire_emis_mod
 
 #include "../shared/debug.inc"
 
-! This stuff is boilerplate for making/reading namelists.
-use mpp_mod, only: mpp_pe, mpp_root_pe
-use mpp_mod, only: input_nml_file
-
-use constants_mod,   only: PI
-use time_manager_mod, only : time_type, get_date, days_in_month, operator(-), &
-                             time_type_to_real
-use fms_mod, only : check_nml_error, error_mesg, stdlog, stdout, &
-      lowercase, WARNING, FATAL, NOTE
+use fms_mod, only : input_nml_file, stdout, stdlog, check_nml_error, &
+      error_mesg, stdlog, stdout, lowercase, uppercase, WARNING, FATAL, NOTE
+use constants_mod, only: PI, AVOGNO
+use time_manager_mod, only : time_type, time_type_to_real
 use diag_manager_mod, only : register_diag_field, send_data
 use field_manager_mod , only : MODEL_ATMOS, MODEL_LAND, parse
 use land_constants_mod, only : seconds_per_year
 use land_tile_mod, only : land_tile_type
-!!! dsward_cpl added several use statements, many to accompany vegn_tracer table creation
-use field_manager_mod, only: fm_field_name_len, fm_string_len, &
-     fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
-     fm_get_current_list, fm_loop_over_list, fm_change_list
-use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string, fm_util_get_real_array
-use tracer_manager_mod, only : NO_TRACER, get_number_tracers, get_tracer_names, get_tracer_index, &
-                               query_method
-use land_fire_emis_data_mod, only: n_fire_tr, frdata
 use table_printer_mod
-use mpp_mod, only: stdout, stdlog, mpp_error
-!use land_data_mod, only: MAX_FR_TR
 use vegn_data_mod, only: nspecies, spdata
-use constants_mod, only: AVOGNO
-use fms_mod, only : uppercase
 use land_data_mod, only : lnd, log_version
 use land_tile_diag_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data
@@ -45,18 +28,10 @@ public :: fire_emis_type
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_fire_emis'
-
-!namelist /land_fire_emis_nml/ &
-!    fire_emission_factor_file
+#include "../shared/version_variable.inc"
 
 logical         :: module_is_initialized =.FALSE.
-integer, parameter :: MAX_FR_TR = 99
-real            :: delta_time
-real            :: dt_fast_yr      ! fast time step in years
-integer :: id_fire_emis(MAX_FR_TR)
-
-!!! dsward_cpl end
-
+integer, allocatable :: id_fire_emis(:)
 
 
 contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -65,9 +40,11 @@ subroutine land_fire_emis_init(id_ug)
   integer,intent(in) :: id_ug !<Unstructured axis id.
   integer :: i
 
-  delta_time  = time_type_to_real(lnd%dt_fast)
-  dt_fast_yr = delta_time/seconds_per_year
 
+  if (module_is_initialized) return
+
+  ! currently the only action here is the registration of the diagnostic fields
+  allocate(id_fire_emis(n_fire_tr))
   do i = 1,n_fire_tr
      id_fire_emis(i) = register_tiled_diag_field( module_name, &
           trim(frdata(i)%name)//'_fire_emis', (/id_ug/), lnd%time, &
@@ -76,7 +53,10 @@ subroutine land_fire_emis_init(id_ug)
   module_is_initialized = .TRUE.
 end subroutine land_fire_emis_init
 
-subroutine land_fire_emis_end
+! Finish using the model: deallocate memory, etc.
+subroutine land_fire_emis_end()
+   if (allocated(id_fire_emis)) deallocate(id_fire_emis)
+
    module_is_initialized = .FALSE.
 end subroutine land_fire_emis_end
 

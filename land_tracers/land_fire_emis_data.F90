@@ -33,7 +33,9 @@ type fire_emis_type
   integer :: tr_atm  = NO_TRACER ! index of this tracer in atmos tracer array
   integer :: tr_gex  = NO_TRACER ! index of this tracer in GEX tracer array
   real    :: fire_mw = 1.0       ! molecular weight of this fire tracers
-  real    :: efactors(6) = (/ 93., 127., 127., 88., 63., 63. /)  ! emission factors for fire emissions of the tracer species
+  real    :: efactors(6) = (/ 93., 127., 127., 88., 63., 63. /)  ! emission factors for
+          ! fire emissions of the tracer species (these initial values are for CO,
+          ! overriden in tracer table entries)
 end type
 
 ! module variables
