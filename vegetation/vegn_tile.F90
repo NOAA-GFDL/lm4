@@ -31,6 +31,8 @@ use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 use soil_carbon_mod, only : soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 
+use land_fire_emis_data_mod, only : n_fire_tr
+
 implicit none
 private
 
@@ -120,7 +122,7 @@ type :: vegn_tile_type
    real :: harv_pool_N(N_HARV_POOLS) = 0.0 ! harvested nitrogen pool
 
 !!! dsward_cpl added
-   real :: fire_emis_land(99)=0.0 ! tracer emissions from fires
+   real, allocatable :: fire_emis_land(:) ! tracer emissions from fires
    real :: FRP=0.0 ! Fire radiative power used to calculate max FRP which is passed to the atmosphere
 !!! dsward_cpl end
 
@@ -243,6 +245,9 @@ function vegn_tile_ctor(tag) result(ptr)
   allocate(ptr%drop_seed_C(0:nspecies-1), ptr%drop_seed_N(0:nspecies-1))
   ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0
   ptr%tag = tag
+  ! Allocate fire emission array with at least one element, to avoid special
+  ! handling of the case when the array is not allocated.
+  allocate(ptr%fire_emis_land(max(n_fire_tr,1)))
 end function vegn_tile_ctor
 
 ! ============================================================================
@@ -264,6 +269,7 @@ subroutine delete_vegn_tile(vegn)
 
   deallocate(vegn%cohorts)
   deallocate(vegn%drop_seed_C, vegn%drop_seed_N)
+  deallocate(vegn%fire_emis_land)
   deallocate(vegn)
 end subroutine delete_vegn_tile
 
