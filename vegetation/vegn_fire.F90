@@ -1070,10 +1070,9 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
   ! --- local vars
   integer :: year0, month0, day0, hour, minute, second, &
              year1, month1, day1
-  real    :: BF_mth, BF_mth_mult, &
-             BA_mth, BA_mth_mult
-  real    :: BF_day, BF_day_mult, &
-             BA_day, BA_day_mult
+  real    :: BF_ag, BF_ag_mult, &
+             BA_ag, BA_ag_mult
+  logical :: update_agri_fires
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -1105,33 +1104,26 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
      call send_tile_data(id_mdf_Nfires, sum(tile%vegn%past_fires_mdf(2:30)), tile%diag)
   elseif (burns_as_agri(tile)) then
      if (do_daily_agri_fires) then
-        if (day1/=day0) then
-           call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
-           BF_day_mult = BF_day * 86400.0/dt_fast
-           BA_day_mult = BA_day * 86400.0/dt_fast
-        else
-           BF_day_mult = 0.0
-           BA_day_mult = 0.0
-        endif
-        call send_tile_data_BABF_forAgri(tile%diag,BF_day_mult,BA_day_mult)
-
+        update_agri_fires = (day1/=day0)
      else
-
-       if (month1/=month0) then
-         call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth,BF_day,BA_day)
-
-         ! Make sure that when todays BA is calculated as the average over all
-         ! fast time steps, it equals the total amount of burning that actually
-         ! occurred. Note that this will make this time step value look INSANE,
-         ! but that is only a problem when looking at sub-daily diagnostics.
-         BF_mth_mult = BF_mth * 86400.0/dt_fast
-         BA_mth_mult = BA_mth * 86400.0/dt_fast
-       else
-         BF_mth_mult = 0.0
-         BA_mth_mult = 0.0
-       endif
-       call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
+        update_agri_fires = (month1/=month0)
      endif
+     if (update_agri_fires) then
+        ! Make sure that when todays BA is calculated as the average over all
+        ! fast time steps, it equals the total amount of burning that actually
+        ! occurred. Note that this will make this time step value look INSANE,
+        ! but that is only a problem when looking at sub-daily diagnostics.
+        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_ag,BA_ag)
+        ! BF_ag, BA_ag are *per period* (day or month); rescaling converts them per time step
+        BF_ag_mult = BF_ag * 86400.0/dt_fast
+        BA_ag_mult = BA_ag * 86400.0/dt_fast
+     else
+        BF_ag_mult = 0.0
+        BA_ag_mult = 0.0
+     endif
+     ! Remember, sending BF_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
+     call send_tile_data(id_BF_rate, BF_ag_mult, tile%diag)
+     call send_tile_data(id_BA_rate, BA_ag_mult, tile%diag)
   endif
   ! conservation check, part 2: calculate totals
   call check_conservation_2(tile,'update_fire_fast',lmass0,fmass0,cmass0,nmass0)
@@ -1319,7 +1311,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     call send_tile_data(id_tropType,    1.0*vegn%trop_code,      diag)
     call send_tile_data(id_crown_scorch_frac, crown_scorch_frac, diag)
     call send_tile_data(id_fire_intensity,    fire_intensity,    diag)
-    call send_tile_data(id_fire_rad_power,   vegn%fire_rad_power,diag) 
+    call send_tile_data(id_fire_rad_power,   vegn%fire_rad_power,diag)
     call send_tile_data(id_fire_line_len,fire_line_length,diag)
 
 
@@ -1439,31 +1431,24 @@ subroutine update_multiday_fires(vegn,tile_area)
 end subroutine update_multiday_fires
 !!! dsward_mdf end
 
-subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth,BF_day,BA_day)
+subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_ag,BA_ag)
   type(vegn_tile_type), intent(inout) :: vegn
-  type(time_type), intent(in)  :: Time
+  type(time_type), intent(in) :: Time
   real, intent(in) :: tile_area_km2
-  real, intent(out):: BF_mth, BA_mth   ! Total burned area (km2) or burned fraction of tile
-  real, intent(out):: BF_day, BA_day   ! Total burned area (km2) or burned fraction of tile
+  real, intent(out):: BA_ag ! Total burned area of tile, km2
+  real, intent(out):: BF_ag ! Total burned fraction of tile
 
   ! Calculate burned fraction
-  call vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth,BA_day,BF_day)
+  call vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_ag,BF_ag)
 
   ! accumulate burned fraction since last burn (SSR: after vegn_disturbance.F90)
-  if (do_daily_agri_fires) then
-    vegn%burned_frac = vegn%burned_frac + BF_day
-  else
-    vegn%burned_frac = vegn%burned_frac + BF_mth
-  endif
+  vegn%burned_frac = vegn%burned_frac + BF_ag
 
   ! dsward added for fire_switch off case
   if (vegn%burned_frac.gt.1.0) then
+     call check_var_range(vegn%burned_frac,0.0,1.0, 'update_fire_agri', 'vegn%burned_frac', WARNING)
      vegn%burned_frac=1.0
-     write(*,*)"burned_frac greater than 1. burned_frac = ",vegn%burned_frac
   endif
-
-  ! vegn%burned_frac should not be >1 after having restricted BF_mth in vegn_fire_BA_agri
- ! call check_var_range(vegn%burned_frac, 0.0, 1.0, 'update_fire_agri', 'vegn%burned_frac', FATAL)
 
 end subroutine update_fire_agri
 
@@ -1974,7 +1959,7 @@ subroutine vegn_fire_In(latitude,lightning,In)
     if (cloud2ground_bug) then
        cloud2ground_frac = 1. / (5.16 + 2.16*cos(latitude))
     else
-       cloud2ground_frac = 1. / (5.16 + 2.16*cos(3.*latitude)) !!!added boreal fire fix by Rui 
+       cloud2ground_frac = 1. / (5.16 + 2.16*cos(3.*latitude)) !!!added boreal fire fix by Rui
     endif
     if (FireMIP_ltng) cloud2ground_frac = 1. !!! dsward added for FireMIP lightning file
     In = lightning * cloud2ground_frac * In_c2g_ign_eff
@@ -2889,54 +2874,45 @@ subroutine vegn_fire_sendtiledata_Cburned(diag, tile_vegn)
 
 end subroutine vegn_fire_sendtiledata_Cburned
 
-
-subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth,BA_day,BF_day)
-  type(vegn_tile_type), intent(inout) :: vegn
+! calculate the burned fraction and burned area of agricaltural tile during a period
+! of time (month or day)
+subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_ag,BF_ag)
+  type(vegn_tile_type), intent(in) :: vegn
   type(time_type), intent(in)  :: Time
-  real, intent(in) :: tile_area_km2
-  real, intent(out)   ::  BA_mth, BF_mth
-  real, intent(out)   ::  BA_day, BF_day
-  real :: num_days
+  real, intent(in)  :: tile_area_km2
+  real, intent(out) :: BA_ag ! burned area on this agriculturel tile, km2/period (month or day)
+  real, intent(out) :: BF_ag ! burned fraction of this agriculturel tile, 1/period (month or day)
 
-  num_days = days_in_month(Time)
+  real :: num_days ! number of days in a period
 
-  ! Fcrop and Fpast are per-day rates. Since they are just being called once per month,
-  ! they need to be multiplied by the number of days in the month.
+  if (do_daily_agri_fires) then
+     num_days = 1.0
+  else
+     num_days = days_in_month(Time)
+  endif
+
+  ! Fcrop and Fpast are per-day rates. Since they are just being called once in a while,
+  ! per month, they need to be multiplied by the number of days in the period (monthly
+  ! or daily).
   if (vegn%landuse==LU_CROP) then
-     BF_mth = vegn%Fcrop * num_days
-     BF_day = vegn%Fcrop * 1. !!!armanp 
+     BF_ag = vegn%Fcrop * num_days
   elseif (vegn%landuse==LU_PAST) then
-     BF_mth = vegn%Fpast * num_days
-     BF_day = vegn%Fpast * 1. !!!armanp
+     BF_ag = vegn%Fpast * num_days
   endif
 
   ! BF cannot be > 1!
-  if (BF_mth > 1.0) then
-     call check_var_range(BF_mth, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_mth', WARNING)
+  if (BF_ag > 1.0) then
+     call check_var_range(BF_ag, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_ag', WARNING)
 
      if (vegn%landuse==LU_CROP) then
-        write(*,*) 'Setting BF_mth for this CROP tile to 1.0.'
+        write(*,*) 'Setting BF_ag for this CROP tile to 1.0.'
      elseif (vegn%landuse==LU_PAST) then
-        write(*,*) 'Setting BF_mth for this PAST tile to 1.0.'
+        write(*,*) 'Setting BF_ag for this PAST tile to 1.0.'
      endif
-     BF_mth = 1.0
+     BF_ag = 1.0
   endif
 
-  BA_mth = BF_mth * tile_area_km2
-
-  ! BF cannot be > 1!
-  if (BF_day > 1.0) then 
-     call check_var_range(BF_day, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_day', WARNING)
-
-     if (vegn%landuse==LU_CROP) then
-        write(*,*) 'Setting BF_day for this CROP tile to 1.0.'
-     elseif (vegn%landuse==LU_PAST) then
-        write(*,*) 'Setting BF_day for this PAST tile to 1.0.'
-     endif
-     BF_day = 1.0
-  endif
-    
-  BA_day = BF_day * tile_area_km2
+  BA_ag = BF_ag * tile_area_km2
 
   if (is_watch_point()) then
      write(*,*) '##### checkpoint vegn_fire_BA_agri #####'
@@ -2945,8 +2921,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth,BA_day,BF_day
      elseif (vegn%landuse==LU_PAST) then
         write(*,*) 'PAST tile. Fpast = ', vegn%Fpast
      endif
-     write(*,*) 'BF_mth', BF_mth
-     write(*,*) 'BF_day', BF_day
+     __DEBUG1__(BF_ag)
      write(*,*) '########################################'
   endif
 
@@ -3163,16 +3138,6 @@ subroutine update_Nfire_BA_fast(vegn, diag, l, tile_area, &
      call send_tile_data(id_BAperFire0_DERIVwrt_ROSmax, BAperFire0_DERIVwrt_ROSmax, diag)
   endif
 end subroutine update_Nfire_BA_fast
-
-
-subroutine send_tile_data_BABF_forAgri(diag,BF_mth,BA_mth)
-   type(diag_buff_type), intent(inout) :: diag
-   real, intent(in)    :: BF_mth, BA_mth
-
-   call send_tile_data(id_BF_rate, BF_mth, diag)   ! Remember, sending BF_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
-   call send_tile_data(id_BA_rate, BA_mth, diag)   ! Remember, sending BA_mth when it is calculated and 0 otherwise results in a good per-day rate for the month as a whole
-
-end subroutine send_tile_data_BABF_forAgri
 
 
 subroutine calc_fire_derivs(&
