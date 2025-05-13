@@ -46,9 +46,9 @@ integer :: vegn_rad_option = -1 ! selector of the vegetation radiation option
 integer :: snow_rad_option = -1 ! selector of the intercepted snow treatment option
 integer :: snow_alb_option = -1 ! selector of the intercepted snow albedo option
 
-integer :: debug_count = 0 ! if set to 0, print intercepted snow parameter debug
+logical :: debug_trigger = .FALSE. ! if set to .TRUE., print intercepted snow parameter debug
                            ! information on the first call to vegetation radiation.
-                           ! -1 means not to do it.
+                           ! .FALSE. means not to do it.
 
 ! ---- namelist --------------------------------------------------------------
 character(32) :: vegn_rad_to_use = 'big-leaf' ! or 'two-stream'
@@ -322,9 +322,9 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
      snow_f_iso_cold, snow_f_vol_cold, snow_f_geo_cold, &
      snow_refl_min_dir, snow_refl_max_dir, &
      snow_refl_min_dif, snow_refl_max_dif, &
-     snow_refl_dir, snow_refl_dif , debug_count.eq.0)
-  call snow_emis_kernel ( cohort%Tv, snow_emis_min, snow_emis_max, snow_refl_lw, snow_emis, debug_count.eq.0 )
-  debug_count = debug_count - 1
+     snow_refl_dir, snow_refl_dif, debug_trigger)
+  call snow_emis_kernel ( cohort%Tv, snow_emis_min, snow_emis_max, snow_refl_lw, snow_emis, debug_trigger )
+  debug_trigger = .FALSE.
 
   sp = cohort%species
   do i = 1, NBANDS
