@@ -21,7 +21,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public  ::  land_fire_emis_init, land_fire_emis_end
+public :: land_fire_emis_init, land_fire_emis_end
 public :: land_fire_emis
 public :: fire_emis_type
 !!! dsward_cpl end
@@ -66,26 +66,24 @@ end subroutine land_fire_emis_end
 subroutine land_fire_emis(tile)
    type(land_tile_type), intent(inout) :: tile
 
-   real  :: c_efactors(nspecies)  ! emission factors for fire emissions of C
-   real  :: c_efact_def(nspecies)  ! emission factors for fire emissions of C
+   real  :: c_efactors (0:nspecies-1)  ! emission factors for fire emissions of C
+   real  :: c_efact_def(0:nspecies-1)  ! emission factors for fire emissions of C
    real  :: sp_ave_ef ! emission factors averaged over cohorts
    real  :: c_ave_ef
 
-!!! temporary:
-   real  :: temp_csmoke_rate = 1.0
    real  :: csmoke_rate_daily = 0.0
 
    integer :: sp ! shorthand for cohort species
-   integer :: i,j,ln,k,l
+   integer :: i,j
 
 
    !!! Use C emission factors for these tracers
    !!! to compute dry matter burned from C lost.
 
-   c_efactors(1:nspecies)=0.0
+   c_efactors(:)=0.0
    c_efact_def=(/491.751, 464.989, 464.989, 489.416, 488.273, 488.273/)
    do i=1,n_fire_tr
-      if (uppercase(frdata(i)%name(1:2))=='C') c_efactors(1:nspecies)=frdata(i)%efactors(1:nspecies)
+      if (uppercase(frdata(i)%name(1:2))=='C') c_efactors(:) = frdata(i)%efactors(:)
    enddo
 
    do j = 1,n_fire_tr
@@ -95,39 +93,34 @@ subroutine land_fire_emis(tile)
 
       if (associated(tile%vegn)) then
          associate(cc=>tile%vegn%cohorts)
-             do i = 1, tile%vegn%n_cohorts
+            do i = 1, tile%vegn%n_cohorts
+               sp = cc(i)%species
 
-             sp = cc(i)%species+1   !!! added the plus one since efactors are indexed to one
+               if (c_efactors(sp)==0.0) c_efactors(sp)=c_efact_def(sp)
 
-             if (c_efactors(sp)==0.0) c_efactors(sp)=c_efact_def(sp)
-
-             c_ave_ef=c_ave_ef+c_efactors(sp)
-             sp_ave_ef=sp_ave_ef+frdata(j)%efactors(sp)
-
+               c_ave_ef  = c_ave_ef  + c_efactors(sp)
+               sp_ave_ef = sp_ave_ef + frdata(j)%efactors(sp)
             end do
          end associate ! cc
 
-      c_ave_ef=c_ave_ef/tile%vegn%n_cohorts
-      sp_ave_ef=sp_ave_ef/tile%vegn%n_cohorts
+         c_ave_ef  = c_ave_ef/tile%vegn%n_cohorts
+         sp_ave_ef = sp_ave_ef/tile%vegn%n_cohorts
 
-      csmoke_rate_daily = tile%vegn%csmoke_rate * (1./(365.))
-      if (csmoke_rate_daily < 0.0) csmoke_rate_daily = 0.0
-      tile%vegn%fire_emis_land(j) = sp_ave_ef * &
+         csmoke_rate_daily = tile%vegn%csmoke_rate * (1./(365.))
+         if (csmoke_rate_daily < 0.0) csmoke_rate_daily = 0.0
+         tile%vegn%fire_emis_land(j) = sp_ave_ef * &
                                     csmoke_rate_daily * &
                                     (1./(c_ave_ef * 1.E-3)) * &!! convert C to DM in grams
                                     1.E-4 * &                  !! m2_to_cm2
                                     (1./(24.*60.*60.)) * &     !! per_second
                                     (1./frdata(j)%fire_mw) * &
                                     AVOGNO
-
       endif
    end do
-
 
    do i = 1,n_fire_tr
       call send_tile_data(id_fire_emis(i), tile%vegn%fire_emis_land(i),  tile%diag)
    enddo
-
 end subroutine land_fire_emis
 
 end module land_fire_emis_mod

@@ -48,7 +48,7 @@ contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ! Read fire emission data from field tables and initialize data structures.
 subroutine init_fire_emis_data()
 
-  integer :: i, sp, nsp, tr
+  integer :: i, sp, tr
   integer :: total_errors
   character(fm_field_name_len) :: name ! name of the vegn tracer
   character(fm_type_name_len)  :: typ  ! type of the vegn tracer
@@ -104,14 +104,12 @@ subroutine init_fire_emis_data()
            if ( parse(parameters, 'mw', value) > 0 ) then
               frdata(i)%fire_mw = value
            endif
-!            allocate(frdata(i)%efactors(0:nspecies-1))
-           allocate(frdata(i)%efactors(nspecies))
+           allocate(frdata(i)%efactors(0:nspecies-1))
            frdata(i)%efactors(:) = -1.0
            do sp = 0, nspecies-1
               if (trim(spdata(sp)%name)=='default') cycle ! skip emission for fake "default" species that should never appear in model's vegetation
-              nsp = sp+1
               if ( parse(parameters, 'ef_'//trim(spdata(sp)%name), value) > 0 ) then
-                 frdata(i)%efactors(nsp) = value
+                 frdata(i)%efactors(sp) = value
               else
                  total_errors = total_errors + 1
                  call error_mesg(data_error_header, &
@@ -137,9 +135,8 @@ subroutine init_fire_emis_data()
 
   allocate(value1(n_fire_tr))
   do sp = 0, nspecies-1
-     nsp = sp+1
      do tr = 1, n_fire_tr
-        value1(tr) = frdata(tr)%efactors(nsp)
+        value1(tr) = frdata(tr)%efactors(sp)
      enddo
      call add_row(table, 'ef_'//trim(spdata(sp)%name),value1(:))
   enddo
