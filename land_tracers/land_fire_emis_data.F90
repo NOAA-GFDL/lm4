@@ -1,6 +1,6 @@
 module land_fire_emis_data_mod
 
-use fms_mod, only: stdout, stdlog, error_mesg, string, NOTE, FATAL
+use fms_mod, only: stdout, stdlog, error_mesg, string, NOTE, WARNING, FATAL
 use field_manager_mod, only: fm_field_name_len, &
      fm_type_name_len, MODEL_ATMOS, MODEL_LAND, parse
 use tracer_manager_mod, only: NO_TRACER, get_number_tracers, get_tracer_names, &
@@ -33,9 +33,8 @@ type fire_emis_type
   integer :: tr_atm  = NO_TRACER ! index of this tracer in atmos tracer array
   integer :: tr_gex  = NO_TRACER ! index of this tracer in GEX tracer array
   real    :: fire_mw = 1.0       ! molecular weight of this fire tracers
-  real    :: efactors(6) = (/ 93., 127., 127., 88., 63., 63. /)  ! emission factors for
-          ! fire emissions of the tracer species (these initial values are for CO,
-          ! overriden in tracer table entries)
+  real, allocatable  :: efactors(:) ! emission factors for fire emissions of the
+                                 ! tracer species
 end type
 
 ! module variables
@@ -49,7 +48,7 @@ contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ! Read fire emission data from field tables and initialize data structures.
 subroutine init_fire_emis_data()
 
-  integer :: i, nsp, tr
+  integer :: i, sp, nsp, tr
   integer :: total_errors
   character(fm_field_name_len) :: name ! name of the vegn tracer
   character(fm_type_name_len)  :: typ  ! type of the vegn tracer
@@ -57,6 +56,7 @@ subroutine init_fire_emis_data()
   character(len=500) :: method
   character(len=500) :: parameters
   real    :: value ! temporary storage for parsing input
+  real, allocatable :: value1(:) ! temporary storage solely for tracer data table output
   type(table_printer_type) :: table
 
   if (module_is_initialized) return ! do nothing further
@@ -96,19 +96,28 @@ subroutine init_fire_emis_data()
            frdata(i)%name = trim(name)
            frdata(i)%tr_atm = get_tracer_index(MODEL_ATMOS,name)
            frdata(i)%tr_gex = gex_get_index( MODEL_LAND,MODEL_ATMOS, 'fire_emis_'//frdata(i)%name)
-           if ( parse(parameters, 'mw', value) > 0 ) then
-              frdata(i)%fire_mw = value
-           endif
-           do nsp = 0, nspecies-1
-              if ( parse(parameters, 'ef_'//trim(spdata(nsp)%name), value) > 0 ) then
-                 frdata(i)%efactors(nsp+1) = value
-              endif
-           enddo
            if (frdata(i)%tr_gex.le.0) then
               total_errors = total_errors + 1
               call error_mesg(data_error_header, &
-                    'Tracer "fire_emis_'//trim(frdata(tr)%name)//'" not found in gex_lnd2atm', NOTE)
+                    'Tracer "fire_emis_'//trim(frdata(i)%name)//'" not found in gex_lnd2atm', WARNING)
            endif
+           if ( parse(parameters, 'mw', value) > 0 ) then
+              frdata(i)%fire_mw = value
+           endif
+!            allocate(frdata(i)%efactors(0:nspecies-1))
+           allocate(frdata(i)%efactors(nspecies))
+           frdata(i)%efactors(:) = -1.0
+           do sp = 0, nspecies-1
+              if (trim(spdata(sp)%name)=='default') cycle ! skip emission for fake "default" species that should never appear in model's vegetation
+              nsp = sp+1
+              if ( parse(parameters, 'ef_'//trim(spdata(sp)%name), value) > 0 ) then
+                 frdata(i)%efactors(nsp) = value
+              else
+                 total_errors = total_errors + 1
+                 call error_mesg(data_error_header, &
+                       trim(frdata(i)%name)//' fire emission factor for species "'//trim(spdata(sp)%name)//'" not found in the field table', WARNING)
+              endif
+           enddo
         endif
      endif
   enddo
@@ -125,11 +134,19 @@ subroutine init_fire_emis_data()
   call add_row(table, 'atm.tr.number',   frdata(:)%tr_atm)
   call add_row(table, 'GEX.tr.number',   frdata(:)%tr_gex)
   call add_row(table, 'fire_mw',         frdata(:)%fire_mw)
-  do nsp = 0, nspecies-1
-     call add_row(table, 'ef_'//trim(spdata(nsp)%name),frdata(:)%efactors(nsp+1))
+
+  allocate(value1(n_fire_tr))
+  do sp = 0, nspecies-1
+     nsp = sp+1
+     do tr = 1, n_fire_tr
+        value1(tr) = frdata(tr)%efactors(nsp)
+     enddo
+     call add_row(table, 'ef_'//trim(spdata(sp)%name),value1(:))
   enddo
   call print(table,stdlog(),transposed=.TRUE.)
   call print(table,stdout(),transposed=.TRUE.)
+  deallocate(value1)
+
   if (total_errors > 0) then
      call error_mesg(module_name, trim(string(total_errors))//' errors found in species parameters tables, look for "'//&
                                   data_error_header//'" in this output', FATAL)
