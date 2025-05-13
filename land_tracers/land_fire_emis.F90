@@ -66,8 +66,6 @@ end subroutine land_fire_emis_end
 subroutine land_fire_emis(tile)
    type(land_tile_type), intent(inout) :: tile
 
-   real  :: c_efactors (0:nspecies-1)  ! emission factors for fire emissions of C
-   real  :: c_efact_def(0:nspecies-1)  ! emission factors for fire emissions of C
    real  :: sp_ave_ef ! emission factors averaged over cohorts
    real  :: c_ave_ef
 
@@ -77,17 +75,7 @@ subroutine land_fire_emis(tile)
    integer :: i,j
 
 
-   !!! Use C emission factors for these tracers
-   !!! to compute dry matter burned from C lost.
-
-   c_efactors(:)=0.0
-   c_efact_def=(/491.751, 464.989, 464.989, 489.416, 488.273, 488.273/)
-   do i=1,n_fire_tr
-      if (uppercase(frdata(i)%name(1:2))=='C') c_efactors(:) = frdata(i)%efactors(:)
-   enddo
-
    do j = 1,n_fire_tr
-
       c_ave_ef=0.
       sp_ave_ef=0.
 
@@ -96,9 +84,7 @@ subroutine land_fire_emis(tile)
             do i = 1, tile%vegn%n_cohorts
                sp = cc(i)%species
 
-               if (c_efactors(sp)==0.0) c_efactors(sp)=c_efact_def(sp)
-
-               c_ave_ef  = c_ave_ef  + c_efactors(sp)
+               c_ave_ef  = c_ave_ef  + spdata(sp)%c_per_dry_matter
                sp_ave_ef = sp_ave_ef + frdata(j)%efactors(sp)
             end do
          end associate ! cc

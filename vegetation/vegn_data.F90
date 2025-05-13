@@ -277,6 +277,7 @@ type spec_data_type
     ! get critical value for fire -- only one is non-zero at the time
 
   real    :: smoke_fraction   = 0.6 ! fraction of carbon lost as smoke during fires
+  real    :: C_per_dry_matter = 500.0 ! [(g of C)/(kg of dry matter)] amount of carbon in kg of dry matter
 
   ! data from LM3W, temporarily here
   real    :: dat_height       = 6.6
@@ -1053,8 +1054,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(root_C_retrans_frac)
   __GET_SPDATA_REAL__(cnst_crit_fire)
   __GET_SPDATA_REAL__(fact_crit_fire)
-
   __GET_SPDATA_REAL__(smoke_fraction)
+  __GET_SPDATA_REAL__(C_per_dry_matter)
+
   __GET_SPDATA_REAL__(LMA)
   __GET_SPDATA_REAL__(LMA_understory_factor)
 
@@ -1521,6 +1523,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'fact_crit_fire',spdata(idx)%fact_crit_fire)
   call add_row(table, 'cnst_crit_fire',spdata(idx)%cnst_crit_fire)
   call add_row(table, 'smoke_fraction',spdata(idx)%smoke_fraction)
+  call add_row(table, 'C_per_dry_matter',spdata(idx)%C_per_dry_matter)
 
   call add_row(table, 'dynamic_root_exudation', spdata(idx)%dynamic_root_exudation)
   call add_row(table, 'root_exudate_frac', spdata(idx)%root_exudate_frac)
