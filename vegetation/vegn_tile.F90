@@ -115,7 +115,6 @@ type :: vegn_tile_type
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
    real :: nsmoke_pool=0.0 ! nitrogen lost through fires, kg N/m2
-   real :: csmoke_rate_daily=0.0 ! rate of release of csmoke_pool to atmosphere, kg C/(m2 day) !armanp
 
    real :: harv_pool_C(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate_C(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
@@ -375,7 +374,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
-  __MERGE__(csmoke_rate_daily)
   __MERGE__(nsmoke_pool)
 
   __MERGE__(fire_emis_land)   !!! anp

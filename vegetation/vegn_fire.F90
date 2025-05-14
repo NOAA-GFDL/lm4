@@ -2658,7 +2658,6 @@ subroutine vegn_burn_ppa(tile)
   tile%vegn%csmoke_pool = tile%vegn%csmoke_pool + burned_C
   tile%vegn%Nsmoke_pool = tile%vegn%Nsmoke_pool + burned_N
   tile%vegn%csmoke_rate = tile%vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
-  tile%vegn%csmoke_rate_daily = tile%vegn%csmoke_pool    ! kg C/(m2 day) !!!armanp
   ! what do we do with Nsmoke_pool?
 !  tile%vegn%Nsmoke_rate = tile%vegn%Nsmoke_rate * days_per_year ! kg N/(m2 yr)
   call check_conservation_2(tile,'vegn_burn_ppa 3',lmass0,fmass0,cmass0,nmass0)
@@ -2830,7 +2829,6 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   vegn%csmoke_pool = vegn%csmoke_pool + burned_C + sum(burned_litt_C)
   vegn%Nsmoke_pool = vegn%Nsmoke_pool + burned_N + sum(burned_litt_N)
   vegn%csmoke_rate = vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
-  vegn%csmoke_rate_daily = vegn%csmoke_pool    ! kg C/(m2 day) !!!armanp
 
   tile_circum_m2 = (((tile_area_m2*burned_frac)/3.1415927)**0.5)*2.*3.1415927
   num_pixel_scale = 1.
