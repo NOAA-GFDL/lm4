@@ -35,7 +35,7 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use land_fire_emis_data_mod, only: init_fire_emis_data, n_fire_tr, tr_gex_frp, frdata
-use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis, land_fire_emis_end
+use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis_end, diag_fire_emissions
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -2717,8 +2717,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call soil_step_3(tile%soil, tile%diag)
 
      call update_fire_fast(tile, p_surf, atmos_wind, l)
-
-     call land_fire_emis(tile)   !anp
   endif
 
   ! update co2 concentration in the canopy air. It would be more consistent to do that
@@ -4041,19 +4039,37 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      land2cplr%gex_lnd2atm(l,k,id_gex_lnd2atm_test) = 1.0
   endif
 
-  if (associated(tile%vegn)) then
-    if (tr_gex_frp > 0) then
-       land2cplr%gex_lnd2atm(l,k,tr_gex_frp) = tile%vegn%fire_rad_power  !!!armanp
-    endif
-    do tr = 1,n_fire_tr
-       tr_gex = frdata(tr)%tr_gex
-       if (tr_gex > 0) then
-          land2cplr%gex_lnd2atm(l,k,tr_gex) = tile%vegn%fire_emis_land(tr)  !!!armanp
-       else
-          call land_error_message('fire_emis_'//trim(frdata(tr)%name)//' not found in gex_lnd2atm',FATAL)
-       endif
-    enddo
+!   if (associated(tile%vegn)) then
+!     if (tr_gex_frp > 0) then
+!        land2cplr%gex_lnd2atm(l,k,tr_gex_frp) = tile%vegn%fire_rad_power  !!!armanp
+!     endif
+!     do tr = 1,n_fire_tr
+!        tr_gex = frdata(tr)%tr_gex
+!        if (tr_gex > 0) then
+!           land2cplr%gex_lnd2atm(l,k,tr_gex) = tile%vegn%fire_emis_land(tr)  !!!armanp
+!        else
+!           call land_error_message('fire_emis_'//trim(frdata(tr)%name)//' not found in gex_lnd2atm',FATAL)
+!        endif
+!     enddo
+!   endif
+
+  if (tr_gex_frp > 0) then
+     if (associated(tile%vegn)) then
+        land2cplr%gex_lnd2atm(l,k,tr_gex_frp) = tile%vegn%fire_rad_power  !!!armanp
+     else
+        land2cplr%gex_lnd2atm(l,k,tr_gex_frp) = 0.0
+     endif
   endif
+  do tr = 1,n_fire_tr
+     tr_gex = frdata(tr)%tr_gex
+     if (tr_gex.le.0) &
+            call land_error_message('fire_emis_'//trim(frdata(tr)%name)//' not found in gex_lnd2atm',FATAL)
+     if (associated(tile%vegn)) then
+        land2cplr%gex_lnd2atm(l,k,tr_gex) = tile%vegn%fire_emis_land(tr)  !!!armanp
+     else
+        land2cplr%gex_lnd2atm(l,k,tr_gex) = 0.0
+     endif
+  enddo
 
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
@@ -4090,6 +4106,8 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
   call send_tile_data(id_grnd_T,     grnd_T,     tile%diag)
   call send_tile_data(id_displ,      tile%land_d,      tile%diag)
+
+  call diag_fire_emissions(tile)
 
   do m = 1,gex_get_n_ex(MODEL_LAND,MODEL_ATMOS)
      if (id_gex_lnd2atm_diag(m).gt.0) then

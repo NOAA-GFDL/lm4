@@ -32,8 +32,9 @@ use land_tile_io_mod, only: land_restart_type, &
       add_restart_axis, add_tile_data, get_tile_data, field_exists
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_tracers_mod, only : isphum
+use land_fire_emis_mod, only : update_fire_emissions
 
-use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
+use vegn_data_mod, only : spdata, nspecies, agf_bs, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
       LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
@@ -2528,7 +2529,8 @@ subroutine vegn_burn_ppa(tile)
   real :: CC_gross ! combustion completeness of wood/sapwood, taking into account above-ground fraction
   real :: cover ! weight for combustion completeness averaging
   real, dimension(N_C_TYPES) :: burned_C_1, burned_C_2, burned_N_1, burned_N_2
-  real :: burned_C_3, burned_N_3, burned_C, burned_N
+  real :: burned_C_3, burned_N_3, burned_C, burned_CC, burned_N
+  real :: burned_SP(0:nspecies-1) ! burned biomass per species, kgC/m2
   real, dimension(N_C_TYPES) :: leaf_litt_C, wood_litt_C, leaf_litt_N, wood_litt_N ! accumulated litter, kg/m2
   real, dimension(num_l, N_C_TYPES) :: root_litt_C, root_litt_N ! accumulated root litter per soil layer, kgC/m2
   type(vegn_cohort_type), pointer :: bc(:) ! pointer for cohort reallocation, if necessary
@@ -2536,7 +2538,7 @@ subroutine vegn_burn_ppa(tile)
   integer :: ms,me,ns,ne ! starting and ending indices of burned and unburned cohorts
   integer :: k ! cohort iterator
   real :: dheat ! heat residual due to cohort merging
-  integer :: i
+  integer :: i, isp
 
   ! variables for conservation checks
   real :: lmass0, fmass0, cmass0, nmass0
@@ -2606,17 +2608,23 @@ subroutine vegn_burn_ppa(tile)
      tile%vegn%n_cohorts = size(bc)
   endif
 
+  burned_SP(:) = 0.0 ! zero burned carbon by species, to prepare for accumulation of cohort values
   associate(cc=>tile%vegn%cohorts)
   do k = ms,me
-     associate (sp=>spdata(cc(k)%species))
+     isp = cc(k)%species
+     associate (sp=>spdata(isp))
      cc(k)%nindivs = BF*cc(k)%nindivs
      CC_gross = sp%CC_stem * agf_bs ! only agf_bs fraction of wood and sapwood is above ground,
        ! so gross combustion completion must be reduced but that fraction
 
-     burned_C = burned_C + ( &
-                 sp%CC_leaf * (cc(k)%bl + cc(k)%bseed) + &
+     ! amount of carbon burned for given cohort
+     burned_CC = (sp%CC_leaf * (cc(k)%bl + cc(k)%bseed) + &
                  CC_gross   * (cc(k)%bsw + cc(k)%bwood) &
                  ) * cc(k)%nindivs
+     ! amount of burned carbon by species
+     burned_SP(isp) = burned_SP(isp) + burned_CC
+     ! total burned carbon
+     burned_C = burned_C + burned_CC
      burned_N = burned_N + ( &
                  sp%CC_leaf * (cc(k)%leaf_N + cc(k)%seed_N) + &
                  CC_gross   * (cc(k)%sapwood_N + cc(k)%wood_N) &
@@ -2660,6 +2668,9 @@ subroutine vegn_burn_ppa(tile)
   tile%vegn%csmoke_rate = tile%vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
   ! what do we do with Nsmoke_pool?
 !  tile%vegn%Nsmoke_rate = tile%vegn%Nsmoke_rate * days_per_year ! kg N/(m2 yr)
+
+  call update_fire_emissions(tile%vegn,burned_SP)
+
   call check_conservation_2(tile,'vegn_burn_ppa 3',lmass0,fmass0,cmass0,nmass0)
 end subroutine vegn_burn_ppa
 
@@ -2669,7 +2680,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
 
-  integer :: i, l
+  integer :: i, l, isp
   real :: CC_leaf, CC_stem, CC_living   ! What fraction of tissues get combusted?
   real :: fireMort_leaf, fireMort_stem, fireMort_root, fireMort_living   ! What fraction of non-combusted tissues get killed by fire?
   real :: burned_frac
@@ -2681,6 +2692,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
   real, dimension(N_LITTER_POOLS) :: CC_litt ! litter combustion completeness
   real, dimension(N_LITTER_POOLS) :: burned_litt_C, burned_litt_N
   real :: burned_C_3, burned_N_3, burned_C, burned_N
+  real :: burned_SP(0:nspecies-1) ! burned biomass per species, kgC/m2
   real :: killed_live_C, killed_wood_C, killed_root_C
   real :: killed_live_N, killed_wood_N, killed_root_N
   type(vegn_cohort_type) :: bc ! burned cohort
@@ -2740,9 +2752,11 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      call error_mesg('vegn_burn_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 
+  burned_SP(:) = 0.0 ! zero burned carbon by species, to prepare for accumulation of cohort values
   do i = 1,vegn%n_cohorts
-     associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
-     bc = cc ! burned bart of cohort, initially the same as unburned
+     isp = vegn%cohorts(i)%species
+     associate(cc=>vegn%cohorts(i), sp=>spdata(isp))
+     bc = cc ! burned part of cohort, initially the same as unburned
 
      ! burn cohort
      ! Combustion of bwood_gain. carbon_gain is presumably 0 because this is called daily
@@ -2751,9 +2765,12 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      else
         CC_living = 1.0
      endif
+     ! note that in LM3/LM4.0 there is only one cohort per tile, so burned_C and burned_N
+     ! are not accumulated across cohorts
      burned_C = CC_leaf*bc%bl + CC_stem*(bc%blv+bc%bwood+bc%bsw) + CC_living*bc%bwood_gain
      burned_N = CC_leaf*bc%leaf_N + CC_stem*(bc%wood_N+bc%sapwood_N+bc%stored_N)
      ! is there anything like bwood_gain for nitrogen? should we even burn bwood_gain?
+     burned_SP(isp) = burned_C
 
      bc%bl    = (1-CC_leaf) * bc%bl     ; bc%leaf_N    = (1-CC_leaf) * bc%leaf_N
      bc%blv   = (1-CC_stem) * bc%blv    ; bc%stored_N  = (1-CC_stem) * bc%stored_N
@@ -2836,6 +2853,8 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
 
   vegn%fire_rad_power = vegn%fire_rad_power*tile_circum_m2/num_pixel_scale  !!! [W/pixel]
   if (vegn%fire_rad_power .eq. 0.0) vegn%fire_rad_power = 1.e7
+
+  call update_fire_emissions(vegn,burned_SP)
 end subroutine vegn_burn_lm3
 
 
@@ -3554,6 +3573,15 @@ subroutine fire_transitions_0D(tiles, land_area, l)
      call set_current_point(l,k) ! set current point for debugging
 
      if (.not.associated(tile%vegn)) cycle ! do nothing to non-vegetated tiles
+
+     ! Zero out emissions: they will be recalculated for the tiles that actually burn,
+     ! and remain zero for the tiles that are not affected by fires at this time.
+     ! NOTE that this relies on the assumption that all matter emitted by the previous
+     ! fire is spent by this time. This should work for multi-day fires too, because
+     ! they just add area to be burned at any given day, based on the previous days in
+     ! addition to other factors.
+     tile%vegn%fire_emis_land(:) = 0.0
+
      BA_km2 = land_area*tile%frac*tile%vegn%burned_frac*1e-6
      if ( do_fire_tiling &
          .AND. BA_km2 >= min_BA_to_split &
