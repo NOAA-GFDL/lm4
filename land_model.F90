@@ -35,7 +35,8 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use land_fire_emis_data_mod, only: init_fire_emis_data, n_fire_tr, tr_gex_frp, frdata
-use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis_end, diag_fire_emissions
+use land_fire_emis_mod, only: land_fire_emis_init, land_fire_emis_end, &
+     save_fire_emis_restart, diag_fire_emissions
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -747,6 +748,7 @@ subroutine land_model_restart(timestamp)
   call save_vegn_restart(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
   call save_fire_restart(tile_dim_length,timestamp_)
+  call save_fire_emis_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
 
 end subroutine land_model_restart

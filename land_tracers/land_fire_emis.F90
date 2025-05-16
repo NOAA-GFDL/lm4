@@ -4,29 +4,32 @@ module land_fire_emis_mod
 
 use fms_mod, only : input_nml_file, stdout, stdlog, check_nml_error, &
       error_mesg, stdlog, stdout, lowercase, uppercase, WARNING, FATAL, NOTE
-use constants_mod, only: PI, AVOGNO
-use land_constants_mod, only : days_per_year
-use time_manager_mod, only : time_type, time_type_to_real
-use diag_manager_mod, only : register_diag_field, send_data
 use field_manager_mod , only : MODEL_ATMOS, MODEL_LAND, parse
-use land_constants_mod, only : seconds_per_year
+use constants_mod, only: PI, AVOGNO
+
+use land_constants_mod, only : days_per_year
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_tile_data, &
+     get_tile_data, field_exists
 use land_debug_mod, only : check_var_range
 use land_tile_mod, only : land_tile_type
 use vegn_tile_mod, only : vegn_tile_type
-use table_printer_mod
+use vegn_accessors_mod, only : vegn_tile_exists, vegn_fire_emis_land_ptr
 use vegn_data_mod, only: nspecies, spdata
 use land_data_mod, only : lnd, log_version
 use land_tile_diag_mod, only : set_default_diag_filter, &
         register_tiled_diag_field, send_tile_data
 use land_fire_emis_data_mod, only : fire_emis_type, frdata, n_fire_tr
 
+use table_printer_mod
+
 implicit none
 private
 
 ! ==== public interfaces =====================================================
 public :: land_fire_emis_init, land_fire_emis_end
-! public :: land_fire_emis
-! public :: fire_emis_type
+public :: save_fire_emis_restart
 public :: update_fire_emissions
 public :: diag_fire_emissions
 
@@ -34,32 +37,51 @@ public :: diag_fire_emissions
 character(len=*), parameter :: module_name = 'land_fire_emis'
 #include "../shared/version_variable.inc"
 
-logical         :: module_is_initialized =.FALSE.
+logical :: module_is_initialized =.FALSE.
 integer, allocatable :: id_fire_emis(:)
 
 
 contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+! ============================================================================
 subroutine land_fire_emis_init(id_ug)
   integer,intent(in) :: id_ug !<Unstructured axis id.
-  integer :: i
 
+  type(land_restart_type) :: restart
+  logical :: restart_exists
+  integer :: tr
 
   if (module_is_initialized) return
+
+  call open_land_restart(restart,'INPUT/land_fire_emis.nc',restart_exists)
+  if (restart_exists) then
+     call error_mesg('land_fire_emis_init',&
+          'reading NetCDF restarts "INPUT/land_fire_emis.res.nc"',&
+          NOTE)
+     do tr = 1, n_fire_tr
+        if (field_exists(restart,trim(frdata(tr)%name)//'_fire_emis')) &
+            call get_tile_data(restart,trim(frdata(tr)%name)//'_fire_emis',vegn_fire_emis_land_ptr,tr)
+     enddo
+     call free_land_restart(restart)
+  else
+     call error_mesg('land_fire_emis_init', 'cold-starting land fire emissions', NOTE)
+  endif
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
 
-  ! currently the only action here is the registration of the diagnostic fields
+  ! register fire emission diagnostic fields
   allocate(id_fire_emis(n_fire_tr))
-  do i = 1,n_fire_tr
-     id_fire_emis(i) = register_tiled_diag_field( module_name, &
-          trim(frdata(i)%name)//'_fire_emis', (/id_ug/), lnd%time, &
-          'fire emission of '//trim(frdata(i)%name), 'molecules/cm2/s', missing_value=-1.0)
+  do tr = 1,n_fire_tr
+     id_fire_emis(tr) = register_tiled_diag_field( module_name, &
+          trim(frdata(tr)%name)//'_fire_emis', (/id_ug/), lnd%time, &
+          'fire emission of '//trim(frdata(tr)%name), 'molecules/cm2/s', missing_value=-1.0)
   enddo
+
   module_is_initialized = .TRUE.
 end subroutine land_fire_emis_init
 
+! ============================================================================
 ! Finish using the model: deallocate memory, etc.
 subroutine land_fire_emis_end()
    if (allocated(id_fire_emis)) deallocate(id_fire_emis)
@@ -67,6 +89,34 @@ subroutine land_fire_emis_end()
    module_is_initialized = .FALSE.
 end subroutine land_fire_emis_end
 
+! ============================================================================
+subroutine save_fire_emis_restart(tile_dim_length,timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file (max number of tiles per grid cell)
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
+  integer :: tr
+
+  if (n_fire_tr > 0) then
+     call error_mesg('land_fire_emis_end','writing NetCDF restart',NOTE)
+
+     ! create output file, including internal structure necessary for tile output
+     filename = 'RESTART/'//trim(timestamp)//'land_fire_emis.nc'
+     call init_land_restart(restart, filename, vegn_tile_exists, tile_dim_length)
+
+     do tr = 1,n_fire_tr
+        call add_tile_data(restart,trim(frdata(tr)%name)//'_fire_emis',vegn_fire_emis_land_ptr,tr,&
+                           'fire emission of '//trim(frdata(tr)%name), 'molecules/cm2/s')
+     enddo
+     call save_land_restart(restart)
+     call free_land_restart(restart)
+  else
+     call error_mesg('land_fire_emis_end','No fire tracers, NOT writing NetCDF restart',NOTE)
+  endif
+end subroutine save_fire_emis_restart
+
+! ============================================================================
 ! given amount of burned carbon for each vegetation species and rate of carbon emission,
 ! calculate fire emissions for each of the fire tracers and ave it in the array in the
 ! vegetation tile
