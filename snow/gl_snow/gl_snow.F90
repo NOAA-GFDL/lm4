@@ -269,8 +269,8 @@ subroutine gl_save_snow_restart(tile_dim_length,timestamp)
   ! be called on all PEs to work
   call create_snowlayer_dimension(restart1)
 
-  Write(*,*) "writing snow restart : status of snow object:" !//TODO clean up
-  Write(*,*) "snow restart ... cidx = ", restart1%cidx
+!   Write(*,*) "writing snow restart : status of snow object:" !//TODO clean up
+!   Write(*,*) "snow restart ... cidx = ", restart1%cidx
 
   call add_snowlayer_data(restart1,'T',snowlayer_T_ptr,'layer temperature','degrees_K')
   call add_snowlayer_data(restart1,'wl',snowlayer_wl_ptr,'layer liquid water content','kg/m2')
