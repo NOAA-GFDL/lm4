@@ -120,63 +120,54 @@ end subroutine save_fire_emis_restart
 ! given amount of burned carbon for each vegetation species and rate of carbon emission,
 ! calculate fire emissions for each of the fire tracers and ave it in the array in the
 ! vegetation tile
-subroutine update_fire_emissions(vegn, burned_SP)
+subroutine update_fire_emissions(vegn, burned_by_sp)
   type(vegn_tile_type), intent(inout) :: vegn
-  real, intent(in) :: burned_SP(0:nspecies-1) ! amount of burned biomass per species, kgC/(m2 s)
+  real, intent(in) :: burned_by_sp(0:nspecies-1) ! amount of burned biomass per species, kgC/(m2 s)
 
   integer :: tr ! fire tracer index
   integer :: sp ! species index
 
-  real :: efact ! average emission factor for given tracer
-  real :: c_ave_ef ! average C per dry mass (g C)/(kg DM)
-  real :: w     ! averaging weight
   real :: s     ! sum of averaging weights
   real :: csmoke_rate_daily ! fire carbon emission, kg C/(m2 day)
-!   integer :: i
+  real :: csmoke_by_sp(0:nspecies-1)
+
+  call check_var_range(burned_by_sp, 0.0, HUGE(1.0), 'update_fire_emissions', 'burned_by_sp', WARNING)
 
   csmoke_rate_daily = max(0.0, vegn%csmoke_rate / days_per_year)
-  call check_var_range(burned_SP,          0.0, HUGE(1.0), 'update_fire_emissions', 'burned_SP',         WARNING)
+  ! Total burned biomass is typically lower than the total burned carbon because the
+  ! latter includes burned litter. Here we assume that the species distribution in
+  ! the litter is the same as in the burned biomass and scale the burned biomass to
+  ! match the total rate of carbon emission.
+  csmoke_by_sp(:) = max(burned_by_sp, 0.0)
+  s = sum(csmoke_by_sp)
+  if (s > 0) then
+     csmoke_by_sp(:) = csmoke_by_sp(:) / s * csmoke_rate_daily
+  else
+     ! This could be happening when we do not burn, or burn litter only: then
+     ! we take the emission factors from the species of the first cohort (which
+     ! always exists and is also the tallest).
+     csmoke_by_sp(:) = 0.0
+     sp = vegn%cohorts(1)%species
+     csmoke_by_sp(sp) = csmoke_rate_daily
+  endif
 
   do tr = 1,n_fire_tr
-     ! calculate average [i.e. effective] emission factors based on the burned biomass
-     efact = 0.0; c_ave_ef = 0.0; s = 0.0;
+     ! Use the emission factors for each species and with burned carbon rate for
+     ! each species to calculate total emission.
+     vegn%fire_emis_land(tr) = 0.0
      do sp = 0,nspecies-1
-        w     = max(0.0,burned_SP(sp)) ! averaging weight
-        efact = efact + frdata(tr)%efactors(sp) * w
-        c_ave_ef = c_ave_ef + spdata(sp)%c_per_dry_matter * w
-
-        s     = s + w
+        vegn%fire_emis_land(tr) = vegn%fire_emis_land(tr) + &
+             frdata(tr)%efactors(sp) * &
+             csmoke_by_sp(sp) * &
+             (1./(spdata(sp)%c_per_dry_matter * 1.E-3)) * & !! convert C to DM in grams
+             1.E-4 * &                 !! m2_to_cm2
+             (1./(24.*60.*60.)) * &    !! per_second
+             (1./frdata(tr)%fire_mw) * &
+             AVOGNO
      enddo
+  enddo
 
-! old averaging, like Arman did
-!      do i = 1,vegn%n_cohorts
-!         w     = 1.0
-!         sp    = vegn%cohorts(i)%species
-!         efact = efact + frdata(tr)%efactors(sp) * w
-!         c_ave_ef = c_ave_ef + spdata(sp)%c_per_dry_matter * w
-!         s     = s + w
-!      enddo
-
-     if (s>0) then
-        efact = efact/s
-        c_ave_ef = c_ave_ef/s
-     else
-        ! This could be happening when we do not burn, or burn litter only: then
-        ! we take the emission factors from the species of the first cohort (which
-        ! always exists and is also the tallest).
-        sp    = vegn%cohorts(1)%species
-        efact = frdata(tr)%efactors(sp)
-        c_ave_ef = spdata(sp)%c_per_dry_matter
-     endif
-     vegn%fire_emis_land(tr) = efact * &
-        csmoke_rate_daily * &
-        (1./(c_ave_ef * 1.E-3)) * & !! convert C to DM in grams
-        1.E-4 * &                   !! m2_to_cm2
-        (1./(24.*60.*60.)) * &        !! per_second
-        (1./frdata(tr)%fire_mw) * &
-        AVOGNO
-    enddo
-    call check_var_range(vegn%fire_emis_land(:),  0.0, HUGE(1.0), 'update_fire_emissions', 'fire_emis_land', WARNING)
+  call check_var_range(vegn%fire_emis_land(:),  0.0, HUGE(1.0), 'update_fire_emissions', 'fire_emis_land', WARNING)
 end subroutine update_fire_emissions
 
 ! ============================================================================
