@@ -2089,14 +2089,6 @@ subroutine vegn_step_2 ( vegn, diag, &
      total_vegn_ovfl_Hl = total_vegn_ovfl_Hl + vegn_ovfl_Hl*cc%nindivs
      total_vegn_ovfl_Hs = total_vegn_ovfl_Hs + vegn_ovfl_Hs*cc%nindivs
   enddo
-  ! take into account water dropped with dead plants, etc
-  total_vegn_ovfl_l  = total_vegn_ovfl_l  + vegn%drop_wl/delta_time
-  total_vegn_ovfl_s  = total_vegn_ovfl_s  + vegn%drop_ws/delta_time
-  total_vegn_ovfl_Hl = total_vegn_ovfl_Hl + vegn%drop_hl/delta_time
-  total_vegn_ovfl_Hs = total_vegn_ovfl_Hs + vegn%drop_hs/delta_time
-  ! reset buffers for the next time step
-  vegn%drop_wl = 0 ; vegn%drop_ws = 0
-  vegn%drop_hl = 0 ; vegn%drop_hs = 0
 
   ! ---- diagnostic section
   ! TODO: invent a way to aggregate diagnostic fields
