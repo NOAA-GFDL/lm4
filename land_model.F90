@@ -2516,9 +2516,35 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      vegn_hfprec = csw*(vegn_fprec*(precip_T-tfreeze) &
                       + sum(f(:)*vegn_drip_s(:)*(vegn_T(:)+delta_Tv(:)-tfreeze)) &
                       ) + vegn_ovfl_Hs
+     if(is_watch_point()) then
+        write(*,*) '### before drip correction'
+        __DEBUG3__(vegn_lprec, sum(f(:)*vegn_drip_l(:)), vegn_ovfl_l)
+        __DEBUG3__(vegn_fprec, sum(f(:)*vegn_drip_s(:)), vegn_ovfl_s)
+        __DEBUG2__(vegn_hlprec, vegn_hfprec)
+     endif
      ! calculate total amount of liquid and solid precipitation below the canopy
      vegn_lprec  = vegn_lprec + sum(f(:)*vegn_drip_l(:)) + vegn_ovfl_l
      vegn_fprec  = vegn_fprec + sum(f(:)*vegn_drip_s(:)) + vegn_ovfl_s
+     if(is_watch_point()) then
+        write(*,*) '### after drip correction'
+        __DEBUG2__(vegn_lprec, vegn_fprec)
+     endif
+
+     ! add water/snow dropped with dead plants to under-vegetation  precipitation rates,
+     ! or fill the dropped water/snow buffers with available precipitation if it is negative.
+     call exchange_with_buffer(vegn_lprec, vegn_hlprec, tile%vegn%drop_wl, tile%vegn%drop_hl)
+     call exchange_with_buffer(vegn_fprec, vegn_hfprec, tile%vegn%drop_ws, tile%vegn%drop_hs)
+
+     ! sanity checks
+     call check_var_range(vegn_lprec, 0.0, 1.0, 'after drop', 'vegn_lprec', WARNING)
+     if (vegn_lprec.ne.0) then
+        call check_temp_range(vegn_hlprec/(clw*vegn_lprec)+TFREEZE, 'after drop', 'vegn_lprec_T')
+     endif
+     call check_var_range(vegn_fprec, 0.0, 1.0, 'after drop', 'vegn_fprec', WARNING)
+     if (vegn_fprec.ne.0) then
+        call check_temp_range(vegn_hfprec/(csw*vegn_fprec)+TFREEZE, 'after drop', 'vegn_fprec_T')
+     endif
+
      ! make sure the temperature of the snow falling below canopy is below freezing
      ! this correction was introduced in an attempt to fix the problem with fictitious
      ! heat accumulating in near-zero-mass snow; however it does not seem to make a
@@ -2531,6 +2557,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         vegn_fprec = vegn_fprec - delta_fprec
         vegn_lprec = vegn_lprec + delta_fprec
         vegn_hfprec = vegn_hfprec - hlf*delta_fprec
+        if(is_watch_point()) then
+           write(*,*) '### heat correction occurred:'
+           __DEBUG1__(delta_fprec)
+           __DEBUG2__(vegn_lprec, vegn_fprec)
+           __DEBUG2__(vegn_hlprec, vegn_hfprec)
+        endif
         ! we do not need to correct the vegn_hlprec since the temperature of additional
         ! liquid precip is tfreeze, and therefore its contribution to vegn_hlprec is
         ! exactly zero
@@ -2545,14 +2577,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! the fields below are only used in diagnostics
      vegn_melt   = 0
      vegn_fsw    = 0
-  endif
-
-! EZSNOW updated snow step 2
-
-  if(is_watch_point()) then
-      write(*,*)'###### before beginning now step 2 ######'
-      write(*,*) "vegn_lprec, vegn_hlprec = ", vegn_lprec, vegn_hlprec
- !   call s%print()
   endif
 
   ! update_cana_tracers is called before snow%step2 because it calculates the deposition
@@ -2577,6 +2601,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! truncate the negatives that can arise from implicit numerics
      drydep_to_snow(i) = max(drydep_to_snow(i),0.0)
   enddo
+
+  if(is_watch_point()) then
+      write(*,*)'###### before beginning snow%step2 ######'
+      __DEBUG2__(vegn_lprec, vegn_fprec)
+      __DEBUG2__(vegn_hlprec, vegn_hfprec)
+  endif
 
   call tile%snow%step2 ( snow_subl, &
              vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
@@ -3006,6 +3036,42 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! ------ end snow additional fields
 
 end subroutine update_land_model_fast_0d
+
+! ============================================================================
+! Given precipitation rate and a water buffer, borrows water from one to another,
+! depending on the sign of precipitation and the mass in the buffer.
+! This is primarily intended to take into account water dropped with dead plants,
+! which can occasionally become negative if the linearized solution produced
+! negative water on the canopies just before the plants died.
+!
+! Note that it does not attempt to reconcile the resulting precip and the heat
+! it carries, which can become strange if the state of the buffer is inconsistent.
+subroutine exchange_with_buffer(prec_w,prec_h,buff_w,buff_h)
+  real, intent(inout) :: prec_w ! precipitation rate, kg/(m2 s)
+  real, intent(inout) :: prec_h ! heat carried by precipitation, W/m2
+  real, intent(inout) :: buff_w ! mass of water in the buffer, kg/m2
+  real, intent(inout) :: buff_h ! heat content of buffered water, J/m2
+
+  real :: frac ! fraction of the precip borrowed to fill negative buffer
+
+  ! if mass of water in the buffer is negative, borrow a fraction of precipitation
+  ! to fill the buffer. There may not be enough precip to fill the buffer, in which
+  ! case frac<1 and buffer remains negative.
+  if (prec_w>0.and.buff_w<0) then
+     ! try borrowing water and heat from precipitation
+     frac = min(abs(buff_w)/prec_w,1.0)
+     buff_w = buff_w + frac*prec_w*delta_time
+     buff_h = buff_h + frac*prec_h*delta_time
+     prec_w = (1-frac)*prec_w
+     prec_h = (1-frac)*prec_h
+  endif
+  ! if mass buff_w becomes positive, add all of it to the precipitation
+  if(buff_w>=0) then
+     prec_w = prec_w + buff_w/delta_time
+     prec_h = prec_h + buff_h/delta_time
+     buff_w = 0.0; buff_h = 0.0
+  endif
+end subroutine exchange_with_buffer
 
 ! ============================================================================
 ! given a tile, calculate resistances between canopy air and each cohort, and
