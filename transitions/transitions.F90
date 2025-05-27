@@ -38,7 +38,7 @@ use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
-     get_current_point, check_var_range, log_date
+     get_current_point, check_var_range, log_date, string_from_time
 use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
@@ -294,7 +294,9 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   ! stop if landuse.res looks inconsistent
   if (time0>lnd%time) then
      call error_mesg('land_transitions_init',&
-          'current time is earlier than the time of last land use transition application',&
+          'current model time ('//trim(string_from_time(lnd%time))// &
+          ') must be after the time of last land use transition application ('// &
+          trim(string_from_time(time0))//')',&
           FATAL)
   endif
 
