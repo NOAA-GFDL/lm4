@@ -2538,11 +2538,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! sanity checks
      call check_var_range(vegn_lprec, 0.0, 1.0, 'after drop', 'vegn_lprec', WARNING)
      if (vegn_lprec.ne.0) then
-        call check_temp_range(vegn_hlprec/(clw*vegn_lprec)+TFREEZE, 'after drop', 'vegn_lprec_T')
+        call check_temp_range(vegn_hlprec/(clw*vegn_lprec)+TFREEZE, 'after drop', 'apparent vegn_lprec_T')
      endif
      call check_var_range(vegn_fprec, 0.0, 1.0, 'after drop', 'vegn_fprec', WARNING)
      if (vegn_fprec.ne.0) then
-        call check_temp_range(vegn_hfprec/(csw*vegn_fprec)+TFREEZE, 'after drop', 'vegn_fprec_T')
+        call check_temp_range(vegn_hfprec/(csw*vegn_fprec)+TFREEZE, 'after drop', 'apparent vegn_fprec_T')
      endif
 
      ! make sure the temperature of the snow falling below canopy is below freezing
