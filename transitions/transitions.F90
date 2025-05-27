@@ -8,7 +8,7 @@ use constants_mod, only : PI
 
 use mpp_mod, only: input_nml_file
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, get_unit, &
+     mpp_pe, lowercase, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
@@ -198,8 +198,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   if (file_exists('INPUT/landuse.res')) then
      call error_mesg('land_transitions_init','reading restart "INPUT/landuse.res"',&
           NOTE)
-     unit = get_unit()
-     open(unit=unit, file='INPUT/landuse.res', action="read")
+     open(newunit=unit, file='INPUT/landuse.res', action="read")
      read(unit,*) year,month,day,hour,min,sec
      time0 = set_date(year,month,day,hour,min,sec)
      close(unit)
@@ -401,8 +400,7 @@ subroutine save_land_transitions_restart(timestamp)
   integer :: unit,year,month,day,hour,min,sec
 
   if (mpp_pe() == mpp_root_pe()) then
-     unit = get_unit()
-     open(unit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
+     open(newunit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
      call get_date(time0, year,month,day,hour,min,sec)
      write(unit,'(6i6,8x,a)') year,month,day,hour,min,sec, &
           'Time of previous landuse transition calculation'
