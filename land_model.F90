@@ -1344,6 +1344,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            snc(l) = snc(l) + snow_area*tile%frac
         endif
      enddo
+     if(is_watch_cell()) then
+        write(*,*)'#### in update_land_model_fast before update_river'
+        __DEBUG1__(runoff(l))
+        __DEBUG1__(runoff_c(l,:))
+     endif
   enddo
 
   !--- pass runoff from unstructured grid to structured grid.
@@ -1355,8 +1360,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
                             (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
                             is_watch_time()) then
-!     __DEBUG1__(runoff_sg(iwatch,jwatch))
-!     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
+    __DEBUG1__(runoff_sg(iwatch,jwatch))
+    __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
 
   !--- update river state
@@ -2459,13 +2464,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
 
 ! EZSNOW updated snow step 2
-
-  if(is_watch_point()) then
-      write(*,*)'###### before beginning now step 2 ######'
-      write(*,*) "vegn_lprec, vegn_hlprec = ", vegn_lprec, vegn_hlprec
- !   call s%print()
-  endif
-
   call tile%snow%step2 ( snow_subl, &
              vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
              delta_Tg,  Mg_imp,  &
@@ -2504,15 +2502,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   snow_hlrunf = snow_hlrunf + hlswept/delta_time
   snow_hfrunf = snow_hfrunf + hfswept/delta_time
   if(is_watch_point()) then
-     write(*,*) 'subs_M_imp', subs_M_imp
-     write(*,*) 'snow_hlrunf', snow_hlrunf
-     write(*,*) 'snow_hfrunf', snow_hfrunf
-     write(*,*) 'vegn_lprec',  vegn_lprec
-     write(*,*) 'vegn_hlprec', vegn_hlprec
-     write(*,*) 'snow_lprec', snow_lprec
-     write(*,*) 'snow_hlprec', snow_hlprec
-     write(*,*) 'snow_avrg_T', snow_avrg_T
-     write(*,*) 'subs_G = snow_G_Z+snow_G_TZ*subs_DT', snow_G_Z+snow_G_TZ*subs_DT
+     __DEBUG1__(subs_M_imp)
+     __DEBUG2__(snow_lrunf, snow_hlrunf)
+     __DEBUG2__(snow_frunf, snow_hfrunf)
+     __DEBUG2__(vegn_lprec, vegn_hlprec)
+     __DEBUG2__(snow_lprec, snow_hlprec)
+     __DEBUG1__(snow_avrg_T)
+     call dpri('subs_G = snow_G_Z+snow_G_TZ*subs_DT', snow_G_Z+snow_G_TZ*subs_DT); write(*,*)
   endif
 
   if (snow_active) then
@@ -2650,6 +2646,17 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         runoff_c(tr) = runoff_c(tr) + subs_tr_runf(tr) * tile%frac
      endif
   enddo
+  if (is_watch_point()) then
+     __DEBUG2__(runoff, runoff_c)
+     __DEBUG1__(tile%frac)
+     __DEBUG4__(snow_frunf,subs_lrunf,snow_lrunf,subs_frunf)
+     __DEBUG4__(snow_hfrunf,subs_hlrunf,snow_hlrunf,subs_hfrunf)
+     if (runoff.ne.0) then
+        __DEBUG1__(runoff_c(i_river_heat)/(clw*runoff))
+     else
+        write (*,*)'runoff is zero; T cannot be calculated'
+     endif
+  endif
   hprec = (clw*precip_l+csw*precip_s)*(precip_T-tfreeze)
   hevap = cpw*land_evap*(evap_T-tfreeze)
 

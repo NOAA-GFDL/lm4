@@ -1,5 +1,7 @@
 module river_physics_mod
 
+#include "../shared/debug.inc"
+
 !-----------------------------------------------------------------------
 !                   GNU General Public License
 !
@@ -245,27 +247,40 @@ contains
               else
                 ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
                 if (lake_area.gt.0.) then
-                     if (is_watch_cell()) then
-                         write(*,*) 'lake_area:', lake_area
-                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                         write(*,*) 'influx    :', influx
-                         write(*,*) 'influx_c(1):', influx_c(1)
-                         write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
-                         write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
-                         write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
-                         write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
-                     endif
                      h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
+                     if (is_watch_cell()) then
+                         write (*,*)'#### river_physics_step before influx'
+                         __DEBUG1__(lake_area)
+                         __DEBUG1__(lake_wl(i,j,1))
+                         __DEBUG1__(lake_ws(i,j,1))
+                         __DEBUG1__(lake_T (i,j,1))
+                         __DEBUG1__(h)
+
+                         __DEBUG1__(influx)
+                         __DEBUG1__(influx_c(1))
+                         __DEBUG1__(influx_c(2))
+
+                         __DEBUG1__(River%inflow  (i,j))
+                         __DEBUG1__(River%inflow_c(i,j,1))
+                         __DEBUG1__(River%inflow_c(i,j,2))
+
+                         __DEBUG1__(River%infloc  (i,j))
+                         __DEBUG1__(River%infloc_c(i,j,1))
+                         __DEBUG1__(River%infloc_c(i,j,2))
+                     endif
                      lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
                      lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /lake_area
                      lake_T (i,j,1) = tfreeze + &
                         (h+influx_c(2)/lake_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
                      if (is_watch_cell()) then
-                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write (*,*)'#### river_physics_step after influx'
+                         __DEBUG1__(lake_wl(i,j,1))
+                         __DEBUG1__(lake_ws(i,j,1))
+                         __DEBUG1__(lake_T (i,j,1))
+
+                         __DEBUG2__((influx-influx_c(1))/lake_area, influx_c(1)/lake_area)
+                         __DEBUG2__(h+influx_c(2)/lake_area, clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
+                         __DEBUG1__(influx_c(2)/(csw*influx_c(1)+clw*(influx-influx_c(1))))
                      endif
                      ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
                      h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O &

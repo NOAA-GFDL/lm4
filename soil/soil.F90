@@ -2440,8 +2440,9 @@ end subroutine soil_step_1
 
   if (is_watch_cell()) then
      write(*,*)'Soil runoff from point in watch_cell'
-     __DEBUG3__(soil%hidx_j, soil_lrunf, lrunf_bf)
-     __DEBUG5__(lrunf_sn, lrunf_ie, lrunf_if, lrunf_al, lrunf_sc)
+     __DEBUG3__(soil%hidx_j, soil_lrunf, soil_hlrunf)
+     __DEBUG6__(lrunf_ie, lrunf_bf, lrunf_if, lrunf_al, lrunf_nu, lrunf_sc)
+     __DEBUG6__(hlrunf_ie, hlrunf_bf, hlrunf_if, hlrunf_al, hlrunf_nu, hlrunf_sc)
   end if
 
 
