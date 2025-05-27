@@ -1629,7 +1629,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     real, ALLOCATABLE :: M_layer(:) ! local variable needed for implicit melt
     real init_ws, init_wl, init_T
     real Told_check, old_ws_check, old_density_1, old_density_il
-    real old_density, old_heat, new_heat, zerot_heat, excess_heat
+    real old_density, old_heat, new_heat, zeroT_heat, excess_heat
     real total_mass, dheat_over_cap0
     logical stay_in_da_loop
     real trial_new_T, trial_old_T
@@ -1639,9 +1639,15 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     real excess_e2, excess_e2_cond
 
     real, parameter :: addf = 1.0
-    excess_e2 = 0.0
 
-    initial_snow_depth = s%depth()
+    if(is_watch_point()) then
+       write(*,*) '#### snow_sublimation ### INPUT ####'
+       __DEBUG3__(snow_levap,snow_fevap,Mg_imp)
+       __DEBUG2__(thick_enough_for_evap, use_tfreeze_in_grnd_latent)
+       call s%print()
+    endif
+
+    excess_e2 = 0.0
     hfevap = 0.0
     lost_wc_em = 0.0
     lost_wc_im = 0.0
@@ -1651,15 +1657,8 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     hlswept1 = 0
     hfswept1 = 0
 
-    ! ---- evaporation and sublimation -----------------------------------------
+    initial_snow_depth = s%depth()
     if (initial_snow_depth>0) then
-
-         if(is_watch_point()) then
-            write(*,*) '#### snow_sublimation ### INPUT ####'
-            __DEBUG3__(snow_levap,snow_fevap,Mg_imp)
-            __DEBUG2__(thick_enough_for_evap, use_tfreeze_in_grnd_latent)
-            call s%print()
-        endif
 
         old_ws_check =s%snow(1)%ws
         old_density_1 = s%snow(1)%ws/s%snow(1)%dz
@@ -1754,214 +1753,95 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
             __DEBUG4__(s%snow(1)%T , s%snow(1)%wl, s%snow(1)%ws, M_layer(1))
             __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
         endif
-    do il = 1, s%nlayers
-        if (initial_snow_depth>0) then
-            old_density_il = s%snow(il)%ws/s%snow(il)%dz ! original layer density
-            cap0 = s%snow(il)%hCap() ! original heat capacity of layer
-            init_wl =s%snow(il)%wl
-            init_ws =s%snow(il)%ws
-            init_T =s%snow(il)%T
-            s%snow(il)%wl = s%snow(il)%wl + M_layer(il) ! melt if positive, freeze if negative
-            s%snow(il)%ws = s%snow(il)%ws - M_layer(il)
-            s%snow(il)%dz = s%snow(il)%ws/old_density_il ! maintain original density of the layer -> shrink layer thickness
-            s%snow(il)%T  = TFREEZE + (cap0*(s%snow(il)%T-TFREEZE) ) &
-                                                    / ( cap0 + (CLW-CSW)*M_layer(il) )
-            if(is_watch_point() .and.(il==1)) then
-                write(*,*) "End Case of negative ws:"
-                __DEBUG3__(s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl)
-                __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
-                __DEBUG2__(s%snow(1)%T, Cap0)
-            endif
-        endif
-    enddo
-    DEALLOCATE(M_layer)
-    !!!!! ------ END IMPLICIT MELT --------
-
-    if(is_watch_point()) then
-        write(*,*) '#### snow_sublimation ### checkpoint 3 ####'
-        if(s%nlayers>0)  then
-           __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
-        endif
-        __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
-    endif
-    ! if top layer has negative ice, remove it and create top snow layer
-    ! do it also if the first layer is too small
-    ! so as to avoid issue that if too much sublimation, too low T1 due to dheat budget
-    if (s%snow(1)%ws < 0.0) then ! changed_eps
-        if (s%snow(1)%wl + s%snow(1)%ws > 0) then ! ASSIGN ALL TO TOPWATER
-            s%topwater = s%topwater + s%snow(1)%wl + s%snow(1)%ws
-            s%topwheat = s%topwheat + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
-        else ! ASSIGN ALL TO TOPSNOWDEFICIT
-            s%topsnowdeficit = s%topsnowdeficit + s%snow(1)%wl + s%snow(1)%ws
-            s%topsnowheatdeficit = s%topsnowheatdeficit + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
-        endif
-
-        ! remove layer now
-        if (s%nlayers > 1) then
-            ! first pass any tracers to layer below, then remove 1st layer
-            do it = 1, N_SNOW_TRACERS
-                s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
-                s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
-            enddo
-            s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
-            s%nlayers = s%nlayers - 1 ! in both cases
-        else if (s%nlayers == 1) then ! case only one layer  since snowpack must be activve
-            do it = 1, N_SNOW_TRACERS
-                lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
-                lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
-            enddo
-            deallocate(s%snow)
-            s%nlayers = 0
-        else
-             call land_error_message("ERROR snow_sublimation in snow_evolution module: The number of layers should not be zero here!", FATAL)
-        endif
-
-    ! EZDEV - RESTART HERE
-    if(is_watch_point()) then
-        write(*,*) '#### snow_sublimation ### checkpoint 4 ####'
-        if (s%nlayers>0) then
-           __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
-        endif
-        __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
-    endif
-    ! //TODO: This was added to increase numerical stability and reduce low T occurrence
-    else if ((s%snow(1)%ws < 1E-2)) then
-        ! add it to the topwater pool instead
-        ! get rid of 1st layer and add it to the second layer
-        ! call merge_layers(s%snow(1), s%snow(2))
-
-        s%topwater = s%topwater + s%snow(1)%ws + s%snow(1)%wl
-        s%topwheat = s%topwheat + s%snow(1)%ws*CSW*(s%snow(1)%T-TFREEZE)
-        s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + s%snow(1)%wl*HLF
-
-        if (s%nlayers > 1) then
-            ! first pass any tracers to layer below, then remove 1st layer
-            do it = 1, N_SNOW_TRACERS
-                s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
-                s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
-            enddo
-            s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
-            s%nlayers = s%nlayers - 1
-        else if (s%nlayers == 1) then
-            do it = 1, N_SNOW_TRACERS
-                lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
-                lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
-            enddo
-            s%nlayers = 0
-            deallocate(s%snow)
-        endif
-    endif
-
-
-    excess_e2 = excess_e2 + s%topsnowheatdeficit
-    s%topsnowheatdeficit = 0.0
-    excess_e2_cond = excess_e2
-    if (.not.(s%nlayers>0)) then
-        s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
-        excess_e2 = 0.0
-    else
-        if (excess_e2_cond > 0.0) then
-            do il=1,s%nlayers
-                if ((excess_e2 > 0.0) .and. (s%snow(il)%T-TFREEZE < 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
-                    max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap()  ! NEG
-                    ener2add = min(-max2add, excess_e2)  ! POS
-                    excess_e2 = excess_e2 - ener2add
-                    s%snow(il)%T = s%snow(il)%T  + ener2add / s%snow(il)%hCap()
-                endif
-            enddo
-            s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
-            excess_e2 = 0.0
-        else
-            do il=1,s%nlayers
-                if ((excess_e2 < 0.0) .and. (s%snow(il)%T-TFREEZE > 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
-                    max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap() ! POS
-                    ener2add = min(max2add, -excess_e2) ! POS
-                    excess_e2 = excess_e2 + ener2add
-                    s%snow(il)%T = s%snow(il)%T - ener2add / s%snow(il)%hCap()
-                endif
-            enddo
-            ! add any remaining excess_e2 to top layer, regardless of resulting T
-            s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
-            excess_e2 = 0.0
-        endif
-    endif
-
-    if(is_watch_point()) then
-        write(*,*) '#### snow_sublimation ### checkpoint 5 ####'
-        call s%print()
-    endif
-    ! If there is negative ice on top of snow, attempt to merge it with underlying layers
-    ! until the deficit is filled.
-    ! If the deficit exceeds the total ice in the snowpack, retain the negative mass on
-    ! top to be filled later by fresh snowfall.
-    stay_in_da_loop = .true.
-    do while (s%nlayers > 0 .and. s%topsnowdeficit < 0.0 .and. stay_in_da_loop)
-
-        if (s%snow(1)%ws > - s%topsnowdeficit*addf ) then ! enough mass to fill deficit
-
-            old_density = (s%snow(1)%ws)/s%snow(1)%dz
-            old_heat    = s%snow(1)%heat()  ! without top snow, original snowpack layer
-            new_heat    = old_heat + s%topsnowheatdeficit*addf! new snowpack, with top snow deficit added to it
-            ! heat content that the layer would have, if all snow melted at TFREEZE:
-            zerot_heat  = HLF*(s%snow(1)%ws + s%snow(1)%wl + s%topsnowdeficit*addf)
-            excess_heat = new_heat - zerot_heat
-            if (excess_heat > 0) then
-                ! all melted: topsnowdeficit and ws are moved to wl
-                s%snow(1)%wl     = s%snow(1)%wl  + s%snow(1)%ws + s%topsnowdeficit*addf
-                s%snow(1)%ws = 0.0
-                ! heat that exceeds the heat content at zero C used to warm up melt water
-                s%snow(1)%T = TFREEZE + excess_heat/(CLW*s%snow(1)%wl)
-                s%topsnowdeficit = s%topsnowdeficit*(1-addf)
-                s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
-            else if (new_heat > 0) then ! mixed phases
-                total_mass = s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit*addf
-                s%snow(1)%wl = new_heat/HLF
-                s%snow(1)%ws = total_mass - s%snow(1)%wl
-                s%snow(1)%T = TFREEZE
-                s%topsnowdeficit = s%topsnowdeficit*(1-addf)
-                s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
-                if (is_watch_point()) then
-                   write(*,'(a20)', advance='NO')'mixed phases: '
-                   __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
-                endif
-            else ! energy < 0, all solid
-                trial_old_T = s%snow(1)%T
-                trial_new_T = TFREEZE + new_heat/(CSW*(s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit))
-                if (trial_new_T < 200.0) then ! do not do the merge
-                    ! don't merge
-                    stay_in_da_loop = .false.
-                else
-                    ! do the merging
-                    s%snow(1)%ws = s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit*addf
-                    s%snow(1)%wl = 0.0
-                    s%snow(1)%T = TFREEZE + new_heat/(CSW*s%snow(1)%ws)
-                    s%topsnowdeficit = s%topsnowdeficit*(1-addf)
-                    s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
-                endif
-                if (is_watch_point()) then
-                   write(*,'(a20)', advance='NO')'all solid: '
-                   __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
+        do il = 1, s%nlayers
+            if (initial_snow_depth>0) then
+                old_density_il = s%snow(il)%ws/s%snow(il)%dz ! original layer density
+                cap0 = s%snow(il)%hCap() ! original heat capacity of layer
+                init_wl =s%snow(il)%wl
+                init_ws =s%snow(il)%ws
+                init_T =s%snow(il)%T
+                s%snow(il)%wl = s%snow(il)%wl + M_layer(il) ! melt if positive, freeze if negative
+                s%snow(il)%ws = s%snow(il)%ws - M_layer(il)
+                s%snow(il)%dz = s%snow(il)%ws/old_density_il ! maintain original density of the layer -> shrink layer thickness
+                s%snow(il)%T  = TFREEZE + (cap0*(s%snow(il)%T-TFREEZE) ) &
+                                                        / ( cap0 + (CLW-CSW)*M_layer(il) )
+                if(is_watch_point() .and.(il==1)) then
+                    write(*,*) "End Case of negative ws:"
+                    __DEBUG3__(s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl)
+                    __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
+                    __DEBUG2__(s%snow(1)%T, Cap0)
                 endif
             endif
-            ! preserve original layer density, and other properties
-            s%snow(1)%dz = s%snow(1)%ws/old_density
-        else ! not enough mass in current layer to make up for deficit
-            ! add existing layer's mass and heat to toplayer and proceed to next layer
-            s%topsnowdeficit = s%topsnowdeficit + s%snow(1)%ws ! this must still be negative here
-            if (s%topsnowdeficit>0) &
-                call land_error_message("snow_sublimation: topsnowdeficit should still be negative here!!", FATAL)
-            s%topsnowheatdeficit = s%topsnowheatdeficit + s%snow(1)%ws*CSW*(s%snow(1)%T-TFREEZE) ! is it ok summing energy to energy deficit?
-            s%topwater = s%topwater + s%snow(1)%wl
-            s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl
-            ! remove current layer from stack and pass any tracers to layer below
-            if (s%nlayers>1) then
+        enddo
+        DEALLOCATE(M_layer)
+        !!!!! ------ END IMPLICIT MELT --------
+
+        if(is_watch_point()) then
+            write(*,*) '#### snow_sublimation ### checkpoint 3 ####'
+            if(s%nlayers>0)  then
+               __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
+            endif
+            __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
+        endif
+        ! if top layer has negative ice, remove it and create top snow layer
+        ! do it also if the first layer is too small
+        ! so as to avoid issue that if too much sublimation, too low T1 due to dheat budget
+        if (s%snow(1)%ws < 0.0) then ! changed_eps
+            if (s%snow(1)%wl + s%snow(1)%ws > 0) then ! ASSIGN ALL TO TOPWATER
+                s%topwater = s%topwater + s%snow(1)%wl + s%snow(1)%ws
+                s%topwheat = s%topwheat + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
+            else ! ASSIGN ALL TO TOPSNOWDEFICIT
+                s%topsnowdeficit = s%topsnowdeficit + s%snow(1)%wl + s%snow(1)%ws
+                s%topsnowheatdeficit = s%topsnowheatdeficit + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
+            endif
+
+            ! remove layer now
+            if (s%nlayers > 1) then
+                ! first pass any tracers to layer below, then remove 1st layer
+                do it = 1, N_SNOW_TRACERS
+                    s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
+                    s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
+                enddo
+                s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
+                s%nlayers = s%nlayers - 1 ! in both cases
+            else if (s%nlayers == 1) then ! case only one layer  since snowpack must be activve
+                do it = 1, N_SNOW_TRACERS
+                    lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
+                    lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
+                enddo
+                deallocate(s%snow)
+                s%nlayers = 0
+            else
+                 call land_error_message("ERROR snow_sublimation in snow_evolution module: The number of layers should not be zero here!", FATAL)
+            endif
+
+            ! EZDEV - RESTART HERE
+            if(is_watch_point()) then
+                write(*,*) '#### snow_sublimation ### checkpoint 4.1 ####'
+                if (s%nlayers>0) then
+                   __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
+                endif
+                __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
+            endif
+        ! //TODO: This was added to increase numerical stability and reduce low T occurrence
+        else if ((s%snow(1)%ws < 1E-2)) then
+            ! add it to the topwater pool instead
+            ! get rid of 1st layer and add it to the second layer
+            ! call merge_layers(s%snow(1), s%snow(2))
+
+            s%topwater = s%topwater + s%snow(1)%ws + s%snow(1)%wl
+            s%topwheat = s%topwheat + s%snow(1)%ws*CSW*(s%snow(1)%T-TFREEZE)
+            s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + s%snow(1)%wl*HLF
+
+            if (s%nlayers > 1) then
+                ! first pass any tracers to layer below, then remove 1st layer
                 do it = 1, N_SNOW_TRACERS
                     s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
                     s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
                 enddo
                 s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
                 s%nlayers = s%nlayers - 1
-            else
+            else if (s%nlayers == 1) then
                 do it = 1, N_SNOW_TRACERS
                     lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
                     lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
@@ -1969,9 +1849,138 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
                 s%nlayers = 0
                 deallocate(s%snow)
             endif
+            if(is_watch_point()) then
+                write(*,*) '#### snow_sublimation ### checkpoint 4.2 ####'
+                if (s%nlayers>0) then
+                   __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
+                endif
+                __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
+            endif
         endif
-    enddo
 
+        excess_e2 = excess_e2 + s%topsnowheatdeficit
+        s%topsnowheatdeficit = 0.0
+        excess_e2_cond = excess_e2
+        if (s%nlayers == 0) then
+            s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
+            excess_e2 = 0.0
+        else
+            if (excess_e2_cond > 0.0) then
+                do il=1,s%nlayers
+                    if ((excess_e2 > 0.0) .and. (s%snow(il)%T-TFREEZE < 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
+                        max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap()  ! NEG
+                        ener2add = min(-max2add, excess_e2)  ! POS
+                        excess_e2 = excess_e2 - ener2add
+                        s%snow(il)%T = s%snow(il)%T  + ener2add / s%snow(il)%hCap()
+                    endif
+                enddo
+                s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
+                excess_e2 = 0.0
+            else
+                do il=1,s%nlayers
+                    if ((excess_e2 < 0.0) .and. (s%snow(il)%T-TFREEZE > 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
+                        max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap() ! POS
+                        ener2add = min(max2add, -excess_e2) ! POS
+                        excess_e2 = excess_e2 + ener2add
+                        s%snow(il)%T = s%snow(il)%T - ener2add / s%snow(il)%hCap()
+                    endif
+                enddo
+                ! add any remaining excess_e2 to top layer, regardless of resulting T
+                s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
+                excess_e2 = 0.0
+            endif
+        endif
+
+        if(is_watch_point()) then
+            write(*,*) '#### snow_sublimation ### checkpoint 5 ####'
+            call s%print()
+        endif
+        ! If there is negative ice on top of snow, attempt to merge it with underlying layers
+        ! until the deficit is filled.
+        ! If the deficit exceeds the total ice in the snowpack, retain the negative mass on
+        ! top to be filled later by fresh snowfall.
+        stay_in_da_loop = .true.
+        do while (s%nlayers > 0 .and. s%topsnowdeficit < 0.0 .and. stay_in_da_loop)
+            if (s%snow(1)%ws + s%topsnowdeficit*addf > 0 ) then ! enough mass to fill deficit
+                old_density = s%snow(1)%ws/s%snow(1)%dz
+                old_heat    = s%snow(1)%heat()  ! without top snow, original snowpack layer
+                new_heat    = old_heat + s%topsnowheatdeficit*addf! new snowpack, with top snow deficit added to it
+                ! heat content that the layer would have, if all snow melted at T = TFREEZE:
+                zeroT_heat  = HLF*(s%snow(1)%ws + s%snow(1)%wl + s%topsnowdeficit*addf)
+                excess_heat = new_heat - zeroT_heat
+                if (is_watch_point()) then
+                   __DEBUG4__(old_heat, new_heat, zeroT_heat, excess_heat)
+                endif
+                if (excess_heat > 0) then
+                    ! all melted: topsnowdeficit and ws are moved to wl
+                    s%snow(1)%wl = s%snow(1)%wl + s%snow(1)%ws + s%topsnowdeficit*addf
+                    s%snow(1)%ws = 0.0
+                    ! heat that exceeds the heat content at zero C used to warm up melt water
+                    s%snow(1)%T = TFREEZE + excess_heat/(CLW*s%snow(1)%wl)
+                    s%topsnowdeficit = s%topsnowdeficit*(1-addf)
+                    s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
+                    if (is_watch_point()) then
+                       write(*,'(a20)', advance='NO')'all melted:'
+                       __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
+                    endif
+                else if (new_heat > 0) then ! mixed phases
+                    total_mass = s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit*addf
+                    s%snow(1)%wl = new_heat/HLF
+                    s%snow(1)%ws = total_mass - s%snow(1)%wl
+                    s%snow(1)%T = TFREEZE
+                    s%topsnowdeficit = s%topsnowdeficit*(1-addf)
+                    s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
+                    if (is_watch_point()) then
+                       write(*,'(a20)', advance='NO')'mixed phases:'
+                       __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
+                    endif
+                else ! energy < 0, all solid
+                    trial_old_T = s%snow(1)%T
+                    trial_new_T = TFREEZE + new_heat/(CSW*(s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit))
+                    if (trial_new_T < 200.0) then ! do not do the merge
+                        ! don't merge
+                        stay_in_da_loop = .false.
+                    else
+                        ! do the merging
+                        s%snow(1)%ws = s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit*addf
+                        s%snow(1)%wl = 0.0
+                        s%snow(1)%T = TFREEZE + new_heat/(CSW*s%snow(1)%ws)
+                        s%topsnowdeficit = s%topsnowdeficit*(1-addf)
+                        s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
+                    endif
+                    if (is_watch_point()) then
+                       write(*,'(a20)', advance='NO')'all solid:'
+                       __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
+                    endif
+                endif
+                ! preserve original layer density, and other properties
+                s%snow(1)%dz = s%snow(1)%ws/old_density
+            else ! not enough mass in current layer to make up for deficit
+                ! add existing layer's mass and heat to toplayer and proceed to next layer
+                s%topsnowdeficit = s%topsnowdeficit + s%snow(1)%ws ! this must still be negative here
+                if (s%topsnowdeficit>0) &
+                    call land_error_message("snow_sublimation: topsnowdeficit should still be negative here!!", FATAL)
+                s%topsnowheatdeficit = s%topsnowheatdeficit + s%snow(1)%ws*CSW*(s%snow(1)%T-TFREEZE) ! is it ok summing energy to energy deficit?
+                s%topwater = s%topwater + s%snow(1)%wl
+                s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl
+                ! remove current layer from stack and pass any tracers to layer below
+                if (s%nlayers>1) then
+                    do it = 1, N_SNOW_TRACERS
+                        s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
+                        s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
+                    enddo
+                    s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
+                    s%nlayers = s%nlayers - 1
+                else
+                    do it = 1, N_SNOW_TRACERS
+                        lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
+                        lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
+                    enddo
+                    s%nlayers = 0
+                    deallocate(s%snow)
+                endif
+            endif
+        enddo
     else ! case of no snow layers
         subs_M_imp = Mg_imp
         snow_melt = 0.0
