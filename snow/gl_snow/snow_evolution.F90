@@ -1609,7 +1609,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
             use_tfreeze_in_grnd_latent, del_T_toplayer, &
             Mg_imp, snow_melt, &
             lswept1, fswept1, hlswept1, hfswept1, &
-            subs_m_imp, lost_wc_em, lost_wc_im, thick_enough_for_evap, verbose)
+            subs_m_imp, lost_wc_em, lost_wc_im, thick_enough_for_evap)
     class(snowpack_t), intent(inout) :: s !< state of snowpack
     real, intent(out) :: lswept1, fswept1, hlswept1, hfswept1 ![kg m^-2]
     real, intent(in) :: snow_levap ! liquid evaporation rate [kg m^-2 s^-1]
@@ -1619,13 +1619,11 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     logical, intent(in) :: use_tfreeze_in_grnd_latent
     real, intent(in) :: dt ! model time step [s]
     real, intent(in) :: del_T_toplayer
-    real, intent(IN) :: Mg_imp
-    logical, intent(IN) :: thick_enough_for_evap
-    real, intent(OUT) :: snow_melt, subs_m_imp
+    real, intent(in) :: Mg_imp
+    logical, intent(in) :: thick_enough_for_evap
+    real, intent(out) :: snow_melt, subs_m_imp
     real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! mass of tracers lost from the system [mg/m^2]
-    logical, intent(in), optional :: verbose
 
-    real mass_to_subl, current_mass, rho1
     integer il, it
     real cap0, dheat, initial_snow_depth
     real, ALLOCATABLE :: M_layer(:) ! local variable needed for implicit melt
@@ -1633,23 +1631,17 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     real Told_check, old_ws_check, old_density_1, old_density_il
     real old_density, old_heat, new_heat, zerot_heat, excess_heat
     real total_mass, dheat_over_cap0
-    real init_heat
     logical stay_in_da_loop
     real trial_new_T, trial_old_T
-    logical try_to_merge_snow_deficit
-    real Cap1
-    real addf, wdef, hdef
     real borrowed_ws
     real DT_max, DT_try, excess_e
     real max2add, ener2add
     real excess_e2, excess_e2_cond
 
-    addf = 1.0
-    try_to_merge_snow_deficit = .TRUE.
+    real, parameter :: addf = 1.0
     excess_e2 = 0.0
 
     initial_snow_depth = s%depth()
-    init_heat = s%heat()
     hfevap = 0.0
     lost_wc_em = 0.0
     lost_wc_im = 0.0
@@ -1778,7 +1770,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
                 write(*,*) "End Case of negative ws:"
                 __DEBUG3__(s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl)
                 __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
-                __DEBUG3__(s%snow(1)%T, Cap0, Cap1)
+                __DEBUG2__(s%snow(1)%T, Cap0)
             endif
         endif
     enddo
@@ -1894,8 +1886,6 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
         endif
     endif
 
-    if (try_to_merge_snow_deficit) then
-
     if(is_watch_point()) then
         write(*,*) '#### snow_sublimation ### checkpoint 5 ####'
         call s%print()
@@ -1981,9 +1971,6 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
             endif
         endif
     enddo
-
-    endif
-
 
     else ! case of no snow layers
         subs_M_imp = Mg_imp
@@ -3322,7 +3309,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
                         lost_wc_em, lost_wc_im)
                         ! delta_heat_DTg)
     type(snowpack_t), intent(inout) :: s ! snowpack = instance of snow tile object
-    type(snowpack_t) :: s_check ! for debug only
     real, intent(in) :: snow_subl ! fraction of sublimation (equal to 1 when snow is there)
     real, intent(in) :: vegn_lprec ! precip below canopy [Kg m^-2 s^-1]
     real, intent(in) :: vegn_fprec ! precip below canopy [Kg m^-2 s^-1]
@@ -3350,10 +3336,10 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real, intent(in) :: G0, DGDTg, snow_G_Z, snow_G_TZ
     !  local variables
     real hfevap
-    real check_heat0, check_heat1, ftprec, ltprec
+    real ftprec, ltprec
     real snow_lprec1, snow_hlprec1, snow_lprec2, snow_hlprec2
-    real heat1a, heat1b, heat1c, heat1d, heat1e, heat1f, heat1g
-    real netmass1, netmass2, netmassdiff
+    real heat1a, heat1b
+    real netmass1, netmass2
     real netheat1, netheat2, netheatdiff
     real lswept1, fswept1, hlswept1, hfswept1 ! from sublimation
     real lswept2, fswept2, hlswept2, hfswept2
@@ -3484,7 +3470,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat_fevap, &
                 use_tfreeze_in_grnd_latent, DTg, Mg_imp, snow_melt, &
                 lswept1, fswept1, hlswept1, hfswept1, &
-                subs_m_imp, lost_wc_em1, lost_wc_im1, thick_enough_for_evap, verbose=.FALSE.)
+                subs_m_imp, lost_wc_em1, lost_wc_im1, thick_enough_for_evap)
 
     if(is_watch_point()) then
         write(*,*)'#### gl_snow_step_2 : after snow sublimation ####'
