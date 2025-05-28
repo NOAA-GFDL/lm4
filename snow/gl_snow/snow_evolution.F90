@@ -1605,22 +1605,20 @@ end subroutine snow_wind_drift
 
 !> \Remove solid snow due to evaporation - updated version compatible with lm4p2
 !> \ Includes temporary snow deficit on top of snowpack in case sublim exceedes top layer
-subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat_fevap, &
-            use_tfreeze_in_grnd_latent, del_T_toplayer, &
-            Mg_imp, snow_melt, &
-            lswept1, fswept1, hlswept1, hfswept1, &
-            subs_m_imp, lost_wc_em, lost_wc_im, thick_enough_for_evap)
+subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
+            use_tfreeze_in_grnd_latent, del_T_toplayer, Mg_imp, &
+            ! output
+            hfevap, hlevap, dheat_fevap, snow_melt, subs_m_imp, &
+            lost_wc_em, lost_wc_im)
     class(snowpack_t), intent(inout) :: s !< state of snowpack
-    real, intent(out) :: lswept1, fswept1, hlswept1, hfswept1 ![kg m^-2]
+    real, intent(in) :: dt ! model time step [s]
     real, intent(in) :: snow_levap ! liquid evaporation rate [kg m^-2 s^-1]
     real, intent(in) :: snow_fevap ! solid sublimation rate [kg m^-2 s^-1]
-    real, intent(out) :: hfevap, hlevap ! heat released by sublim [and evap], rate  [J m^-2 s^-1]
-    real, intent(out) :: dheat_fevap ! corr in heat released = Dc * DT [J m^-2]
     logical, intent(in) :: use_tfreeze_in_grnd_latent
-    real, intent(in) :: dt ! model time step [s]
     real, intent(in) :: del_T_toplayer
     real, intent(in) :: Mg_imp
-    logical, intent(in) :: thick_enough_for_evap
+    real, intent(out) :: hfevap, hlevap ! heat released by sublim [and evap], rate  [J m^-2 s^-1]
+    real, intent(out) :: dheat_fevap ! corr in heat released = Dc * DT [J m^-2]
     real, intent(out) :: snow_melt, subs_m_imp
     real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! mass of tracers lost from the system [mg/m^2]
 
@@ -1643,7 +1641,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     if(is_watch_point()) then
        write(*,*) '#### snow_sublimation ### INPUT ####'
        __DEBUG3__(snow_levap,snow_fevap,Mg_imp)
-       __DEBUG2__(thick_enough_for_evap, use_tfreeze_in_grnd_latent)
+       __DEBUG1__(use_tfreeze_in_grnd_latent)
        call s%print()
     endif
 
@@ -1652,10 +1650,6 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
     lost_wc_em = 0.0
     lost_wc_im = 0.0
     dheat_fevap = 0.0
-    lswept1 = 0
-    fswept1 = 0
-    hlswept1 = 0
-    hfswept1 = 0
 
     initial_snow_depth = s%depth()
     if (initial_snow_depth>0) then
@@ -3350,7 +3344,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real heat1a, heat1b
     real netmass1, netmass2
     real netheat1, netheat2, netheatdiff
-    real lswept1, fswept1, hlswept1, hfswept1 ! from sublimation
     real lswept2, fswept2, hlswept2, hfswept2
     integer il
     real, dimension(N_SNOW_TRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2  ! [mg/m2]
@@ -3476,10 +3469,11 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
 
     heat1b = s%heat()
 
-    call snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat_fevap, &
-                use_tfreeze_in_grnd_latent, DTg, Mg_imp, snow_melt, &
-                lswept1, fswept1, hlswept1, hfswept1, &
-                subs_m_imp, lost_wc_em1, lost_wc_im1, thick_enough_for_evap)
+    call snow_sublimation(s, dt, snow_levap, snow_fevap, &
+                use_tfreeze_in_grnd_latent, DTg, Mg_imp, &
+                ! output
+                hfevap, hlevap, dheat_fevap, snow_melt, subs_m_imp, &
+                lost_wc_em1, lost_wc_im1)
 
     if(is_watch_point()) then
         write(*,*)'#### gl_snow_step_2 : after snow sublimation ####'
@@ -3490,7 +3484,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
 
     netheat2 = s%heat() ! heat cons check
-    netheatdiff = netheat2 - netheat1 - (Mg_imp-subs_M_imp)*HLF + hfevap*dt - dheat_fevap + hlswept1 + hfswept1
+    netheatdiff = netheat2 - netheat1 - (Mg_imp-subs_M_imp)*HLF + hfevap*dt - dheat_fevap
     if (do_snow_check_cons .and. (abs(netheatdiff )>1E-2)) then
         write(*,*) "DEN = ", - Mg_imp*HLF + hfevap*dt - dheat_fevap
         write(*,*) "snow nlayers = ", s%nlayers
@@ -3522,7 +3516,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: LAI balance violation after snow_sublimation!", FATAL)
     endif
 
-    netmass2 = s%SWE() + (snow_levap + snow_fevap)*dt  +lswept1 + fswept1 ! mass cons check
+    netmass2 = s%SWE() + (snow_levap + snow_fevap)*dt ! mass cons check
     if (do_snow_check_cons .and.(abs(netmass2 - netmass1)>1E-6)) then
         write(*,*) "checkpoint after sublimation: SWE = ", s%SWE()
         call land_error_message("ERROR gl_snow_step_2 in snow_evolution module: mass balance violation after snow_sublimation!", FATAL)
@@ -3743,10 +3737,10 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call gl_sweep_tiny_snow(s,lswept2, fswept2, hlswept2, hfswept2, lost_wc_em5, lost_wc_im5)
     ! lswept2 = 0; fswept2 = 0; hlswept2 = 0; hfswept2 = 0
     ! lost_wc_em5=0; lost_wc_im5=0
-    snow_lrunf = snow_lrunf + lswept1/dt +  lswept2/dt
-    snow_frunf = snow_frunf + fswept1/dt + fswept2/dt
-    snow_hlrunf = snow_hlrunf + hlswept1/dt + hlswept2/dt
-    snow_hfrunf = snow_hfrunf + hfswept1/dt + hfswept2/dt
+    snow_lrunf = snow_lrunf + lswept2/dt
+    snow_frunf = snow_frunf + fswept2/dt
+    snow_hlrunf = snow_hlrunf + hlswept2/dt
+    snow_hfrunf = snow_hfrunf + hfswept2/dt
     netmass2 = s%SWE() + lswept2 + fswept2 ! mass cons check
     if (do_snow_check_cons .and.(abs(netmass2 - netmass1)>1E-6)) then
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: mass balance violation after sweep_tiny_snow!", FATAL)
