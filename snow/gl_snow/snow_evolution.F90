@@ -1630,7 +1630,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
     real old_density, old_heat, new_heat, zeroT_heat, excess_heat
     real total_mass, dheat_over_cap0
     logical stay_in_da_loop
-    real trial_new_T, trial_old_T
+    real trial_new_T
     real borrowed_ws
     real DT_max, DT_try, excess_e
     real max2add, ener2add
@@ -1901,12 +1901,20 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
                     ! all melted: topsnowdeficit and ws are moved to wl
                     s%snow(1)%wl = s%snow(1)%wl + s%snow(1)%ws + s%topsnowdeficit*addf
                     s%snow(1)%ws = 0.0
-                    ! heat that exceeds the heat content at zero C used to warm up melt water
-                    s%snow(1)%T = TFREEZE + excess_heat/(CLW*s%snow(1)%wl)
+                    ! spend only so much energy from topsnowheatdeficit so that all
+                    ! available snow is melted, and the meltwater temperature is at
+                    ! the freezing point
+                    s%snow(1)%T  = TFREEZE
                     s%topsnowdeficit = s%topsnowdeficit*(1-addf)
-                    s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
+                    s%topsnowheatdeficit = s%topsnowheatdeficit + (old_heat - s%snow(1)%heat())
+                    ! slm: this layer is completely melted, should we remove it?
+
+                    ! heat that exceeds the heat content at zero C used to warm up melt water
+!                     s%snow(1)%T = TFREEZE + excess_heat/(CLW*s%snow(1)%wl)
+!                     s%topsnowdeficit = s%topsnowdeficit*(1-addf)
+!                     s%topsnowheatdeficit = s%topsnowheatdeficit*(1-addf)
                     if (is_watch_point()) then
-                       write(*,'(a20)', advance='NO')'all melted:'
+                       write(*,'(a20)', advance='NO')'all melted 1:'
                        __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
                     endif
                 else if (new_heat > 0) then ! mixed phases
@@ -1921,7 +1929,6 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
                        __DEBUG3__(s%snow(1)%wl, s%snow(1)%ws, s%snow(1)%T)
                     endif
                 else ! energy < 0, all solid
-                    trial_old_T = s%snow(1)%T
                     trial_new_T = TFREEZE + new_heat/(CSW*(s%snow(1)%ws  + s%snow(1)%wl + s%topsnowdeficit))
                     if (trial_new_T < 200.0) then ! do not do the merge
                         ! don't merge
