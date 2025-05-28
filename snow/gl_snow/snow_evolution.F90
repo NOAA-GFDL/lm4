@@ -1704,8 +1704,7 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
         endif
         !-------------------
 
-          dheat_fevap = dheat
-
+        dheat_fevap = dheat
 
         !!!!! -------- NOW DO IMPLICIT MELT OR FREEZE ------------
         if(is_watch_point()) then
@@ -1718,56 +1717,49 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
             __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
         endif
         allocate(M_layer(s%nlayers))
-        if (initial_snow_depth>0) then  ! // TODO remove if, already in this case here surely
-            snow_melt = Mg_imp/dt
-        else
-            snow_melt = 0.0
-        endif
         M_layer = 0.0
+        snow_melt = Mg_imp/dt
         subs_M_imp = Mg_imp
         do il = 1, s%nlayers
-            if (initial_snow_depth>0 .and. subs_M_imp.gt.0) then ! MELT case, subs_M_imp > 0
-                ! M_layer(il) =  min( subs_M_imp, max(0.0,s%snow(il)%ws) )
-                M_layer(il) =  min( subs_M_imp, max(0.0,s%snow(il)%ws - 1E-9) ) ! EZSNOW
+            if (subs_M_imp > 0) then ! MELT case, subs_M_imp > 0
+                ! M_layer(il) = min( subs_M_imp, max(0.0,s%snow(il)%ws) )
+                M_layer(il) = min( subs_M_imp, max(0.0,s%snow(il)%ws - 1E-9) ) ! EZSNOW
                 subs_M_imp = subs_M_imp - M_layer(il)
             endif
         enddo
-        if (initial_snow_depth>0) then ! Case of Freeze, or remaining ! EZEVAP - ASSIGN THIS TO SUBS INSTEAD
-            M_layer(1) = M_layer(1) + subs_M_imp
-            subs_M_imp = 0
-            if ((M_layer(1)>0).and.(s%snow(1)%ws<M_layer(1))) then ! BORROW THE MISSING ICE
-                borrowed_ws = M_layer(1)-s%snow(1)%ws + 1E-7 ! positive ice mass
-                s%topsnowheatdeficit = s%topsnowheatdeficit + CSW*(-borrowed_ws)*(s%snow(1)%T-TFREEZE)
-                s%topsnowdeficit = s%topsnowdeficit - borrowed_ws
-                s%snow(1)%ws = s%snow(1)%ws + borrowed_ws
-            endif
+        ! Case of Freeze, or remaining ! EZEVAP - ASSIGN THIS TO SUBS INSTEAD
+        M_layer(1) = M_layer(1) + subs_M_imp
+        subs_M_imp = 0
+        if ((M_layer(1)>0).and.(s%snow(1)%ws<M_layer(1))) then ! BORROW THE MISSING ICE
+            borrowed_ws = M_layer(1)-s%snow(1)%ws + 1E-7 ! positive ice mass
+            s%topsnowheatdeficit = s%topsnowheatdeficit + CSW*(-borrowed_ws)*(s%snow(1)%T-TFREEZE)
+            s%topsnowdeficit = s%topsnowdeficit - borrowed_ws
+            s%snow(1)%ws = s%snow(1)%ws + borrowed_ws
         endif
         if(is_watch_point()) then
-            write(*,*) "Start -> Case of neagtive ws:"
-            __DEBUG4__(s%snow(1)%T , s%snow(1)%wl, s%snow(1)%ws, M_layer(1))
+            write(*,*) "Start -> Case of negative ws:"
+            __DEBUG4__(s%snow(1)%T, s%snow(1)%wl, s%snow(1)%ws, M_layer(1))
             __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
         endif
         do il = 1, s%nlayers
-            if (initial_snow_depth>0) then
-                old_density_il = s%snow(il)%ws/s%snow(il)%dz ! original layer density
-                cap0 = s%snow(il)%hCap() ! original heat capacity of layer
-                init_wl =s%snow(il)%wl
-                init_ws =s%snow(il)%ws
-                init_T =s%snow(il)%T
-                s%snow(il)%wl = s%snow(il)%wl + M_layer(il) ! melt if positive, freeze if negative
-                s%snow(il)%ws = s%snow(il)%ws - M_layer(il)
-                s%snow(il)%dz = s%snow(il)%ws/old_density_il ! maintain original density of the layer -> shrink layer thickness
-                s%snow(il)%T  = TFREEZE + (cap0*(s%snow(il)%T-TFREEZE) ) &
-                                                        / ( cap0 + (CLW-CSW)*M_layer(il) )
-                if(is_watch_point() .and.(il==1)) then
-                    write(*,*) "End Case of negative ws:"
-                    __DEBUG3__(s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl)
-                    __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
-                    __DEBUG2__(s%snow(1)%T, Cap0)
-                endif
-            endif
+            old_density_il = s%snow(il)%ws/s%snow(il)%dz ! original layer density
+            cap0 = s%snow(il)%hCap() ! original heat capacity of layer
+            init_wl = s%snow(il)%wl
+            init_ws = s%snow(il)%ws
+            init_T  = s%snow(il)%T
+            s%snow(il)%wl = s%snow(il)%wl + M_layer(il) ! melt if positive, freeze if negative
+            s%snow(il)%ws = s%snow(il)%ws - M_layer(il)
+            s%snow(il)%dz = s%snow(il)%ws/old_density_il ! maintain original density of the layer -> shrink layer thickness
+            s%snow(il)%T  = TFREEZE + (cap0*(s%snow(il)%T-TFREEZE) ) &
+                                                    / ( cap0 + (CLW-CSW)*M_layer(il) )
         enddo
-        DEALLOCATE(M_layer)
+        deallocate(M_layer)
+        if(is_watch_point()) then
+            write(*,*) "End Case of negative ws:"
+            __DEBUG3__(s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl)
+            __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
+            __DEBUG2__(s%snow(1)%T, Cap0)
+        endif
         !!!!! ------ END IMPLICIT MELT --------
 
         if(is_watch_point()) then
