@@ -96,7 +96,7 @@ use land_tile_diag_mod, only : OP_SUM, cmor_name, tile_diag_init, tile_diag_end,
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
-     register_tiled_static_field, get_area_id
+     register_tiled_static_field, get_area_id, diag_buff_type
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
      check_conservation, do_check_conservation, &
@@ -3421,6 +3421,8 @@ subroutine land_sw_balance ( &
   surf_refl_dif, surf_refl_dir, &
   ! output:
   fswv, fswg, fswdn, &
+  layer_refl_dif, layer_tran_dif, &
+  layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
   land_albedo_dif, land_albedo_dir )
   real, intent(in) :: swdn_dir ! downward direct radiation from atmos, W/m2
   real, intent(in) :: swdn_dif ! downward diffuse radiation from atmos, W/m2
@@ -3437,6 +3439,16 @@ subroutine land_sw_balance ( &
   real, intent(out) :: fswv(:) ! resulting radiative balances of canopy layers, W/m2
   real, intent(out) :: fswg    ! resulting radiative balance of ground surface, W/m2
   real, intent(out) :: fswdn(:) ! downward total flux on top of each cohort, W/m2
+
+  ! average optical properties of layers: they an be used outside to calculate
+  ! overall optical properties of the multi-layer vegetaion
+  real, intent(out) ::  &
+     layer_refl_dif(:), & ! black-background reflectances for diffuse light
+     layer_tran_dif(:), & ! transmittances for diffuse beam
+     layer_refl_dir(:), & ! black-background reflectances for direct light
+     layer_tran_dir(:), & ! transmittances for direct beam
+     layer_sctr_dir(:)    ! downward scattering coefficients for direct beam
+
   real, intent(out),optional :: land_albedo_dir ! land albedo for direct light
   real, intent(out),optional :: land_albedo_dif ! land albedo for diffuse light
 
@@ -3447,12 +3459,7 @@ subroutine land_sw_balance ( &
      scale(:), &    ! scaling factor due to multiple reflections
      refl_dir(:), & ! integral refl. below layer N for direct beam, with multiple scattering
      refl_dif(:)    ! integral refl. below layer N for diffuse light, with multiple scattering
-  real, allocatable ::  & ! average optical properties of layers
-     layer_tran_dif(:), & ! transmittances for diffuse beam
-     layer_refl_dif(:), & ! black-background reflectances for diffuse light
-     layer_refl_dir(:), & ! black-background reflectances for direct light
-     layer_tran_dir(:), & ! transmittances for direct beam
-     layer_sctr_dir(:), & ! downward scattering coefficients for direct beam
+  real, allocatable ::  &
      layer_area(:)        ! sum of cohort fractional areas, must be close to 1 for all layers
 
   real :: dir, dif ! downward direct and diffuse light on top of the current layer, W/m2
@@ -3472,8 +3479,7 @@ subroutine land_sw_balance ( &
   ! allocate local variables
   N = maxval(vegn_layer)
   allocate(scale(N),refl_dir(0:N),refl_dif(0:N))
-  allocate(layer_tran_dif(N), layer_refl_dif(N), layer_refl_dir(N), &
-           layer_tran_dir(N), layer_sctr_dir(N), layer_area    (N)  )
+  allocate(layer_area (N) )
   ! calculate optical properties of layers
   ! layer_area(i) must be 1 (to the numerical precision) for all i
   ! optical properties of cohorts must be pre-normalized
@@ -3538,10 +3544,74 @@ subroutine land_sw_balance ( &
 
   ! deallocate local variables
   deallocate(scale,refl_dir,refl_dif)
-  deallocate(layer_tran_dif, layer_refl_dif, layer_refl_dir, &
-             layer_tran_dir, layer_sctr_dir, layer_area      )
+  deallocate(layer_area)
 end subroutine land_sw_balance
 
+! ===========================================================================
+! given the optical properties of layers, calculate black-background
+! radiative properties of the entire vegetation
+subroutine bb_vegn_rad_properties ( &
+  swdn_dif, swdn_dir, &
+  N, &
+  layer_refl_dif, layer_tran_dif, &
+  layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
+  vegn_refl_dir, vegn_refl_dif, &
+  vegn_swdn_dir, vegn_swdn_dif )
+
+  real, intent(in) :: swdn_dir ! downward direct radiation on top of the canopy
+  real, intent(in) :: swdn_dif ! downward diffuse radiation on top of the canopy
+  ! while it is possible to specify any values for direct and diffuse radiation
+  ! on top of the canopy, it only makes sense to use (swdn_dif=1, swdn_dir=0), or
+  ! (swdn_dif=0, swdn_dir=1). The former would returns properties for diffuse radiation,
+  ! while the latter -- for direct beam.
+  ! average optical properties of layers:
+  integer, intent(in) :: N ! number of layers
+  real, intent(in) ::  &
+     layer_refl_dif(:), & ! black-background reflectances for diffuse light
+     layer_tran_dif(:), & ! transmittances for diffuse light
+     layer_refl_dir(:), & ! black-background reflectances for direct light
+     layer_tran_dir(:), & ! transmittances for direct beam
+     layer_sctr_dir(:)    ! downward scattering coefficients for direct beam
+  ! black-background optical properties of the entire vegetation:
+  real, intent(out), optional :: &
+     vegn_refl_dir, & ! black-background reflectance for direct light
+     vegn_refl_dif, & ! black-background reflectance for diffuse light
+     vegn_swdn_dir, & ! black-background transmittance for direct beam
+     vegn_swdn_dif    ! black-background transmittance for diffuse light,
+                      ! or scattering for direct beam
+
+  integer :: i
+  real :: dir, dif
+  real :: scale(N),refl_dir(0:N),refl_dif(0:N)
+
+  ! [1] go upward through the canopy and calculate integral reflectances
+  ! set surface reflectances to zero because we are doing black background calculation
+  refl_dir(N) = 0.0
+  refl_dif(N) = 0.0
+  do i = N,1,-1
+    scale(i) = 1.0/(1 - refl_dif(i)*layer_refl_dif(i))
+    refl_dir(i-1) = layer_refl_dir(i) &
+      + layer_tran_dif(i)*(refl_dif(i)*layer_sctr_dir(i)+refl_dir(i)*layer_tran_dir(i))&
+      * scale(i)
+    refl_dif(i-1) = layer_refl_dif(i) &
+      + refl_dif(i)*layer_tran_dif(i)**2*scale(i)
+  enddo
+  if (present(vegn_refl_dir)) vegn_refl_dir = refl_dir(0)
+  if (present(vegn_refl_dif)) vegn_refl_dif = refl_dif(0)
+
+  ! [2] go down through the canopy and calculate radiative fluxes at the bottom
+  dir = swdn_dir
+  dif = swdn_dif
+  do i = 1,N
+     ! recalculate the fluxes for the lower layer
+     dif = (layer_sctr_dir(i)+layer_refl_dif(i)*refl_dir(i)*layer_tran_dir(i))*scale(i)*dir &
+         + layer_tran_dif(i)*scale(i)*dif
+     dir = layer_tran_dir(i)*dir
+  enddo
+  if (present(vegn_swdn_dir)) vegn_swdn_dir = dir
+  if (present(vegn_swdn_dif)) vegn_swdn_dif = dif
+
+end subroutine bb_vegn_rad_properties
 
 ! ============================================================================
 ! calculate fractions of downward short-wave radiation absorbed by vegetation
@@ -3555,7 +3625,8 @@ subroutine land_sw_radiation (     &
      vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
      ! output:
      Sg_dir, Sg_dif, Sv_dir, Sv_dif, Sdn_dir, Sdn_dif, &
-     land_albedo_dir, land_albedo_dif )
+     land_albedo_dir, land_albedo_dif, &
+     diag )
 
   real, intent(in) :: &
      subs_refl_dir(NBANDS), subs_refl_dif(NBANDS), & ! sub-snow reflectances for direct and diffuse light
@@ -3577,15 +3648,28 @@ subroutine land_sw_radiation (     &
      Sdn_dir(:,:),   Sdn_dif(:,:),   & ! fraction of downward short-wave on top of each cohort (NCOHORTS,NBANDS)
      land_albedo_dir(NBANDS), land_albedo_dif(NBANDS) ! land albedo for direct and diffuse light
 
+  type(diag_buff_type), intent(inout) :: diag ! diagnostic data storage
+
   ! ---- local vars
   real :: &
      grnd_refl_dir(NBANDS), & ! SW reflectances of ground surface (by spectral band)
      grnd_refl_dif(NBANDS)    ! SW reflectances of ground surface (by spectral band)
-  integer :: band, m
+  integer :: band, m, N
   real, allocatable :: layerfrac(:)
+  real, allocatable :: layer_refl_dif(:), layer_tran_dif(:), &
+                       layer_refl_dir(:), layer_tran_dir(:), layer_sctr_dir(:)
+
+  ! black-background radiative properties of the entire vegetation
+  real, dimension (NBANDS) :: &
+        bb_vegn_refl_dif(NBANDS), bb_vegn_tran_dif(NBANDS), &
+        bb_vegn_refl_dir(NBANDS), bb_vegn_tran_dir(NBANDS), bb_vegn_sctr_dir(NBANDS)
 
   grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
   grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
+
+  N = maxval(vegn_layer)
+  allocate(layer_refl_dif(N), layer_tran_dif(N), &
+           layer_refl_dir(N), layer_tran_dir(N), layer_sctr_dir(N) )
 
   do band = 1, NBANDS
      ! diffuse radiation
@@ -3595,15 +3679,44 @@ subroutine land_sw_radiation (     &
         vegn_refl_dir(:,band), vegn_sctr_dir(:,band), vegn_tran_dir(:,band), &
         grnd_refl_dif(band), grnd_refl_dir(band),&
         Sv_dif(:,band), Sg_dif(band), Sdn_dif(:,band), &
+        layer_refl_dif, layer_tran_dif, &
+        layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
         land_albedo_dif=land_albedo_dif(band) )
+     ! diagnostics: calculate overall black-background vegetation radiative properties
+     ! for diffuse radiation
+     if(id_vegn_refl_dif > 0 .or. id_vegn_tran_dif > 0) then
+        call bb_vegn_rad_properties( &
+           1.0, 0.0, & ! "incident radiation"
+           N, &
+           layer_refl_dif, layer_tran_dif, &
+           layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
+           vegn_refl_dif = bb_vegn_refl_dif(band), &
+           vegn_swdn_dif = bb_vegn_tran_dif(band)  )
+     endif
+
      ! direct radiation
      call land_sw_balance(0.0, 1.0, &
         vegn_layer, vegn_frac, &
         vegn_refl_dif(:,band), vegn_tran_dif(:,band), &
         vegn_refl_dir(:,band), vegn_sctr_dir(:,band), vegn_tran_dir(:,band), &
         grnd_refl_dif(band), grnd_refl_dir(band),&
+        ! output
         Sv_dir(:,band), Sg_dir(band), Sdn_dir(:,band), &
+        layer_refl_dif, layer_tran_dif, &
+        layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
         land_albedo_dir=land_albedo_dir(band) )
+     ! diagnostics: calculate overall black-background vegetation radiative properties
+     ! for direct radiation
+     if(id_vegn_refl_dir > 0 .or. id_vegn_tran_dir > 0 .or. id_vegn_sctr_dir > 0) then
+        call bb_vegn_rad_properties( &
+           0.0, 1.0, & ! "incident radiation": diffuse, direct
+           N, &
+           layer_refl_dif, layer_tran_dif, &
+           layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
+           vegn_refl_dir = bb_vegn_refl_dir(band), &
+           vegn_swdn_dif = bb_vegn_sctr_dir(band), &
+           vegn_swdn_dir = bb_vegn_tran_dir(band)  )
+     endif
   enddo
 
   if(is_watch_point()) then
@@ -3623,6 +3736,14 @@ subroutine land_sw_radiation (     &
      call debug_rad_properties(BAND_VIS,'(VIS)')
      call debug_rad_properties(BAND_NIR,'(NIR)')
   endif
+
+  call send_tile_data(id_vegn_refl_dir, bb_vegn_refl_dir, diag)
+  call send_tile_data(id_vegn_refl_dif, bb_vegn_refl_dif, diag)
+!   call send_tile_data(id_vegn_refl_lw,  vegn_refl_lw,  diag)
+  call send_tile_data(id_vegn_tran_dir, bb_vegn_tran_dir, diag)
+  call send_tile_data(id_vegn_tran_dif, bb_vegn_tran_dif, diag)
+!   call send_tile_data(id_vegn_tran_lw,  vegn_tran_lw,  diag)
+  call send_tile_data(id_vegn_sctr_dir, bb_vegn_sctr_dir, diag)
 
 contains
   subroutine debug_rad_properties(b,tag)
@@ -3857,7 +3978,8 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
        vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir,  &
        ! output:
        tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, tile%Sdn_dir, tile%Sdn_dif, &
-       tile%land_refl_dir, tile%land_refl_dif )
+       tile%land_refl_dir, tile%land_refl_dif, &
+       tile%diag )
 
 
   if (associated(tile%glac)) then
@@ -3949,13 +4071,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call send_tile_data(id_albedo_dir, tile%land_refl_dir, tile%diag)
   call send_tile_data(id_albedo_dif, tile%land_refl_dif, tile%diag)
   call send_tile_data(id_snow_frac,  snow_area,          tile%diag)
-!!$  call send_tile_data(id_vegn_refl_dir, vegn_refl_dir,     tile%diag)
-!!$  call send_tile_data(id_vegn_refl_dif, vegn_refl_dif, tile%diag)
-!!$  call send_tile_data(id_vegn_refl_lw,  vegn_refl_lw, tile%diag)
-!!$  call send_tile_data(id_vegn_tran_dir, vegn_tran_dir, tile%diag)
-!!$  call send_tile_data(id_vegn_tran_dif, vegn_tran_dif, tile%diag)
-!!$  call send_tile_data(id_vegn_tran_lw,  vegn_tran_lw, tile%diag)
-!!$  call send_tile_data(id_vegn_sctr_dir, vegn_sctr_dir,     tile%diag)
   call send_tile_data(id_subs_refl_dir, subs_refl_dir, tile%diag)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
   call send_tile_data(id_grnd_T,     grnd_T,     tile%diag)
@@ -4608,16 +4723,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_vegn_refl_dif = register_tiled_diag_field(module_name, 'vegn_refl_dif', &
        (/id_ug, id_band/), time, &
        'black-background canopy reflectivity for diffuse light',missing_value=-1.0)
-  id_vegn_refl_lw = register_tiled_diag_field ( module_name, 'vegn_refl_lw', axes, time, &
-       'canopy reflectivity for thermal radiation', missing_value=-1.0)
+!   id_vegn_refl_lw = register_tiled_diag_field ( module_name, 'vegn_refl_lw', axes, time, &
+!        'canopy reflectivity for thermal radiation', missing_value=-1.0)
   id_vegn_tran_dir = register_tiled_diag_field(module_name, 'vegn_tran_dir', &
        (/id_ug, id_band/), time, &
        'part of direct light that passes through canopy unscattered',missing_value=-1.0)
   id_vegn_tran_dif = register_tiled_diag_field(module_name, 'vegn_tran_dif', &
        (/id_ug, id_band/), time, &
        'black-background canopy transmittance for diffuse light',missing_value=-1.0)
-  id_vegn_tran_lw = register_tiled_diag_field ( module_name, 'vegn_tran_lw', axes, time, &
-       'canopy transmittance for thermal radiation', missing_value=-1.0)
+!   id_vegn_tran_lw = register_tiled_diag_field ( module_name, 'vegn_tran_lw', axes, time, &
+!        'canopy transmittance for thermal radiation', missing_value=-1.0)
   id_vegn_sctr_dir = register_tiled_diag_field(module_name, 'vegn_sctr_dir', &
        (/id_ug, id_band/), time, &
        'part of direct light scattered downward by canopy',missing_value=-1.0)
