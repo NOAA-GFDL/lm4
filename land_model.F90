@@ -3312,6 +3312,9 @@ subroutine land_sw_balance ( &
   deallocate(layer_area)
 end subroutine land_sw_balance
 
+! ===========================================================================
+! given the optical properties of layers, calculate black-background
+! radiative properties of the entire vegetation
 subroutine bb_vegn_rad_properties ( &
   swdn_dif, swdn_dir, &
   N, &
@@ -3320,27 +3323,36 @@ subroutine bb_vegn_rad_properties ( &
   vegn_refl_dir, vegn_refl_dif, &
   vegn_swdn_dir, vegn_swdn_dif )
 
-  real, intent(in) :: swdn_dir ! downward direct radiation from atmos, W/m2
-  real, intent(in) :: swdn_dif ! downward diffuse radiation from atmos, W/m2
-  ! average optical properties of layers
+  real, intent(in) :: swdn_dir ! downward direct radiation on top of the canopy
+  real, intent(in) :: swdn_dif ! downward diffuse radiation on top of the canopy
+  ! while it is possible to specify any values for direct and diffuse radiation
+  ! on top of the canopy, it only makes sense to use (swdn_dif=1, swdn_dir=0), or
+  ! (swdn_dif=0, swdn_dir=1). The former would returns properties for diffuse radiation,
+  ! while the latter -- for direct beam.
+  ! average optical properties of layers:
   integer, intent(in) :: N ! number of layers
   real, intent(in) ::  &
      layer_refl_dif(:), & ! black-background reflectances for diffuse light
-     layer_tran_dif(:), & ! transmittances for diffuse beam
+     layer_tran_dif(:), & ! transmittances for diffuse light
      layer_refl_dir(:), & ! black-background reflectances for direct light
      layer_tran_dir(:), & ! transmittances for direct beam
      layer_sctr_dir(:)    ! downward scattering coefficients for direct beam
+  ! black-background optical properties of the entire vegetation:
   real, intent(out), optional :: &
-     vegn_refl_dir, vegn_refl_dif, &
-     vegn_swdn_dir, vegn_swdn_dif
+     vegn_refl_dir, & ! black-background reflectance for direct light
+     vegn_refl_dif, & ! black-background reflectance for diffuse light
+     vegn_swdn_dir, & ! black-background transmittance for direct beam
+     vegn_swdn_dif    ! black-background transmittance for diffuse light,
+                      ! or scattering for direct beam
 
   integer :: i
   real :: dir, dif
   real :: scale(N),refl_dir(0:N),refl_dif(0:N)
 
   ! [1] go upward through the canopy and calculate integral reflectances
-  refl_dir(N) = 0.0 ! surf_refl_dir -- black background
-  refl_dif(N) = 0.0 ! surf_refl_dif -- black background
+  ! set surface reflectances to zero because we are doing black background calculation
+  refl_dir(N) = 0.0
+  refl_dif(N) = 0.0
   do i = N,1,-1
     scale(i) = 1.0/(1 - refl_dif(i)*layer_refl_dif(i))
     refl_dir(i-1) = layer_refl_dir(i) &
@@ -4428,16 +4440,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_vegn_refl_dif = register_tiled_diag_field(module_name, 'vegn_refl_dif', &
        (/id_ug, id_band/), time, &
        'black-background canopy reflectivity for diffuse light',missing_value=-1.0)
-  id_vegn_refl_lw = register_tiled_diag_field ( module_name, 'vegn_refl_lw', axes, time, &
-       'canopy reflectivity for thermal radiation', missing_value=-1.0)
+!   id_vegn_refl_lw = register_tiled_diag_field ( module_name, 'vegn_refl_lw', axes, time, &
+!        'canopy reflectivity for thermal radiation', missing_value=-1.0)
   id_vegn_tran_dir = register_tiled_diag_field(module_name, 'vegn_tran_dir', &
        (/id_ug, id_band/), time, &
        'part of direct light that passes through canopy unscattered',missing_value=-1.0)
   id_vegn_tran_dif = register_tiled_diag_field(module_name, 'vegn_tran_dif', &
        (/id_ug, id_band/), time, &
        'black-background canopy transmittance for diffuse light',missing_value=-1.0)
-  id_vegn_tran_lw = register_tiled_diag_field ( module_name, 'vegn_tran_lw', axes, time, &
-       'canopy transmittance for thermal radiation', missing_value=-1.0)
+!   id_vegn_tran_lw = register_tiled_diag_field ( module_name, 'vegn_tran_lw', axes, time, &
+!        'canopy transmittance for thermal radiation', missing_value=-1.0)
   id_vegn_sctr_dir = register_tiled_diag_field(module_name, 'vegn_sctr_dir', &
        (/id_ug, id_band/), time, &
        'part of direct light scattered downward by canopy',missing_value=-1.0)
