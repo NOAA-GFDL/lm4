@@ -73,6 +73,8 @@ real :: soil_depth = 0.15 ! depth scale for soil wetness averaging, m
 real :: c1         = 10.0 ! adjustment factor for bareness calculations
 real :: sai_thresh = 0.05 ! stem area index threshold for dust emission
 real :: lai_thresh = 0.1  ! leaf area index threshold for dust emission
+real :: sai_amplif =  10.0   ! Amplification factor of Stem Area Index for the negative exponent of surface bareness
+real :: lai_amplif =  1.0    ! Amplification factor of Leaf Area Index for the negative exponent of surface bareness
 real :: sliq_thresh= 0.5  ! soil liquid threshold for dust emission
 real :: sice_thresh= 0.05 ! soil ice threshold for dust emission
 real :: snow_thresh= 1.0  ! snow threshold, kg/m2
@@ -109,7 +111,8 @@ namelist /land_dust_nml/ &
    sliq_thresh, sice_thresh, snow_thresh, dependency_soil_moisture, &
    u_min, u_min_crop, u_min_past, u_min_range, frac_bare_crop, frac_bare_past, frac_bare_range, &
    past_as_ntrl, crop_as_ntrl, range_as_ntrl, ch, input_file_name, input_field_name, &
-   use_irrigation_frac, lu_state_file, lu_irrig_file, lu_static_file, irrigation_year
+   use_irrigation_frac, lu_state_file, lu_irrig_file, lu_static_file, irrigation_year, &
+   sai_amplif, lai_amplif
 !---- end of namelist ----------------------------------------------------------
 
 
@@ -655,7 +658,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
        ! override bareness and wind threshold for tiles treated as natural vegetation
        if(treat_as_ntrl) then
           if ((lai<lai_thresh) .and. (sai<sai_thresh)) then
-             bareness = exp( -2.0*lai/2.0-10.*sai)
+             bareness = exp( -lai_amplif*lai-sai_amplif*sai )
           else
              u_thresh=u_ts
              bareness = 0.0
