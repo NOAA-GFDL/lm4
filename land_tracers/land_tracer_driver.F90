@@ -296,13 +296,15 @@ subroutine land_tracer_driver_init(id_ug,id_zfull)
       end if
    elseif (trim(lowercase(h2_soilc_mod)).eq."reji25") then
       h2_soilC_mod_id = H2_SOILC_REJI25
+      !soilC in %
 
       if (h2_soilC_param(1) < 0) then
-         call error_mesg("land_tracer_driver","using default parameter for H2_REJI", NOTE)
-         h2_soilC_param(1) = 0.0024
-         h2_soilC_param(2) = 0.00387
-
-         !soilC in %
+         call error_mesg("land_tracer_driver","using default parameter for H2_REJI [1]", NOTE)
+         h2_soilC_param(1) = 0.0024 !slope
+      end if
+      if (h2_soilC_param(2) < 0) then
+            call error_mesg("land_tracer_driver","using default parameter for H2_REJI [2]", NOTE)
+            h2_soilC_param(2) = 0.00387 !minimum (soilC = 0)
       end if
    elseif (trim(lowercase(h2_soilc_mod)).eq."none") then
       h2_soilC_mod_id = H2_SOILC_NO_MOD
@@ -1565,7 +1567,7 @@ real function con_h2(tile,p) result(con)
 
    real    :: R_inactive, R_snow, R_bact, inactive_layer, R_litter, R_litter_leaf
 
-   real    :: beta1, b, beta2, norm
+   real    :: beta1, beta2, norm
    real    :: litterC_leaf
    real    :: depth_litter_leaf, depth_litter
    real    :: grnd_T
@@ -1622,7 +1624,6 @@ real function con_h2(tile,p) result(con)
       s_opt(:) = -1
       s_upc(:) = -1
 
-      b           = tile%soil%pars%chb
       beta1       = h2_beta1
 
       if (h2_soilC_mod_id .gt. 0) then
@@ -1656,9 +1657,11 @@ real function con_h2(tile,p) result(con)
          if (frac_ice_pores(isoil).gt.0) psi_sat_ref(isoil) = psi_sat_ref(isoil) /2.2
 
          !soil activation threshold
-         s_ws(isoil)      = min(max((psi_sat_ref(isoil)/h2_psi_ws)**(1./b),0.),1.)
-         s_opt(isoil)     = min(max((psi_sat_ref(isoil)/h2_psi_opt)**(1./b),0.),1.)
+         s_ws(isoil)      = min(max((psi_sat_ref(isoil)/h2_psi_ws)**(1./tile%soil%pars%chb),0.),1.)
+         s_opt(isoil)     = min(max((psi_sat_ref(isoil)/h2_psi_opt)**(1./tile%soil%pars%chb),0.),1.)
          s_upc(isoil)     = 1. !min(max(s_up - frac_ice_pores(isoil),0.),1.)
+
+         !NOTE that this equation is only valid between if Xl_eff>psi_min and <Xsat. This is ok as long as psi_h2 is >-100e2 m
 
          h2_moist_r1(isoil) = 0.
          h2_moist_r2(isoil) = 0.
@@ -1669,9 +1672,10 @@ real function con_h2(tile,p) result(con)
 
          if (frac_water_pores(isoil).lt.s_ws(isoil) .and. TOP_LAYER) then
             !we have yet to encounter a wet enough layer
-            R_inactive = R_inactive + dz/max(diff_H2_soil(tile%soil%T(isoil),p,                             &
-                           tile%soil%pars%vwc_sat,                           &
-                           frac_water_pores(isoil)+frac_ice_pores(isoil),    &
+            R_inactive   = R_inactive +                                                   &
+                           dz/max(diff_H2_soil(tile%soil%T(isoil),p,                      &
+                                  tile%soil%pars%vwc_sat,                                 &
+                                  frac_water_pores(isoil)+frac_ice_pores(isoil),          &
                            tile%soil%pars%chb),1.e-20)
             inactive_layer = inactive_layer + dz
          elseif (((1.-frac_ice_pores(isoil)+frac_water_pores(isoil)).lt.epsln) .and. TOP_LAYER) then
@@ -1746,9 +1750,8 @@ real function con_h2(tile,p) result(con)
                                  p,                                                &
                                  tile%soil%pars%vwc_sat,                           &
                                  frac_ice_pores_avg+frac_water_pores_avg,          &
-                                 b )
+                                 tile%soil%pars%chb)
 
-         !soilC in kg/m2
          if (h2_soilC_mod_id.eq.H2_SOILC_PAULOT21) then
             h2_km_eff = (h2_km*soil_C/dz_C)/(soil_C/dz_C+h2_soilC_param(1))
          elseif (h2_soilC_mod_id.eq.H2_SOILC_REJI25) then
