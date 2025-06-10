@@ -23,6 +23,7 @@ public :: land_debug_end
 
 public :: set_current_point, set_current_point_sg
 public :: get_current_point
+public :: get_current_coordinates
 public :: current_i, current_j, current_k, current_face
 public :: is_watch_point
 public :: is_watch_cell

@@ -17,12 +17,13 @@ use diag_manager_mod, only : register_static_field, &
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, query_method, NO_TRACER
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
+use land_transitions_mod, only : do_irrigation
 
 use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
 use snow_tile_mod, only : snow_tile_stock_pe
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
-use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL, LU_RANGE
+use vegn_data_mod, only:  LU_PAST, LU_RAINF, LU_IRRIG, LU_SCND, LU_NTRL, LU_RANGE
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use land_data_mod, only : lnd, log_version
@@ -252,6 +253,12 @@ subroutine land_dust_init (id_ug, mask)
   endif
   call read_field( fileobj, input_field_name, dust_source, interp='bilinear' )
   call close_file(fileobj)
+
+  ! check consistency of irrigation settings
+  if (use_irrigation_frac.and.do_irrigation) then
+     call error_mesg('land_dust_init','both use_irrigation_frac and do_irrigation in '// &
+         'landuse_nml are TRUE, which is inconsistent. Use one or another', FATAL)
+  endif
 
   ! initialize irrigation fraction field
   call transition_io_init()
@@ -631,11 +638,16 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
           u_thresh      = u_min_range
           bareness      = frac_bare_range
           treat_as_ntrl = range_as_ntrl
-       else if (tile%vegn%landuse .eq. LU_CROP ) then
+       else if (tile%vegn%landuse .eq. LU_RAINF ) then
           u_thresh      = u_min_crop
           bareness      = frac_bare_crop
           treat_as_ntrl = crop_as_ntrl
           irr_frac      = irrigation_fraction(l)
+       else if (tile%vegn%landuse .eq. LU_IRRIG ) then
+          u_thresh      = u_min_crop
+          bareness      = frac_bare_crop
+          treat_as_ntrl = crop_as_ntrl
+          irr_frac      = 1.0
        else ! NTRL or SCND
           u_thresh      = u_min
           treat_as_ntrl = .TRUE.

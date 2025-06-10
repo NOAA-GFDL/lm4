@@ -1,6 +1,8 @@
 module soil_tile_mod
 #include <fms_platform.h>
 
+#include "../shared/debug.inc"
+
 use mpp_mod, only : input_nml_file
 use fms_mod, only : check_nml_error, &
      stdlog, error_mesg, FATAL
@@ -13,6 +15,7 @@ use land_tile_selectors_mod, only : &
 use soil_carbon_mod, only : soil_carbon_option, &
     SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
+use land_debug_mod, only : is_watch_point
 use fms2_io_mod, only: close_file, FmsNetcdfFile_t, get_variable_size, &
                        open_file, read_data, get_variable_num_dimensions
 
@@ -179,14 +182,97 @@ type :: soil_pars_type
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
   real tile_hlsp_width  ! width of tile perpendicular to hillslope, normalized to strm width (-)
                         ! (proportional to tile area)
-!  real transm_bedrock    ! bedrock / inf-depth-wat-tab transmissivity (m^2/s, or vol wat/m/s)
   real disturb_scale    ! characteristic horizontal disturbance lengthscale within hillslope (m)
                         ! This will need to be set in transitions; otherwise, defaults to 1/2
                         ! tile_hlsp_width.
 
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
+
+  real irr_fac_et
 end type soil_pars_type
 
+
+type :: soil_hlsp_type
+   integer :: nk_g = 0
+   integer :: nj_g = 0
+
+   real :: elevmean_g = initval   
+   real :: elevmax_g = initval
+   real :: soilfrac_g = initval
+   real :: pslope2p_g = initval 
+   real, allocatable :: tfrac_g(:, :) 
+
+   real :: precip_T = initval !used only when do_hlsp_disagg_tpq is true
+   real :: evap_T = initval !used only when do_hlsp_disagg_tpq is true 
+   real :: hprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+   real :: tprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+
+   real :: lift = initval   
+   real :: pratio = initval   
+   real :: lprec = initval   
+   real :: fprec = initval   
+   real :: zatm = initval   
+   real :: tatm = initval   
+   real :: patm = initval   
+   real :: psurf = initval   
+   real :: qatm = initval   
+   real :: tatm_nodis = initval
+
+   real, allocatable :: lwc(:)
+   real, allocatable :: swc(:)
+   real, allocatable :: temp(:)  
+
+
+   real :: transp_land = initval
+   real :: precip_land = initval
+   real :: precip_l_land = initval
+   real :: precip_s_land = initval
+   real :: runf_land = initval
+   real :: evap_land = initval
+   real :: sens_land = initval
+   real :: total_C_land = initval
+   real :: swdn_dif_1_land = initval
+   real :: swdn_dif_2_land = initval
+   real :: swup_dif_1_land = initval
+   real :: swup_dif_2_land = initval
+   real :: swdn_dir_1_land = initval
+   real :: swdn_dir_2_land = initval
+   real :: swup_dir_1_land = initval
+   real :: swup_dir_2_land = initval   
+   real :: fevapv_land = initval
+   real :: flw_land = initval
+   real :: fsw_land = initval
+   real :: FWSv_land = initval
+   real :: grnd_flux_land = initval
+   real :: levapv_land = initval
+   real :: LWSv_land = initval
+   real :: snow_land = initval
+   real :: Tca_land = initval
+   real :: grnd_T_land = initval
+   real :: fco2_land = initval
+   real :: water_land = initval
+   real :: lai_land = initval
+   real :: sai_land = initval
+   real :: treeFrac_land = initval
+   real :: melt_land = initval
+   real :: meltv_land = initval
+   real :: melts_land = initval
+   real :: snow_frac_land = initval
+   real :: snow_depth_land = initval
+
+   real :: gpp_vegn = initval
+   real :: npp_vegn = initval
+   real :: resp_vegn = initval
+   real :: cVeg_vegn = initval
+
+   real :: irrrate_soil = initval
+   real :: hirrrate_soil = initval
+   real :: absts_soil = initval
+   real :: habsts_soil = initval
+   real :: abstd_soil = initval
+   real :: habstd_soil = initval
+  
+end type soil_hlsp_type
 
 type :: soil_tile_type
    integer :: tag ! kind of the soil
@@ -198,6 +284,7 @@ type :: soil_tile_type
        ! disturbance. So these indices function similarly to "tag".)
 
    type(soil_pars_type) :: pars
+   type(soil_hlsp_type) :: hlsp
 
    real, allocatable ::  &
        wl(:)           , & ! liquid water, kg/m2
@@ -265,7 +352,23 @@ type :: soil_tile_type
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
 
+
+   ! For irrigation module
+   real :: irr_demand_ac = 0. !kg/m2
+   real :: irr_rate      = 0. !kg/(m2 s)
+   real :: hirr_rate     = 0. !W/m2
+   real :: irr_area2frac_input= 0. !m2, per tile frac
+   real :: irr_area2frac_real = 0. !m2, per tile frac
+   real :: abst_s = 0. !kg/(m2 s)
+   real :: habst_s = 0. !W/m2
+   real :: abst_d = 0. !kg/(m2 s)
+   real :: habst_d = 0. !W/m2
    real :: r_pores ! surface pore radius, m
+
+   real :: irr_demand_ac_et = 0. !kg/m2
+   real :: irr_area2frac_input_et = 0. !m2, per tile frac
+   real :: irr_area2frac_real_et = 0. !m2, per tile frac
+
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -685,7 +788,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
             ptr%div_hlsp_NH4   (num_l)         )
-
+           
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -727,6 +830,12 @@ subroutine delete_soil_tile(ptr)
   deallocate(ptr)
 end subroutine delete_soil_tile
 
+subroutine soil_data_init_0d(soil)
+ type(soil_tile_type), intent(inout) :: soil
+
+ call soil_data_init_0d_lookup(soil,soil%tag)
+
+end subroutine
 
 ! ============================================================================
 subroutine soil_data_init_0d(soil)
@@ -737,7 +846,7 @@ subroutine soil_data_init_0d(soil)
   real    :: z ! depth at top of current layer
 
   k = soil%tag
-
+  
   soil%pars%vwc_sat           = dat_w_sat            (k)
   soil%pars%awc_lm2           = dat_awc_lm2          (k)
   soil%pars%k_sat_ref         = dat_k_sat_ref        (k)
@@ -908,7 +1017,7 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
       soil%pars%k_sat_sfc = soil%pars%k_sat_ref
       soil%alpha = 1.0
   endif
-
+  
   soil%pars%tau =    &
     (soil%pars%k_sat_gw*aspect*soil%pars%hillslope_length) &
      / ((soil%pars%k_sat_sfc+k_macro_x_local)*soil%pars%soil_e_depth)

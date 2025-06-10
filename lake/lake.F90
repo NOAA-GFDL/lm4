@@ -19,7 +19,8 @@ use lake_tile_mod, only : &
      lake_data_radiation, &
      lake_data_thermodynamics, &
      cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
-     lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width
+     lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width, &
+     new_lake_tile, delete_lake_tile, lake_tile_stock_pe, lake_tile_heat
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : register_tiled_static_field, &
@@ -30,8 +31,9 @@ use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data, field_exists
-use land_debug_mod, only: is_watch_point
+use land_debug_mod, only: is_watch_point, check_var_range, land_error_message
 use land_utils_mod, only : put_to_tiles_r0d_fptr
+use land_io_mod, only : read_field
 
 implicit none
 private
@@ -48,6 +50,9 @@ public :: lake_step_1
 public :: lake_step_2
 
 public :: large_dyn_small_stat
+
+public :: lake_abstraction
+public :: prohibit_shallow_lake
 ! =====end of public interfaces ==============================================
 
 
@@ -77,14 +82,21 @@ real    :: c_drag               = 1.2e-3
 real    :: lake_depth_max       = 1.e10
 real    :: lake_depth_min       = 1.99
 real    :: max_plain_slope      = -1.e10
+logical :: do_lake_abstraction  = .false.
+logical, public :: use_reservoir        = .false.
+real, public    :: ResMin               = 0.1 !public for river_physics
+real, public    :: ResMax               = 0.75
+logical :: prohibit_shallowlake = .false.
+logical :: lake_area_bug      = .false. ! If True, reproduces buggy behavior in older code where lake area may be larger than tile area
 
 namelist /lake_nml/ init_temp, init_w,       &
                     use_rh_feedback, cpw, clw, csw, &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
-                    K_z_background, K_z_min, K_z_factor, &
-                    lake_depth_max, lake_depth_min, max_plain_slope
+		    K_z_background, K_z_min, K_z_factor, &
+		    lake_depth_max, lake_depth_min, max_plain_slope, &
+          do_lake_abstraction, use_reservoir, ResMin, ResMax, prohibit_shallowlake, lake_area_bug
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
@@ -98,11 +110,15 @@ integer         :: num_l              ! # of water layers
 real, allocatable:: zfull (:)    ! diag axis, dimensionless layer number
 real, allocatable:: zhalf (:)
 real            :: max_rat
+logical, public :: is_rsv_restart = .false. !public for lake transitions
 
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp
 integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw, id_backw
+integer :: id_Afrac_rsv, id_Vfrac_rsv, id_rsv_depth
+integer :: id_sub_lmass, id_sub_fmass, id_sub_heat, id_sub_cmass
 integer :: id_back1
+integer :: id_lake_area, id_lake_frac
 ! ==== end of module variables ===============================================
 
 contains
@@ -274,6 +290,27 @@ subroutine lake_init ( id_ug )
         tile%lake%ws = init_w*tile%lake%dz
      endif
      tile%lake%T             = init_temp
+     tile%lake%sub_lmass     = 0.
+     tile%lake%sub_fmass     = 0.
+     tile%lake%sub_heat      = 0.
+     tile%lake%sub_cmass     = 0.
+     !these three vars will be initialized later in lake_transitions_init
+     tile%lake%Afrac_rsv     = 0.
+     tile%lake%Vfrac_rsv     = 0.
+     tile%lake%rsv_depth     = 0.
+  enddo
+
+  do l=lnd%ls, lnd%le
+    ce = first_elmt(land_tile_map(l))
+    do while(loop_over_tiles(ce,tile))
+      if (.not.associated(tile%lake)) cycle
+      ! If you are trying to reproduce older version of the code, the following section will cause issues. AP fixed on April 11, 2025
+        if (lake_area_bug) then ! Default setting is false, so will not run this line unless user sets to true in lake_nml
+            tile%lake%pars%whole_area = tile%lake%pars%whole_area ! This will reproduce old code if lake_area_bug is set to true
+        else ! This is the default behavior. Does not reproduce old code.
+            tile%lake%pars%whole_area = max(tile%lake%pars%whole_area, tile%frac*lnd%ug_area(l))
+        endif
+    enddo
   enddo
 
   call open_land_restart(restart,restart_file_name,restart_exists)
@@ -284,9 +321,28 @@ subroutine lake_init ( id_ug )
      call get_tile_data(restart, 'temp', 'zfull', lake_temp_ptr)
      call get_tile_data(restart, 'wl',   'zfull', lake_wl_ptr)
      call get_tile_data(restart, 'ws',   'zfull', lake_ws_ptr)
+     if (field_exists(restart,'Afrac_rsv')) &
+        call get_tile_data(restart, 'Afrac_rsv', lake_Afrac_rsv_ptr)
+     if (field_exists(restart,'Vfrac_rsv')) &
+        call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr)
+     if (field_exists(restart,'depth_rsv')) &
+        call get_tile_data(restart, 'depth_rsv', lake_depth_rsv_ptr)
+     if (field_exists(restart,'sub_lmass')) &
+        call get_tile_data(restart, 'sub_lmass', lake_sub_lmass_ptr)
+     if (field_exists(restart,'sub_fmass')) &
+        call get_tile_data(restart, 'sub_fmass', lake_sub_fmass_ptr)
+     if (field_exists(restart,'sub_heat')) &
+        call get_tile_data(restart, 'sub_heat',  lake_sub_heat_ptr)
+     if (field_exists(restart,'sub_cmass')) &
+        call get_tile_data(restart, 'sub_cmass', lake_sub_cmass_ptr)
   else
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
+
+  if(field_exists(restart,'Afrac_rsv').and.field_exists(restart,'Vfrac_rsv').and.field_exists(restart,'depth_rsv'))then
+    is_rsv_restart=.true.
+  endif
+
   call free_land_restart(restart)
 
   call lake_diag_init(id_ug)
@@ -328,6 +384,13 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
   call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
   call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
+  call add_tile_data(restart,'Afrac_rsv', lake_Afrac_rsv_ptr, 'area fraction of reservoir to the lake tile', 'unitless')
+  call add_tile_data(restart,'Vfrac_rsv', lake_Vfrac_rsv_ptr, 'volume fraction of reservoir to the lake tile', 'unitless')
+  call add_tile_data(restart,'depth_rsv', lake_depth_rsv_ptr, 'reservoir construction depth', 'm')
+  call add_tile_data(restart,'sub_lmass', lake_sub_lmass_ptr, 'buried liquid water under lake due to reservoir building', 'kg/m2')
+  call add_tile_data(restart,'sub_fmass', lake_sub_fmass_ptr, 'buried frozen water under lake due to reservoir building', 'kg/m2')
+  call add_tile_data(restart,'sub_heat',  lake_sub_heat_ptr,  'buried heat under lake due to reservoir building', 'J/m2')
+  call add_tile_data(restart,'sub_cmass', lake_sub_cmass_ptr, 'buried carbon under lake due to reservoir building', 'kg C/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
@@ -576,6 +639,7 @@ end subroutine lake_step_1
      melt_per_deg, melt
   real :: jj
   integer :: l
+  real :: v0, v1
 
   jj = 1.
 
@@ -619,6 +683,8 @@ end subroutine lake_step_1
     enddo
   endif
 
+  v0 = sum(lake%wl+lake%ws)/DENS_H2O !m
+
   ! ---- extract evap from lake and do implicit melt --------------------
   lake%wl(1) = lake%wl(1) - lake_levap*delta_time
   lake%ws(1) = lake%ws(1) - lake_fevap*delta_time
@@ -655,6 +721,9 @@ end subroutine lake_step_1
       dW_l(l) = flow(l) - flow(l+1)
       lake%wl(l) = lake%wl(l) + dW_l(l)
     enddo
+
+  v1 = sum(lake%wl+lake%ws)/DENS_H2O !m
+  if(use_reservoir) lake%Vfrac_rsv = (lake%Vfrac_rsv*v0 + (snow_lprec-subs_evap)*lake%Afrac_rsv*delta_time/DENS_H2O) / v1
 
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 3.3 ***** '
@@ -772,6 +841,14 @@ end subroutine lake_step_1
   call send_tile_data (id_swc,  lake%ws(1:num_l)/lake%dz(1:num_l), diag )
   call send_tile_data (id_K_z,  lake%K_z(1:num_l),        diag )
   call send_tile_data (id_evap, lake_levap+lake_fevap, diag )
+
+  call send_tile_data (id_Afrac_rsv, lake%Afrac_rsv, diag)
+  call send_tile_data (id_Vfrac_rsv, lake%Vfrac_rsv, diag)
+  call send_tile_data (id_rsv_depth, lake%rsv_depth, diag)
+  call send_tile_data (id_sub_lmass, lake%sub_lmass, diag)
+  call send_tile_data (id_sub_fmass, lake%sub_fmass, diag)
+  call send_tile_data (id_sub_heat,  lake%sub_heat,  diag)
+  call send_tile_data (id_sub_cmass, lake%sub_cmass, diag)
 
 end subroutine lake_step_2
 
@@ -896,6 +973,335 @@ end subroutine lake_step_2
         endif
     endif
   end subroutine lake_relayer
+! ============================================================================
+  subroutine  lake_relayer2 (lake_wl, lake_ws, lake_T, lake_dz)
+     real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+     type(lake_tile_type), pointer :: lake_new => NULL()
+
+     lake_new => new_lake_tile(1)
+     lake_new%T=lake_T; lake_new%wl=lake_wl; lake_new%ws=lake_ws; lake_new%dz=lake_dz
+     call lake_relayer (lake_new)
+     lake_T=lake_new%T; lake_wl=lake_new%wl; lake_ws=lake_new%ws; lake_dz=lake_new%dz
+     call delete_lake_tile(lake_new)
+
+  end subroutine lake_relayer2
+
+! ============================================================================
+  subroutine lake_relayer_converge (lake_wl, lake_ws, lake_T, lake_dz)
+     real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+
+     type(lake_tile_type), pointer :: lake_new => NULL()
+     integer :: n
+     integer :: n_max = 100000
+     real :: r = 0.
+
+     if((lake_wl(2)+lake_ws(2))==0.) &
+       call error_mesg('lake_relayer_converge', '(lake_wl(2)+lake_ws(2)) cannot be zero', FATAL)
+     n = 0
+     r = (lake_wl(1)+lake_ws(1))/(lake_wl(2)+lake_ws(2))
+     do while((r.gt.max_rat).or.(r.lt.min_rat))
+       lake_new => new_lake_tile(1)
+       lake_new%T=lake_T; lake_new%wl=lake_wl; lake_new%ws=lake_ws; lake_new%dz=lake_dz
+       call lake_relayer (lake_new)
+       lake_T=lake_new%T; lake_wl=lake_new%wl; lake_ws=lake_new%ws; lake_dz=lake_new%dz
+       call delete_lake_tile(lake_new)
+       n = n+1
+       if(n>=n_max) call error_mesg('lake_relayer_converge', 'relayer too many times', FATAL)
+       if((lake_wl(2)+lake_ws(2))==0.) &
+         call error_mesg('lake_relayer_converge', '(lake_wl(2)+lake_ws(2)) cannot be zero', FATAL)
+       r = (lake_wl(1)+lake_ws(1))/(lake_wl(2)+lake_ws(2))
+     enddo
+
+  end subroutine lake_relayer_converge
+! ============================================================================
+  subroutine remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap, rsv_zmin)
+    real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+    real, dimension(num_l), intent(in)    ::  lake_dhcap
+    real, intent(in) :: rsv_zmin  !m
+
+    integer :: n
+    integer :: n_max = 100000
+
+    call melt_negative(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap)
+    n = 0
+    do while(lake_ws(1)<0.or.lake_wl(1)<0.)
+      !if(sum(lake_dz) <= rsv_zmin)then
+      !  call error_mesg('remove_negative_water', 'water in tile is too small', NOTE)
+      !  exit
+      !endif
+      call lake_relayer2 (lake_wl, lake_ws, lake_T, lake_dz)
+      call melt_negative(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap)
+      n = n+1
+      if(n>=n_max) &
+        call land_error_message('remove_negative_water :: relayer too many times', FATAL)
+    enddo
+
+  end subroutine remove_negative_water
+
+! ============================================================================
+  subroutine melt_negative(lake_wl,lake_ws,lake_T, lake_dz, lake_dhcap)
+    real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+    real, dimension(num_l), intent(in)    :: lake_dhcap ! dry heat capacity of lakes. Is it another "fictitious heat"?
+
+    integer :: l
+    real :: hcap, melt
+
+    do l = 1, num_l
+      if(lake_ws(l)<0.or.lake_wl(l)<0.)then
+        hcap = lake_dhcap(l)*lake_dz(l) &
+             + clw*lake_wl(l) + csw*lake_ws(l)
+        if(lake_ws(l)<0..and.lake_wl(l)>0.)then
+          melt = lake_ws(l)
+        else if(lake_wl(l)<0..and.lake_ws(l)>0.)then
+          melt = -lake_wl(l)
+        else
+          melt = 0.
+        endif
+        lake_wl(l) = lake_wl(l) + melt
+        lake_ws(l) = lake_ws(l) - melt
+        lake_T(l) = tfreeze &
+                   + (hcap*(lake_T(l)-tfreeze) - hlf*melt) &
+                            / ( hcap + (clw-csw)*melt )
+        if(l>=2) then
+           call check_var_range(lake_wl(l),0.0,HUGE(1.0),'melt_negative','lake_wl',FATAL)
+           call check_var_range(lake_ws(l),0.0,HUGE(1.0),'melt_negative','lake_ws',FATAL)
+        endif
+      endif !if(lake_ws(l)<0.or.lake_wl(l)<0.)then
+    enddo
+
+  end subroutine melt_negative
+
+! ============================================================================
+! conduct lake abstraction for irrigation
+! if both use_reservoir and do_lake_abstraction are true, water can only be extracted from reservoir
+! if use_reservoir is false and do_lake_abstraction is true, water is extracted from lake
+! if use_reservoir is true and do_lake_abstraction is false, no water extraction is allowed, but reservoir will act with lake_abst==0.
+subroutine lake_abstraction (is_terminal, &
+                             irr_demand, Afrac_rsv, Vfrac_rsv, &
+                             influx, influx_c, &
+                             tot_area, lake_depth_sill, rsv_depth, env_flow, &
+                             lake_T, lake_wl, lake_ws, lake_dz, lake_dhcap, &
+                             lake_abst, lake_habst, &
+                             rsv_out, rsv_out_s, rsv_out_h, vr1)
+
+  logical, intent(in) :: is_terminal
+  real, intent(inout) :: irr_demand !m3
+  real, intent(in)    :: Afrac_rsv, Vfrac_rsv
+  real, intent(in) :: influx !kg
+  real, intent(in) :: influx_c(2) !kg, J
+  real, intent(in)    :: tot_area !m2 lake_area
+  real, intent(in)    :: lake_depth_sill, rsv_depth !m
+  real, intent(in)    :: env_flow !m3
+  real, dimension(num_l), intent(inout) ::  lake_T, lake_wl, lake_ws, lake_dz
+  real, dimension(num_l), intent(in)    ::  lake_dhcap
+  real, intent(out)   :: lake_abst !m3
+  real, intent(out)   :: lake_habst !J
+  real, intent(inout) :: rsv_out !kg
+  real, intent(out)   :: rsv_out_s, rsv_out_h !kg, J
+  real, intent(out)   :: vr1 !m3
+
+  real :: res_capacity, lake_avail, lake_abst_vol, lake_abst_tot, &
+          lake_this_lev, lake_collected, frac_abst
+  real :: v0, vr0 !m3
+  real :: v0_liq, vr0_liq !m3
+  integer :: n
+  integer :: n_max=1000
+  real :: abst_thres = 1.e-15 !m3
+  real :: lake_ws_thres = 1. !kg/m2, 0.001 m
+  real :: r
+
+  lake_abst = 0. !m3
+  lake_habst = 0. !J
+
+  !if we use reservoir, all water must be extracted from reservoir, otherwise, all water must be extracted from lake
+  if(use_reservoir.and.Afrac_rsv<=0.)then
+    rsv_out = 0. ;  vr1 = 0.
+    rsv_out_s = 0. ; rsv_out_h = 0.
+    return
+  endif
+
+  if(use_reservoir)then !We extract water from reservoir only, if there is no reservoir, we don't extract water.
+    res_capacity = (Afrac_rsv*tot_area) * rsv_depth  !m3
+    frac_abst = Vfrac_rsv
+  else ! There is no reservoir at all, and we extract water from lake.
+    res_capacity = tot_area * lake_depth_sill !m3
+    frac_abst = 1.
+  endif
+
+
+  v0 = (sum(lake_wl+lake_ws)*tot_area - influx)/DENS_H2O !m3
+  vr0 = frac_abst*v0 !m3   if v0<0, we must have vr0==0
+
+  if(sum(lake_wl+lake_ws)*tot_area/DENS_H2O <= ResMin*res_capacity)then !m3
+   rsv_out = 0. ;  vr1 = 0.
+   rsv_out_s = 0. ; rsv_out_h = 0.
+   if(use_reservoir) vr1 = vr0 + influx/DENS_H2O !m3
+   return
+  endif
+
+  if(use_reservoir.or.do_lake_abstraction)then
+    call remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, lake_dhcap, ResMin*res_capacity/tot_area)
+    !if(sum(lake_dz)<=ResMin*res_capacity/tot_area)then !m
+    !  rsv_out = 0. ;  vr1 = 0.
+    !  rsv_out_s = 0. ; rsv_out_h = 0.
+    !  if(use_reservoir) vr1 = vr0 + influx/DENS_H2O
+    !  return
+    !endif
+  endif
+
+  v0_liq = (sum(lake_wl)*tot_area - (influx-influx_c(1)))/DENS_H2O !m3
+  vr0_liq = frac_abst*v0_liq !m3
+  lake_avail = min(vr0_liq + (influx-influx_c(1))/DENS_H2O, & !all liquid water in reservoir
+                   vr0 + influx/DENS_H2O - ResMin*res_capacity)   !m3
+  lake_avail = min(sum(lake_wl)*tot_area/DENS_H2O, lake_avail) !m3
+  lake_avail = min(sum(lake_wl+lake_ws)*tot_area/DENS_H2O-ResMin*res_capacity, lake_avail) !m3
+  lake_avail = max(0., lake_avail)
+
+
+  IF (do_lake_abstraction.and.&
+      (lake_ws(1) < lake_ws_thres).and.&
+      (irr_demand > abst_thres).and.&
+      (lake_avail > 0.)) then
+
+     lake_abst_vol = min(irr_demand, lake_avail) !m3
+     lake_abst_tot = lake_abst_vol*DENS_H2O !kg
+     lake_collected = 0.
+     n=0
+     do while( lake_collected<lake_abst_tot-abst_thres*DENS_H2O .and. n<=n_max )
+       lake_this_lev = max(0.,min((lake_abst_tot-lake_collected), (tot_area*lake_wl(1)))) !kg
+       lake_wl(1) = max(0., lake_wl(1)-lake_this_lev/tot_area) !kg/m2
+       lake_habst = lake_habst + clw*(lake_T(1)-tfreeze)*lake_this_lev !J/(kg K) * K * kg = J
+       lake_collected = lake_collected + lake_this_lev !kg
+       r = (lake_wl(1)+lake_ws(1))/(lake_wl(2)+lake_ws(2))
+       if(lake_wl(1)==0..and.r<min_rat)then
+         call lake_relayer2(lake_wl, lake_ws, lake_T, lake_dz)
+       else
+         exit
+       endif
+       n=n+1
+     enddo
+     if(n>=n_max) call error_mesg('lake_abstraction', 'relayer too many times', NOTE)
+     irr_demand = max(0., irr_demand - lake_collected/DENS_H2O) !kg / kg/m3 = m3
+     lake_abst = lake_collected/DENS_H2O !kg / kg/m3 = m3
+
+     if(sum(lake_wl+lake_ws)*tot_area/DENS_H2O < (ResMin-0.01)*res_capacity) &
+       call error_mesg('lake_abstraction', 'water in tile is less than ResMin*res_capacity', FATAL)
+     if(vr0 + influx/DENS_H2O - lake_abst < (ResMin-0.01)*res_capacity) &
+       call error_mesg('lake_abstraction', 'water in reservoir is less than ResMin*res_capacity', FATAL)
+  ENDIF !  if (do_lake_abstraction) then
+
+ !calculate reservoir outflow
+ if(use_reservoir)then
+   if(vr0 + influx/DENS_H2O - lake_abst <= ResMax*res_capacity)then !m3
+     rsv_out = 0. !m3
+   else
+     rsv_out = vr0 + influx/DENS_H2O - lake_abst - ResMax*res_capacity !m3
+   endif
+   rsv_out = max(env_flow, rsv_out) !m3
+   rsv_out = min(vr0 + influx/DENS_H2O - lake_abst - ResMin*res_capacity, rsv_out) !m3
+   rsv_out = max(0., rsv_out) !m3
+   !if here is river terminal point, and all area is reservoir, then no rsv_out allowed.
+   if(is_terminal.and.Afrac_rsv>=1.) rsv_out = 0. !m3
+   vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out !m3
+   !if(vr1<0.) &
+     !call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)
+   rsv_out = rsv_out*DENS_H2O !m3 * kg/m3 = kg
+   rsv_out_s = 0. ; rsv_out_h = 0.
+   if(rsv_out>0..and.Afrac_rsv>=1) then !special case: no lake, only reservoir
+     call rsv_outflow_c(lake_wl,lake_ws,lake_T,lake_dz,&
+                        tot_area,rsv_out,&
+                        rsv_out_s,rsv_out_h) !we need to know rsv_out_s,rsv_out_h only when there is no lake
+     vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out/DENS_H2O !m3
+     !if(vr1<0.) &
+       !call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)
+   endif
+ else
+   rsv_out = 0. ;  vr1 = 0.
+   rsv_out_s = 0. ; rsv_out_h = 0.
+ endif
+
+end subroutine lake_abstraction
+
+! ============================================================================
+subroutine prohibit_shallow_lake(lake)
+  type(lake_tile_type), intent(inout) :: lake
+
+  !real :: fac_min = 0.1
+  real :: heat0, heat1, lm0, lm1, fm0, fm1
+  real :: liq_frac
+  real, dimension(num_l) :: dz_frac
+  real :: new_z
+  integer :: l
+
+  if(.not.prohibit_shallowlake) return
+  if(sum(lake%dz)>=ResMin*lake%pars%depth_sill) return
+
+  heat0 = lake_tile_heat(lake)
+  call lake_tile_stock_pe(lake, lm0, fm0)
+
+  dz_frac = lake%dz/sum(lake%dz)
+  new_z = ResMin*lake%pars%depth_sill
+  lake%dz = dz_frac*new_z
+
+  do l = 2, num_l
+    liq_frac = lake%wl(l)/(lake%wl(l)+lake%ws(l))
+    lake%wl(l)=lake%dz(l)*DENS_H2O*liq_frac
+    lake%ws(l)=lake%dz(l)*DENS_H2O*(1.-liq_frac)
+  enddo
+
+  heat1 = lake_tile_heat(lake) !J/m2
+  call lake_tile_stock_pe(lake, lm1, fm1)
+
+  lake%sub_lmass = lake%sub_lmass - (lm1 - lm0)
+  lake%sub_fmass = lake%sub_fmass - (fm1 - fm0)
+  lake%sub_heat  = lake%sub_heat  - (heat1 - heat0)
+
+
+end subroutine prohibit_shallow_lake
+
+! ============================================================================
+
+subroutine rsv_outflow_c(lake_wl,lake_ws,lake_T,lake_dz,&
+                         tot_area,qt,&
+                         qs,qh)
+
+  real, dimension(num_l), intent(inout) ::  lake_T, lake_wl, lake_ws, lake_dz
+  real, intent(in)    :: tot_area !m2 lake_area
+  real, intent(inout) :: qt !kg
+  real, intent(out)   :: qs !kg
+  real, intent(out)   :: qh !J
+
+  integer   :: n
+  real      :: ql
+  real      :: out_frac = 0.
+  real      :: qt_to_flow, qt_this_lev, liq_this_lev, ice_this_lev
+  integer   :: n_max=1000
+
+  qt_to_flow = qt !kg
+  ql = 0.; qs = 0.; qh = 0.; n = 0
+  do while( qt_to_flow>0. .and. n<=n_max )
+     if(lake_wl(1)>=0..and.lake_ws(1)>=0.and.(lake_wl(1)+lake_ws(1))>0.)then
+       out_frac = lake_wl(1)/(lake_wl(1)+lake_ws(1))
+     else
+       exit
+     endif
+     qt_this_lev = max(0.,min(qt_to_flow, (lake_wl(1)+lake_ws(1))*tot_area)) !kg
+     liq_this_lev = out_frac*qt_this_lev !kg
+     ice_this_lev = (1.-out_frac)*qt_this_lev  !kg
+     lake_wl(1) = max(0., lake_wl(1)-liq_this_lev/tot_area) !kg/m2
+     lake_ws(1) = max(0., lake_ws(1)-ice_this_lev/tot_area) !kg/m2
+     qt_to_flow = qt_to_flow - qt_this_lev !kg
+     qh = qh + (clw*liq_this_lev+csw*ice_this_lev)*(lake_T(1)-tfreeze) !J
+     ql = ql + liq_this_lev
+     qs = qs + ice_this_lev
+     if(lake_wl(1)==0.) call lake_relayer2(lake_wl, lake_ws, lake_T, lake_dz)
+     n=n+1
+  enddo
+  if(n>=n_max) call error_mesg('rsv_outflow_c', 'relayer too many times', NOTE)
+
+  qt = ql + qs !kg
+
+end subroutine rsv_outflow_c
 
 ! ============================================================================
 subroutine lake_diag_init(id_ug)
@@ -945,6 +1351,27 @@ subroutine lake_diag_init(id_ug)
        lnd%time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
   id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:1),  &
        lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
+
+  id_Afrac_rsv = register_tiled_diag_field ( module_name, 'Afrac_rsv',  axes(1:1),  &
+       lnd%time, 'reservoir area fraction to the tile', 'none',  missing_value=-100.0 )
+  id_Vfrac_rsv = register_tiled_diag_field ( module_name, 'Vfrac_rsv',  axes(1:1),  &
+       lnd%time, 'reservoir area fraction to the tile', 'none',  missing_value=-100.0 )
+  id_rsv_depth  = register_tiled_diag_field ( module_name, 'rsv_depth',  axes(1:1),  &
+       lnd%time, 'reservoir construction depth',            'm',  missing_value=-100.0 )
+
+  id_sub_lmass = register_tiled_diag_field ( module_name, 'sub_lmass',  axes(1:1),  &
+       lnd%time, 'buried liquid water under lake due to reservoir building', 'kg/m2',  missing_value=-100.0 )
+  id_sub_fmass = register_tiled_diag_field ( module_name, 'sub_fmass',  axes(1:1),  &
+       lnd%time, 'buried frozen water under lake due to reservoir building', 'kg/m2',  missing_value=-100.0 )
+  id_sub_heat  = register_tiled_diag_field ( module_name, 'sub_heat',   axes(1:1),  &
+       lnd%time, 'buried heat under lake due to reservoir building', 'J/m2',  missing_value=-100.0 )
+  id_sub_cmass = register_tiled_diag_field ( module_name, 'sub_cmass',  axes(1:1),  &
+       lnd%time, 'buried carbon under lake due to reservoir building', 'kgC/m2',  missing_value=-100.0 )
+
+  id_lake_area = register_tiled_diag_field ( module_name, 'lake_area', axes(1:1), &
+       lnd%time, 'lake area', 'm2',  missing_value=-100.0 )
+  id_lake_frac = register_tiled_diag_field ( module_name, 'lake_frac', axes(1:1), &
+       lnd%time, 'lake frac', '-',  missing_value=-100.0 )
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:1), 'obsolete, pls use lake_depth (static)','m', &
@@ -1060,6 +1487,69 @@ subroutine lake_backwater_1_ptr(tile, ptr)
       if(associated(tile%lake)) ptr=>tile%lake%pars%backwater_1
    endif
 end subroutine lake_backwater_1_ptr
+
+subroutine lake_Afrac_rsv_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%Afrac_rsv
+   endif
+end subroutine lake_Afrac_rsv_ptr
+
+subroutine lake_Vfrac_rsv_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%Vfrac_rsv
+   endif
+end subroutine lake_Vfrac_rsv_ptr
+
+subroutine lake_depth_rsv_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%rsv_depth
+   endif
+end subroutine lake_depth_rsv_ptr
+
+subroutine lake_sub_lmass_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_lmass
+   endif
+end subroutine lake_sub_lmass_ptr
+
+subroutine lake_sub_fmass_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_fmass
+   endif
+end subroutine lake_sub_fmass_ptr
+
+subroutine lake_sub_heat_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_heat
+   endif
+end subroutine lake_sub_heat_ptr
+
+subroutine lake_sub_cmass_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_cmass
+   endif
+end subroutine lake_sub_cmass_ptr
 
 subroutine sg_to_ug_read_data(fileobj, varname, ug_data, sg_domain, ug_domain)
   type(FmsNetcdfDomainFile_t), intent(inout) :: fileobj     !< Domain decomposed fileobj

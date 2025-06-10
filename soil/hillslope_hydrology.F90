@@ -14,9 +14,9 @@ use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
      do_check_conservation, check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
-     use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
-     surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
-     tiled_DOC_flux
+                          use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
+                          surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
+                          tiled_DOC_flux
 use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
@@ -772,8 +772,8 @@ subroutine hlsp_hydrology_1(num_species)
                            ground_to_stream_DOC(ll,s) = ground_to_stream_DOC(ll,s) &
                                   + docflux(s) * A1
 
-                          soil%div_hlsp_DON(s,l) = soil%div_hlsp_DON(s,l) + donflux(s)
-                          gtosDON_bytile(k,l,s) = donflux(s)
+                           soil%div_hlsp_DON(s,l) = soil%div_hlsp_DON(s,l) + donflux(s)
+                           gtosDON_bytile(k,l,s) = donflux(s)
                           ground_to_stream_DON(ll,s) = ground_to_stream_DON(ll,s) &
                                  + donflux(s) * A1
                         end do

@@ -115,13 +115,67 @@ subroutine soil_uptake_T_ptr(t,p)
     endif
 end subroutine
 
+subroutine soil_irr_rate_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%irr_rate
+    endif
+end subroutine
+
+subroutine soil_hirr_rate_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%hirr_rate
+    endif
+end subroutine
+
+subroutine soil_abst_s_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%abst_s
+    endif
+end subroutine
+
+subroutine soil_habst_s_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%habst_s
+    endif
+end subroutine
+
+subroutine soil_abst_d_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%abst_d
+    endif
+end subroutine
+
+subroutine soil_habst_d_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%habst_d
+    endif
+end subroutine
+
 subroutine soil_tag_ptr(t,p)
     type(land_tile_type),pointer::t
     integer,pointer::p
     p=>NULL()
     if(associated(t))then
         if(associated(t%soil))p=>t%soil%tag
-        endif
+    endif
 end subroutine
 
 subroutine soil_fast_soil_C_ptr(t,i,p)
@@ -190,6 +244,15 @@ subroutine soil_tau_groundwater_ptr(t,p)
     p=>NULL()
     if(associated(t))then
         if(associated(t%soil))p=>t%soil%pars%tau_groundwater
+    endif
+end subroutine
+
+subroutine soil_irr_fac_et_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%irr_fac_et
     endif
 end subroutine
 

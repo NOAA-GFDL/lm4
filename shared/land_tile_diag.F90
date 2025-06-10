@@ -1,6 +1,6 @@
 module land_tile_diag_mod
 
-use mpp_mod,            only : mpp_sum
+use mpp_mod,            only : mpp_sum, mpp_max
 use mpp_efp_mod,        only : mpp_reproducing_sum
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length, diag_axis_init, diag_axis_add_attribute
@@ -18,7 +18,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_ty
 use vegn_data_mod,      only : nspecies, splist
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd, log_version, land_data_type
-use land_debug_mod,     only : check_var_range, set_current_point
+use land_debug_mod,     only : check_var_range, set_current_point, land_error_message
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -202,7 +202,7 @@ integer :: current_offset = 1 ! current total size of the diag fields per tile
 type(cohort_diag_field_type), pointer :: cfields(:) => NULL()
 integer :: n_cfields     = 0 ! current number of diag fields
 
-integer :: id_species_axis = -1 ! id of axis for by-species diagnostics
+integer :: id_species_axis = -1 ! id of diag axis for by-species diagnostics
 
 contains
 
@@ -643,6 +643,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   integer :: i
   type(tiled_diag_field_type), pointer :: new_fields(:)
   logical :: do_log
+  character(256) :: fname
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
 
   ! log diagnostic field information
@@ -689,8 +690,9 @@ function reg_field(static, module_name, field_name, init_time, axes, &
         fields(id)%offset = current_offset
      endif
      ! calculate field size per tile and increment current offset to
-     ! reserve space in per-tile buffers. We assume that the first two axes
-     ! are horizontal coordinates, so their size is not taken into account
+     ! reserve space in per-tile buffers. We assume that the first axis
+     ! is representing horizontal coordinates in unstructured grid,
+     ! so its size is not taken into account
      fields(id)%size = 1
      do i = 2, size(axes(:))
         fields(id)%size = fields(id)%size * get_axis_length(axes(i))
@@ -725,7 +727,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      if (fields(id)%fill_missing) then
         do i = 1, n_selectors
            if (fields(id)%ids(i) <= 0) cycle
-           call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
+              call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
         enddo
      endif
      ! increment the field id by some (large) number to distinguish it from the
@@ -993,8 +995,8 @@ subroutine dump_tile_diag_fields(time)
      ! write(*,*)trim(fields(ifld)%module),'/',trim(fields(ifld)%name)
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
-             fields(ifld), selectors(isel), time )
+           call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
+                fields(ifld), selectors(isel), time )
      enddo
   enddo
   ! zero out the number of data points sent to the field
@@ -1036,8 +1038,8 @@ subroutine dump_tile_diag_field(id, time)
 !$OMP parallel do default(none) shared(land_tile_map,n_selectors,fields,ifld,selectors,time) private(isel)
   do isel = 1, n_selectors
      if (fields(ifld)%ids(isel) <= 0) cycle
-     call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
-          fields(ifld), selectors(isel), time )
+        call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
+             fields(ifld), selectors(isel), time )
   enddo
   ! zero out the number of data points sent to the field
   fields(ifld)%n_sends=0

@@ -35,7 +35,7 @@ use land_tracers_mod, only : isphum
 
 use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
+      LU_RAINF, LU_IRRIG, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : N_LITTER_POOLS, LEAF, CWOOD, num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
@@ -1019,6 +1019,9 @@ subroutine update_fire_data(time)
   endif
 
   ! SSR: Check lightning data
+  ! RW
+  !print*,"RWtest: lightning"
+  !print*,lightning_in
   do l = lnd%ls, lnd%le
      call check_var_range(lightning_in(l), 0.0, 1e37, 'update_fire_data', 'lightning', FATAL)
   end do
@@ -2195,7 +2198,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
 
   !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
-    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45
+    FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*max(sum(litter_total_C),0.0)/0.45 ! AP Adjusted to add max of (0 | litter) to avoid neg values of litter
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
 
     SH_parameter = F_parameter * (fire_intensity**0.6667)
@@ -2842,7 +2845,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 
   ! Fcrop and Fpast are per-day rates. Since they are just being called once per month,
   ! they need to be multiplied by the number of days in the month.
-  if (vegn%landuse==LU_CROP) then
+  if (vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) then
      BF_mth = vegn%Fcrop * num_days
   elseif (vegn%landuse==LU_PAST) then
      BF_mth = vegn%Fpast * num_days
@@ -2851,7 +2854,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
   ! BF cannot be > 1!
   if (BF_mth > 1.0) then
      call check_var_range(BF_mth, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_mth', WARNING)
-     if (vegn%landuse==LU_CROP) then
+     if (vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) then
         write(*,*) 'Setting BF_mth for this CROP tile to 1.0.'
      elseif (vegn%landuse==LU_PAST) then
         write(*,*) 'Setting BF_mth for this PAST tile to 1.0.'
@@ -2863,7 +2866,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 
   if (is_watch_point()) then
      write(*,*) '##### checkpoint vegn_fire_BA_agri #####'
-     if (vegn%landuse==LU_CROP) then
+     if (vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) then
         write(*,*) 'CROP tile. Fcrop = ', vegn%Fcrop
      elseif (vegn%landuse==LU_PAST) then
         write(*,*) 'PAST tile. Fpast = ', vegn%Fpast
@@ -3528,7 +3531,7 @@ subroutine fire_transitions_0D(tiles, land_area, l)
      BA_km2 = land_area*tile%frac*tile%vegn%burned_frac*1e-6
      if ( do_fire_tiling &
          .AND. BA_km2 >= min_BA_to_split &
-         .AND. tile%vegn%landuse/=LU_CROP &
+         .AND. (tile%vegn%landuse/=LU_RAINF.and.tile%vegn%landuse/=LU_IRRIG) &
          .AND. (tile%vegn%landuse/=LU_PAST .OR. (tile%vegn%landuse==LU_PAST .AND. split_past_tiles)) &   ! SSR20151118
          ) then
         temp => new_land_tile(tile)
@@ -3604,7 +3607,7 @@ function burns_as_agri(tile) result(answer)
   if (.not.associated(tile%vegn))      return
   if (.not.fire_option==FIRE_UNPACKED) return
 
-  answer =   tile%vegn%landuse==LU_CROP &
+  answer =   (tile%vegn%landuse==LU_RAINF.or.tile%vegn%landuse==LU_IRRIG) &
             .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTFP)
 end function burns_as_agri
 

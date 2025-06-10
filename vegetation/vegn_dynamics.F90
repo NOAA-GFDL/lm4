@@ -22,7 +22,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, do_ppa, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
-     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
+     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_RAINF, LU_IRRIG, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
@@ -94,7 +94,7 @@ real :: tot_area_land ! global land area, m2 (for normalization in conservation 
 real :: tot_area_soil ! global soil area, m2
 
 ! diagnostic field IDs
-integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
+integer :: id_npp, id_nep, id_npp_std, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
 integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age, id_dbh_growth
 integer :: &
@@ -181,9 +181,12 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_npp = register_cohort_diag_field ( diag_mod_name, 'npp',  &
        (/id_ug/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0)
+  id_npp_std = register_tiled_diag_field ( diag_mod_name, 'npp_std',  &
+       (/id_ug/), time, 'standard deviation of net primary productivity of tiles in grid cell', &
+       'kg C/(m2 year)', missing_value=-100.0, op='stdev')
   id_nep = register_tiled_diag_field ( diag_mod_name, 'nep',  &
        (/id_ug/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
+       missing_value=-100.0)
   id_wood_prod = register_cohort_diag_field ( diag_mod_name, 'wood_prod',  &
        (/id_ug/), time, 'total wood (heartwood+sapwood) production', 'kgC/(m2 year)', &
        missing_value=-100.0)
@@ -912,6 +915,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   ! ---- diagnostic section
   call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_tile_data(id_npp_std,npp(1),diag) ! not sure what would happen if we send an
+                                              ! array; there is only one cohort in any case
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_resl, diag, c(1:N), resl(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
@@ -1247,6 +1252,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%nsc)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
+
+  soil%hlsp%gpp_vegn=sum(gpp(1:M)*c(1:M)%nindivs)
+  soil%hlsp%npp_vegn=sum(npp(1:M)*c(1:M)%nindivs)
+  soil%hlsp%resp_vegn=sum(resp(1:M)*c(1:M)%nindivs)
+  soil%hlsp%cVeg_vegn=sum( c(1:M)%nindivs* (c(1:M)%bl+c(1:M)%blv+c(1:M)%br+c(1:M)%bsw+c(1:M)%bwood+c(1:M)%bseed+c(1:M)%nsc) )
 
 ! ------ diagnostic section
   call send_cohort_data(id_gpp,  diag, c(1:M), gpp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
@@ -2511,7 +2521,7 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
         enddo
      endif
 
-     if (tile%vegn%landuse==LU_CROP .and. .not.allow_weeds_on_crops) then
+     if ((tile%vegn%landuse==LU_RAINF.or.tile%vegn%landuse==LU_IRRIG) .and. .not.allow_weeds_on_crops) then
         germ_factor = 0.0 ! no weed seeds germinate. Note tha this also means that the
                           ! crops are  not allowed to reproduce by themselves.
      else

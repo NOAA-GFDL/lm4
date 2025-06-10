@@ -37,9 +37,8 @@ use land_tile_selectors_mod, only : tile_selector_type, &
 use tile_diag_buff_mod, only : &
      diag_buff_type, init_diag_buff
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : &
-     is_watch_cell, check_conservation, &
-     water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, heat_cons_tol
+use land_debug_mod, only : is_watch_cell, &
+     check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, heat_cons_tol
 
 implicit none
 private
@@ -81,6 +80,9 @@ public :: empty   ! returns true if the list of tiles is empty
 public :: nitems  ! count of items in list
 
 public :: tile_is_selected
+
+public :: print_land_tile_info
+public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
 public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
@@ -134,6 +136,10 @@ type :: land_tile_type
    integer :: tag = 0   ! defines type of the tile
 
    real    :: frac      ! fractional tile area, dimensionless
+   real :: ttype
+   real :: dws_prec(12)
+   real :: dws_srad(12)
+   real :: dws_tavg(12)
    type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
    type(lake_tile_type), pointer :: lake => NULL() ! lake model data
    type(soil_tile_type), pointer :: soil => NULL() ! soil model data
@@ -169,6 +175,7 @@ type :: land_tile_type
            ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
    real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
    real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
+   real :: e_res_ds = 0.0 ! energy residual from downscaling precipitation (repartitioning liquid/frozen)
 end type land_tile_type
 
 ! tile_list_type provides a container for the tiles
@@ -271,6 +278,8 @@ abstract interface
 end interface
 
 ! ==== module data ===========================================================
+integer :: n_created_land_tiles = 0 ! total number of created tiles
+integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
 type(land_tile_list_type), allocatable :: land_tile_map(:) ! map of tiles
 
 real    :: min_tile_frac = 0.0 ! minimum fraction of tile land area that is not
@@ -340,7 +349,7 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   integer, optional, intent(in) :: tag  ! general tile tag
   integer, optional, intent(in) :: htag_j  ! optional hillslope position tag
   integer, optional, intent(in) :: htag_k  ! optional hillslope parent tag
-  type(land_tile_type), pointer :: tile ! return value
+   type(land_tile_type), pointer :: tile ! return value
 
   ! ---- local vars
   integer :: glac_, lake_, soil_, vegn_
@@ -351,16 +360,16 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   soil_ = -1 ; if(present(soil)) soil_ = soil
   vegn_ = -1 ; if(present(vegn)) vegn_ = vegn
 
-  allocate(tile)
-  ! fill common fields
+   allocate(tile)
+   ! fill common fields
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
   tile%tag  = 0   ; if(present(tag))  tile%tag  = tag
 
-  ! create sub-model tiles
-  tile%cana => new_cana_tile()
+   ! create sub-model tiles
+   tile%cana => new_cana_tile()
   if(glac_>=0) tile%glac => new_glac_tile(glac_)
   if(lake_>=0) tile%lake => new_lake_tile(lake_)
-  tile%snow => new_snow_tile()
+   tile%snow => new_snow_tile()
   if(soil_>=0) then
     if (present(htag_j) .and. present(htag_k)) then
         tile%soil => new_soil_tile(soil_, htag_j, htag_k)
@@ -371,8 +380,11 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   end if
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
-  ! create a buffer for diagnostic output
-  call init_diag_buff(tile%diag)
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
 
 end function land_tile_ctor
 
@@ -410,6 +422,9 @@ subroutine delete_land_tile(tile)
 
   ! release the tile memory
   deallocate(tile)
+
+  ! increment the number of deleted files for tile statistics
+  n_deleted_land_tiles = n_deleted_land_tiles + 1
 
 end subroutine delete_land_tile
 
@@ -1202,5 +1217,10 @@ subroutine print_land_tile_info(tile)
   write(*,'(")")')
 
 end subroutine print_land_tile_info
+! ============================================================================
+subroutine print_land_tile_statistics()
+  write(*,*)'Total number of created land_tiles =',n_created_land_tiles
+  write(*,*)'Total number of deleted land_tiles =',n_deleted_land_tiles
+end subroutine print_land_tile_statistics
 
 end module land_tile_mod

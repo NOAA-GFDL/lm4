@@ -25,7 +25,7 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, cmor_name, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_STD, OP_MAX, cmor_name, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, add_tiled_diag_field_alias
@@ -220,7 +220,7 @@ integer :: seed_transport_option = -1 ! type of requested seed transport algorit
 integer :: aerodyn_height_option    = -1 ! aerodynamic height calculation option
 
 ! diagnostic field ids
-integer :: id_vegn_type, id_height_tallest, id_height_ave, id_height_aerodyn, &
+integer :: id_vegn_type, id_height_tallest, id_height_std, id_height_ave, id_height_aerodyn, &
    id_temp, id_wl, id_ws, &
    id_lai, id_sai, id_leafarea, id_leaf_size, id_laii, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
@@ -261,6 +261,8 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cStem, id_cMisc, id_cProduct, id_cAnt, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
    id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther, id_nProduct
+   ! Std of variables
+   integer :: id_btot_std
 ! ==== end of module variables ===============================================
 
 contains
@@ -870,9 +872,9 @@ end subroutine add_extra_cohorts
 
 ! ============================================================================
 subroutine vegn_diag_init ( id_ug, id_band, time )
-  integer        , intent(in) :: id_ug   !<Unstructured axis id.
-  integer        , intent(in) :: id_band ! ID of spectral band axis
-  type(time_type), intent(in) :: time    ! initial time for diagnostic fields
+   integer        , intent(in) :: id_ug   !<Unstructured axis id.
+   integer        , intent(in) :: id_band ! ID of spectral band axis
+   type(time_type), intent(in) :: time    ! initial time for diagnostic fields
 
   ! ---- local vars
   integer :: i
@@ -907,6 +909,9 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_height_tallest = register_tiled_diag_field ( module_name, 'height_tallest',  &
        (/id_ug/), time, 'height of tallest vegetation', 'm', missing_value=-1.0)
+  id_height_std = register_cohort_diag_field ( module_name, 'height_std',  &
+       (/id_ug/), time, 'standard deviation of vegetation height across tiles in grid cell', 'm2/m2', &
+       missing_value=-1.0, opt='stdev')
   id_height_ave = register_cohort_diag_field ( module_name, 'height_ave',  &
        (/id_ug/), time, 'average height of the trees', 'm', missing_value=-1.0)
   id_height_aerodyn = register_tiled_diag_field ( module_name, 'height_aerodyn',  &
@@ -1332,6 +1337,10 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_nProduct = register_tiled_diag_field( cmor_name, 'nProduct', (/id_ug/), &
        time, 'Nitrogen Mass in Products of Land Use Change', 'kg m-2', missing_value=-999.0, &
        standard_name='nitrogen_mass_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
+
+  !Standard deviation
+  id_btot_std = register_tiled_diag_field ( module_name, 'btot_std',  (/id_ug/), time, &
+       'total biomass', 'kg C/m2', missing_value=-1.0,op='stdev')
 
 end subroutine
 
@@ -2106,6 +2115,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! root_zeta -- perhaps averaged with root density as weight?
   ! snow_crit???
   associate(c=>vegn%cohorts)
+  call send_cohort_data(id_height_std, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_STD)
   ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity
   call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs, op=OP_SUM)
@@ -2630,7 +2640,8 @@ subroutine update_vegn_slow( )
   ! would happen if we used average length of year for given calendar.
   age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
-  if(month0 /= month1) then
+  !if(month0 /= month1) then
+  if(day0 /= day1) then
      ! heartbeat
      write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
@@ -3048,6 +3059,13 @@ subroutine update_vegn_slow( )
      else
          call send_tile_data(id_fFireNat, 0.0, tile%diag)
      endif
+
+     ! standard deviation output
+     call send_tile_data(id_btot_std,    sum(tile%vegn%cohorts(1:n)%bl    &
+                                        +tile%vegn%cohorts(1:n)%blv   &
+                                        +tile%vegn%cohorts(1:n)%br    &
+                                        +tile%vegn%cohorts(1:n)%bsw   &
+                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
 
      ! ---- end of diagnostic section
 
