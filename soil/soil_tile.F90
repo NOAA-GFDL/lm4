@@ -58,6 +58,7 @@ public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
 public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
+public :: soil_ave_theta3
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
@@ -830,12 +831,14 @@ subroutine delete_soil_tile(ptr)
   deallocate(ptr)
 end subroutine delete_soil_tile
 
-subroutine soil_data_init_0d(soil)
- type(soil_tile_type), intent(inout) :: soil
+! Begin AP Commented for merge - lookup not working, but not needed
+! subroutine soil_data_init_0d(soil)
+!  type(soil_tile_type), intent(inout) :: soil
 
- call soil_data_init_0d_lookup(soil,soil%tag)
+!  call soil_data_init_0d_lookup(soil,soil%tag)
 
-end subroutine
+! end subroutine
+! End AP Commented for merge
 
 ! ============================================================================
 subroutine soil_data_init_0d(soil)
@@ -1430,6 +1433,28 @@ function soil_ave_theta2(soil, depth) result (A) ; real :: A
   enddo
   A = A/N
 end function soil_ave_theta2
+
+
+! ============================================================================
+function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
+    type(soil_tile_type), intent(in) :: soil
+    real, intent(in)                 :: depth ! m, averaging depth
+    integer, intent(out) :: layer
+    real    :: w ! averaging weight
+    real    :: N ! normalizing factor for averaging
+    integer :: k
+  
+    A = 0 ; N = 0
+    do k = 1, num_l
+       w = dz(k) * exp(-zfull(k)/depth) !m
+       A = A +max(soil%wl(k)/(dens_h2o*dz(k)),0.0) * w ! kg/m2 / (kg/m3 * m) * m = m
+       N = N + w !m
+       if (zhalf(k+1).gt.depth) exit
+    enddo
+    A = A/N ! m / m = 1
+    layer = k
+  end function soil_ave_theta3
+
 
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water

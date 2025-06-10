@@ -50,7 +50,6 @@ public :: hlsp_config_check     ! Check configuration for errors, at the end of 
                                 ! Also deallocate any module variables used during cold start.
 public :: calculate_wt_init  ! Calculates water table depth for initialization to be returned by
                              ! horiz_wt_depth_to_init.
-public :: hlsp_disagg_precip
 ! =====end of public interfaces ==============================================
 
 ! =====private methods
@@ -621,7 +620,7 @@ subroutine hlsp_init(id_ug)
      !NWC Note: Set the hillslope fraction to the grid cell fraction. The parameter tile_hlsp_frac
      !has been added with the predefined tiles. However, for the baseline case it can be seen
      !simply as the grid cell fraction
-     tile%soil%pars%tile_hlsp_frac = tile%frac
+    !  tile%soil%pars%tile_hlsp_frac = tile%frac
 
      hj = tile%soil%hidx_j
      hk = tile%soil%hidx_k
@@ -781,9 +780,6 @@ subroutine hlsp_diag_init(id_ug)
    id_tile_hlsp_elev = register_tiled_static_field ( module_name, 'tile_hlsp_elev', &
       axes, 'vertical elevation of tiles in hillslope with respect to stream', 'm', &
       missing_value=-100.0 )
-   id_tile_elevation = register_tiled_static_field ( module_name, 'tile_elevation', &
-      axes, 'absolute tile elevation', 'm', &
-      missing_value=-100.0 )   
    id_tile_hlsp_hpos = register_tiled_static_field ( module_name, 'tile_hlsp_hposition', &
       axes, 'horizontal position of tile along the direction of hillslope', 'm', missing_value=-100.0 )
    id_tile_hlsp_width = register_tiled_static_field ( module_name, 'tile_hlsp_width', &
@@ -791,10 +787,10 @@ subroutine hlsp_diag_init(id_ug)
       missing_value=-100.0 )
 !   id_transm_bedrock = register_tiled_static_field ( module_name, 'bedrock_transmissivity', &
 !      axes, 'bedrock hydraulic transmissivity', 'm^2/s', missing_value=-100.0 )
-   id_hidx_j = register_tiled_static_field ( module_name, 'hillslope_position', &
-      axes, 'horizontal position index along hillslope', missing_value=0., op='sum' )
-   id_hidx_k = register_tiled_static_field ( module_name, 'hillslope_parent', &
-      axes, 'index of hillslope parent', missing_value=0., op='sum' )
+!    id_hidx_j = register_tiled_static_field ( module_name, 'hillslope_position', &
+!       axes, 'horizontal position index along hillslope', missing_value=0., op='sum' )
+!    id_hidx_k = register_tiled_static_field ( module_name, 'hillslope_parent', &
+!       axes, 'index of hillslope parent', missing_value=0., op='sum' )
 
 end subroutine hlsp_diag_init
 
@@ -1031,169 +1027,6 @@ function meanelev(elev, area, lowbound, upbound) result(melev)
 end function meanelev
 
 ! ============================================================================
-
-subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_for_evap_T)
-
-  type(atmos_land_boundary_type), intent(in)    :: cplr2land
-  logical, intent(in)  :: use_atmos_T_for_precip_T
-  logical, intent(in)  :: use_atmos_T_for_evap_T
-
-  real, dimension(lnd%ls:lnd%le) :: norm_tot
-  type(land_tile_enum_type)     :: ce
-  type(land_tile_type), pointer :: tile
-  real :: h, frac, norm, adjust, kgh
-  integer :: l, k, lev
-  real :: pslope2p 
-  integer :: year,month,day,hour,minute,second
-  real :: hcap_persec, melt_perdeg_persec, melt_persec
-  real, dimension(lnd%ls:lnd%le) :: hprec_dis, hprec_nodis, lprec_g, fprec_g, delta_T
-  real :: heat0, heat1
-
-  if(.not.use_predefined_tiles) then
-    !call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', NOTE)
-    return 
-  endif 
-
-  call get_date(lnd%time,year,month,day,hour,minute,second)
-
-  norm_tot(lnd%ls:lnd%le) = 0.0
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle 
-       if (cplr2land%bnv(l,k)>0.)then
-          h = min(tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g, cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
-       else
-          h = tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g
-       endif
-       frac = tile%frac/tile%soil%hlsp%soilfrac_g
-
-       if(trim(elev_scale_to_use)=="OBS")then
-          pslope2p = tile%soil%pars%precip_slope2p(month)
-       else if(trim(elev_scale_to_use)=="constant")then
-          if(elev_scale>0.)then
-             pslope2p = 1./elev_scale
-          else
-             pslope2p = 0.
-          endif     
-       else if(trim(elev_scale_to_use)=="ERMM")then
-          pslope2p =  1./tile%soil%hlsp%elevmax_g
-       else if(do_hlsp_disagg_precip)then
-          call error_mesg(module_name, 'unrecognized precipitation slope method', FATAL)
-       else 
-          pslope2p = 0. 
-       endif 
-
-       tile%soil%hlsp%pslope2p_g = pslope2p
-
-       kgh = max(pslope2p*h,-0.9999)
-       norm = frac * (1. + kgh)
-       norm_tot(l) = norm_tot(l) + norm
-  
-       tile%soil%hlsp%lift = h
-     enddo
-  enddo
-
-  hprec_dis(lnd%ls:lnd%le) = 0.
-  hprec_nodis(lnd%ls:lnd%le) = 0.  
-  lprec_g(lnd%ls:lnd%le) = 0.
-  fprec_g(lnd%ls:lnd%le) = 0.
-  delta_T(lnd%ls:lnd%le) = 0.   
-
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle 
-
-       kgh = max(tile%soil%hlsp%pslope2p_g*tile%soil%hlsp%lift,-0.9999)
-       adjust = (1. + kgh)/norm_tot(l)
-       tile%soil%hlsp%pratio = adjust  
-       if(do_hlsp_disagg_precip)then
-         cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
-         cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
-       endif     
-
-       if(do_hlsp_disagg_tpq)then
-         if(use_atmos_T_for_precip_T)then
-           tile%soil%hlsp%precip_T = cplr2land%t_atm_dis(l,k)
-           hprec_dis(l) = hprec_dis(l) + (clw*cplr2land%lprec(l,k)+csw*cplr2land%fprec(l,k))*(cplr2land%t_atm_dis(l,k)-tfreeze) * tile%frac*lnd%ug_area(l) !J/s
-           hprec_nodis(l) = hprec_nodis(l) + (clw*cplr2land%lprec(l,k)+csw*cplr2land%fprec(l,k))*(cplr2land%t_atm_nodis(l,k)-tfreeze) * tile%frac*lnd%ug_area(l) !J/s
-           lprec_g(l) = lprec_g(l) + cplr2land%lprec(l,k) * tile%frac*lnd%ug_area(l) !kg/s
-           fprec_g(l) = fprec_g(l) + cplr2land%fprec(l,k) * tile%frac*lnd%ug_area(l) !kg/s       
-         else
-           tile%soil%hlsp%precip_T = tile%cana%T          
-         endif 
-         if(use_atmos_T_for_evap_T)then
-           tile%soil%hlsp%evap_T = cplr2land%t_atm_dis(l,k) 
-         else
-           tile%soil%hlsp%evap_T = tile%cana%T 
-         endif     
-       endif
-
-     enddo
-  enddo
-  
-  if(do_hlsp_disagg_tpq.and.use_atmos_T_for_precip_T)then 
-    where((clw*lprec_g+csw*fprec_g)/=0.) & 
-      delta_T = (hprec_dis - hprec_nodis)/(clw*lprec_g+csw*fprec_g) ! J/s / J/(K*s) = K
-  endif
-
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle     
-
-       if(do_hlsp_disagg_tpq)then
-         if(use_atmos_T_for_precip_T)then
-           tile%soil%hlsp%precip_T = tile%soil%hlsp%precip_T - delta_T(l)
-         endif
-         if(disagg_precip_phase)then    
-           hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k) !J/(kgK)*kg/(m2s)=J/(Km2s)
-           heat0 = hcap_persec*(tile%soil%hlsp%precip_T-tfreeze)-hlf*cplr2land%fprec(l,k) !J/(Km2s) * K - J/kg*kg/(m2s) = J/(m2s)
-           melt_perdeg_persec = hcap_persec/hlf  !J/(Km2s) / J/kg =kg/(Km2s)
-           if (cplr2land%fprec(l,k)>0 .and. tile%soil%hlsp%precip_T>tfreeze) then
-           !  melt_persec =  min(cplr2land%fprec(l,k), (tile%soil%hlsp%precip_T-tfreeze)*melt_perdeg_persec)
-             melt_persec = cplr2land%fprec(l,k) !kg/(m2s)
-           else if (cplr2land%lprec(l,k)>0 .and. tile%soil%hlsp%precip_T<tfreeze) then
-           !  melt_persec = -min(cplr2land%lprec(l,k), (tfreeze-tile%soil%hlsp%precip_T)*melt_perdeg_persec)
-             melt_persec = -cplr2land%lprec(l,k) !kg/(m2s)
-           else
-             melt_persec = 0.
-           endif
-           cplr2land%lprec(l,k) = cplr2land%lprec(l,k) + melt_persec
-           cplr2land%fprec(l,k) = cplr2land%fprec(l,k) - melt_persec
-           !if(( hcap_persec + (clw-csw)*melt_persec ).ne.0.) &
-           !  tile%soil%hlsp%precip_T = tfreeze &
-           !                          + (hcap_persec*(tile%soil%hlsp%precip_T-tfreeze) - hlf*melt_persec) &
-           !                            / ( hcap_persec + (clw-csw)*melt_persec )  
-
-           hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k) !J/(Km2s)
-           heat1 = hcap_persec*(tile%soil%hlsp%precip_T-tfreeze)-hlf*cplr2land%fprec(l,k) !J/(Km2s)*K - J/kg*kg/(m2s) = J/(m2s) = W/m2
-           tile%soil%hlsp%hprec_e = heat1 - heat0 !W/m2
-           tile%soil%hlsp%tprec_e = 0.
-           if(hcap_persec>0.) tile%soil%hlsp%tprec_e = tile%soil%hlsp%hprec_e/hcap_persec  !W/m2 / W/(Km2) = K
-         endif
-       endif
-
-     enddo
-  enddo
-
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle
-       tile%soil%hlsp%lprec = cplr2land%lprec(l,k)
-       tile%soil%hlsp%fprec = cplr2land%fprec(l,k)
-       tile%soil%hlsp%zatm  = cplr2land%z_atm_dis(l,k)
-       tile%soil%hlsp%tatm  = cplr2land%t_atm_dis(l,k) 
-       tile%soil%hlsp%patm  = cplr2land%p_atm_dis(l,k) 
-       tile%soil%hlsp%psurf = cplr2land%p_surf_dis(l,k)   
-       tile%soil%hlsp%qatm  = cplr2land%q_atm_dis(l,k)  
-       tile%soil%hlsp%tatm_nodis  = cplr2land%t_atm_nodis(l,k)                           
-     enddo
-  enddo
-
-end subroutine hlsp_disagg_precip
 
 ! ============================================================================
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a

@@ -108,7 +108,6 @@ use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check, &
-                         hlsp_disagg_precip, do_hlsp_disagg_precip, &
                          do_hlsp_disagg_tpq, tlapse, hprec_e_to_atm
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
@@ -1256,13 +1255,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      i = lnd%i_index(l)
      j = lnd%j_index(l)
      ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-        ! nwc: downscale appropriate variables (sw,prec)
-        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
-     enddo
   enddo
 
-  call hlsp_disagg_precip(cplr2land,use_atmos_T_for_precip_T,use_atmos_T_for_evap_T)
+!   call hlsp_disagg_precip(cplr2land,use_atmos_T_for_precip_T,use_atmos_T_for_evap_T) ! dissagg doesn't work without HB
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
@@ -1270,8 +1265,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_bnv,id_ulow,id_snc,&
 !$OMP                                  id_z_atm_dis,id_t_atm_dis,id_p_atm_dis,id_p_surf_dis,id_q_atm_dis,&
 !$OMP                                  id_z_atm_nodis,id_t_atm_nodis,id_p_atm_nodis,id_p_surf_nodis,id_q_atm_nodis,&
-!$OMP                                  id_tws, tws, id_max_ptid, max_ptid) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area, downscale_surface_meteorology)
+!$OMP                                  id_tws, tws) &
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
 
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
@@ -1452,13 +1447,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          call get_tile_water(tile, subs_LMASS, subs_FMASS)
          tws(l) = tws(l) + (subs_LMASS+subs_FMASS)*tile%frac
      endif
-     if (id_max_ptid>0) then
-         max_ptid(l) = max(max_ptid(l),real(tile%pid))
-     endif
   enddo
 
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
-  if (id_max_ptid>0) used = send_data(id_max_ptid, max_ptid, lnd%time)
 
   call soil_hlsp_diag()
 
@@ -1869,7 +1860,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     evap_T = cana_T
   endif
 
-  if(associated(tile%soil).and.use_predefined_tiles.and.do_hlsp_disagg_tpq)then
+  if(associated(tile%soil))then
     precip_T = tile%soil%hlsp%precip_T
     evap_T = tile%soil%hlsp%evap_T
   endif  
@@ -2771,8 +2762,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (id_tslsiLut>0) &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
 
-  ! type of parent tile
-  call send_tile_data(id_ttype, tile%ttype, tile%diag)
 
   ! stdev variables
   call send_tile_data(id_transp_std,vegn_uptk,tile%diag)
@@ -3931,18 +3920,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
   land2cplr%dws_prec (l,k) = tile%dws_prec(month)
 
-  if(use_predefined_tiles.and.associated(tile%soil))then
-    land2cplr%h_ref (l,k) = tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g
-    if(hprec_e_to_atm)then
-      land2cplr%heat_e_pr (l,k) = tile%soil%hlsp%hprec_e  !W/m2
-    else
-      land2cplr%heat_e_pr (l,k) = 0.
-    endif
-  else
-    land2cplr%h_ref (l,k) = 0.
-    land2cplr%heat_e_pr (l,k) = 0.
-  endif
-
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
      call dpri('land2cplr%mask',land2cplr%mask(l,k));             write(*,*)
@@ -3984,7 +3961,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
 
   !Std data
-  call send_tile_data(id_grnd_T_std, land_grnd_T(tile),     tile%diag)
+!   call send_tile_data(id_grnd_T_std, land_grnd_T(tile),     tile%diag)
 
   contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -4042,15 +4019,17 @@ subroutine update_land_bc_slow (land2cplr)
 end subroutine update_land_bc_slow
 
 ! ============================================================================
- real function land_grnd_T(tile)
-   type(land_tile_type), intent(in) :: tile
+! AP Commented out for merge
+!  real function land_grnd_T(tile)
+!    type(land_tile_type), intent(in) :: tile
 
-   if (associated(tile%glac)) land_grnd_T = tile%glac%T(1)
-   if (associated(tile%lake)) land_grnd_T = tile%lake%T(1)
-   if (associated(tile%soil)) land_grnd_T = tile%soil%T(1)
+!    if (associated(tile%glac)) land_grnd_T = tile%glac%T(1)
+!    if (associated(tile%lake)) land_grnd_T = tile%lake%T(1)
+!    if (associated(tile%soil)) land_grnd_T = tile%soil%T(1)
 
-   if (snow_active(tile%snow)) land_grnd_T = tile%snow%T(1)
- end function land_grnd_T
+!    if (snow_active(tile%snow)) land_grnd_T = tile%snow%T(1)
+!  end function land_grnd_T
+! END AP Commented out for merge
 
 
 ! ============================================================================

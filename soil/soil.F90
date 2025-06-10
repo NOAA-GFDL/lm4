@@ -30,7 +30,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
-     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname
+     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname, soil_ave_theta3
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
@@ -1378,8 +1378,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_soil_frac = register_tiled_diag_field ( module_name, 'soil_frac', axes(1:1), &
        lnd%time, 'soil frac', '-',  missing_value=-100.0 )
 
-  id_tile_elev = register_tiled_static_field ( module_name, 'tile_elev', &
-      axes(1:1), 'absolute tile elevation', 'm', missing_value=-100.0 )
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
   id_tau_gw = register_tiled_static_field ( module_name, 'tau_gw',  &
@@ -3824,8 +3822,8 @@ subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrun
   if(is_watch_point()) then
      write(*,*) ' ##### push_down_excess output #####'
      __DEBUG2__(lrunf_nu,hlrunf_nu)
-     write(*,*) 'For watch_cell'
-     __DEBUG3__(soil%hidx_k, frunf, hfrunf)
+    !  write(*,*) 'For watch_cell'
+    !  __DEBUG3__(soil%hidx_k, frunf, hfrunf)
      do l = 1, num_l
         write(*,'(i2.2,x)',advance='NO') l
         call dpri('T=',soil%T(l))
@@ -5423,80 +5421,80 @@ subroutine soil_hlsp_diag()
        call send_tile_data(id_abst_d, tile%soil%abst_d, tile%diag)
        call send_tile_data(id_habst_d, tile%soil%habst_d, tile%diag)
 
-       call send_tile_data(id_hidx_k2,float(tile%soil%hidx_k),tile%diag)
-       call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)
-       call send_tile_data(id_nk,float(tile%soil%hlsp%nk_g), tile%diag)
-       call send_tile_data(id_nj,float(tile%soil%hlsp%nj_g), tile%diag)
-       call send_tile_data(id_elevmean, tile%soil%hlsp%elevmean_g, tile%diag)
-       call send_tile_data(id_pslope2p, tile%soil%hlsp%pslope2p_g, tile%diag)
-       call send_tile_data(id_tfrac_hlsp, pack(tile%soil%hlsp%tfrac_g,.true.), tile%diag)
+    !    call send_tile_data(id_hidx_k2,float(tile%soil%hidx_k),tile%diag)
+    !    call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)
+    !    call send_tile_data(id_nk,float(tile%soil%hlsp%nk_g), tile%diag)
+    !    call send_tile_data(id_nj,float(tile%soil%hlsp%nj_g), tile%diag)
+    !    call send_tile_data(id_elevmean, tile%soil%hlsp%elevmean_g, tile%diag)
+    !    call send_tile_data(id_pslope2p, tile%soil%hlsp%pslope2p_g, tile%diag)
+    !    call send_tile_data(id_tfrac_hlsp, pack(tile%soil%hlsp%tfrac_g,.true.), tile%diag)
      enddo
   enddo
 
-  call send_hlsp_data_r0d_fptr(id_lift_hlsp, soil_hlsp_lift_ptr)
-  call send_hlsp_data_r0d_fptr(id_pratio_hlsp, soil_hlsp_pratio_ptr)
-  call send_hlsp_data_r0d_fptr(id_lprec_hlsp, soil_hlsp_lprec_ptr)
-  call send_hlsp_data_r0d_fptr(id_fprec_hlsp, soil_hlsp_fprec_ptr)
-  call send_hlsp_data_r0d_fptr(id_zatm_hlsp, soil_hlsp_zatm_ptr)
-  call send_hlsp_data_r0d_fptr(id_tatm_hlsp, soil_hlsp_tatm_ptr)
-  call send_hlsp_data_r0d_fptr(id_patm_hlsp, soil_hlsp_patm_ptr)
-  call send_hlsp_data_r0d_fptr(id_psurf_hlsp, soil_hlsp_psurf_ptr)
-  call send_hlsp_data_r0d_fptr(id_qatm_hlsp, soil_hlsp_qatm_ptr)
-  call send_hlsp_data_r0d_fptr(id_tatm_nodis_hlsp, soil_hlsp_tatm_nodis_ptr)
+!   call send_hlsp_data_r0d_fptr(id_lift_hlsp, soil_hlsp_lift_ptr)
+!   call send_hlsp_data_r0d_fptr(id_pratio_hlsp, soil_hlsp_pratio_ptr)
+!   call send_hlsp_data_r0d_fptr(id_lprec_hlsp, soil_hlsp_lprec_ptr)
+!   call send_hlsp_data_r0d_fptr(id_fprec_hlsp, soil_hlsp_fprec_ptr)
+!   call send_hlsp_data_r0d_fptr(id_zatm_hlsp, soil_hlsp_zatm_ptr)
+!   call send_hlsp_data_r0d_fptr(id_tatm_hlsp, soil_hlsp_tatm_ptr)
+!   call send_hlsp_data_r0d_fptr(id_patm_hlsp, soil_hlsp_patm_ptr)
+!   call send_hlsp_data_r0d_fptr(id_psurf_hlsp, soil_hlsp_psurf_ptr)
+!   call send_hlsp_data_r0d_fptr(id_qatm_hlsp, soil_hlsp_qatm_ptr)
+!   call send_hlsp_data_r0d_fptr(id_tatm_nodis_hlsp, soil_hlsp_tatm_nodis_ptr)
 
-  call    send_hlsp_data_r0d_fptr(    id_transp_land_hlsp ,   soil_hlsp_transp_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_precip_land_hlsp ,   soil_hlsp_precip_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_precip_l_land_hlsp   ,   soil_hlsp_precip_l_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_precip_s_land_hlsp   ,   soil_hlsp_precip_s_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_runf_land_hlsp   ,   soil_hlsp_runf_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_evap_land_hlsp   ,   soil_hlsp_evap_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_sens_land_hlsp   ,   soil_hlsp_sens_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_total_C_land_hlsp    ,   soil_hlsp_total_C_land_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_swdn_dif_1_land_hlsp ,   soil_hlsp_swdn_dif_1_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swdn_dif_2_land_hlsp ,   soil_hlsp_swdn_dif_2_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swup_dif_1_land_hlsp ,   soil_hlsp_swup_dif_1_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swup_dif_2_land_hlsp ,   soil_hlsp_swup_dif_2_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swdn_dir_1_land_hlsp ,   soil_hlsp_swdn_dir_1_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swdn_dir_2_land_hlsp ,   soil_hlsp_swdn_dir_2_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swup_dir_1_land_hlsp ,   soil_hlsp_swup_dir_1_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_swup_dir_2_land_hlsp ,   soil_hlsp_swup_dir_2_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_fevapv_land_hlsp ,   soil_hlsp_fevapv_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_flw_land_hlsp    ,   soil_hlsp_flw_land_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_fsw_land_hlsp    ,   soil_hlsp_fsw_land_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_FWSv_land_hlsp   ,   soil_hlsp_FWSv_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_grnd_flux_land_hlsp  ,   soil_hlsp_grnd_flux_land_ptr    )
-  call    send_hlsp_data_r0d_fptr(    id_levapv_land_hlsp ,   soil_hlsp_levapv_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_LWSv_land_hlsp   ,   soil_hlsp_LWSv_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_snow_land_hlsp   ,   soil_hlsp_snow_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_Tca_land_hlsp    ,   soil_hlsp_Tca_land_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_grnd_T_land_hlsp ,   soil_hlsp_grnd_T_land_ptr   )
-  call    send_hlsp_data_r0d_fptr(    id_fco2_land_hlsp   ,   soil_hlsp_fco2_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_water_land_hlsp  ,   soil_hlsp_water_land_ptr    )
-  call    send_hlsp_data_r0d_fptr(    id_lai_land_hlsp    ,   soil_hlsp_lai_land_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_sai_land_hlsp    ,   soil_hlsp_sai_land_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_treeFrac_land_hlsp   ,   soil_hlsp_treeFrac_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_melt_land_hlsp   ,   soil_hlsp_melt_land_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_meltv_land_hlsp  ,   soil_hlsp_meltv_land_ptr    )
-  call    send_hlsp_data_r0d_fptr(    id_melts_land_hlsp  ,   soil_hlsp_melts_land_ptr    )
-  call    send_hlsp_data_r0d_fptr(    id_snow_frac_land_hlsp  ,   soil_hlsp_snow_frac_land_ptr    )
-  call    send_hlsp_data_r0d_fptr(    id_snow_depth_land_hlsp ,   soil_hlsp_snow_depth_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_transp_land_hlsp ,   soil_hlsp_transp_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_precip_land_hlsp ,   soil_hlsp_precip_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_precip_l_land_hlsp   ,   soil_hlsp_precip_l_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_precip_s_land_hlsp   ,   soil_hlsp_precip_s_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_runf_land_hlsp   ,   soil_hlsp_runf_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_evap_land_hlsp   ,   soil_hlsp_evap_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_sens_land_hlsp   ,   soil_hlsp_sens_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_total_C_land_hlsp    ,   soil_hlsp_total_C_land_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_swdn_dif_1_land_hlsp ,   soil_hlsp_swdn_dif_1_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swdn_dif_2_land_hlsp ,   soil_hlsp_swdn_dif_2_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swup_dif_1_land_hlsp ,   soil_hlsp_swup_dif_1_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swup_dif_2_land_hlsp ,   soil_hlsp_swup_dif_2_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swdn_dir_1_land_hlsp ,   soil_hlsp_swdn_dir_1_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swdn_dir_2_land_hlsp ,   soil_hlsp_swdn_dir_2_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swup_dir_1_land_hlsp ,   soil_hlsp_swup_dir_1_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_swup_dir_2_land_hlsp ,   soil_hlsp_swup_dir_2_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_fevapv_land_hlsp ,   soil_hlsp_fevapv_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_flw_land_hlsp    ,   soil_hlsp_flw_land_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_fsw_land_hlsp    ,   soil_hlsp_fsw_land_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_FWSv_land_hlsp   ,   soil_hlsp_FWSv_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_grnd_flux_land_hlsp  ,   soil_hlsp_grnd_flux_land_ptr    )
+!   call    send_hlsp_data_r0d_fptr(    id_levapv_land_hlsp ,   soil_hlsp_levapv_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_LWSv_land_hlsp   ,   soil_hlsp_LWSv_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_snow_land_hlsp   ,   soil_hlsp_snow_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_Tca_land_hlsp    ,   soil_hlsp_Tca_land_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_grnd_T_land_hlsp ,   soil_hlsp_grnd_T_land_ptr   )
+!   call    send_hlsp_data_r0d_fptr(    id_fco2_land_hlsp   ,   soil_hlsp_fco2_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_water_land_hlsp  ,   soil_hlsp_water_land_ptr    )
+!   call    send_hlsp_data_r0d_fptr(    id_lai_land_hlsp    ,   soil_hlsp_lai_land_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_sai_land_hlsp    ,   soil_hlsp_sai_land_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_treeFrac_land_hlsp   ,   soil_hlsp_treeFrac_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_melt_land_hlsp   ,   soil_hlsp_melt_land_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_meltv_land_hlsp  ,   soil_hlsp_meltv_land_ptr    )
+!   call    send_hlsp_data_r0d_fptr(    id_melts_land_hlsp  ,   soil_hlsp_melts_land_ptr    )
+!   call    send_hlsp_data_r0d_fptr(    id_snow_frac_land_hlsp  ,   soil_hlsp_snow_frac_land_ptr    )
+!   call    send_hlsp_data_r0d_fptr(    id_snow_depth_land_hlsp ,   soil_hlsp_snow_depth_land_ptr   )
 
-  call    send_hlsp_data_r0d_fptr(    id_gpp_vegn_hlsp    ,   soil_hlsp_gpp_vegn_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_npp_vegn_hlsp    ,   soil_hlsp_npp_vegn_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_resp_vegn_hlsp   ,   soil_hlsp_resp_vegn_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_cVeg_vegn_hlsp   ,   soil_hlsp_cVeg_vegn_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_gpp_vegn_hlsp    ,   soil_hlsp_gpp_vegn_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_npp_vegn_hlsp    ,   soil_hlsp_npp_vegn_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_resp_vegn_hlsp   ,   soil_hlsp_resp_vegn_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_cVeg_vegn_hlsp   ,   soil_hlsp_cVeg_vegn_ptr )
 
-  call    send_hlsp_data_r0d_fptr(    id_hprec_e_hlsp   ,   soil_hlsp_hprec_e_ptr )
-  call    send_hlsp_data_r0d_fptr(    id_tprec_e_hlsp   ,   soil_hlsp_tprec_e_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_hprec_e_hlsp   ,   soil_hlsp_hprec_e_ptr )
+!   call    send_hlsp_data_r0d_fptr(    id_tprec_e_hlsp   ,   soil_hlsp_tprec_e_ptr )
 
-  call    send_hlsp_data_r0d_fptr(    id_irrrate_soil_hlsp    ,   soil_hlsp_irrrate_soil_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_hirrrate_soil_hlsp    ,   soil_hlsp_hirrrate_soil_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_absts_soil_hlsp    ,   soil_hlsp_absts_soil_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_habsts_soil_hlsp    ,   soil_hlsp_habsts_soil_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_abstd_soil_hlsp    ,   soil_hlsp_abstd_soil_ptr  )
-  call    send_hlsp_data_r0d_fptr(    id_habstd_soil_hlsp    ,   soil_hlsp_habstd_soil_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_irrrate_soil_hlsp    ,   soil_hlsp_irrrate_soil_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_hirrrate_soil_hlsp    ,   soil_hlsp_hirrrate_soil_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_absts_soil_hlsp    ,   soil_hlsp_absts_soil_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_habsts_soil_hlsp    ,   soil_hlsp_habsts_soil_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_abstd_soil_hlsp    ,   soil_hlsp_abstd_soil_ptr  )
+!   call    send_hlsp_data_r0d_fptr(    id_habstd_soil_hlsp    ,   soil_hlsp_habstd_soil_ptr  )
 
-  call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)
+!   call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)
 
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
@@ -5508,11 +5506,11 @@ subroutine soil_hlsp_diag()
      enddo
   enddo
 
-  do i=1,num_l
-    call send_hlsp_data_r1d_fptr(id_lwc_hlsp(i), soil_hlsp_lwc_ptr, i)
-    call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i)
-    call send_hlsp_data_r1d_fptr(id_temp_hlsp(i), soil_hlsp_temp_ptr, i)
-  enddo
+!   do i=1,num_l
+!     call send_hlsp_data_r1d_fptr(id_lwc_hlsp(i), soil_hlsp_lwc_ptr, i)
+!     call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i)
+!     call send_hlsp_data_r1d_fptr(id_temp_hlsp(i), soil_hlsp_temp_ptr, i)
+!   enddo
 
 end subroutine soil_hlsp_diag
 
@@ -5597,7 +5595,7 @@ DEFINE_SOIL_HLSP_ACCESSOR_1D(real,lwc)
 DEFINE_SOIL_HLSP_ACCESSOR_1D(real,swc)
 DEFINE_SOIL_HLSP_ACCESSOR_1D(real,temp)
 
-DEFINE_SOIL_PARS_ACCESSOR_0D(real,tile_elevation)
+! DEFINE_SOIL_PARS_ACCESSOR_0D(real,tile_elevation)
 
 ! ============================================================================
 ! Calculate irrigation demand for each gridcell
