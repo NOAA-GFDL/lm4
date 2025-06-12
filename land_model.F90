@@ -1860,11 +1860,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     evap_T = cana_T
   endif
 
-  if(associated(tile%soil))then
-    precip_T = tile%soil%hlsp%precip_T
-    evap_T = tile%soil%hlsp%evap_T
-  endif  
-
 
   if (use_old_conservation_equations) then
     hlv_Tv = hlv       - (cpw-clw)*tfreeze + cpw*vegn_T
