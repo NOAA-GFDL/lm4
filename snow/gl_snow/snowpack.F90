@@ -74,13 +74,16 @@ type :: snowpack_t
     real, allocatable :: swheat(:) ! internal heat source due to shortwave radiation [W m^-2]
     real, allocatable :: sw_frac_dir(:,:) ! frac of sw down absorbed by each layer in (VIS, NIR) bands , direct
     real, allocatable :: sw_frac_dif(:,:) ! frac of sw down absorbed by each layer in (VIS, NIR) bands , diffuse
-    real, DIMENSION(NBANDS) :: snow_refl_dir ! direct albedo of snowpack in (VIS, NIR) bands
-    real, DIMENSION(NBANDS) :: snow_refl_dif ! direct albedo of snowpack in (VIS, NIR) bands
-    real, DIMENSION(NBANDS) :: beta_rad ! penetration length of radiation in snowpack
+    real :: snow_refl_dir(NBANDS) ! direct albedo of snowpack in (VIS, NIR) bands
+    real :: snow_refl_dif(NBANDS) ! direct albedo of snowpack in (VIS, NIR) bands
+    real :: beta_rad     (NBANDS) ! penetration length of radiation in snowpack
     real :: topwater ! liquid water temporarily stored on top of snow during soild water balance [kg m^-2]
     real :: topwheat ! heat of topliquid water [J m^-2] with resp. to soild ice at TFREEZE [J m^-2]
-    real :: topsnowdeficit ! temporary deficit of snow at the top, due to sublimation [Kg m^-2] - it is a negative mass of soild ice!
-    real :: topsnowheatdeficit ! heat deficit connected with  "topsnowdeficit" - energy with opposite sign due to negative mass (~ ws * cs * (T-TF) with ws < 0, so usually [but not if T>0] a positive quantity)
+    real :: topsnowdeficit ! temporary deficit of snow at the top, due to sublimation
+             ! [Kg m^-2] - it is a negative mass of soild ice!
+    real :: topsnowheatdeficit ! heat deficit connected with  "topsnowdeficit" - energy
+             ! with opposite sign due to negative mass (~ ws * cs * (T-TF) with ws < 0,
+             ! so usually [but not if T>0] a positive quantity)
     real :: nearsurf_bceq_tot ! near surface property for albedo calculation - black carbon equivalent concentration - total [ppm]
     real :: nearsurf_bceq_em ! near surface property for albedo calculation - black carbon equivalent concentration [ppm] - externally mixed
     real :: nearsurf_bceq_im ! near surface property for albedo calculation - black carbon equivalent concentration [ppm] - internally mixed
@@ -631,34 +634,61 @@ subroutine snowpack_print(s)
   class(snowpack_t), intent(in) :: s
   real :: z
   integer :: k
-write(*,*) "___________<< state of snowpack >>______________"
-  if (s%nlayers > 0) then
-  write(*,'(a2,99(",",a14,:))') "k","top","dz","T - TF","ws","wl", "rho", "wc_BC_em", "wc_MD_em", "wc_OM_em", "wc_BC_im", "wc_MD_im", "wc_OM_im", "dendr", "sph", "dopt", "age"
-  z = 0
-  do k = 1, s%nlayers
-     write(*,'(i2.2,99(",",f14.4,:))') k, z, s%snow(k)%dz, s%snow(k)%T-TFREEZE, &
-        s%snow(k)%ws, s%snow(k)%wl, s%snow(k)%ws/s%snow(k)%dz, &
-        s%snow(k)%wc_em(TR_BC), s%snow(k)%wc_em(TR_MD), s%snow(k)%wc_em(TR_OM), &
-        s%snow(k)%wc_im(TR_BC), s%snow(k)%wc_im(TR_MD), s%snow(k)%wc_im(TR_OM), &
-        s%snow(k)%dendr, s%snow(k)%sph, s%snow(k)%optd, s%snow(k)%age
-     z = z+s%snow(k)%dz
-  enddo
-  write(*,'("nlayers = ",i2.2)') s%nlayers
-  write(*,'("depth = ",f9.4)') z
-  write(*,'("SWE = ",f9.4)') s%SWE()
-  write(*,'("size of s%snow = ",i2.2)') size(s%snow)
-write(*,'("bands    : " 99(a15,:))') "VIS", "NIR"
-write(*,'("refl dir = ", 99(f15.4,:))') s%snow_refl_dir(1), s%snow_refl_dir(2)
-write(*,'("refl dif = ", 99(f15.4,:))') s%snow_refl_dif(1), s%snow_refl_dif(2)
-write(*,'("beta rad = ", 99(f15.4,:))') s%beta_rad(1), s%beta_rad(2)
-else
-  write(*,*) "There is no snow here at this time -> nlayers = 0"
-endif
+  write(*,*) "## state of snowpack ##"
 ! These variables are relevant even if there are no snow layers
-  write(*,'("topwater, topwheat = ", 99(f15.4,:))') s%topwater, s%topwheat
-  write(*,'("topsnow def, topsnow heat def = ", 99(f15.4,:))') s%topsnowdeficit, s%topsnowheatdeficit
-write(*,*) "___________<< end state of snowpack >>______________"
+  call dpri('topwater',s%topwater)
+  call dpri('topwheat',s%topwheat)
+  write(*,*)
+  call dpri('topSNdef',s%topsnowdeficit)
+  call dpri('topHTdef',s%topsnowheatdeficit)
+  write(*,*)
+  call dpri('depth', s%depth())
+  call dpri('SWE', s%SWE())
+  call dpri('heat', s%heat())
+  call dpri('nlayers', s%nlayers)
+  write(*,*)
+  do k = 1, s%nlayers
+     write(*,'(i2.2)',advance='NO') k
+     call dpri('dz',s%snow(k)%dz)
+     call dpri('wl',s%snow(k)%wl)
+     call dpri('ws',s%snow(k)%ws)
+     call dpri('T-TF',s%snow(k)%T-TFREEZE)
+     write(*,*)
+  enddo
 end subroutine snowpack_print
+
+! subroutine snowpack_print(s)
+!   class(snowpack_t), intent(in) :: s
+!   real :: z
+!   integer :: k
+! write(*,*) "___________<< state of snowpack >>______________"
+!   if (s%nlayers > 0) then
+!   write(*,'(a2,99(",",a14,:))') "k","top","dz","T - TF","ws","wl", "rho", "wc_BC_em", "wc_MD_em", "wc_OM_em", "wc_BC_im", "wc_MD_im", "wc_OM_im", "dendr", "sph", "dopt", "age"
+!   z = 0
+!   do k = 1, s%nlayers
+!      write(*,'(i2.2,99(",",f14.4,:))') k, z, s%snow(k)%dz, s%snow(k)%T-TFREEZE, &
+!         s%snow(k)%ws, s%snow(k)%wl, s%snow(k)%ws/s%snow(k)%dz, &
+!         s%snow(k)%wc_em(TR_BC), s%snow(k)%wc_em(TR_MD), s%snow(k)%wc_em(TR_OM), &
+!         s%snow(k)%wc_im(TR_BC), s%snow(k)%wc_im(TR_MD), s%snow(k)%wc_im(TR_OM), &
+!         s%snow(k)%dendr, s%snow(k)%sph, s%snow(k)%optd, s%snow(k)%age
+!      z = z+s%snow(k)%dz
+!   enddo
+!   write(*,'("nlayers = ",i2.2)') s%nlayers
+!   write(*,'("depth = ",f9.4)') z
+!   write(*,'("SWE = ",f9.4)') s%SWE()
+!   write(*,'("size of s%snow = ",i2.2)') size(s%snow)
+! write(*,'("bands    : " 99(a15,:))') "VIS", "NIR"
+! write(*,'("refl dir = ", 99(f15.4,:))') s%snow_refl_dir(1), s%snow_refl_dir(2)
+! write(*,'("refl dif = ", 99(f15.4,:))') s%snow_refl_dif(1), s%snow_refl_dif(2)
+! write(*,'("beta rad = ", 99(f15.4,:))') s%beta_rad(1), s%beta_rad(2)
+! else
+!   write(*,*) "There is no snow here at this time -> nlayers = 0"
+! endif
+! ! These variables are relevant even if there are no snow layers
+!   write(*,'("topwater, topwheat = ", 99(f15.4,:))') s%topwater, s%topwheat
+!   write(*,'("topsnow def, topsnow heat def = ", 99(f15.4,:))') s%topsnowdeficit, s%topsnowheatdeficit
+! write(*,*) "___________<< end state of snowpack >>______________"
+! end subroutine snowpack_print
 
 !> \Check that relevant variables are within physical bounds, if not throw an error
 subroutine snowpack_check_bounds(s, message)

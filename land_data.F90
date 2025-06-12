@@ -2,6 +2,7 @@ module land_data_mod
 
 use mpp_mod           , only : mpp_get_current_pelist, mpp_pe, mpp_root_pe, mpp_broadcast
 use constants_mod     , only : PI
+use land_constants_mod, only : seconds_per_year
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
      mpp_get_current_ntile, mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN, &
@@ -12,7 +13,7 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout, mpp_get_data_domain
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      error_mesg, FATAL
-use time_manager_mod  , only : time_type
+use time_manager_mod  , only : time_type, time_type_to_real
 use grid2_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
@@ -141,6 +142,8 @@ type :: land_state_type
 
    type(time_type)    :: dt_fast     ! fast (physical) time step
    type(time_type)    :: dt_slow     ! slow time step
+   real               :: dt_fast_s   ! fast (physical) time step [s]
+   real               :: dt_fast_yr  ! fast (physical) time step [years]
 
    type(time_type)    :: time        ! current land model time
 
@@ -322,6 +325,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   lnd%time    = time
   lnd%dt_fast = dt_fast
   lnd%dt_slow = dt_slow
+  lnd%dt_fast_s  = time_type_to_real(lnd%dt_fast)
+  lnd%dt_fast_yr = lnd%dt_fast_s/seconds_per_year
 
   call set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
 

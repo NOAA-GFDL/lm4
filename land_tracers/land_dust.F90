@@ -20,7 +20,6 @@ use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
 use cana_tile_mod, only : canopy_air_mass_for_tracers
 use soil_tile_mod, only : soil_ave_wetness
-! use snow_tile_mod, only : snow_tile_stock_pe ! EZSNOW
 use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL, LU_RANGE
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T

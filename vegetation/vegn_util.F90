@@ -5,12 +5,12 @@ module vegn_util_mod
 use constants_mod,   only : tfreeze
 use fms_mod, only : string, WARNING, FATAL
 
+use land_constants_mod, only: N_C_TYPES, C_FAST
 use land_debug_mod, only : is_watch_point, check_var_range, land_error_message, carbon_cons_tol
-use soil_carbon_mod, only : N_C_TYPES, C_FAST, deadmic_slow_frac
+use soil_BGC_type_mod, only : soil_BGC_t
 use soil_tile_mod, only : soil_tile_type, num_l, dz
-use soil_util_mod, only : add_soil_carbon
 use vegn_data_mod, only : LEAF_OFF, spdata, nspecies, agf_bs, N_limits_live_biomass, &
-      min_cohort_nindivs, seedling_relayer_bug
+      min_cohort_nindivs, seedling_relayer_bug, deadmic_slow_frac
 use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C, plant_N, &
       cohort_root_litter_profile, cohort_root_exudate_profile, init_cohort_hydraulics, &
@@ -151,7 +151,7 @@ end subroutine kill_plants_ppa
 ! ============================================================================
 subroutine kill_small_cohorts_ppa(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+  class(soil_BGC_t), intent(inout) :: soil
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
@@ -208,7 +208,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      vegn%cohorts=>cc
   endif
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if (is_watch_point()) then
@@ -227,9 +227,10 @@ end subroutine kill_small_cohorts_ppa
 ! ============================================================================
 ! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
 ! for each species for which seed_C is greater than zero.
-subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, prob_est, prob_ger)
+subroutine add_seedlings_ppa(vegn, soil, soilc, seed_C, seed_N, germination_factor, prob_est, prob_ger)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  class(soil_BGC_t),    intent(inout) :: soilc
   real, intent(in) :: seed_C(0:nspecies-1), seed_N(0:nspecies-1)
   real, intent(in), optional :: germination_factor ! additional multiplier for
       ! seed germination, use 0.0 to kill weed seeds on cropland
@@ -369,7 +370,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor, pro
   enddo
 
 
-  call add_soil_carbon(soil, vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
+  call soilc%add_soil_matter( vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
 
   vegn%n_cohorts = k
   if (.not.seedling_relayer_bug) then

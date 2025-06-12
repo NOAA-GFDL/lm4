@@ -620,7 +620,7 @@ end subroutine lake_step_1
     enddo
   endif
 
-    ! EZSNOW: account for heat penetration in substrate
+  ! EZSNOW: account for heat penetration in substrate
   hcap = lake%heat_capacity_dry(1)*lake%dz(1) + clw*lake%wl(1) + csw*lake%ws(1)
   lake%T(1)  = lake%T(1) + fswg_substrate/hcap
 

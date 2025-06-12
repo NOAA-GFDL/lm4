@@ -5,31 +5,25 @@ module vegn_tile_mod
 use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf, epsln
 
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : MAX_SOIL_LEV, NBANDS, N_C_TYPES, N_LITTER_POOLS
 use land_debug_mod,     only : is_watch_point, check_var_range, land_error_message
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
 
-use soil_carbon_mod, only : N_C_TYPES
 use vegn_data_mod, only : &
      MSPECIES, nspecies, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
      BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
-     scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
+     scnd_biomass_bins, do_ppa, track_vegn_nitrogen, N_limits_live_biomass, &
      tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
      do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, plant_C, &
      get_vegn_wet_frac
-
-use soil_tile_mod, only : max_lev, N_LITTER_POOLS
-
-use soil_carbon_mod, only : soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 
 use land_fire_emis_data_mod, only : n_fire_tr
 
@@ -132,7 +126,7 @@ type :: vegn_tile_type
    real :: amount_wood_cleared_N = 0.0 ! amount of wood N cleared in the last event, kg N/m2
 
    ! uptake-related variables
-   real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
+   real :: root_distance(MAX_SOIL_LEV) ! characteristic half-distance between fine roots, m
 
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: ssc_out=0.0
@@ -899,10 +893,8 @@ function vegn_seed_N_supply ( vegn )
   real :: vegn_storedN
   integer :: i
 
-  if(soil_carbon_option .NE. SOILC_CORPSE_N) then
-     vegn_seed_N_supply=0.0
-     return
-  endif
+  vegn_seed_N_supply=0.0
+  if(.not.track_vegn_nitrogen) return
 
   vegn_storedN = 0
   do i = 1,vegn%n_cohorts
@@ -935,7 +927,7 @@ subroutine vegn_add_bliving ( vegn, delta, deltaN )
 
   vegn%cohorts(1)%bliving = vegn%cohorts(1)%bliving + delta
   if(present(deltaN)) vegn%cohorts(1)%stored_N = vegn%cohorts(1)%stored_N+deltaN
-  if(soil_carbon_option==SOILC_CORPSE_N .and. N_limits_live_biomass .AND. vegn%cohorts(1)%stored_N<0) &
+  if(track_vegn_nitrogen .and. N_limits_live_biomass .AND. vegn%cohorts(1)%stored_N<0) &
                 call error_mesg('vegn_add_bliving','resulting stored_N is less then 0', FATAL)
   if (vegn%cohorts(1)%bliving < 0)then
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)

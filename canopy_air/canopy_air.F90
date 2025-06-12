@@ -28,8 +28,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use land_tile_diag_mod, only : register_tiled_diag_field, &
      send_tile_data, diag_buff_type, set_default_diag_filter
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_bwood, vegn_tile_LAI, vegn_tile_SAI
-use soil_tile_mod, only: soil_tile_type, soil_data_hydraulic_properties, dz, &
-        get_rav_C
+use soil_tile_mod, only: soil_tile_type, soil_data_hydraulic_properties, dz
 
 implicit none
 private
@@ -1090,7 +1089,7 @@ real function evap_resistance_litter(tile, snow_active) result(rav_lit)
   if (.not.associated(tile%soil)) return
   if (snow_active)               return
 
-  call get_rav_C(tile%soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  call tile%soilc%rav_C(litter_fast_C, litter_slow_C, litter_deadmic_C)
   rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(tile%vegn)+vegn_tile_SAI(tile%vegn)) &
                       + rav_lit_fsc * litter_fast_C &
                       + rav_lit_ssc * litter_slow_C &

@@ -8,7 +8,7 @@ module vegn_disturbance_mod
 use fms_mod,         only : error_mesg, FATAL
 use time_manager_mod,only : get_date, operator(-)
 use constants_mod,   only : Tfreeze
-use land_constants_mod, only : seconds_per_year
+use land_constants_mod, only : N_C_TYPES, C_FAST, seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
@@ -19,17 +19,14 @@ use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, 
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
      vegn_mergecohorts_ppa
-! use snow_tile_mod,   only : snow_active ! EZSNOW
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
-use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, merge_land_tile_into_list, loop_over_tiles, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
-use soil_carbon_mod, only : add_litter, soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST
+use soil_BGC_type_mod, only : soil_BGC_t
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_util_mod, only : kill_plants_ppa
@@ -73,8 +70,8 @@ subroutine vegn_disturbance_init(id_ug)
 end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
-  type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
-  type(soil_tile_type), intent(inout) :: soil ! soil data
+  type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
+  class(soil_BGC_t),    intent(inout) :: soil ! soil carbon data
   real, intent(in) :: dt ! time since last disturbance calculations, s
 
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
@@ -193,7 +190,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
      end associate
   enddo
 
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+  call soil%add_soil_matter( vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   vegn%csmoke_rate = vegn%csmoke_pool; ! kg C/(m2 yr)
@@ -279,7 +276,7 @@ end subroutine update_fuel
 ! ============================================================================
 subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
-  type(soil_tile_type), intent(inout) :: soil  ! soil data
+  class(soil_BGC_t),    intent(inout) :: soil ! soil carbon data
   real, intent(in) :: deltat ! time since last mortality calculations, s
 
   ! ---- local vars
@@ -361,7 +358,7 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      end associate
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, wood_litter_C=wood_litt_C, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+  call soil%add_soil_matter( vegn, wood_litter_C=wood_litt_C, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
                                    wood_litter_N=wood_litt_N, leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 end subroutine vegn_nat_mortality_lm3
 
@@ -394,7 +391,6 @@ subroutine vegn_nat_mortality_ppa ( )
      ts = first_elmt(land_tile_map)
      do while (loop_over_tiles(ts,t0))
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated tiles
-        ! if (treeline_season_snow_limited.and.snow_active(t0%snow)) cycle ! do not count days with snow on ground
         if (treeline_season_snow_limited.and.t0%snow%snow_active()) cycle ! do not count days with snow on ground ! EZSNOW
         if (t0%vegn%tc_daily > treeline_base_T) then
            ! accumulate average T over growing season, for treeline/mortality calculations
@@ -721,11 +717,11 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      enddo
   endif
 
-  call add_soil_carbon(t0%soil, t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
-                                         leaf_litt0_N, wood_litt0_N, root_litt0_N  )
+  call t0%soilc%add_soil_matter( t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+                                          leaf_litt0_N, wood_litt0_N, root_litt0_N  )
   if (associated(t1)) &
-     call add_soil_carbon(t1%soil, t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
-                                            leaf_litt1_N, wood_litt1_N, root_litt1_N  )
+     call t1%soilc%add_soil_matter( t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
+                                             leaf_litt1_N, wood_litt1_N, root_litt1_N  )
 
   if (is_watch_point()) then
      write(*,*) '#### tile_mortality_ppa output (before relayering cohorts) ####'

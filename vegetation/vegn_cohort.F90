@@ -3,23 +3,21 @@ module vegn_cohort_mod
 #include "../shared/debug.inc"
 
 use constants_mod, only: PI
+use fms_mod, only : error_mesg, FATAL
 
-use land_constants_mod, only: NBANDS, mol_h2o, mol_air
+use land_constants_mod, only: MAX_SOIL_LEV, NBANDS, mol_h2o, mol_air
+use land_debug_mod, only : is_watch_point
 use vegn_data_mod, only : spdata, &
    use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
-   phen_ev1, phen_ev2, cmc_eps, sai_cover, N_limits_live_biomass, &
+   phen_ev1, phen_ev2, cmc_eps, sai_cover, track_vegn_nitrogen, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
-   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, root_length_double_norm, &
+   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
    grass_merge_option, GRASS_MERGE_BY_DBH, GRASS_MERGE_BY_HEIGHT, height_merge_rel, &
    snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
-use soil_tile_mod, only : soil_tile_type, max_lev, num_l, dz
-use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
-use fms_mod, only : error_mesg, FATAL
-use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -40,7 +38,6 @@ public :: leaf_area_from_biomass ! given leaf biomass, calculates leaf area
 public :: height_from_biomass    ! given total biomass, calculated tree height
 public :: update_bio_living_fraction
 public :: update_biomass_pools
-public :: update_cohort_root_properties
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
@@ -132,11 +129,11 @@ type :: vegn_cohort_type
                           ! for diagnostics only
 
 ! ---- uptake-related variables
-  real    :: br_profile(max_lev)  = 0.0 ! normalized vertical distribution of root biomass
-  real    :: root_length(max_lev) = 0.0 ! individual root length per unit depth, m of root/m
+  real    :: br_profile(MAX_SOIL_LEV)  = 0.0 ! normalized vertical distribution of root biomass
+  real    :: root_length(MAX_SOIL_LEV) = 0.0 ! individual root length per unit depth, m of root/m
   real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
   real    :: r_r = 0.0 ! radius of fine roots, m
-  real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
+  real    :: uptake_frac(MAX_SOIL_LEV) = 0.0 ! normalized vertical distribution of uptake
 
 ! ---- auxiliary variables
   real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/individual
@@ -351,51 +348,6 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   if (present(vegn_cover)) vegn_cover = cohort%cover
   if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor = f
 end subroutine vegn_data_cover
-
-
-! ============================================================================
-! returns properties of the fine roots
-subroutine update_cohort_root_properties(soil, cohort)
-  type(soil_tile_type),   intent(in)     :: soil
-  type(vegn_cohort_type), intent(inout)  :: cohort
-  ! note that in LM3, when the density of individuals per m2 is imposed to be 1,
-  ! "per unit depth" measures are the same as volumetric density measures.
-
-  integer :: l
-  real :: factor, z
-  real :: vbr ! density of fine roots biomass per unit depth, kg C/m
-
-  associate(sp => spdata(cohort%species))
-  cohort%br_profile(:) = 0.0
-  z = 0
-  do l = 1, num_l
-     if (z+dz(l)/2>permafrost_depth_thresh.and.soil%frozen_freq(l)>permafrost_freq_thresh) exit ! from loop
-     ! so that the rest of profile remains zero.
-
-     cohort%br_profile(l) = exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta)
-     z = z + dz(l)
-  enddo
-
-  factor = 1.0/sum(cohort%br_profile)
-  cohort%br_profile(:) = cohort%br_profile(:)*factor
-  do l = 1, num_l
-     ! calculate the vertical fine root biomass density [kgC/m] for current layer
-     ! NOTE: sum(vbr*dz) must be equal to cohort%br, which is achieved by normalizing
-     ! br_profile by "factor" in front of the loop
-     if (root_length_double_norm) then
-        ! "factor" is double-counted here
-        vbr = cohort%br * cohort%br_profile(l)*factor/dz(l)
-     else
-        vbr = cohort%br * cohort%br_profile(l)/dz(l)
-     endif
-     ! calculate fine root length per unit depth
-     cohort%root_length(l) = vbr*sp%srl
-  enddo
-
-  cohort%K_r = sp%root_perm
-  cohort%r_r = sp%root_r
-  end associate
-end subroutine update_cohort_root_properties
 
 
 ! ============================================================================
@@ -779,7 +731,7 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%bseed   = 0.0
   cc%bliving = cc%br + cc%bl + cc%bsw + cc%blv
 
-  if (soil_carbon_option==SOILC_CORPSE_N) then
+  if (track_vegn_nitrogen) then
     cc%stored_N   = nsn_frac * cc%bl_max/sp%leaf_live_c2n
     cc%seed_N     = 0.0
     cc%wood_N     = cc%bwood/sp%wood_c2n
@@ -903,7 +855,7 @@ logical function cohort_makes_seeds(cc, G_WF) result(answer)
 
   answer = (cc%layer == 1.or.spdata(cc%species)%reproduces_in_understory) &
            .and. cc%age > spdata(cc%species)%maturalage
-  if (soil_carbon_option==SOILC_CORPSE_N.AND.N_limits_live_biomass) then
+  if (track_vegn_nitrogen.AND.N_limits_live_biomass) then
      answer = answer .AND. &
         .NOT.(cc%nitrogen_stress > spdata(cc%species)%max_n_stress_for_seed_production &
               .OR. spdata(cc%species)%v_seed*G_WF/spdata(cc%species)%seed_c2n>0.1*cc%stored_N )

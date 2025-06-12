@@ -1,15 +1,14 @@
 module vegn_data_mod
 
 use constants_mod, only : PI, TFREEZE
-use mpp_mod, only: input_nml_file
-use fms_mod, only : check_nml_error, stdlog, stdout, string, lowercase, &
-                  & error_mesg, NOTE, FATAL
+use fms_mod, only : input_nml_file, check_nml_error, &
+     stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, N_C_TYPES
 use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : SEL_VEGN, register_tile_selector
 use table_printer_mod
@@ -19,13 +18,6 @@ private
 
 ! ==== public interfaces =====================================================
 ! ---- public constants
-integer, public, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
-integer, public, parameter :: & ! indices of carbon chemical species
-    C_FAST = 1, & ! cellulose (fast)
-    C_SLOW = 2, & ! lignin (slow)
-    C_MIC  = 3    ! microbial producs
-
-
 integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
 integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
@@ -148,7 +140,7 @@ public :: &
     critical_root_density, &
     spdata, splist, &
     min_cosz, &
-    agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
+    agf_bs, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
@@ -162,13 +154,16 @@ public :: &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
     height_merge_rel, grass_merge_option, &
-    nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
+    nsc_target_option, &
+    permafrost_depth_thresh, permafrost_freq_thresh, &
+    saturation_depth_thresh, saturation_freq_thresh, &
     tree_grass_option, reserved_grass_frac, &
 
-    mycorrhizal_turnover_time, &
+    track_vegn_nitrogen, N_limits_live_biomass, &
+    deadmic_slow_frac, mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
-    c2n_N_fixer, N_limits_live_biomass, &
+    c2n_N_fixer, &
     excess_stored_N_leakage_rate, min_N_stress, &
     et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
 
@@ -490,9 +485,6 @@ real, protected :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetatio
 real, protected :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
 real, protected :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real, protected :: agf_bs       = 0.8   ! ratio of above ground stem to total stem
-real, protected :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
-real, protected :: tau_lflitt_transfer = 0.0 ! e-folding time scale of leaf litter transfer to soil pools in CENTURY mode, yr; 0 means instant transfer
-real, protected :: tau_cwlitt_transfer = 0.0 ! e-folding time scale of coarse wood litter transfer to soil pools in CENTURY mode, yr; 0 means instant transfer
 real, protected :: tau_drip_l = 21600.0 ! canopy water residence time, for drip calculations
 real, protected :: tau_drip_s = 86400.0 ! canopy snow residence time, for drip calculations
 real, protected :: GR_factor = 0.33     ! growth respiration factor
@@ -562,18 +554,21 @@ real, protected :: DBH_merge_rel = 0.15  ! max relative DBH difference that perm
 real, protected :: DBH_merge_abs = 0.003 ! max absolute DBH difference (m) that permits merge of two cohorts
 real, protected :: NSC_merge_rel = 0.15  ! max relative NSC difference that allows merge of grass cohorts
 real, protected :: height_merge_rel = 0.1 ! max relative height difference that allows merge of grass cohorts
-character(32) :: grass_merge_criteria = 'by-DBH' ! or 'by-height' -- method used to define if grass cohorts are allowed to merge
+character(32)   :: grass_merge_criteria = 'by-DBH' ! or 'by-height' -- method used to define if grass cohorts can be merged
 integer, protected :: grass_merge_option = -1 ! grass merge method, GRASS_MERGE_BY_DBH or GRASS_MERGE_BY_HEIGHT
 character(24)   :: NSC_target_to_use = 'from-blmax' ! or 'from-bsw'
 logical, protected :: do_bl_max_merge = .FALSE. ! if TRUE, bl_max and br_max are merged when cohorts are merged
 
+logical, protected :: track_vegn_nitrogen   = .FALSE.  ! if true, nitrogen is accounted for in vegetation
+logical, protected :: N_limits_live_biomass = .FALSE.  ! if true, nitrogen availability affects vegetation processes
+
+real, protected :: deadmic_slow_frac         = 0.0     ! Fraction of microbial turnover that goes to slow pool
 real, protected :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real, protected :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
 real, protected :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
 real, protected :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
 real, protected :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
 real, protected :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
-logical, protected :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real, protected :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
 real, protected :: min_N_stress = 0.05            ! Minimum value for N stress
 real, protected :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
@@ -588,6 +583,12 @@ real, protected :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which
            ! everywhere)
 real, protected :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
            ! considered permafrost for the root vertical profile calculations
+
+real, protected :: saturation_depth_thresh = 1.0e36 ! soil depth [m] above which fully saturated
+           ! soil does not preclude root existence. Default value reverts to old treatment
+           ! (roots exists everywhere, regardless of water table)
+real, protected :: saturation_freq_thresh  = 0.9    ! frequency of saturated conditions above
+           ! which soil is considered "saturated" for the root vertical profile calculations
 
 character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass' or 'trees-top-grass'
            ! in pure PPA treatment, grass can shade small trees according to usual PPA rules
@@ -619,7 +620,7 @@ namelist /vegn_data_nml/ &
   min_cosz, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  agf_bs, K1,K2, tau_lflitt_transfer, tau_cwlitt_transfer, &
+  agf_bs, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   T_transp_min, &
@@ -637,13 +638,15 @@ namelist /vegn_data_nml/ &
   do_bl_max_merge, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, height_merge_rel, grass_merge_criteria, &
   permafrost_depth_thresh, permafrost_freq_thresh, &
+  saturation_depth_thresh, saturation_freq_thresh, &
   tree_grass_competition, reserved_grass_frac, &
 
   ! N-related namelist values
-  mycorrhizal_turnover_time, &
+  track_vegn_nitrogen, N_limits_live_biomass, &
+  deadmic_slow_frac, mycorrhizal_turnover_time, &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
-  c2n_N_fixer, N_limits_live_biomass, &
+  c2n_N_fixer, &
   excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
   et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
 
@@ -722,6 +725,12 @@ subroutine read_vegn_data_namelist()
           trim(tree_grass_competition)//'" is invalid, use "pure-ppa", "trees-squeeze-grass", or "trees-top-grass"', FATAL)
   endif
 
+  ! nitrogen parameter consistency check
+  if (N_limits_live_biomass.and..not.track_vegn_nitrogen) then
+     call error_mesg('read_vegn_namleist', 'vegetation nitrogen options inconsistency: '// &
+        'track_vegn_nitrogen must be TRUE for N_limits_live_biomass=TRUE', FATAL)
+  endif
+
   ! parse grass cohort merging options
   select case (trim(lowercase(grass_merge_criteria)))
   case ('by-dbh')
@@ -732,7 +741,6 @@ subroutine read_vegn_data_namelist()
      call error_mesg('read_vegn_namleist', 'option grass_merge_criteria="'// &
           trim(tree_grass_competition)//'" is invalid, use "by-DBH-and-NSC" or "by-height"', FATAL)
   end select
-
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
      call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)

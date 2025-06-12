@@ -14,7 +14,7 @@ use land_constants_mod, only : NBANDS, BAND_NIR, BAND_VIS, dens_ice, &
     g_vol, g0_vol, g1_vol, g2_vol, &
     g_geo, g0_geo, g1_geo, g2_geo
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message
+use land_debug_mod, only : is_watch_point, land_error_message, check_temp_range
 
 use snicar_mod, only: compute_snicar_albedo
 use snowpack_mod, only : snowpack_t, snow_layer_type, LAI_ext, LAI_ssa, eps, &
@@ -1605,73 +1605,56 @@ end subroutine snow_wind_drift
 
 !> \Remove solid snow due to evaporation - updated version compatible with lm4p2
 !> \ Includes temporary snow deficit on top of snowpack in case sublim exceedes top layer
-subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat_fevap, &
-            use_tfreeze_in_grnd_latent, del_T_toplayer, &
-            Mg_imp, snow_melt, &
-            lswept1, fswept1, hlswept1, hfswept1, &
-            subs_m_imp, lost_wc_em, lost_wc_im, thick_enough_for_evap, verbose)
+subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, &
+            use_tfreeze_in_grnd_latent, del_T_toplayer, Mg_imp, &
+            ! output
+            hfevap, hlevap, dheat_fevap, snow_melt, subs_m_imp, &
+            lost_wc_em, lost_wc_im)
     class(snowpack_t), intent(inout) :: s !< state of snowpack
-    real, intent(out) :: lswept1, fswept1, hlswept1, hfswept1 ![kg m^-2]
+    ! input:
+    real, intent(in) :: dt ! model time step [s]
     real, intent(in) :: snow_levap ! liquid evaporation rate [kg m^-2 s^-1]
     real, intent(in) :: snow_fevap ! solid sublimation rate [kg m^-2 s^-1]
+    logical, intent(in) :: use_tfreeze_in_grnd_latent
+    real, intent(in) :: del_T_toplayer
+    real, intent(in) :: Mg_imp
+    ! output:
     real, intent(out) :: hfevap, hlevap ! heat released by sublim [and evap], rate  [J m^-2 s^-1]
     real, intent(out) :: dheat_fevap ! corr in heat released = Dc * DT [J m^-2]
-    real, intent(in) :: dt ! model time step [s]
-    logical, intent(in), optional :: verbose
-    real, intent(IN) :: Mg_imp
-    logical, intent(IN) :: thick_enough_for_evap
-    real, intent(OUT) :: snow_melt,subs_m_imp
+    real, intent(out) :: snow_melt, subs_m_imp
     real, intent(out), dimension(N_SNOW_TRACERS) :: lost_wc_em, lost_wc_im ! mass of tracers lost from the system [mg/m^2]
-    real mass_to_subl, current_mass, rho1
+
     integer il, it
-    real mc_fict, del_T_toplayer, temptop, cap0, dheat, initial_snow_depth
-    integer new_upper_layer
+    real cap0, dheat, initial_snow_depth
     real, ALLOCATABLE :: M_layer(:) ! local variable needed for implicit melt
     real init_ws, init_wl, init_T
     real Told_check, old_ws_check, old_density_1, old_density_il
-    logical use_tfreeze_in_grnd_latent
-    class(snow_layer_type), ALLOCATABLE :: snow_top, snow_temp
-    type(snow_layer_type), allocatable :: snow1(:) ! new snow array
-    real old_density, old_heat, new_heat, zerot_heat, excess_heat
+    real old_density, old_heat, new_heat, zeroT_heat, excess_heat
     real total_mass, dheat_over_cap0
-    real init_heat
     logical stay_in_da_loop
-    real trial_new_T, trial_old_T
-    logical try_to_merge_snow_deficit
-    real Cap1
-    real addf, wdef, hdef
+    real trial_new_T
     real borrowed_ws
     real DT_max, DT_try, excess_e
     real max2add, ener2add
     real excess_e2, excess_e2_cond
 
-    addf = 1.0
-    try_to_merge_snow_deficit = .TRUE.
-    excess_e2 = 0.0
+    real, parameter :: addf = 1.0
 
-    initial_snow_depth = s%depth()
-    init_heat = s%heat()
+    if(is_watch_point()) then
+       write(*,*) '#### snow_sublimation ### INPUT ####'
+       __DEBUG3__(snow_levap,snow_fevap,Mg_imp)
+       __DEBUG1__(use_tfreeze_in_grnd_latent)
+       call s%print()
+    endif
+
+    excess_e2 = 0.0
     hfevap = 0.0
     lost_wc_em = 0.0
     lost_wc_im = 0.0
     dheat_fevap = 0.0
-    lswept1 = 0
-    fswept1 = 0
-    hlswept1 = 0
-    hfswept1 = 0
 
-    ! ---- evaporation and sublimation -----------------------------------------
+    initial_snow_depth = s%depth()
     if (initial_snow_depth>0) then
-
-         if(is_watch_point()) then
-            write(*,*) '#### gl_snow_step_2 - snow_sublimation ### checkpoint 1 ####'
-            write(*,*) "Before sublim, nlayers = ", s%nlayers
-            __DEBUG4__(hlevap, hfevap, dheat, dheat_fevap)
-            write(*,*) "SUBL CHECKPOINT #1 T[1] = ", s%snow(1)%T
-            write(*,*) "SUBL CHECKPOINT #1 - SWE, nlayers, snowdef, heatdef = ", s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit
-            if(verbose) write(*,*) "check 1: ws, dz, rho = ", s%snow(1)%ws,s%snow(1)%dz, old_density_1
-        endif
-
         old_ws_check =s%snow(1)%ws
         old_density_1 = s%snow(1)%ws/s%snow(1)%dz
         s%snow(1)%wl = s%snow(1)%wl - snow_levap*dt
@@ -1720,188 +1703,184 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
             s%snow(1)%T  = s%snow(1)%T  + dheat_over_cap0
             excess_e2 = 0.0
         endif
-        ! write(*,*) "cap0, dheat, Told, Tnew, excess_e2 = ", cap0 ,dheat, Told_check, s%snow(1)%T, excess_e2
-        ! write(*,*) "Heat after = ", s%heat()
         !-------------------
 
-          dheat_fevap = dheat
-
+        dheat_fevap = dheat
 
         !!!!! -------- NOW DO IMPLICIT MELT OR FREEZE ------------
         if(is_watch_point()) then
-            write(*,*) '#### gl_snow_step_2 - snow_sublimation ### checkpoint 2 ####'
-            if(s%nlayers>0) write(*,*) "Cap0, dheat, dheat_over_Cap0 = ",cap0, dheat, dheat_over_cap0
-            if(s%nlayers>0) write(*,*) "SUBL CHECKPOINT #2 T[1] = ", s%snow(1)%T
-            if(s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #3 ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
-            write(*,*) "SUBL CHECKPOINT #2 - SWE, nlayers, snowdef, heatdef = ", s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit
+            write(*,*) '#### snow_sublimation ### checkpoint 2 ####'
+            if(s%nlayers>0) then
+                __DEBUG3__(cap0, dheat, dheat_over_cap0)
+                __DEBUG3__(s%snow(1)%T,s%snow(1)%ws, s%snow(1)%wl)
+            endif
+            __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
         endif
         allocate(M_layer(s%nlayers))
-        if (initial_snow_depth>0) then  ! // TODO remove if, already in this case here surely
-            snow_melt = Mg_imp/dt
-        else
-            snow_melt = 0.0
-        endif
         M_layer = 0.0
+        snow_melt = Mg_imp/dt
         subs_M_imp = Mg_imp
         do il = 1, s%nlayers
-            if (initial_snow_depth>0 .and. subs_M_imp.gt.0) then ! MELT case, subs_M_imp > 0
-                ! M_layer(il) =  min( subs_M_imp, max(0.0,s%snow(il)%ws) )
-                M_layer(il) =  min( subs_M_imp, max(0.0,s%snow(il)%ws - 1E-9) ) ! EZSNOW
+            if (subs_M_imp > 0) then ! MELT case, subs_M_imp > 0
+                ! M_layer(il) = min( subs_M_imp, max(0.0,s%snow(il)%ws) )
+                M_layer(il) = min( subs_M_imp, max(0.0,s%snow(il)%ws - 1E-9) ) ! EZSNOW
                 subs_M_imp = subs_M_imp - M_layer(il)
             endif
         enddo
-        if (initial_snow_depth>0) then ! Case of Freeze, or remaining ! EZEVAP - ASSIGN THIS TO SUBS INSTEAD
-            M_layer(1) = M_layer(1) + subs_M_imp
-            subs_M_imp = 0
-            if ((M_layer(1)>0).and.(s%snow(1)%ws<M_layer(1))) then ! BORROW THE MISSING ICE
-                borrowed_ws = M_layer(1)-s%snow(1)%ws + 1E-7 ! positive ice mass
-                s%topsnowheatdeficit = s%topsnowheatdeficit + CSW*(-borrowed_ws)*(s%snow(1)%T-TFREEZE)
-                s%topsnowdeficit = s%topsnowdeficit - borrowed_ws
-                s%snow(1)%ws = s%snow(1)%ws + borrowed_ws
-            endif
+        ! Case of Freeze, or remaining ! EZEVAP - ASSIGN THIS TO SUBS INSTEAD
+        M_layer(1) = M_layer(1) + subs_M_imp
+        subs_M_imp = 0
+        if ((M_layer(1)>0).and.(s%snow(1)%ws<M_layer(1))) then ! BORROW THE MISSING ICE
+            borrowed_ws = M_layer(1)-s%snow(1)%ws + 1E-7 ! positive ice mass
+            s%topsnowheatdeficit = s%topsnowheatdeficit + CSW*(-borrowed_ws)*(s%snow(1)%T-TFREEZE)
+            s%topsnowdeficit = s%topsnowdeficit - borrowed_ws
+            s%snow(1)%ws = s%snow(1)%ws + borrowed_ws
         endif
         if(is_watch_point()) then
-            write(*,*) "Start -> Case of neagtive ws: T, wl, ws, MELT[1] = ", s%snow(1)%T , s%snow(1)%wl, s%snow(1)%ws, M_layer(1)
-            write(*,*) "Start -> Case of negative ws: ws*Cs, wl*Cl, wl*Cl - abs(ws)*Cs = ", s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW)
+            write(*,*) "Start -> Case of negative ws:"
+            __DEBUG4__(s%snow(1)%T, s%snow(1)%wl, s%snow(1)%ws, M_layer(1))
+            __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
         endif
-    do il = 1, s%nlayers
-        if (initial_snow_depth>0) then
+        do il = 1, s%nlayers
             old_density_il = s%snow(il)%ws/s%snow(il)%dz ! original layer density
             cap0 = s%snow(il)%hCap() ! original heat capacity of layer
-            init_wl =s%snow(il)%wl
-            init_ws =s%snow(il)%ws
-            init_T =s%snow(il)%T
+            init_wl = s%snow(il)%wl
+            init_ws = s%snow(il)%ws
+            init_T  = s%snow(il)%T
             s%snow(il)%wl = s%snow(il)%wl + M_layer(il) ! melt if positive, freeze if negative
             s%snow(il)%ws = s%snow(il)%ws - M_layer(il)
             s%snow(il)%dz = s%snow(il)%ws/old_density_il ! maintain original density of the layer -> shrink layer thickness
             s%snow(il)%T  = TFREEZE + (cap0*(s%snow(il)%T-TFREEZE) ) &
                                                     / ( cap0 + (CLW-CSW)*M_layer(il) )
-            if(is_watch_point() .and.(il==1)) then
-                write(*,*) "End Case of negative ws: ws, wl, -abs(ws)+wl = ", s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl
-                write(*,*) "End Case of negative ws: ws*Cs, wl*Cl, wl*Cl - abs(ws)*Cs = ", s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW)
-                write(*,*) "End Case of neagtive ws: new T, Cap0, Cap1 = ", s%snow(1)%T , Cap0, Cap1
-                write(*,*) "Tnew = ", s%snow(1)%T
+        enddo
+        deallocate(M_layer)
+        if(is_watch_point()) then
+            write(*,*) "End Case of negative ws:"
+            __DEBUG3__(s%snow(1)%ws, s%snow(1)%wl, -abs(s%snow(1)%ws)+s%snow(1)%wl)
+            __DEBUG3__(s%snow(1)%ws*CSW, s%snow(1)%wl*CLW, s%snow(1)%wl*CLW-abs(s%snow(1)%ws*CSW))
+            __DEBUG2__(s%snow(1)%T, Cap0)
+        endif
+        !!!!! ------ END IMPLICIT MELT --------
+
+        if(is_watch_point()) then
+            write(*,*) '#### snow_sublimation ### checkpoint 3 ####'
+            if(s%nlayers>0)  then
+               __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
+            endif
+            __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
+        endif
+        ! if top layer has negative ice, remove it and create top snow layer
+        ! do it also if the first layer is too small
+        ! so as to avoid issue that if too much sublimation, too low T1 due to dheat budget
+        if (s%snow(1)%ws < 0.0) then ! changed_eps
+            if (s%snow(1)%wl + s%snow(1)%ws > 0) then ! ASSIGN ALL TO TOPWATER
+                s%topwater = s%topwater + s%snow(1)%wl + s%snow(1)%ws
+                s%topwheat = s%topwheat + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
+            else ! ASSIGN ALL TO TOPSNOWDEFICIT
+                s%topsnowdeficit = s%topsnowdeficit + s%snow(1)%wl + s%snow(1)%ws
+                s%topsnowheatdeficit = s%topsnowheatdeficit + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
+            endif
+
+            ! remove layer now
+            if (s%nlayers > 1) then
+                ! first pass any tracers to layer below, then remove 1st layer
+                do it = 1, N_SNOW_TRACERS
+                    s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
+                    s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
+                enddo
+                s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
+                s%nlayers = s%nlayers - 1 ! in both cases
+            else if (s%nlayers == 1) then ! case only one layer  since snowpack must be activve
+                do it = 1, N_SNOW_TRACERS
+                    lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
+                    lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
+                enddo
+                deallocate(s%snow)
+                s%nlayers = 0
+            else
+                 call land_error_message("ERROR snow_sublimation in snow_evolution module: The number of layers should not be zero here!", FATAL)
+            endif
+
+            ! EZDEV - RESTART HERE
+            if(is_watch_point()) then
+                write(*,*) '#### snow_sublimation ### checkpoint 4.1 ####'
+                if (s%nlayers>0) then
+                   __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
+                endif
+                __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
+            endif
+        ! //TODO: This was added to increase numerical stability and reduce low T occurrence
+        else if ((s%snow(1)%ws < 1E-2)) then
+            ! add it to the topwater pool instead
+            ! get rid of 1st layer and add it to the second layer
+            ! call merge_layers(s%snow(1), s%snow(2))
+
+            s%topwater = s%topwater + s%snow(1)%ws + s%snow(1)%wl
+            s%topwheat = s%topwheat + s%snow(1)%ws*CSW*(s%snow(1)%T-TFREEZE)
+            s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + s%snow(1)%wl*HLF
+
+            if (s%nlayers > 1) then
+                ! first pass any tracers to layer below, then remove 1st layer
+                do it = 1, N_SNOW_TRACERS
+                    s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
+                    s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
+                enddo
+                s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
+                s%nlayers = s%nlayers - 1
+            else if (s%nlayers == 1) then
+                do it = 1, N_SNOW_TRACERS
+                    lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
+                    lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
+                enddo
+                s%nlayers = 0
+                deallocate(s%snow)
+            endif
+            if(is_watch_point()) then
+                write(*,*) '#### snow_sublimation ### checkpoint 4.2 ####'
+                if (s%nlayers>0) then
+                   __DEBUG3__(s%snow(1)%T, s%snow(1)%ws, s%snow(1)%wl)
+                endif
+                __DEBUG4__(s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit)
             endif
         endif
-    enddo
-    DEALLOCATE(M_layer)
-    !!!!! ------ END IMPLICIT MELT --------
 
-    if(is_watch_point()) then
-        write(*,*) '#### gl_snow_step_2 - snow_sublimation ### checkpoint 3 ####'
-        if(s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #3 T[1] = ", s%snow(1)%T
-        if(s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #3 ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
-        write(*,*) "SUBL CHECKPOINT #3 - SWE, nlayers, snowdef, heatdef = ", s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit
-    endif
-    ! if top layer has negative ice, remove it and create top snow layer
-    ! do it also if the first layer is too small
-    ! so as to avoid issue that if too much sublimation, too low T1 due to dheat budget
-    if (s%snow(1)%ws < 0.0) then ! changed_eps
-        if (s%snow(1)%wl + s%snow(1)%ws > 0) then ! ASSIGN ALL TO TOPWATER
-            s%topwater = s%topwater + s%snow(1)%wl + s%snow(1)%ws
-            s%topwheat = s%topwheat + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
-        else ! ASSIGN ALL TO TOPSNOWDEFICIT
-            s%topsnowdeficit = s%topsnowdeficit + s%snow(1)%wl + s%snow(1)%ws
-            s%topsnowheatdeficit = s%topsnowheatdeficit + CLW*s%snow(1)%wl*(s%snow(1)%T-TFREEZE) + HLF*s%snow(1)%wl + CSW*s%snow(1)%ws*(s%snow(1)%T-TFREEZE)
-        endif
-
-        ! remove layer now
-        if (s%nlayers > 1) then
-            ! first pass any tracers to layer below, then remove 1st layer
-            do it = 1, N_SNOW_TRACERS
-                s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
-                s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
-            enddo
-            s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
-            s%nlayers = s%nlayers - 1 ! in both cases
-        else if (s%nlayers == 1) then ! case only one layer  since snowpack must be activve
-            do it = 1, N_SNOW_TRACERS
-                lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
-                lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
-            enddo
-            deallocate(s%snow)
-            s%nlayers = 0
-        else
-             call land_error_message("ERROR snow_sublimation in snow_evolution module: The number of layers should not be zero here!", FATAL)
-        endif
-
-    ! EZDEV - RESTART HERE
-    if(is_watch_point()) then
-        write(*,*) '#### gl_snow_step_2 - snow_sublimation ### checkpoint 4 ####'
-        if (s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #4 T[1] = ", s%snow(1)%T
-        if (s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #4 ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
-         write(*,*) "SUBL CHECKPOINT #4 - SWE, nlayers, snowdef, heatdef = ", s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit
-    endif
-    ! //TODO: This was added to increase numerical stability and reduce low T occurrence
-    else if ((s%snow(1)%ws < 1E-2)) then
-        ! add it to the topwater pool instead
-        ! get rid of 1st layer and add it to the second layer
-        ! call merge_layers(s%snow(1), s%snow(2))
-
-        s%topwater = s%topwater + s%snow(1)%ws + s%snow(1)%wl
-        s%topwheat = s%topwheat + s%snow(1)%ws*CSW*(s%snow(1)%T-TFREEZE)
-        s%topwheat = s%topwheat + s%snow(1)%wl*CLW*(s%snow(1)%T-TFREEZE) + s%snow(1)%wl*HLF
-
-        if (s%nlayers > 1) then
-            ! first pass any tracers to layer below, then remove 1st layer
-            do it = 1, N_SNOW_TRACERS
-                s%snow(2)%wc_im(it) = s%snow(2)%wc_im(it) + s%snow(1)%wc_im(it)
-                s%snow(2)%wc_em(it) = s%snow(2)%wc_em(it) + s%snow(1)%wc_em(it)
-            enddo
-            s%snow(1:s%nlayers-1) = s%snow(2:s%nlayers)
-            s%nlayers = s%nlayers - 1
-        else if (s%nlayers == 1) then
-            do it = 1, N_SNOW_TRACERS
-                lost_wc_em(it) = lost_wc_em(it) + s%snow(1)%wc_em(it)
-                lost_wc_im(it) = lost_wc_im(it) + s%snow(1)%wc_im(it)
-            enddo
-            s%nlayers = 0
-            deallocate(s%snow)
-        endif
-    endif
-
-
-    excess_e2 = excess_e2 + s%topsnowheatdeficit
-    s%topsnowheatdeficit = 0.0
-    excess_e2_cond = excess_e2
-    if (.not.(s%nlayers>0)) then
-        s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
-        excess_e2 = 0.0
-    else
-        if (excess_e2_cond > 0.0) then
-            do il=1,s%nlayers
-                if ((excess_e2 > 0.0) .and. (s%snow(il)%T-TFREEZE < 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
-                    max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap()  ! NEG
-                    ener2add = min(-max2add, excess_e2)  ! POS
-                    excess_e2 = excess_e2 - ener2add
-                    s%snow(il)%T = s%snow(il)%T  + ener2add / s%snow(il)%hCap()
-                endif
-            enddo
+        excess_e2 = excess_e2 + s%topsnowheatdeficit
+        s%topsnowheatdeficit = 0.0
+        excess_e2_cond = excess_e2
+        if (s%nlayers == 0) then
             s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
             excess_e2 = 0.0
         else
-            do il=1,s%nlayers
-                if ((excess_e2 < 0.0) .and. (s%snow(il)%T-TFREEZE > 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
-                    max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap() ! POS
-                    ener2add = min(max2add, -excess_e2) ! POS
-                    excess_e2 = excess_e2 + ener2add
-                    s%snow(il)%T = s%snow(il)%T - ener2add / s%snow(il)%hCap()
-                endif
-            enddo
-            ! add any remaining excess_e2 to top layer, regardless of resulting T
-            s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
-            excess_e2 = 0.0
+            if (excess_e2_cond > 0.0) then
+                do il=1,s%nlayers
+                    if ((excess_e2 > 0.0) .and. (s%snow(il)%T-TFREEZE < 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
+                        max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap()  ! NEG
+                        ener2add = min(-max2add, excess_e2)  ! POS
+                        excess_e2 = excess_e2 - ener2add
+                        s%snow(il)%T = s%snow(il)%T  + ener2add / s%snow(il)%hCap()
+                    endif
+                enddo
+                s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
+                excess_e2 = 0.0
+            else
+                do il=1,s%nlayers
+                    if ((excess_e2 < 0.0) .and. (s%snow(il)%T-TFREEZE > 0.0) .and. (s%snow(il)%hCap()>0) ) then ! case Tdef > TF, Ti < TF
+                        max2add =  (s%snow(il)%T-TFREEZE) * s%snow(il)%hCap() ! POS
+                        ener2add = min(max2add, -excess_e2) ! POS
+                        excess_e2 = excess_e2 + ener2add
+                        s%snow(il)%T = s%snow(il)%T - ener2add / s%snow(il)%hCap()
+                    endif
+                enddo
+                ! add any remaining excess_e2 to top layer, regardless of resulting T
+                s%topsnowheatdeficit = s%topsnowheatdeficit + excess_e2
+                excess_e2 = 0.0
+            endif
         endif
-    endif
 
-    if (try_to_merge_snow_deficit) then
-
-    if(is_watch_point()) then
-        write(*,*) '#### gl_snow_step_2 - snow_sublimation [before merge] ### checkpoint 5 ####'
-        if (s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #5 T[1] = ", s%snow(1)%T
-        write(*,*) "SUBL CHECKPOINT #5 - SWE, nlayers, snowdef, heatdef = ", s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit
-        call s%print()
-    endif
+        if(is_watch_point()) then
+            write(*,*) '#### snow_sublimation ### checkpoint 5 ####'
+            call s%print()
+        endif
         ! If there is negative ice on top of snow, attempt to merge it with underlying layers
         ! until the deficit is filled.
         ! If the deficit exceeds the total ice in the snowpack, retain the negative mass on
@@ -1995,21 +1974,18 @@ subroutine snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat
                 endif
             endif
         enddo
-
-    endif ! try_to_merge_snow_deficit
-
-
     else ! case of no snow layers
         subs_M_imp = Mg_imp
         snow_melt = 0.0
     endif !! end case of nlayers >0
 
     if(is_watch_point()) then
-        write(*,*) '#### gl_snow_step_2 - snow_sublimation [after merge] ### checkpoint 6 ####'
-        if (s%nlayers>0)  write(*,*) "SUBL CHECKPOINT #6 T[1] = ", s%snow(1)%T
-        write(*,*) "SUBL CHECKPOINT #6 - SWE, nlayers, snowdef, heatdef = ", s%SWE(), s%nlayers, s%topsnowdeficit, s%topsnowheatdeficit
+        write(*,*) '#### snow_sublimation ### checkpoint 6 (end) ####'
         call s%print()
     endif
+
+    if (s%nlayers>0) &
+        call check_temp_range(s%snow(1)%T,'snow_sublimation output', 'T of top snow layer')
 
 end subroutine snow_sublimation
 
@@ -2251,7 +2227,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
     real :: zflux_wl, zflux_T ! verical mass of liquid water [Kg m^-2] moved down the snowpack
     real :: zflux_wc_em(N_SNOW_TRACERS), zflux_wc_im(N_SNOW_TRACERS) ! flux scavenged for each im or em
     integer :: il, it ! counter
-    real SWE_il ! snow water equivalent of layer il [kg m^-2]
+    real :: SWE_il ! snow water equivalent of layer il [kg m^-2]
     integer n_melt_layers, new_layer_counter
     real wetdepl(N_SNOW_TRACERS) ! wet deposition of tracers from atmosphere [mg m^-2 s^-1]
     real wl_max
@@ -2264,6 +2240,12 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
     real eps_kill_layer
     real eps_water ! set it to this val to avoid negative values
     logical verbose
+
+    if (is_watch_point()) then
+       write(*,*)'#### input data to snow_liquid_balance ####'
+       __DEBUG4__(lprec, levap, fprec, tprec-TFREEZE)
+       call s%print()
+    endif
 
     if (.not.PRESENT(verbose_in)) then
         verbose = .FALSE. ! default argument
@@ -2305,11 +2287,10 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
     endif
 
     if(is_watch_point()) then
-        write(*,*)'#### Snow step 2 : snow_liquid_balance, initial checkpoint [1] ####'
-        write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  )
-        write(*,*) "liquid balance, test initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  + wetdepl*dt)
-        write(*,*) "Before liquid balance, nlayers = ", s%nlayers
-        call s%print()
+        write(*,*)'#### snow_liquid_balance checkpoint 1 ####'
+        write(*,*) "initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  )
+        write(*,*) "initial LAI content = ", sum(s%lai_em() + s%lai_im() + lost_wc_em + lost_wc_im  + wetdepl*dt)
+!         call s%print()
     endif
 
     if (s%nlayers > 0) then
@@ -2320,7 +2301,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 endif
                 s%snow(il)%wc_im = s%snow(il)%wc_im + wetdepl*dt   ! add IM tracers to 1st layer
                 if(is_watch_point()) then
-                    write(*,*)'#### Snow step 2 : snow_liquid_balance, inter checkpoint [1.5] ####'
+                    write(*,*)'#### snow_liquid_balance checkpoint 1.5 ####'
                     call s%print()
                 endif
 
@@ -2331,11 +2312,8 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
                 endif
 
                 if(is_watch_point()) then
-                    write(*,*)'#### Snow step 2 : snow_liquid_balance, second checkpoint [2] ####'
-                    write(*,*) "1. snowpack heat now is = ", s%heat() - s%topwater*HLF
-                    write(*,*) "1. snowpack heat now is = ", s%heat()
-                    write(*,*) "snow liquid balance: state of snowpack after adding liq precip:"
-                    write(*,*) "SWE after adding precip to 1st layer: lprec*dt = ", s%SWE()
+                    write(*,*)'#### snow_liquid_balance checkpoint 2 ####'
+                    __DEBUG3__(s%heat(), s%topwater*HLF, s%heat() - s%topwater*HLF)
                     call s%print()
                 endif
 
@@ -2432,12 +2410,8 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
         enddo ! end loop on layers
 
         if(is_watch_point()) then
-            write(*,*)'#### Snow step 2 : snow_liquid_balance, third checkpoint [3] ####'
-            write(*,*) "intermediate check: SWE = ", s%SWE()
-            write(*,*) "intermediate check: heat = ", s%heat()
-            write(*,*) "state of snowpack before removing empty layers ::"
-            write(*,*) "number of layers, numbe of layers to melt = ", s%nlayers, n_melt_layers
-            if (s%nlayers > 0) write(*,*) "First layer: ws[1], wl[1] = ", s%snow(1)%ws, s%snow(1)%wl
+            write(*,*)'#### snow_liquid_balance checkpoint 3 ####'
+            __DEBUG1__(n_melt_layers)
             call s%print()
         endif
 
@@ -2471,9 +2445,7 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
         endif
 
         if(is_watch_point()) then
-            write(*,*)'#### Snow step 2 : snow_liquid_balance, fourth checkpoint [4] ####'
-            write(*,*) "state of snowpack after removing empty layers ::"
-            write(*,*) "after removing empty layer, check: SWE = ", s%SWE()
+            write(*,*)'#### snow_liquid_balance checkpoint 4 ####'
             call s%print()
         endif
 
@@ -2496,6 +2468,11 @@ subroutine snow_liquid_balance(s, lprec, levap, fprec, tprec, wetdep, snow_lprec
             write(*,*) "liquid balance ends with negative dz = ",s%snow(1)%dz
             call land_error_message("ERROR snow_liquid_balance in snow_evolution module: liquid balance ends with negative layer thickness", FATAL)
         endif
+    endif
+
+    if (is_watch_point()) then
+       write(*,*)'#### snow_liquid_balance output ####'
+       __DEBUG2__(snow_lprec,snow_hlprec)
     endif
 
 end subroutine snow_liquid_balance
@@ -2617,15 +2594,11 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
         verbose = verbose_in
     endif
 
-    snow_lprec = 0.0
+    snow_lprec  = 0.0
     snow_hlprec = 0.0
-    lost_wc_im = 0.0
-    lost_wc_em = 0.0
-    snow_lprec = 0.0
-    snow_hlprec = 0.0
+    lost_wc_im  = 0.0
+    lost_wc_em  = 0.0
 
-    if (allocated(snow1)) DEALLOCATE(snow1)
-    if(verbose) write(*,*) "before melt-freeze: heat, SWE, LIQ, ICE, nlayers= ", s%heat(), s%SWE(), s%liq(), s%ice(), s%nlayers
     n_melt_layers = 0 ! counter for the layers melting
     rho_start = s%density()
 
@@ -2687,11 +2660,10 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
             s%snow(il)%wc_im = 0.0
             s%snow(il)%wc_em = 0.0
             zflux_wl = s%snow(il)%wl  ! add water to downward flux
-            zflux_T = s%snow(il)%T
+            zflux_T  = s%snow(il)%T
             s%snow(il)%wl = 0.0
             ! pass excess water and tracers to the layer below
             if(il==s%nlayers) then ! last layer
-                if (verbose) write(*,*) "melt runoff updated"
                 snow_lprec = snow_lprec + zflux_wl/dt !
                 snow_hlprec = snow_hlprec + zflux_wl/dt*CLW*(zflux_T-TFREEZE) + zflux_wl/dt*HLF
                 lost_wc_em = lost_wc_em + zflux_wc_em ! added here
@@ -2734,11 +2706,6 @@ subroutine snow_melt_and_freeze(s, dt, snow_lprec, snow_hlprec, lost_wc_em, lost
     endif
     rho_ends = s%density()
     endif ! end case of nlayers >0
-
-    ! write(*,*) "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
-    ! call s%check_bounds("check bounds - final melt and freeze ....")
-    ! write(*,*) "M & F :: final melt-freeze: heat, SWE, LIQ, ICE, nlayers= ", s%heat(), s%SWE(), s%liq(), s%ice(), s%nlayers
-    ! if (verbose)
 
 end subroutine snow_melt_and_freeze
 
@@ -3344,7 +3311,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
                         lost_wc_em, lost_wc_im)
                         ! delta_heat_DTg)
     type(snowpack_t), intent(inout) :: s ! snowpack = instance of snow tile object
-    type(snowpack_t) :: s_check ! for debug only
     real, intent(in) :: snow_subl ! fraction of sublimation (equal to 1 when snow is there)
     real, intent(in) :: vegn_lprec ! precip below canopy [Kg m^-2 s^-1]
     real, intent(in) :: vegn_fprec ! precip below canopy [Kg m^-2 s^-1]
@@ -3372,18 +3338,16 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real, intent(in) :: G0, DGDTg, snow_G_Z, snow_G_TZ
     !  local variables
     real hfevap
-    logical :: verbose
-    real check_heat0, check_heat1, ftprec, ltprec
+    real ftprec, ltprec
     real snow_lprec1, snow_hlprec1, snow_lprec2, snow_hlprec2
-    real heat1a, heat1b, heat1c, heat1d, heat1e, heat1f, heat1g
-    real netmass1, netmass2, netmassdiff
+    real heat1a, heat1b
+    real netmass1, netmass2
     real netheat1, netheat2, netheatdiff
-    real lswept1, fswept1, hlswept1, hfswept1 ! from sublimation
     real lswept2, fswept2, hlswept2, hfswept2
     integer il
     real, dimension(N_SNOW_TRACERS) :: lost_wc_em1, lost_wc_im1, lost_wc_em2, lost_wc_im2  ! [mg/m2]
     real, dimension(N_SNOW_TRACERS) :: lost_wc_em3, lost_wc_im3, lost_wc_em4, lost_wc_im4, lost_wc_em5, lost_wc_im5 ! [mg/m2]
-    real laimass1 , laimass2 , netlaimass ! [mg/m2]
+    real laimass1, laimass2, netlaimass ! [mg/m2]
     real laimass_wetdep_rainf, laimass_wetdep_snowf
     real dheat_fevap
     real hlevap
@@ -3394,21 +3358,18 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     real sum_swheat
     real delta_time
     logical thick_enough_for_evap
-    real frunf_from_deficit, hfrunf_from_deficit, frac_of_deficit
     real total_depth
 
     if(is_watch_point()) then
-        write(*,*)'###### Beginning GLASS Snow step 2 ######'
-        write(*,*) "vegn_lprec, vegn_hlprec = ", vegn_lprec, vegn_hlprec
+        write(*,*)'###### Beginning gl_snow_step_2 ######'
+        __DEBUG2__(vegn_lprec, vegn_hlprec)
     endif
 
     delta_time = dt
-    verbose = .False.
 
     call s%update_age(dt) ! update age of existing snow layers
 
     heat1a = s%heat()
-    if(verbose) write(*,*) "STEP2: heat check A = ", heat1a
 
     if (s%nlayers>0) then
         snow_fsw   = fswg
@@ -3462,14 +3423,14 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     ! delta_heat_DTg = heat1 - heat1a ! change in snowpack energy due to heat conduction
     ! write(*,*) "STEP-2-HEAT CHECKPOINT 2 [After update T profile]:", s%heat()
 
-        if (s%nlayers>0) then
-            ! write(*,*) "T1 after updating T progile = ", s%snow(1)%T
-            s%preprec_surfT = s%snow(1)%T ! get surface T before subl and snowfall
-            ! grnd_T_preprec = s%snow(1)%T ! get surface T before subl and snowfall
-        else
-            s%preprec_surfT = -1.0 ! start with fill value in case there is no snow
-            ! grnd_T_preprec = -1.0 ! start with fill value in case there is no snow
-        endif
+    if (s%nlayers>0) then
+        ! write(*,*) "T1 after updating T progile = ", s%snow(1)%T
+        s%preprec_surfT = s%snow(1)%T ! get surface T before subl and snowfall
+        ! grnd_T_preprec = s%snow(1)%T ! get surface T before subl and snowfall
+    else
+        s%preprec_surfT = -1.0 ! start with fill value in case there is no snow
+        ! grnd_T_preprec = -1.0 ! start with fill value in case there is no snow
+    endif
 
     netheat2 = s%heat() ! heat cons check
     netheatdiff = netheat2 - netheat1
@@ -3480,7 +3441,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     !     write(*,*) "final heat = ", netheat2
     !     write(*,*) "heat net difference = ", netheatdiff
     !     write(*,*) "DTg, subs_DT", DTg, subs_DT
-    !     ! error stop "heat balance violation after snow step 2: Updating temperature profile!"
+    !     ! error stop "heat balance violation after gl_snow_step_2: Updating temperature profile!"
     !     ! write(*,*) "end ---- DE due to update temperature profile: ........."
     ! endif
 
@@ -3488,7 +3449,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call s%check_bounds("check bounds before sublimation ....")
 
 
-    ! if(verbose) write(*,*) "SNOW STEP 2 : Sweep tiny snow"
     ! call sweep_tiny_snow(s,lswept2, fswept2, hlswept2, hfswept2, lost_wc_em5, lost_wc_im5)
     ! ! lswept2 = 0; fswept2 = 0; hlswept2 = 0; hfswept2 = 0
     ! snow_lrunf = snow_lrunf + lswept2/dt
@@ -3497,38 +3457,33 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     ! snow_hfrunf = snow_hfrunf + hfswept2/dt
 
         !    if(is_watch_point()) then
-        !       write(*,*)'#### Snow step 2 : before snow sublimation ####'
+        !       write(*,*)'#### gl_snow_step_2 : before snow sublimation ####'
         !       call s%print()
         !       write(*,*) "evapg, Mg_imp = ", evapg, Mg_imp
         !   endif
-
-    ! write(*,*) "Snow step 2: Snowf = ", vegn_fprec
-
 
     netmass1 = s%SWE() ! mass cons check
     netheat1 = s%heat() ! heat cons check
     laimass1 = sum(s%lai_em() + s%lai_im()) ! sum across N_SNOW_TRACERS dimension for purposes of mass cons check
 
     heat1b = s%heat()
-    if(verbose) write(*,*) "STEP2: heat check B = ", heat1b
-    if(verbose) write(*,*) "STEP2: heat check B - A = ", heat1b - heat1a
 
-    if(verbose) write(*,*) "SNOW STEP 2 : Do snow sublimation"
-    call snow_sublimation(s, dt, snow_levap, snow_fevap, hfevap, hlevap, dheat_fevap, &
-                use_tfreeze_in_grnd_latent, DTg, Mg_imp, snow_melt, &
-                lswept1, fswept1, hlswept1, hfswept1, &
-                subs_m_imp, lost_wc_em1, lost_wc_im1, thick_enough_for_evap, verbose=.FALSE.)
-
+    call snow_sublimation(s, dt, snow_levap, snow_fevap, &
+                use_tfreeze_in_grnd_latent, DTg, Mg_imp, &
+                ! output
+                hfevap, hlevap, dheat_fevap, snow_melt, subs_m_imp, &
+                lost_wc_em1, lost_wc_im1)
 
     if(is_watch_point()) then
-        write(*,*)'#### Snow step 2 : after snow sublimation ####'
+        write(*,*)'#### gl_snow_step_2 : after snow sublimation ####'
         call s%print()
-        write(*,*) "snow_levap, snow_fevap, hfevap, hlevap, snow_melt, subs_m_imp",snow_levap, snow_fevap, hfevap, hlevap, snow_melt, subs_m_imp
+        __DEBUG2__(snow_levap, hlevap)
+        __DEBUG2__(snow_fevap, hfevap)
+        __DEBUG2__(snow_melt, subs_m_imp)
     endif
 
-
     netheat2 = s%heat() ! heat cons check
-    netheatdiff = netheat2 - netheat1 - (Mg_imp-subs_M_imp)*HLF + hfevap*dt - dheat_fevap + hlswept1 + hfswept1
+    netheatdiff = netheat2 - netheat1 - (Mg_imp-subs_M_imp)*HLF + hfevap*dt - dheat_fevap
     if (do_snow_check_cons .and. (abs(netheatdiff )>1E-2)) then
         write(*,*) "DEN = ", - Mg_imp*HLF + hfevap*dt - dheat_fevap
         write(*,*) "snow nlayers = ", s%nlayers
@@ -3560,7 +3515,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: LAI balance violation after snow_sublimation!", FATAL)
     endif
 
-    netmass2 = s%SWE() + (snow_levap + snow_fevap)*dt  +lswept1 + fswept1 ! mass cons check
+    netmass2 = s%SWE() + (snow_levap + snow_fevap)*dt ! mass cons check
     if (do_snow_check_cons .and.(abs(netmass2 - netmass1)>1E-6)) then
         write(*,*) "checkpoint after sublimation: SWE = ", s%SWE()
         call land_error_message("ERROR gl_snow_step_2 in snow_evolution module: mass balance violation after snow_sublimation!", FATAL)
@@ -3578,9 +3533,8 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call s%check_bounds("check bounds after sublimation ....")
 
 
-    if(verbose) write(*,*) "SNOW STEP 2 : Do snow melt and freeze"
     if(is_watch_point()) then
-        write(*,*)'#### Snow step 2 : before snow melt and freeze ####'
+        write(*,*)'#### gl_snow_step_2 : before snow melt and freeze ####'
         call s%print()
     endif
     netmass1 = s%SWE() ! init mass cons check
@@ -3622,7 +3576,7 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: LAI balance violation after snow_melt_and_freeze!", FATAL)
     endif
     if(is_watch_point()) then
-        write(*,*)'#### Snow step 2 : after snow melt and freeze ####'
+        write(*,*)'#### gl_snow_step_2 : after snow melt and freeze ####'
         call s%print()
     endif
     call s%check_bounds("check bounds after melt and freeze ....")
@@ -3632,7 +3586,6 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     netheat1 = s%heat() ! heat cons check
 
     ! //FIXME added 2nd relayering step here
-    if(verbose) write(*,*) "SNOW STEP 2 : Do snowpack relayering"
     if (s%nlayers > 0) then
         ! write(*,*) "numbers of snow layers before relayering = ", s%nlayers
         if (do_merge) call s%attempt_merge_layers()
@@ -3666,10 +3619,13 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     else
         ftprec = 273.15
     endif
-    if(verbose) write(*,*) "SNOW STEP 2 : Do snow solid balance"
     call snow_solid_balance(s, vegn_fprec, snow_fevap, vegn_lprec, snow_levap, ftprec, &
                             wetdep, drydep, wind_atm, t_atm, lost_wc_em3, lost_wc_im3, dt, verbose_in=.FALSE.)
                             ! //TODO: remove evap from here
+    if(is_watch_point()) then
+        write(*,*)'#### gl_snow_step_2 : after snow solid balance ####'
+        call s%print()
+    endif
     call s%check_bounds("check bounds after solid balance ....")
 
     laimass_wetdep_rainf = 0.0
@@ -3722,15 +3678,10 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     else
         ltprec = 273.15  ! no energy added, but needs to be defined
     endif
-    if(is_watch_point()) then
-        write(*,*)'#### Snow step 2 : before snow liquid balance ####'
-        write(*,*) "vegn_lprec, vegn_hlprec, ltprec = ", vegn_lprec, vegn_hlprec, ltprec
-    endif
     call s%check_bounds("check bounds before liquid balance ....")
     netmass1 = s%SWE() ! mass cons check
     netheat1 = s%heat() ! heat cons check
     laimass1 = sum(s%lai_em() + s%lai_im())  ! LAIs cons check
-    if(verbose) write(*,*) "SNOW STEP 2 : Do snow liquid water balance"
     call snow_liquid_balance(s, vegn_lprec, snow_levap, &
             vegn_fprec, ltprec, wetdep, snow_lprec2, snow_hlprec2, &
             lost_wc_em4, lost_wc_im4, dt, verbose_in=.FALSE.)
@@ -3773,23 +3724,22 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     endif
 
     if(is_watch_point()) then
-        write(*,*)'#### Snow step 2 : after snow liquid balance ####'
-        write(*,*) "vegn_lprec, vegn_hlprec, ltprec = ", vegn_lprec, vegn_hlprec, ltprec
+        write(*,*)'#### gl_snow_step_2 : after snow liquid balance ####'
+        __DEBUG3__(vegn_lprec, vegn_hlprec, ltprec)
 !         write(*,*) "snow_lprec * HLF, snow_hlprec1, snow_hlprec2, snow_hlprec1+snow_hlprec2 = ",snow_lprec * HLF, snow_hlprec1, snow_hlprec2, snow_hlprec1+snow_hlprec2 ! should include HLF here
     !   call s%print()
     endif
 
 
     netmass1 = s%SWE() ! mass cons check
-    if(verbose) write(*,*) "SNOW STEP 2 : Sweep tiny snow"
     ! FIXME: removed sweep tiny snow
     call gl_sweep_tiny_snow(s,lswept2, fswept2, hlswept2, hfswept2, lost_wc_em5, lost_wc_im5)
     ! lswept2 = 0; fswept2 = 0; hlswept2 = 0; hfswept2 = 0
     ! lost_wc_em5=0; lost_wc_im5=0
-    snow_lrunf = snow_lrunf + lswept1/dt +  lswept2/dt
-    snow_frunf = snow_frunf + fswept1/dt + fswept2/dt
-    snow_hlrunf = snow_hlrunf + hlswept1/dt + hlswept2/dt
-    snow_hfrunf = snow_hfrunf + hfswept1/dt + hfswept2/dt
+    snow_lrunf = snow_lrunf + lswept2/dt
+    snow_frunf = snow_frunf + fswept2/dt
+    snow_hlrunf = snow_hlrunf + hlswept2/dt
+    snow_hfrunf = snow_hfrunf + hfswept2/dt
     netmass2 = s%SWE() + lswept2 + fswept2 ! mass cons check
     if (do_snow_check_cons .and.(abs(netmass2 - netmass1)>1E-6)) then
         call land_error_message( "ERROR gl_snow_step_2 in snow_evolution module: mass balance violation after sweep_tiny_snow!", FATAL)
@@ -3798,6 +3748,10 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     ! sum contributions from melt_and_freeze and from liquid_balance routines
     snow_lprec = snow_lprec1 + snow_lprec2
     snow_hlprec = snow_hlprec1 + snow_hlprec2
+    if(is_watch_point()) then
+       __DEBUG3__(snow_lprec,  snow_lprec1,  snow_lprec2)
+       __DEBUG3__(snow_hlprec, snow_hlprec1, snow_hlprec2)
+    endif
 
     ! sum contributions to lost LAIs for LAI mass balance
     lost_wc_em = lost_wc_em1 + lost_wc_em2 + lost_wc_em3 + lost_wc_em4 + lost_wc_em5
@@ -3807,18 +3761,9 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     netheat1 = s%heat() ! heat cons check
 
 
-    if(verbose) write(*,*) "SNOW STEP 2 : Do Compaction"
     if (do_compaction) call snow_compaction(s, dt, verbose=.FALSE.) ! it modifies the z - levels
-
-
-    if(verbose) write(*,*) "SNOW STEP 2 : Do Metamorph"
     if (do_metamorph) call snow_metamorph(s, dt, verbose=.FALSE.)
-
-
-    if(verbose) write(*,*) "SNOW STEP 2 : Do wind drift"
     if (do_wind_drift) call snow_wind_drift(s, dt, wind_atm, verbose=.FALSE.)
-
-    if(verbose) write(*,*) "SNOW STEP 2 : Do snowpack relayering"
     if (s%nlayers > 0) then
         ! write(*,*) "numbers of snow layers before relayering = ", s%nlayers
         if (do_merge) call s%attempt_merge_layers()
@@ -3852,11 +3797,13 @@ subroutine gl_snow_step_2 ( s, snow_subl,                     &
     call s%nearsurf_properties()
 
     if(is_watch_point()) then
-        write(*,*) "#### snow step 2, final checkpoint"
+        write(*,*) "#### gl_snow_step_2, final checkpoint"
         call s%print()
-        write(*,*) "vegn_lprec, vegn_fprec, ltprec, ftprec = ",vegn_lprec, vegn_fprec, ltprec, ftprec
-        write(*,*) "snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, snow_hlrunf, snow_hfrunf",snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, snow_hlrunf, snow_hfrunf
-        write(*,*) "snow_levap, snow_fevap, snow_melt = ", snow_levap, snow_fevap, snow_melt
+        __DEBUG4__(vegn_lprec, vegn_fprec, ltprec, ftprec)
+        __DEBUG2__(snow_lprec, snow_hlprec)
+        __DEBUG2__(snow_lrunf, snow_hlrunf)
+        __DEBUG2__(snow_frunf, snow_hfrunf)
+        __DEBUG3__(snow_levap, snow_fevap, snow_melt)
     endif
 
 

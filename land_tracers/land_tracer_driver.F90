@@ -12,7 +12,7 @@ use table_printer_mod
 
 use cana_tile_mod,      only: canopy_air_mass_for_tracers
 use snow_tile_mod,      only: N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
-use land_constants_mod, only: d608,kin_visc_air,dyn_visc_air
+use land_constants_mod, only: d608,kin_visc_air,dyn_visc_air,N_LITTER_POOLS,LITT_LEAF
 use land_data_mod,      only: lnd, log_version
 use land_debug_mod,     only: is_watch_point, check_var_range
 use land_dust_mod,      only: land_dust_init, land_dust_end, update_land_dust
@@ -20,8 +20,7 @@ use land_tracers_mod,   only: ntcana, isphum, ico2
 use land_tile_mod,      only: land_tile_type, land_tile_grnd_T, loop_over_tiles, first_elmt, land_tile_enum_type, land_tile_map
 use land_tile_diag_mod, only: diag_buff_type, set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use sat_vapor_pres_mod, only: compute_qs
-use soil_tile_mod,      only: num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types, LEAF, CWOOD
-use soil_carbon_mod,    only: SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, soil_carbon_option
+use soil_tile_mod,      only: num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types
 use soil_carbon_mod,    only: poolTotals1
 use soil_mod,           only: soil_get_sfc_temp
 use time_manager_mod,   only: time_type, time_type_to_real
@@ -1510,7 +1509,7 @@ function  cg_aer(tr_data,T,ustar,pressure,alpha,gamma,A,frac_dry,frac_wet,frac_s
    con = (e0 * ustar * R1 * (Eb + Eim + Ein))
    if (cg_aer_frz.gt.0.)  then
      con     = (frac_dry+frac_wet) * con + frac_snow*cg_aer_frz
-   end if
+                end if
 
 end function cg_aer
 
@@ -1536,7 +1535,7 @@ real function con_h2(tile,p) result(con)
 
    real    :: h2_km_eff
    real    :: s_opt_avg, s_upc_avg, s_ws_avg
-   real    :: soil_C
+   real    :: soil_C, litt_C(N_LITTER_POOLS)
 
    real, parameter :: s_up = 1. !no cap on h2 activity
 
@@ -1591,17 +1590,7 @@ real function con_h2(tile,p) result(con)
 
       if (h2_soilC_mod .gt. 0) then
          !get C for modulation do not include litter
-         select case (soil_carbon_option)
-         case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-            soil_C = sum(tile%soil%fast_soil_C(:))+sum(tile%soil%slow_soil_C(:))
-         case (SOILC_CORPSE, SOILC_CORPSE_N)
-            do isoil = 1,num_l
-               call poolTotals1 ( tile%soil%org_matter(isoil), totalC=soil_C_layer(isoil) )
-            end do
-            soil_C = sum(soil_C_layer(:))
-         case default
-            call error_mesg("land_tracer_driver","soil carbon parameterization not recognized (h2_con)",FATAL)
-         end select
+         soil_C = tile%soilc%total_soil_C()
       end if
 
 
@@ -1725,16 +1714,8 @@ real function con_h2(tile,p) result(con)
 
       !litter
       if (h2_litterC_mod.gt.0) then
-         select case (soil_carbon_option)
-            case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-               litterC_leaf = sum(tile%soil%litter_century_C(:,LEAF))
-!               litterC_wood = sum(tile%soil%litter_century_C(:,CWOOD))
-            case (SOILC_CORPSE, SOILC_CORPSE_N)
-               call poolTotals1(tile%soil%litter_corpse(LEAF),totalC=litterC_leaf)
-!               call poolTotals1(tile%soil%litter_corpse(CWOOD),totalC=litterC_wood)
-            case default
-               call error_mesg("land_tracer_driver","soil litter carbon parameterization not recognized (h2_con)",FATAL)
-         end select
+         call tile%soilc%get_littC(litt_C)
+         litterC_leaf = litt_C(LITT_LEAF)
 
          depth_litter_leaf = max(litterC_leaf/litter_leaf_density_C,0.) * h2_litterC_mod !m
 !         depth_litter_wood = max(litterC_wood/litter_wood_density_C,0.) * h2_litterC_mod !m

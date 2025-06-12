@@ -30,7 +30,8 @@ use astronomy_mod, only : astronomy_init, diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, d608
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, N_C_TYPES, &
+     mol_air, mol_C, mol_co2, d608
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
@@ -42,19 +43,14 @@ use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_te
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
+     soil_radiation, soil_step_1, soil_step_2, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags
-use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
-    SOILC_CORPSE_N
-!!!! ================ EZSNOW ================
+use soil_BGC_base_mod, only : read_soil_BGC_namelist
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart, &
     snow_option, SNOW_CM, SNOW_GL
-
-! use snow_evolution_mod, only: use_internal_sources, &
-!     albedo_to_use, gl_sweep_huge_snow, thresh_snow_depth_swheat
 use snow_tile_mod, only : N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
-use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN
+use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, track_vegn_nitrogen
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -118,6 +114,8 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
 use gex_mod, only : gex_get_n_ex, gex_get_property, gex_get_index, gex_name, gex_units
+
+use soil_BGC_mod, only : soil_BGC_init, save_soil_BGC_restart
 
 implicit none
 private
@@ -425,7 +423,7 @@ subroutine land_model_init &
   call read_soil_namelist()
   call read_hlsp_namelist() ! Must be called after read_soil_namelist
   call read_vegn_namelist()
-  call read_soil_carbon_namelist()
+  call read_soil_BGC_namelist()
   call read_lake_namelist()
   call read_glac_namelist()
   call read_snow_namelist()
@@ -479,6 +477,7 @@ subroutine land_model_init &
   call hlsp_init ( id_ug ) ! Must be called before soil_init
   call soil_init ( id_ug, id_band, id_zfull)
   call hlsp_hydro_init (id_ug, id_zfull) ! Must be called after soil_init
+  call soil_BGC_init ( id_ug, id_zfull )
   call vegn_init ( id_ug, id_band, id_cellarea )
   call lake_init ( id_ug )
   call glac_init ( id_ug )
@@ -743,6 +742,7 @@ subroutine land_model_restart(timestamp)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
+  call save_soil_BGC_restart(tile_dim_length,timestamp_)
   call save_hlsp_restart(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart(tile_dim_length,timestamp_)
@@ -1352,7 +1352,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   snc = 0
 
   ! Calculate groundwater and associated heat fluxes between tiles within each gridcell.
-  call hlsp_hydrology_1(n_c_types)
+  call hlsp_hydrology_1(N_C_TYPES)
   ! ZMS: Eventually pass these args into river or main tile loop.
 
   ! main tile loop
@@ -1426,6 +1426,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            snc(l) = snc(l) + snow_area*tile%frac
         endif
      enddo
+     if(is_watch_cell()) then
+        write(*,*)'#### in update_land_model_fast before update_river'
+        __DEBUG1__(runoff(l))
+        __DEBUG1__(runoff_c(l,:))
+     endif
   enddo
 
   !--- pass runoff from unstructured grid to structured grid.
@@ -1437,8 +1442,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
                             (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
                             is_watch_time()) then
-!     __DEBUG1__(runoff_sg(iwatch,jwatch))
-!     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
+    __DEBUG1__(runoff_sg(iwatch,jwatch))
+    __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
 
   !--- update river state
@@ -1559,7 +1564,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
    precip_l, precip_s, atmos_T, atmos_wind, &
    Ha0, DHaDTc, tr_flux, dfdtr, &
    ISa_dn_dir, ISa_dn_dif, ILa_dn, &
-   ustar, p_surf, drag_q, con_atm,&
+   ustar, p_surf, drag_q, con_atm, &
    phot_co2_overridden, phot_co2_data, &
    drydep_overridden, drydep, wetdconc, &
    runoff, runoff_c )
@@ -2646,15 +2651,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   snow_hlrunf = snow_hlrunf + hlswept/delta_time
   snow_hfrunf = snow_hfrunf + hfswept/delta_time
   if(is_watch_point()) then
-     write(*,*) 'subs_M_imp', subs_M_imp
-     write(*,*) 'snow_hlrunf', snow_hlrunf
-     write(*,*) 'snow_hfrunf', snow_hfrunf
-     write(*,*) 'vegn_lprec',  vegn_lprec
-     write(*,*) 'vegn_hlprec', vegn_hlprec
-     write(*,*) 'snow_lprec', snow_lprec
-     write(*,*) 'snow_hlprec', snow_hlprec
-     write(*,*) 'snow_avrg_T', snow_avrg_T
-     write(*,*) 'subs_G = snow_G_Z+snow_G_TZ*subs_DT', snow_G_Z+snow_G_TZ*subs_DT
+     __DEBUG1__(subs_M_imp)
+     __DEBUG2__(snow_lrunf, snow_hlrunf)
+     __DEBUG2__(snow_frunf, snow_hfrunf)
+     __DEBUG2__(vegn_lprec, vegn_hlprec)
+     __DEBUG2__(snow_lprec, snow_hlprec)
+     __DEBUG1__(snow_avrg_T)
+     call dpri('subs_G = snow_G_Z+snow_G_TZ*subs_DT', snow_G_Z+snow_G_TZ*subs_DT); write(*,*)
   endif
 
   if (snow_active) then
@@ -2687,7 +2690,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      DOC_to_atmos = 0.
   else if (associated(tile%soil)) then
      call soil_step_2 &
-          ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+          ( tile%soil, tile%soilc, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
           vegn_uptk, subs_DT, subs_M_imp, subs_evap, fswg_substrate, & ! EZSNOW added fswg_substrate
           use_tfreeze_in_grnd_latent, &
           ! output:
@@ -2743,10 +2746,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! do the calculations that require updated land surface prognostic variables
      call nitrogen_sources(lnd%time, l, tile%vegn%p_ann, precip_l+precip_s, &
              tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
-     call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
+     call vegn_step_3 (tile%vegn, tile%soil, tile%soilc, tile%cana%T, precip_l+precip_s, &
           ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
-     ! if vegn is present, then soil must be too
-     call soil_step_3(tile%soil, tile%diag)
+     call tile%soilc%step3(tile%diag)
 
      call update_fire_fast(tile, p_surf, atmos_wind, l)
   endif
@@ -2790,6 +2792,17 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         runoff_c(tr) = runoff_c(tr) + subs_tr_runf(tr) * tile%frac
      endif
   enddo
+  if (is_watch_point()) then
+     __DEBUG2__(runoff, runoff_c)
+     __DEBUG1__(tile%frac)
+     __DEBUG4__(snow_frunf,subs_lrunf,snow_lrunf,subs_frunf)
+     __DEBUG4__(snow_hfrunf,subs_hlrunf,snow_hlrunf,subs_hfrunf)
+     if (runoff.ne.0) then
+        __DEBUG1__(runoff_c(i_river_heat)/(clw*runoff))
+     else
+        write (*,*)'runoff is zero; T cannot be calculated'
+     endif
+  endif
   hprec = (clw*precip_l+csw*precip_s)*(precip_T-tfreeze)
   hevap = cpw*land_evap*(evap_T-tfreeze)
 
@@ -2826,7 +2839,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        nflux1=0.0
      endif
 
-     if (do_check_conservation.and.(soil_carbon_option==SOILC_CORPSE_N)) &
+     if (do_check_conservation.and.track_vegn_nitrogen) &
         call check_conservation (tag,'nitrogen', nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
      call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
   endif
@@ -5717,7 +5730,8 @@ DEFINE_LAND_ACCESSOR_0D(real,e_res_2)
 DEFINE_LAND_ACCESSOR_0D(real,bstar)
 
 ! ============================================================================
-! tile existence detector: returns TRUE if component model tile exists
+! tile existence detector: returns a logical value indicating whether component
+! model tile exists or not
 logical function land_tile_exists(tile)
   type(land_tile_type), pointer :: tile
   land_tile_exists = associated(tile)

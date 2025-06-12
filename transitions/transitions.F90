@@ -8,7 +8,7 @@ use constants_mod, only : PI
 
 use mpp_mod, only: input_nml_file
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, get_unit, &
+     mpp_pe, lowercase, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
@@ -23,7 +23,6 @@ use vegn_data_mod, only : &
      landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
-! use snow_tile_mod, only : snow_tile_heat ! EZSNOW
 use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
@@ -31,7 +30,7 @@ use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
-     erase, remove, insert, merge_land_tile_into_list, &
+     erase, remove, insert, merge_land_tile_into_list, delete_land_tile, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_diag_mod, only : cmor_name
 
@@ -39,7 +38,7 @@ use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
-     get_current_point, check_var_range, log_date
+     get_current_point, check_var_range, log_date, string_from_time
 use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
@@ -199,8 +198,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   if (file_exists('INPUT/landuse.res')) then
      call error_mesg('land_transitions_init','reading restart "INPUT/landuse.res"',&
           NOTE)
-     unit = get_unit()
-     open(unit=unit, file='INPUT/landuse.res', action="read")
+     open(newunit=unit, file='INPUT/landuse.res', action="read")
      read(unit,*) year,month,day,hour,min,sec
      time0 = set_date(year,month,day,hour,min,sec)
      close(unit)
@@ -296,7 +294,9 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   ! stop if landuse.res looks inconsistent
   if (time0>lnd%time) then
      call error_mesg('land_transitions_init',&
-          'current time is earlier than the time of last land use transition application',&
+          'current model time ('//trim(string_from_time(lnd%time))// &
+          ') must be after the time of last land use transition application ('// &
+          trim(string_from_time(time0))//')',&
           FATAL)
   endif
 
@@ -402,8 +402,7 @@ subroutine save_land_transitions_restart(timestamp)
   integer :: unit,year,month,day,hour,min,sec
 
   if (mpp_pe() == mpp_root_pe()) then
-     unit = get_unit()
-     open(unit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
+     open(newunit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
      call get_date(time0, year,month,day,hour,min,sec)
      write(unit,'(6i6,8x,a)') year,month,day,hour,min,sec, &
           'Time of previous landuse transition calculation'
@@ -449,7 +448,7 @@ subroutine land_transitions (time)
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
      frac(:) = 0.0
-     if (time0==set_date(0001,01,01).and.fstate%ncobj%is_open) then
+     if (time0==set_date(0001,01,01).and.fstate%initialized) then
         ! read initial transition from state file
         call time_interp(time, fstate%time_in, w, i1,i2)
         call input_state(k1,k2)%get_data(i1,frac)
@@ -549,7 +548,6 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
-   !   if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
      if(associated(ptr%snow)) snow_heat0 = snow_heat0 + ptr%snow%snow_tile_heat()*ptr%frac ! EZSNOW
   enddo
 
@@ -659,7 +657,11 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(ts==te) exit ! break out of loop
      ptr=>current_tile(ts)
      call remove(ts)
-     call merge_land_tile_into_list(ptr,d_list)
+     if (ptr%frac > 0.0) then
+         call merge_land_tile_into_list(ptr,d_list)
+     else
+         call delete_land_tile(ptr)
+     endif
   enddo
   ! a_list is empty at this point
   call land_tile_list_end(a_list)
@@ -698,7 +700,6 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%soil)) soil_heat1 = soil_heat1 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
-     ! if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
      if(associated(ptr%snow)) snow_heat1 = snow_heat1 + ptr%snow%snow_tile_heat()*ptr%frac ! EZSNOW
   enddo
     ! EZSNOW //FIXME: I have temporarily removed checks as snow merging tiles can chance ice and water, but not their total [not currently used]
