@@ -71,7 +71,7 @@
  use land_numerics_mod, only: ludcmp, lubksb
  use land_io_mod, only: init_cover_field, read_field
  use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
- use land_debug_mod, only: check_var_range
+ use land_debug_mod, only: is_watch_cell     ! watchpoint_code
  use vegn_debug_crop_mod, only: debug_crop_2 ! watchpoint_code
 
  implicit none
@@ -165,7 +165,7 @@
  real :: Tbase_Wheat = 5.0 + TFREEZE
  integer :: length_of_vernalization_period = 40
  real :: max_T_for_vernalization = 8.0 + TFREEZE
- real :: min_planting_T_Wheat = 5.0 + TFREEZE
+ real :: min_T_GP_SW = 5.0 + TFREEZE
  real :: absolute_min_T_for_Wheat = -8.0 + TFREEZE
  real :: SI_crit(num_crop_types)
  integer :: GP(num_crop_types)
@@ -173,7 +173,7 @@
 
  namelist / vegn_crop_nml / weight_climate, &
             max_planting_SI_SW, Tbase_Wheat, length_of_vernalization_period, &
-            max_T_for_vernalization, min_planting_T_Wheat, absolute_min_T_for_Wheat
+            max_T_for_vernalization, min_T_GP_SW, absolute_min_T_for_Wheat
  contains
 !============================================================================
  subroutine compute_crop_calendars(vegn, diag, L)
@@ -205,10 +205,12 @@
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%P_mid_mth)
     crop_loop_1: do ipref=1,num_crop_types
       pot_crop = vegn%Crop%potential_crop(ipref)
-      text = ' watchpoint subroutine compute_crop_calendars 0: ipref =   , pot_crop =    = '//trim(crop_name(pot_crop))
-      write(text(57:59),'(i3)') ipref    ! watchpoint_code
-      write(text(72:74),'(i3)') pot_crop ! watchpoint_code
-      call debug_crop_2(vegn, text)      ! watchpoint_code
+      if(is_watch_cell()) then             ! watchpoint_code
+        text = ' watchpoint subroutine compute_crop_calendars 0: ipref =   , pot_crop =    = '//trim(crop_name(pot_crop)) ! watchpoint_code
+        write(text(57:59),'(i3)') ipref    ! watchpoint_code
+        write(text(72:74),'(i3)') pot_crop ! watchpoint_code
+        call debug_crop_2(vegn, text)      ! watchpoint_code
+      endif                                ! watchpoint_code
       if(pot_crop == NO_CROP) exit crop_loop_1
       if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == RAINFED_SPRING_WHEAT) then
         aPTTtH_range = aPTTtH_range_SW
@@ -220,8 +222,8 @@
       if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == IRRIGATED_WINTER_WHEAT .or. pot_crop == RAINFED_SPRING_WHEAT .or. pot_crop == RAINFED_WINTER_WHEAT) then
         call CCA_Wheat(L, vegn, Wheat_type, central_T(:,pot_crop), variance_T(:,pot_crop), central_P(:,pot_crop), & ! intent(in)
                        variance_P(:,pot_crop), central_D(:,pot_crop), variance_D(:,pot_crop), & ! intent(in)
-                       SI_crit(pot_crop), max_planting_SI_SW, Tbase_Wheat, aPTTtH_range, &      ! intent(in)
-                       length_of_vernalization_period, max_T_for_vernalization, min_planting_T_Wheat, &
+                       SI_crit(pot_crop), max_planting_SI_SW, Tbase_Wheat, aPTTtH_range,      & ! intent(in)
+                       length_of_vernalization_period, max_T_for_vernalization, min_T_GP_SW,  & ! intent(in)
                        pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
         if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == IRRIGATED_WINTER_WHEAT) then
           vegn%Crop%crop_calendars(:,1,MAIN_SEASON,ipref) = (/pday(1), hday(1)/)
@@ -250,6 +252,7 @@
         vegn%Crop%crop_calendars(:,3,MAIN_SEASON,  ipref) = (/ pday_end(1), hday_end(1)/)
         vegn%Crop%crop_calendars(:,3,SECOND_SEASON,ipref) = (/ pday_end(2), hday_end(2)/)
       endif
+      if(is_watch_cell()) then                                                                                                 ! watchpoint_code
         if(vegn%Crop%crop_calendars(1,1,MAIN_SEASON,ipref) == NO_DATE) then                                                    ! watchpoint_code
           text = ' watchpoint subroutine compute_crop_calendars 1:'// &                                                        ! watchpoint_code
                  ' The CCA has determined that conditions are unsuitable for cultivation of '//trim(crop_name(pot_crop))       ! watchpoint_code
@@ -282,21 +285,24 @@
             call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
           endif                                                                                                                ! watchpoint_code
         endif                                                                                                                  ! watchpoint_code
+      endif                                                                                                                    ! watchpoint_code
     enddo crop_loop_1
 
     call crop_selection(vegn)
 
-    text = ' watchpoint subroutine compute_crop_calendars 7: chosen_crops = '// &                  ! watchpoint_code
-    trim(crop_name(vegn%Crop%chosen_crop(1)))//' '//trim(crop_name(vegn%Crop%chosen_crop(2)))      ! watchpoint_code
-    call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-    text = ' watchpoint subroutine compute_crop_calendars 8: planting day = '                      ! watchpoint_code
-    nn = len_trim(text)                                                                            ! watchpoint_code
-    write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(1,1),vegn%Crop%chosen_calendars(1,2) ! watchpoint_code
-    call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-    text = ' watchpoint subroutine compute_crop_calendars 9: harvest  day = '                      ! watchpoint_code
-    nn = len_trim(text)                                                                            ! watchpoint_code
-    write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(2,1),vegn%Crop%chosen_calendars(2,2) ! watchpoint_code
-    call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+    if(is_watch_cell()) then                                                                         ! watchpoint_code
+      text = ' watchpoint subroutine compute_crop_calendars 7: chosen_crops = '// &                  ! watchpoint_code
+      trim(crop_name(vegn%Crop%chosen_crop(1)))//' '//trim(crop_name(vegn%Crop%chosen_crop(2)))      ! watchpoint_code
+      call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+      text = ' watchpoint subroutine compute_crop_calendars 8: planting day = '                      ! watchpoint_code
+      nn = len_trim(text)                                                                            ! watchpoint_code
+      write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(1,1),vegn%Crop%chosen_calendars(1,2) ! watchpoint_code
+      call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+      text = ' watchpoint subroutine compute_crop_calendars 9: harvest  day = '                      ! watchpoint_code
+      nn = len_trim(text)                                                                            ! watchpoint_code
+      write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(2,1),vegn%Crop%chosen_calendars(2,2) ! watchpoint_code
+      call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+    endif                                                                                            ! watchpoint_code
  endif ! if(new_month)
 
  call send_tile_data(id_T_ave, vegn%Crop%tc_av_climate,diag)
@@ -828,7 +834,7 @@
    dopt1 = p_and_h_date_ranges_1(1,1)
    dbeg1 = p_and_h_date_ranges_1(1,2)
    dend1 = p_and_h_date_ranges_1(1,3)
-   period_loop_2: do iperiod=1,num_crop_periods
+   period_loop_1: do iperiod=1,num_crop_periods
      pday2 = p_and_h_date_ranges_2(1,iperiod)
      hday2 = p_and_h_date_ranges_2(2,iperiod)
      I1 = .false. ! Tells function flip_flop that it needs to initialize. Flipped to .true. after the first execution of flip_flop.
@@ -837,12 +843,12 @@
        if(B1 .and. E1) exit loop1
        if(pday1 == 0) cycle loop1
        hday1 = pday1 + GP_1
-       if(hday1 > 365) hday1 = hday1 - 365
+       hday1 = modulo_no_zero(hday1,365)
        if(no_overlap(pday1, hday1, pday2, hday2)) then
          !----------------------------------
           dble_cropping_calendar(1,1) = pday1
           hday1 = pday1 + GP_1
-          if(hday1 > 365) hday1 = hday1 - 365
+          hday1 = modulo_no_zero(hday1,365)
           dble_cropping_calendar(2,1) = hday1
          !----------------------------------
           dble_cropping_calendar(1,2) = pday2
@@ -852,14 +858,14 @@
        else
        endif
      enddo loop1
-   enddo period_loop_2
+   enddo period_loop_1
  endif
 
  if(equal_GP_2 .and. .not.equal_GP_1) then
    dopt2 = p_and_h_date_ranges_2(1,1)
    dbeg2 = p_and_h_date_ranges_2(1,2)
    dend2 = p_and_h_date_ranges_2(1,3)
-   period_loop_1: do iperiod=1,num_crop_periods
+   period_loop_2: do iperiod=1,num_crop_periods
      pday1 = p_and_h_date_ranges_1(1,iperiod)
      hday1 = p_and_h_date_ranges_1(2,iperiod) 
      I2 = .false. ! Tells function flip_flop that it needs to initialize. Flipped to .true. after the first execution of flip_flop.
@@ -868,12 +874,12 @@
        if(B2 .and. E2) exit loop2
        if(pday2 == 0) cycle loop2
        hday2 = pday2 + GP_2
-       if(hday2 > 365) hday2 = hday2 - 365
+       hday2 = modulo_no_zero(hday2,365)
        if(no_overlap(pday1, hday1, pday2, hday2)) then
          !----------------------------------
           dble_cropping_calendar(1,2) = pday2
           hday2 = pday2 + GP_2
-          if(hday2 > 365) hday2 = hday2 - 365
+          hday2 = modulo_no_zero(hday2,365)
           dble_cropping_calendar(2,2) = hday2
          !----------------------------------
           dble_cropping_calendar(1,1) = pday1
@@ -882,7 +888,7 @@
          return
        endif
      enddo loop2
-   enddo period_loop_1
+   enddo period_loop_2
  endif
 
  if(equal_GP_1 .and. equal_GP_2) then
@@ -893,7 +899,7 @@
    loop3: do
      pday1 = flip_flop(NO_DATE, dopt1, dbeg1, dend1, K1, DE1, DO1, B1, E1, I1)
      hday1 = pday1 + GP_1
-     if(hday1 > 365) hday1 = hday1 - 365
+     hday1 = modulo_no_zero(hday1,365)
      if(B1 .and. E1) exit loop3
      if(pday1 == 0) cycle loop3
      I2 = .false. ! Tells function flip_flop within loop4 that it needs to initialize. It must initialize each interation of loop3.
@@ -905,7 +911,7 @@
        if(B2 .and. E2) exit loop4
        if(pday2 == 0) cycle loop4
        hday2 = pday2 + GP_2
-       if(hday2 > 365) hday2 = hday2 - 365
+       hday2 = modulo_no_zero(hday2,365)
        if(no_overlap(pday1, hday1, pday2, hday2)) then
         !----------------------------------
          dble_cropping_calendar(1,1) = pday1
@@ -913,7 +919,7 @@
         !----------------------------------
          dble_cropping_calendar(1,2) = pday2
          hday2 = pday2 + GP_2
-         if(hday2 > 365) hday2 = hday2 - 365
+         hday2 = modulo_no_zero(hday2,365)
          dble_cropping_calendar(2,2) = hday2
         !----------------------------------
          return
@@ -1050,7 +1056,7 @@
  if(trim(water) /= 'irrigated' .and. trim(water) /= 'rainfed') then
    call error_mesg('CCA_Maize_Soybean_Rice ERROR: '//trim(water), 'is not a valid value of water', FATAL)
  endif
- k_loop_1: do k=1,num_test_days ! Compute the suitability index at 5 day intervals, starting with Jan 1
+ k_loop_1: do k=1,num_test_days ! Compute the suitability index at 5 day intervals, starting with Jan 5
    TSI(k) = 0.0
    PSI(k) = 0.0
    DSI(k) = 0.0
@@ -1125,35 +1131,36 @@
 !======================================================================================================================================================
  subroutine CCA_Wheat(L, vegn, Wtype, central_T, variance_T, central_P, variance_P, central_D, variance_D, & ! intent(in)
                       SI_crit, max_planting_SI_SW, Tbase, aPTTtH_range, length_of_vernalization_period, & ! intent(in)
-                      max_T_for_vernalization, min_planting_T, & ! intent(in)
+                      max_T_for_vernalization, min_T_GP_SW, & ! intent(in)
                       pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
 
 ! 1. Compute dates of accumulated photo-thermal time at intervals of 200 units, from zero to 800, for each
-! candidate Optimal Planting Date (OPD) starting with Jan 5 and at five day intervals throughout the year.
+!    candidate Optimal Planting Date (OPD) starting with Jan 5 and at five day intervals throughout the year.
 
 ! 2. If the accumulated photo-thermal time does not exceed 800 units starting from any date then the climate is deemed unsuitable for wheat.
 
 ! 3. Compute suitability index using climatic conditions at intervals of 200 units of accumulated photo-thermal time
-! The suitability index is specific to the water source and variety:
-! irrigated winter wheat, rainfed winter wheat, irrigated spring wheat, rainfed spring wheat
+!    The suitability index is specific to the water source and variety:
+!    irrigated winter wheat, rainfed winter wheat, irrigated spring wheat, rainfed spring wheat
 
 ! 4. If the suitability index for the specific type of wheat being tested exceeds the critical
-! value at all tested dates throughout the year then the climate is deemed unsuitable.
+!    value at all tested dates throughout the year then the climate is deemed unsuitable.
 
 ! 5. Reduce the candidate OPDs to those for which the suitability index is below the critical value.
-! The corresponding harvest dates are the dates when the accumulated photo-thermal time reaches 837 units or the maximum, starting from the candidate OPD.
+!    The corresponding harvest dates are the dates when the accumulated photo-thermal time reaches 837 units or the maximum, starting from the candidate OPD.
 
-! 6. Reduce the candidate OPDs to those for which the temperature never drops below -7°C before the corresponding harvest date.
+! 6. Reduce the candidate OPDs to those for which the temperature never drops below absolute_min_T_for_Wheat before the corresponding harvest date.
 
-! 7. Reduce the candidate OPDs to those which are warmer than 5°C.
+! 7. Reduce the candidate OPDs to those which are warmer than min_T_GP_SW.
 
-! 8. For winter wheat: Reduce the candidate OPDs to those for which temperature drops below 7°C for at least 40 days between the planting and harvest dates.
-! For spring wheat: Reduce the candidate OPDs to those for which temperature remains above 5°C between the planting and harvest dates.
+! 8. For winter wheat: Reduce the candidate OPDs to those for which temperature drops below
+!    max_T_for_vernalization for at least 40 days between the planting and harvest dates.
+!    For spring wheat: Reduce the candidate OPDs to those for which temperature remains above min_T_GP_SW between the planting and harvest dates.
 
 ! 9. For winter wheat: The predicted OPD is the date of minimum suitability index among the remaining candidate OPDs.
-! The predicted harvest date is the date when the accumulated photo-thermal time reaches 837 units or the maximum, starting from the candidate OPD.
-! For spring wheat: The predicted OPD is the date of minimum suitability index among the remaining candidate OPDs if the minimum is between 3.25 and 9.0
-! or, if the minimum is below 3.25, the date prior to the the date of the minimum when it reaches 3.25
+!    The predicted harvest date is the date when the accumulated photo-thermal time reaches 837 units or the maximum, starting from the candidate OPD.
+!    For spring wheat: The predicted OPD is the date of minimum suitability index among the remaining candidate OPDs if the minimum is between 3.25 and 9.0
+!    or, if the minimum is below 3.25, the date prior to the the date of the minimum when it reaches 3.25
 
 !10. The range of suitable dates includes all contiguous dates having a suitability index below critial before and after the OPD.
 !======================================================================================================================================================
@@ -1163,13 +1170,13 @@
  real, intent(in) :: central_T(0:), variance_T(0:), central_P(0:), variance_P(0:), central_D(0:), variance_D(0:) ! At intervals of 200 aPTT units after planting. (0) is planting day.
  real, intent(in) :: SI_crit, max_planting_SI_SW, Tbase, aPTTtH_range(2)
  integer, intent(in) :: length_of_vernalization_period
- real, intent(in) :: max_T_for_vernalization, min_planting_T
+ real, intent(in) :: max_T_for_vernalization, min_T_GP_SW
  integer, dimension(num_water), intent(out) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
 
  integer :: k, k2, k2m, k2p, km, kp, daybeg, crossing_point, kautumn, k_of_ann_SI_min, kk, kkp, k_of_ann_SI_max, doy, iwater
  real :: Temp, Prec, TSI_test, DSI_test, dlen
  real :: PSI_test(2), SI_test(2) ! first element for irrigated, second for rainfed
- real :: annual_SI_max, annual_SI_min
+ real :: annual_SI_max, annual_SI_min, min_T_planting
  real :: SI(num_test_days,2) ! Suitability Index. Computed at 5 day intervals from Jan 5 to Dec 31.
  integer :: crossing_day_400(num_test_days) ! Date at which accumulated photo-thermal time (aPTT) since planting reaches 400 units
  integer :: crossing_days(0:num_m)
@@ -1191,7 +1198,8 @@
                        hday_list(k), aPTTtH_list(k), crossing_days) ! intent(out)
    if(any(crossing_days(:) == (/NO_DATE,NO_DATE,NO_DATE,NO_DATE,NO_DATE/))) then
      SI(k,:) = unsuitable ! Steps 2, 6 and planting day of Step 5
-     cycle k_loop_1 ! cycle k loop if aPTT never reaches 800 or if the temperature drops below -7°C before 800 units of aPTT is reached.
+     cycle k_loop_1 ! cycle k loop if aPTT never reaches aPTTtH_range(1) or if the temperature drops
+                    ! below absolute_min_T_for_Wheat before aPTTtH_range(1) units of aPTT is reached.
    endif
    crossing_day_400(k) = crossing_days(2)
    SI_test = 0.0
@@ -1210,20 +1218,24 @@
      SI_test(2) = SI_test(2) + TSI_test + DSI_test + PSI_test(2)
      if(SI_test(1) > SI_crit) then
        SI(k,:) = unsuitable ! If irrigated Wheat exceeds critical, then so does rainfed.
-       text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// & ! watchpoint_code
-              ' if planted on day     because the suitability index exceeds critical'  ! watchpoint_code
-       write(text(81:83),'(i3)') 5*k                                                   ! watchpoint_code
-       call debug_crop_2(vegn, text)                                                   ! watchpoint_code
+       if(is_watch_cell()) then                                                          ! watchpoint_code
+         text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// & ! watchpoint_code
+                ' if planted on day     because the suitability index exceeds critical'  ! watchpoint_code
+         write(text(81:83),'(i3)') 5*k                                                   ! watchpoint_code
+         call debug_crop_2(vegn, text)                                                   ! watchpoint_code
+       endif                                                                             ! watchpoint_code
        cycle k_loop_1
      endif
    enddo ! do crossing_point=0,num_m
    SI(k,1) = SI_test(1) ! Conditions are suitable for planting irrigated Wheat on day of the year 5*k, provided it passes the tests in k_loop_2 and k_loop_3
    if(SI_test(2) > SI_crit) then
      SI(k,2) = unsuitable
-     text = ' Conditions are unsuitable for rainfed '//Wtype// &                    ! watchpoint_code
-            ' if planted on day     because the suitability index exceeds critical' ! watchpoint_code
-     write(text(61:63),'(i3)') 5*k                                                  ! watchpoint_code
-     call debug_crop_2(vegn, text)                                                  ! watchpoint_code
+     if(is_watch_cell()) then                                                         ! watchpoint_code
+       text = ' Conditions are unsuitable for rainfed '//Wtype// &                    ! watchpoint_code
+              ' if planted on day     because the suitability index exceeds critical' ! watchpoint_code
+       write(text(61:63),'(i3)') 5*k                                                  ! watchpoint_code
+       call debug_crop_2(vegn, text)                                                  ! watchpoint_code
+     endif                                                                            ! watchpoint_code
    else
      SI(k,2) = SI_test(2) ! Conditions are suitable for planting rainfed Wheat on day of the year 5*k, provided it passes the tests in k_loop_2 and k_loop_3
    endif
@@ -1231,17 +1243,17 @@
 
  water_loop: do iwater=1,num_water
    passes_other_criteria = .true.
-   k_loop_2: do k=1,num_test_days ! Step 8: check that vernalization is possible for winter wheat and that temperature remains above 5C for spring wheat.
+   k_loop_2: do k=1,num_test_days ! Step 8: check that vernalization is possible for winter wheat and that temperature remains above min_T_GP_SW for spring wheat.
      if(SI(k,iwater)==unsuitable) cycle k_loop_2 ! Step 4 If the suitability index for the specific type of wheat being tested exceeds the critical value at
                                                  ! all tested dates throughout the year then the tests within k_loop_2 are not necessary and will be skipped.
      if(Wtype == 'SW') then
-       ! If the temperature drops below 5°C during the growing period then flag it as unsuitable for planting.
-       if(T_goes_below_5C_during_GP(5*k, hday_list(k), vegn%Crop%T_mid_mth)) then
+       ! If the temperature drops below min_T_GP_SW during the growing period then flag it as unsuitable for planting.
+       if(T_too_cold_during_GP(5*k, hday_list(k), vegn%Crop%T_mid_mth, min_T_GP_SW)) then
          SI(k,iwater) = unsuitable ! Step 8
          passes_other_criteria = .false.
          text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// & ! watchpoint_code
               ' if planted on day     because the climatological mean temperature'// &   ! watchpoint_code
-              ' drops below 5°C during what would othwise be a suitable growing period'  ! watchpoint_code
+              ' drops below min_T_GP_SW during what would othwise be a suitable growing period'  ! watchpoint_code
          write(text(81:83),'(i3)') 5*k                                                   ! watchpoint_code
          call debug_crop_2(vegn, text)                                                   ! watchpoint_code
        endif
@@ -1258,14 +1270,15 @@
      endif
    enddo k_loop_2
 
-   k_loop_3: do k=1,num_test_days ! Do not plant when the temperature is below min_planting_T (default value is 5°C)
+   min_T_planting = min_T_GP_SW
+   k_loop_3: do k=1,num_test_days ! Do not plant when the temperature is below min_T_planting
      if(SI(k,iwater) == unsuitable) cycle k_loop_3
      Temp = interp_between_mid_mths(5*k, vegn%Crop%T_mid_mth)
-     if(Temp < min_planting_T) then
+     if(Temp < min_T_planting) then
        SI(k,iwater) = unsuitable ! Step 7
        passes_other_criteria = .false.
        text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &                                                  ! watchpoint_code
-              ' because the climatological mean temperature is below 5°C on day    , which would otherwise be a suitable planting date' ! watchpoint_code
+              ' because the climatological mean temperature is below min_T_GP_SW on day    , which would otherwise be a suitable planting date' ! watchpoint_code
        write(text(127:129),'(i3)') 5*k                                                                                                  ! watchpoint_code
        call debug_crop_2(vegn, text)                                                                                                    ! watchpoint_code
      endif
@@ -1342,55 +1355,49 @@
 
  end subroutine CCA_Wheat
 !======================================================================================================================================================
- function vernalization_is_possible(pday, day_aPPT_400, T_mid_mth, length_of_vernalization_period, max_T_for_vernalization) result(It_is)
+ logical function vernalization_is_possible(pday, day_aPPT_400, T_mid_mth, length_of_vernalization_period, max_T_for_vernalization)
  integer, intent(in) :: pday, day_aPPT_400
  real, intent(in) :: T_mid_mth(12)
  integer, intent(in) :: length_of_vernalization_period
  real, intent(in) :: max_T_for_vernalization
- integer :: day, num_cold_days, day400
- logical :: It_is
+ integer :: ndays, day, num_vern_days, doy
  real :: Temp
 
- It_is = .false.
- if(day_aPPT_400 < pday) then
-   day400 = day_aPPT_400 + 365
- else
-   day400 = day_aPPT_400
- endif
- num_cold_days = 0
- day_loop: do day=pday,day400
-   Temp = interp_between_mid_mths(day, T_mid_mth)
-   if(Temp < max_T_for_vernalization) then
-     num_cold_days = num_cold_days + 1
-     if(num_cold_days > length_of_vernalization_period) then
-       It_is = .true.
+ vernalization_is_possible = .FALSE.
+ ndays = day_aPPT_400 - pday
+ if(ndays <= 0) ndays = ndays + 365
+ num_vern_days = 0
+ day_loop: do day=pday,pday+ndays
+   doy = modulo_no_zero(day,365)
+   Temp = interp_between_mid_mths(doy, T_mid_mth)
+   if(Temp > TFREEZE .and. Temp < max_T_for_vernalization) then
+     num_vern_days = num_vern_days + 1
+     if(num_vern_days > length_of_vernalization_period) then
+       vernalization_is_possible = .true.
        exit day_loop
      endif
    endif
  enddo day_loop
  end function vernalization_is_possible
 !======================================================================================================================================================
- function T_goes_below_5C_during_GP(pday, hday, T_mid_mth) result(It_does)
+ logical function T_too_cold_during_GP(pday, hday, T_mid_mth, min_T_GP_SW)
  integer, intent(in) :: pday, hday
- real, intent(in) :: T_mid_mth(12)
- integer :: day, hdayy
- logical :: It_does
+ real, intent(in) :: T_mid_mth(12), min_T_GP_SW
+ integer :: GP, day, doy
  real :: Temp
 
- It_does = .false.
- if(hday < pday) then
-   hdayy = hday + 365
- else
-   hdayy = hday
- endif
- day_loop: do day=pday,hdayy
-   Temp = interp_between_mid_mths(day, T_mid_mth)
-   if(Temp < 5.0+TFREEZE) then
-     It_does = .true.
+ T_too_cold_during_GP = .FALSE.
+ GP = hday - pday
+ if(GP <= 0) GP = GP + 365
+ day_loop: do day=pday,pday+GP
+   doy = modulo_no_zero(day,365)
+   Temp = interp_between_mid_mths(doy, T_mid_mth)
+   if(Temp < min_T_GP_SW) then
+     T_too_cold_during_GP = .TRUE.
      exit day_loop
    endif
  enddo day_loop
- end function T_goes_below_5C_during_GP
+ end function T_too_cold_during_GP
 !======================================================================================================================================================
  function index_of_annual_SI_min(SI) result(k_of_ann_SI_min)
  real, intent(in) :: SI(num_test_days)
@@ -1429,8 +1436,9 @@
  real, intent(in) :: T_mid_mth(12)
 
  ! crossing_days(m) = day of year when aPTT reaches m*aPTT_interval
- ! crossing_days(m) = zero if m*aPTT_interval is never reached or if temperature drops below -7C before aPTT reaches a value of num_m*aPTT_interval
- ! The date being tested is not suitable for planting either Spring or Winter Wheat if any of crossing_days(:) returned is zero
+ ! crossing_days(m) = NO_DATE if m*aPTT_interval is never reached or if temperature drops
+ ! below absolute_min_T_for_Wheat before aPTT reaches a value of num_m*aPTT_interval.
+ ! The date being tested is not suitable for planting either Spring or Winter Wheat if any of crossing_days(:) returned is NO_DATE
 
  integer, intent(out) :: harvestday
  real, intent(out) :: harvest_aPTT
@@ -1452,6 +1460,7 @@
    if(aPTT(doy_today) > aPTTtH_range(2)) exit day_loop
    T_today = interp_between_mid_mths(doy_today, T_mid_mth)
    if(T_today < absolute_min_T_for_Wheat) exit day_loop
+   if(T_today < Tbase .and. aPTT(doy_today) > aPTTtH_range(1)) exit day_loop
    km = doy_today/5
    kp = km + 1
    dlen = .2*((doy_today-5*km)*day_length(kp,L) + (5*kp-doy_today)*day_length(km,L))
