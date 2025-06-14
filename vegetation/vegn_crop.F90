@@ -1622,6 +1622,7 @@
    call get_int_tile_data(restart, 'potential_crop', 'crop_types',vegn_potential_crop_ptr)
    call get_int_tile_data(restart, 'chosen_crop', 'crop_seasons', vegn_chosen_crop_ptr)
    call get_int_tile_data(restart, 'chosen_crop_is_active', 'crop_seasons', vegn_chosen_crop_is_active_ptr)
+   call get_int_tile_data(restart, 'grass_is_active', vegn_grass_is_active_ptr)
    ce = first_elmt(land_tile_map, ls=lnd%ls)
    do while(loop_over_tiles(ce,tile,L,k))
      if(.not.associated(tile%vegn)) cycle
@@ -1634,6 +1635,13 @@
          call error_mesg('vegn_crop_init', 'chosen_crop_is_active is neither .true. or .false. This should never happen. Contact developer.', FATAL)
        endif
      enddo
+     if(tile%vegn%Crop%grass_is_active_int == 0) then
+       tile%vegn%Crop%grass_is_active = .false.
+     else if(tile%vegn%Crop%grass_is_active_int == -1) then
+       tile%vegn%Crop%grass_is_active = .true.
+     else
+       call error_mesg('vegn_crop_init', 'grass_is_active is neither .true. or .false. This should never happen. Contact developer.', FATAL)
+     endif
    enddo
 
  else ! if(restart_exists) then
@@ -2079,7 +2087,8 @@
      endif
    enddo
  enddo
- call add_int_tile_data(restart, 'chosen_crop_is_active', 'crop_seasons', vegn_chosen_crop_is_active_ptr, 'true when actively growing','crop number')
+ call add_int_tile_data(restart, 'chosen_crop_is_active', 'crop_seasons', vegn_chosen_crop_is_active_ptr, 'true when actively growing')
+ call add_int_tile_data(restart, 'grass_is_active', vegn_grass_is_active_ptr, 'true when actively growing') ! Here Convert to integer
  call save_land_restart(restart)
  call free_land_restart(restart)
  end subroutine save_crop_restart
@@ -2384,5 +2393,14 @@ subroutine vegn_chosen_crop_is_active_ptr(t,n,p)
  if(associated(t%vegn))p=>t%vegn%Crop%chosen_crop_is_active_int(n)
  endif
 end subroutine vegn_chosen_crop_is_active_ptr
+!=============================================================
+subroutine vegn_grass_is_active_ptr(t,p)
+ type(land_tile_type),pointer::t
+ integer,pointer::p
+ p=>NULL()
+ if(associated(t))then
+ if(associated(t%vegn))p=>t%vegn%Crop%grass_is_active_int
+ endif
+end subroutine vegn_grass_is_active_ptr
 !=============================================================
  end module vegn_crop_mod

@@ -117,11 +117,12 @@ end interface
    ! The model also needs to know if grass is active
    logical :: grass_is_active
 
-   ! Array chosen_crop_is_active_int is used only for io.
+   ! Arrays chosen_crop_is_active_int and grass_is_active_int are used only for io.
    ! Land model io tools do not handle logicals.
-   ! As a getaround, chosen_crop_is_active is convered to integer
-   ! prior to output then converted back to logical after input.
+   ! As a getaround, logicals are convered to integer prior
+   ! to output then converted back to logical after input.
    integer :: chosen_crop_is_active_int(num_crop_seasons)
+   integer :: grass_is_active_int
  end type crop_type
 
 ! ==== types =================================================================
