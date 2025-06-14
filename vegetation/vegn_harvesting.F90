@@ -11,7 +11,7 @@ use diag_manager_mod, only : register_static_field, send_data
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
 use land_debug_mod, only : string_from_time, land_error_message, check_conservation, &
-     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range, is_watch_cell
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
@@ -363,15 +363,19 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
            if(vegn%Crop%grass_is_active) then
               call vegn_harvest_cropland (tile)
               vegn%Crop%grass_is_active = .FALSE.
-              text = ' watchpoint subroutine vegn_harvesting 1: grass harvested at end of year' ! watchpoint_code
-              call debug_crop_2(vegn, text)                                                     ! watchpoint_code
+              if(is_watch_cell()) then                                                            ! watchpoint_code
+                text = ' watchpoint subroutine vegn_harvesting 1: grass harvested at end of year' ! watchpoint_code
+                call debug_crop_2(vegn, text)                                                     ! watchpoint_code
+              endif                                                                               ! watchpoint_code
            endif
            if(vegn%Crop%chosen_calendars(1,1) == NO_DATE .AND. vegn%Crop%chosen_calendars(1,2) == NO_DATE) then
               ! There is no crop to plant so plant grass on the LM3 schedule.
               call vegn_plant_crop (tile, chosen_crop=NO_CROP)
               vegn%Crop%grass_is_active = .TRUE.
-              text = ' watchpoint subroutine vegn_harvesting 2: There is no crop to plant so plant grass at the beginning of the year' ! watchpoint_code
-              call debug_crop_2(vegn, text)                                                                                            ! watchpoint_code
+              if(is_watch_cell()) then                                                                                                   ! watchpoint_code
+                text = ' watchpoint subroutine vegn_harvesting 2: There is no crop to plant so plant grass at the beginning of the year' ! watchpoint_code
+                call debug_crop_2(vegn, text)                                                                                            ! watchpoint_code
+              endif                                                                                                                      ! watchpoint_code
            endif
         endif
         if(end_of_day .AND. (day_of_year==vegn%Crop%chosen_calendars(1,1) .or. day_of_year==vegn%Crop%chosen_calendars(1,2))) then
@@ -380,8 +384,10 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
               ! harvest grass before planting crop
               call vegn_harvest_cropland (tile)
               vegn%Crop%grass_is_active = .FALSE.
-              text = ' watchpoint subroutine vegn_harvesting 3: Harvest grass before planting crop' ! watchpoint_code
-              call debug_crop_2(vegn, text)                                                         ! watchpoint_code
+              if(is_watch_cell()) then                                                                ! watchpoint_code
+                text = ' watchpoint subroutine vegn_harvesting 3: Harvest grass before planting crop' ! watchpoint_code
+                call debug_crop_2(vegn, text)                                                         ! watchpoint_code
+              endif                                                                                   ! watchpoint_code
            endif
            a_crop_is_active = vegn%Crop%chosen_crop_is_active(1) .or. vegn%Crop%chosen_crop_is_active(2)
            if(day_of_year==vegn%Crop%chosen_calendars(1,1)) then
@@ -390,13 +396,17 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
                chosen_crp = vegn%Crop%chosen_crop(1)
                call vegn_plant_crop (tile, chosen_crop=chosen_crp)
                vegn%Crop%chosen_crop_is_active(1) = .TRUE.
-               text = ' watchpoint subroutine vegn_harvesting 4: '//trim(crop_name(chosen_crp))//' planted' ! watchpoint_code
-               call debug_crop_2(vegn, text)                                                                ! watchpoint_code
+               if(is_watch_cell()) then                                                                       ! watchpoint_code
+                 text = ' watchpoint subroutine vegn_harvesting 4: '//trim(crop_name(chosen_crp))//' planted' ! watchpoint_code
+                 call debug_crop_2(vegn, text)                                                                ! watchpoint_code
+               endif                                                                                          ! watchpoint_code
              else
-               chosen_crp = vegn%Crop%chosen_crop(1)                                                                           ! watchpoint_code
-               text = ' watchpoint subroutine vegn_harvesting 5: Today is the planting date for '//trim(crop_name(chosen_crp)) ! watchpoint_code
-               text = trim(text)//' But it cannot be planted because another crop is active'                                   ! watchpoint_code
-               call debug_crop_2(vegn, text)                                                                                   ! watchpoint_code
+               if(is_watch_cell()) then                                                                                          ! watchpoint_code
+                 chosen_crp = vegn%Crop%chosen_crop(1)                                                                           ! watchpoint_code
+                 text = ' watchpoint subroutine vegn_harvesting 5: Today is the planting date for '//trim(crop_name(chosen_crp)) ! watchpoint_code
+                 text = trim(text)//' But it cannot be planted because another crop is active'                                   ! watchpoint_code
+                 call debug_crop_2(vegn, text)                                                                                   ! watchpoint_code
+               endif                                                                                                             ! watchpoint_code
              endif
            else if(day_of_year==vegn%Crop%chosen_calendars(1,2)) then
              ! Today is the 2nd crop's planting date
@@ -404,13 +414,17 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
                chosen_crp = vegn%Crop%chosen_crop(2)
                call vegn_plant_crop (tile, chosen_crop=chosen_crp)
                vegn%Crop%chosen_crop_is_active(2) = .TRUE.
-               text = ' watchpoint subroutine vegn_harvesting 6: '//trim(crop_name(chosen_crp))//' planted' ! watchpoint_code
-               call debug_crop_2(vegn, text)                                                                ! watchpoint_code
+               if(is_watch_cell()) then                                                                       ! watchpoint_code
+                 text = ' watchpoint subroutine vegn_harvesting 6: '//trim(crop_name(chosen_crp))//' planted' ! watchpoint_code
+                 call debug_crop_2(vegn, text)                                                                ! watchpoint_code
+               endif                                                                                          ! watchpoint_code
              else
-               chosen_crp = vegn%Crop%chosen_crop(2)                                                                           ! watchpoint_code
-               text = ' watchpoint subroutine vegn_harvesting 7: Today is the planting date for '//trim(crop_name(chosen_crp)) ! watchpoint_code
-               text = trim(text)//' But it cannot be planted because another crop is active'                                   ! watchpoint_code
-               call debug_crop_2(vegn, text)                                                                                   ! watchpoint_code
+               if(is_watch_cell()) then                                                                                          ! watchpoint_code
+                 chosen_crp = vegn%Crop%chosen_crop(2)                                                                           ! watchpoint_code
+                 text = ' watchpoint subroutine vegn_harvesting 7: Today is the planting date for '//trim(crop_name(chosen_crp)) ! watchpoint_code
+                 text = trim(text)//' But it cannot be planted because another crop is active'                                   ! watchpoint_code
+                 call debug_crop_2(vegn, text)                                                                                   ! watchpoint_code
+               endif                                                                                                             ! watchpoint_code
              endif
            endif
         endif
@@ -421,18 +435,22 @@ subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_y
              if(vegn%Crop%chosen_crop_is_active(1)) then
                call vegn_harvest_cropland (tile)
                vegn%Crop%chosen_crop_is_active(1) = .FALSE.
-               chosen_crp = vegn%Crop%chosen_crop(1)                                                          ! watchpoint_code
-               text = ' watchpoint subroutine vegn_harvesting 8: '//trim(crop_name(chosen_crp))//' harvested' ! watchpoint_code
-               call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+               if(is_watch_cell()) then                                                                         ! watchpoint_code
+                 chosen_crp = vegn%Crop%chosen_crop(1)                                                          ! watchpoint_code
+                 text = ' watchpoint subroutine vegn_harvesting 8: '//trim(crop_name(chosen_crp))//' harvested' ! watchpoint_code
+                 call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+               endif                                                                                            ! watchpoint_code
              endif
            else if(day_of_year==vegn%Crop%chosen_calendars(2,2)) then
              ! Today is the 2nd crop's harvest date
              if(vegn%Crop%chosen_crop_is_active(2)) then
                call vegn_harvest_cropland (tile)
                vegn%Crop%chosen_crop_is_active(2) = .FALSE.
-               chosen_crp = vegn%Crop%chosen_crop(2)                                                          ! watchpoint_code
-               text = ' watchpoint subroutine vegn_harvesting 9: '//trim(crop_name(chosen_crp))//' harvested' ! watchpoint_code
-               call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+               if(is_watch_cell()) then                                                                         ! watchpoint_code
+                 chosen_crp = vegn%Crop%chosen_crop(2)                                                          ! watchpoint_code
+                 text = ' watchpoint subroutine vegn_harvesting 9: '//trim(crop_name(chosen_crp))//' harvested' ! watchpoint_code
+                 call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
+               endif                                                                                            ! watchpoint_code
              endif
            endif
         endif
