@@ -42,6 +42,19 @@ subroutine soil_BGC_init_SIMPLE( id_ug, id_zfull )
 
   filename = 'INPUT/'//trim(filename_base)//'.nc'
   call open_land_restart(restart,filename,restart_exists)
+  if (.not.restart_exists) then
+     ! Try reading from legacy soil restart
+     filename = 'INPUT/soil.nc'
+     call open_land_restart(restart,filename,restart_exists)
+     if (restart_exists) then
+        ! check if SIMPLE soil carbon fields are in the soil restart:
+        ! "fsc" is used as an indicator
+        if (.not.field_exists(restart,'fsc')) then
+           call free_land_restart(restart)
+           restart_exists = .false.
+        endif
+     endif
+  endif
   if (restart_exists) then
      call error_mesg('soil_BGC_init_SIMPLE', 'reading NetCDF restart "'//trim(filename)//'"', NOTE)
      call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
