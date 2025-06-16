@@ -21,7 +21,6 @@ use land_tile_mod,      only: land_tile_type, land_tile_grnd_T, loop_over_tiles,
 use land_tile_diag_mod, only: diag_buff_type, set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use sat_vapor_pres_mod, only: compute_qs
 use soil_tile_mod,      only: num_l, soil_theta, soil_ice_porosity, zhalf, n_dim_soil_types
-use soil_carbon_mod,    only: poolTotals1
 use soil_mod,           only: soil_get_sfc_temp
 use time_manager_mod,   only: time_type, time_type_to_real
 use tracer_manager_mod, only: NO_TRACER, get_tracer_index, get_tracer_names, query_method
