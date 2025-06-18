@@ -275,6 +275,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
          units='%', standard_name='area_fraction', area = id_cellarea)
+     write(*,*)'k1',k1,'id_frac_in(k1)', id_frac_in(k1)
      call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
      id_frac_out(k1) = register_diag_field(cmor_name, &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
@@ -402,7 +403,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
             call firrig%init(irrigation_file,static_file,data_type)
             ! open state file, if necessary
             ! if (.not. associated(fstate)) &
-            call fstate%init(state_file,static_file,data_type)
+                call fstate%init(state_file,static_file,data_type)
 
             ! create input variable set for irrigated fraction. Note that currently we sum up
             ! irrigation areas for all crops and use the total.
@@ -411,13 +412,13 @@ subroutine land_transitions_init(id_ug, id_cellarea)
             do n2 = 1,size(luh2type)
                 if ((luh2type(n2)==LU_RAINF).or.(luh2type(n2)==LU_IRRIG)) then
                 call input_irrig%addvar(firrig,trim(luh2name(n2))//'_irrig')
-                call input_crop %addvar(fstate,trim(luh2name(n2)))
+                call input_crop%addvar(fstate,trim(luh2name(n2)))
                 endif
             enddo
             if (mpp_pe()==mpp_root_pe()) then
                 write(*,*)'land_transitions_init: summary of irrigation-related input'
                 write(*,'(a)') input_irrig%descr()
-                write(*,'(a)') input_crop %descr()
+                write(*,'(a)') input_crop%descr()
             endif
         endif
 
@@ -542,12 +543,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
          if (id_frac_out(k1) > 0) then
             diag(:) = 0.0
             do k2 = 1, size(transitions,2)
-            do i = lnd%ls,lnd%le
-               if (transitions(i,k2)%donor>0) then
-                  if (lu2lumip(transitions(i,k2)%donor) == k1) &
-                        diag(i) = diag(i) + transitions(i,k2)%frac
-               endif
-            enddo
+                do i = lnd%ls,lnd%le
+                if (transitions(i,k2)%donor>0) then
+                    if (lu2lumip(transitions(i,k2)%donor) == k1) &
+                            diag(i) = diag(i) + transitions(i,k2)%frac
+                endif
+                enddo
             enddo
             used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac*100.0, time)
          endif
@@ -556,54 +557,57 @@ subroutine land_transitions_init(id_ug, id_cellarea)
          if (id_frac_in(k1) > 0) then
             diag(:) = 0.0
             do k2 = 1, size(transitions,2)
-            do i = lnd%ls,lnd%le
-               if (transitions(i,k2)%acceptor>0) then
-                  if (lu2lumip(transitions(i,k2)%acceptor) == k1) &
-                        diag(i) = diag(i) + transitions(i,k2)%frac
-               endif
+               do i = lnd%ls,lnd%le
+                  if (transitions(i,k2)%acceptor>0) then
+                     if (lu2lumip(transitions(i,k2)%acceptor) == k1) &
+                           diag(i) = diag(i) + transitions(i,k2)%frac
+                  endif
+               enddo
             enddo
-            enddo
+        
             used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac*100.0, time)
-            if (do_irrigation) then
-                ! calculate irrigated fraction of crops. Using irrigated fraction
-                ! of crops instead of irrigated area allows to use irrigation data
-                ! with different land use data sets that may have a different total crop
-                ! area, not necessarily consistent with input irrigation areas.
-           
-                ! interpolate irrigation and crop areas from irrigation and crop data
-                irr_area(:)  = 0.0
-                crop_area(:) = 0.0
-                call input_irrig % interpolate(time, irr_area)
-                call input_crop  % interpolate(time, crop_area)
-                where (crop_area > 0)
-                   irr_frac = irr_area/crop_area
-                elsewhere
-                   irr_frac = 0.0
-                end where
-                irr_frac = min(1.0,max(0.0, irr_frac))
-           
-                do l = lnd%ls,lnd%le
-                   call set_current_point(l,1) ! for debug
-                   ! calculate areas
-                   atot     = 0.0  ! total area of all vegetated tiles
-                   area0(:) = 0.0  ! area of each of the land use types
-                   ce = first_elmt(land_tile_map(l))
-                   do while(loop_over_tiles(ce,tile))
-                      if (.not.associated(tile%vegn)) cycle ! skip non-vegetated tiles
-                      n = tile%vegn%landuse
-                      atot     = atot     + tile%frac
-                      area0(n) = area0(n) + tile%frac
-                   enddo
-           
-                   if ((area0(LU_IRRIG).ne.0).or.(irr_frac(l).ne.0)) then
-                      tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
-                      call add_irrigation_transitions(area0(:), tran0, irr_frac(l), atot, &
-                              tran(l,:,:), verbose=is_watch_cell())
-                   endif
+          endif
+         
+       enddo
+        if (do_irrigation) then
+            write(*,*)'################### Doing irrigation ######################'
+            ! calculate irrigated fraction of crops. Using irrigated fraction
+            ! of crops instead of irrigated area allows to use irrigation data
+            ! with different land use data sets that may have a different total crop
+            ! area, not necessarily consistent with input irrigation areas.
+        
+            ! interpolate irrigation and crop areas from irrigation and crop data
+            irr_area(:)  = 0.0
+            crop_area(:) = 0.0
+            call input_irrig % interpolate(time, irr_area)
+            call input_crop  % interpolate(time, crop_area)
+            where (crop_area > 0)
+                irr_frac = irr_area/crop_area
+            elsewhere
+                irr_frac = 0.0
+            end where
+            irr_frac = min(1.0,max(0.0, irr_frac))
+        
+            do l = lnd%ls,lnd%le
+                call set_current_point(l,1) ! for debug
+                ! calculate areas
+                atot     = 0.0  ! total area of all vegetated tiles
+                area0(:) = 0.0  ! area of each of the land use types
+                ce = first_elmt(land_tile_map(l))
+                do while(loop_over_tiles(ce,tile))
+                    if (.not.associated(tile%vegn)) cycle ! skip non-vegetated tiles
+                    n = tile%vegn%landuse
+                    atot     = atot     + tile%frac
+                    area0(n) = area0(n) + tile%frac
                 enddo
-             endif ! irrigation
-         endif
-      enddo
+                write(*,*)'Area of LU_IRRIG:',area0(LU_IRRIG),'Area of irr_frac(l):',irr_frac(l)
+                if ((area0(LU_IRRIG).ne.0).or.(irr_frac(l).ne.0)) then
+                    tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
+                    call add_irrigation_transitions(area0(:), tran0, irr_frac(l), atot, &
+                            tran(l,:,:), verbose=is_watch_cell())
+                endif
+            enddo
+        endif ! irrigation
     
       ! perform the transitions
       do l = lnd%ls,lnd%le
@@ -723,7 +727,14 @@ subroutine land_transitions_init(id_ug, id_cellarea)
          ! arranged array.
          do k = 1,size(tran_order)
             do i = 1,size(a_kinds)
+                    if (mpp_pe()==mpp_root_pe()) then
+                        write(*,*)'land_transitions_0d: list donors and acceptors'
+                        write(*,*)'Acceptors',a_kinds(i)
+                        write(*,*)'Donors',d_kinds(i)
+                        write(*,*)'Area',area(i)
+                    endif
                if (a_kinds(i)==tran_order(k)) then
+                    
                   call split_changing_tile_parts_by_priority( &
                              d_list,d_kinds(i),a_kinds(i),area(i)*atot,a_list)
                endif
