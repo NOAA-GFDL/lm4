@@ -48,7 +48,7 @@ module river_mod
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count, mpp_get_tile_id
   use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
   use mpp_domains_mod,     only : mpp_pass_sg_to_ug
-  use fms_mod,             only : check_nml_error, string, get_unit, &
+  use fms_mod,             only : check_nml_error, string, &
                                 & CLOCK_FLAG_DEFAULT, error_mesg
   use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
                          register_restart_field, variable_exists, register_field, &
@@ -1710,7 +1710,7 @@ program river_solo
   use mpp_domains_mod,          only : mpp_get_compute_domain, domain2d, CYCLIC_GLOBAL_DOMAIN
   use mpp_domains_mod,          only : mpp_get_current_ntile, mpp_get_tile_id
   use fms_mod,                  only : fms_init, fms_end, stdlog
-  use fms_mod,                  only : check_nml_error, stdout, input_nml_file, get_unit
+  use fms_mod,                  only : check_nml_error, stdout, input_nml_file
   use time_manager_mod,         only : time_type, increment_time, set_date, increment_date, set_time
   use time_manager_mod,         only : set_calendar_type, JULIAN, NOLEAP, THIRTY_DAY_MONTHS, NO_CALENDAR
   use time_manager_mod,         only : operator(/), operator(-), operator( + ), month_name, get_date
@@ -1781,8 +1781,7 @@ program river_solo
   call get_date(Time,yr,mon,day,hr,min,sec)
 
   if (mpp_pe() == mpp_root_pe()) then
-      unit = get_unit
-      open(unit=unit, file="RESTART/river_solo.res", action="write")
+      open(newunit=unit, file="RESTART/river_solo.res", action="write")
       write(unit,*) yr, mon, day, hr, min, sec
       write(unit,*) calendar_type
       close(unit)
@@ -1832,8 +1831,7 @@ contains
 
 ! get river_solo restart
     if (file_exists("INPUT/river_solo.res")) then
-        unit = get_unit()
-        open(unit=unit, file="INPUT/river_solo.res", action="read")
+        open(newunit=unit, file="INPUT/river_solo.res", action="read")
         read(unit,*) date
         read(unit,*) calendar_type
         close(unit)
@@ -1864,8 +1862,7 @@ contains
     num_fast_step  = Run_len/Time_step_fast
 
       if (mpp_pe() .eq. mpp_root_pe()) then
-      unit = get_unit()
-      open(unit=unit, file="time_stamp.out", action="write")
+      open(newunit=unit, file="time_stamp.out", action="write")
       month = month_name(current_date(2))
       write (unit,'(6i4,2x,a3)') date, month(1:3)
       call get_date (Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
