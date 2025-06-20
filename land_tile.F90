@@ -81,9 +81,6 @@ public :: nitems  ! count of items in list
 
 public :: tile_is_selected
 
-public :: print_land_tile_info
-public :: print_land_tile_statistics
-
 ! abstract interfaces for accessor functions
 public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
@@ -1217,10 +1214,5 @@ subroutine print_land_tile_info(tile)
   write(*,'(")")')
 
 end subroutine print_land_tile_info
-! ============================================================================
-subroutine print_land_tile_statistics()
-  write(*,*)'Total number of created land_tiles =',n_created_land_tiles
-  write(*,*)'Total number of deleted land_tiles =',n_deleted_land_tiles
-end subroutine print_land_tile_statistics
 
 end module land_tile_mod
