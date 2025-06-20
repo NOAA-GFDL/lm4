@@ -2093,7 +2093,7 @@ end subroutine soil_step_1
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
-  real, dimension(num_l  ) :: div_gtos,hdiv_gtos
+!  real, dimension(num_l  ) :: div_gtos,hdiv_gtos
   real, dimension(num_l  ) :: hdiv_it, &! divergence of heat due to inter-tile water flow [W/m^2]
        div_bf, & ! baseflow [mm/s]
        div_if, & ! interlow [mm/s]
@@ -2958,7 +2958,7 @@ end subroutine soil_step_1
     __DEBUG1__(lrunf_nu)
   endif
 
-!!! AP, April 1 2025 --> Commented out to test if this is causing problems with the water conservation 
+!!! AP, April 1 2025 --> Commented out to test if this is causing problems with the water conservation
 !   IF (PUSH_DOWN_SFC_EXCESS) THEN
 !      CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
 !   endif
