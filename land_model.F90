@@ -1254,15 +1254,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ce = first_elmt(land_tile_map(l))
   enddo
 
-!   call hlsp_disagg_precip(cplr2land,use_atmos_T_for_precip_T,use_atmos_T_for_evap_T) ! dissagg doesn't work without HB
-
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,&
 !$OMP                                  id_tws, tws) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
-
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
@@ -1304,9 +1301,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
         ! was left here.
-        if(associated(tile%soil))then
-           tile%soil%hlsp%Tca_land=land2cplr%t_ca(l,k)
-        endif
         call send_tile_data(id_area, tile%frac*lnd%ug_area(l),     tile%diag)
         call send_tile_data(id_z0m,  land2cplr%rough_mom(l,k),     tile%diag)
         call send_tile_data(id_z0s,  land2cplr%rough_heat(l,k),    tile%diag)
@@ -1387,13 +1381,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          soil_LMASS = subs_LMASS
          soil_FMASS = subs_FMASS
          soil_HEAT  = subs_HEAT
-     endif
-
-     if(associated(tile%soil))then
-       tile%soil%hlsp%FWSv_land=vegn_FMASS
-       tile%soil%hlsp%LWSv_land=vegn_LMASS
-       tile%soil%hlsp%snow_land=snow_LMASS+snow_FMASS
-       tile%soil%hlsp%water_land=subs_LMASS+subs_FMASS
      endif
 
      call send_tile_data(id_VWS,  cana_VMASS, tile%diag)
@@ -2542,38 +2529,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
-
-  if(associated(tile%soil))then
-    tile%soil%hlsp%transp_land=sum(f(:)*vegn_uptk)
-    tile%soil%hlsp%precip_land=precip_l+precip_s
-    tile%soil%hlsp%precip_l_land=precip_l
-    tile%soil%hlsp%precip_s_land=precip_s
-    tile%soil%hlsp%runf_land=snow_lrunf+snow_frunf+subs_lrunf
-    tile%soil%hlsp%evap_land=land_evap
-    tile%soil%hlsp%sens_land=land_sens
-    tile%soil%hlsp%total_C_land=land_tile_carbon(tile)
-    tile%soil%hlsp%swdn_dif_1_land=ISa_dn_dif(1)
-    tile%soil%hlsp%swdn_dif_2_land=ISa_dn_dif(2)
-    tile%soil%hlsp%swup_dif_1_land=ISa_dn_dif(1)*tile%land_refl_dif(1)
-    tile%soil%hlsp%swup_dif_2_land=ISa_dn_dif(2)*tile%land_refl_dif(2)
-    tile%soil%hlsp%swdn_dir_1_land=ISa_dn_dir(1)
-    tile%soil%hlsp%swdn_dir_2_land=ISa_dn_dir(2)
-    tile%soil%hlsp%swup_dir_1_land=ISa_dn_dir(1)*tile%land_refl_dir(1)
-    tile%soil%hlsp%swup_dir_2_land=ISa_dn_dir(2)*tile%land_refl_dir(2)
-    tile%soil%hlsp%fevapv_land=sum(f(:)*vegn_fevap)
-    tile%soil%hlsp%flw_land=vegn_flw+snow_flw+subs_flw
-    tile%soil%hlsp%fsw_land=vegn_fsw+snow_fsw+subs_fsw
-    tile%soil%hlsp%grnd_flux_land=grnd_flux
-    tile%soil%hlsp%levapv_land=sum(f(:)*vegn_levap)
-    tile%soil%hlsp%grnd_T_land=grnd_T
-    tile%soil%hlsp%fco2_land=vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos
-    tile%soil%hlsp%lai_land=sum(tile%vegn%cohorts(1:N)%lai * tile%vegn%cohorts(1:N)%layerfrac)
-    tile%soil%hlsp%sai_land=sum(tile%vegn%cohorts(1:N)%sai * tile%vegn%cohorts(1:N)%layerfrac)
-    tile%soil%hlsp%treeFrac_land=cohort_area_frac(tile%vegn, is_tree)*lnd%ug_landfrac(l)
-    tile%soil%hlsp%melt_land=vegn_melt+snow_melt+subs_melt
-    tile%soil%hlsp%meltv_land=vegn_melt
-    tile%soil%hlsp%melts_land=snow_melt
-  endif
 
   call send_tile_data(id_total_C, cmass1,                             tile%diag)
   call send_tile_data(id_total_N, nmass1,                             tile%diag)
@@ -3905,12 +3860,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      call dpri('land2cplr%rsl_scale',land2cplr%rsl_scale(l,k)); write(*,*)
      call dpri('land2cplr%tr',land2cplr%tr(l,k,:));               write(*,*)
      write(*,*)'#### update_land_bc_fast ### end of output ####'
-  endif
-
-  ! ---- diagnostic section
-  if(associated(tile%soil))then
-    tile%soil%hlsp%snow_frac_land = snow_area
-    tile%soil%hlsp%snow_depth_land = snow_depth
   endif
 
   if (id_vegn_cover_1 > 0) &

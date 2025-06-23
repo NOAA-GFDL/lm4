@@ -1253,11 +1253,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
 
-  soil%hlsp%gpp_vegn=sum(gpp(1:M)*c(1:M)%nindivs)
-  soil%hlsp%npp_vegn=sum(npp(1:M)*c(1:M)%nindivs)
-  soil%hlsp%resp_vegn=sum(resp(1:M)*c(1:M)%nindivs)
-  soil%hlsp%cVeg_vegn=sum( c(1:M)%nindivs* (c(1:M)%bl+c(1:M)%blv+c(1:M)%br+c(1:M)%bsw+c(1:M)%bwood+c(1:M)%bseed+c(1:M)%nsc) )
-
 ! ------ diagnostic section
   call send_cohort_data(id_gpp,  diag, c(1:M), gpp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_npp,  diag, c(1:M), npp(1:M),  weight=c(1:M)%nindivs, op=OP_SUM)

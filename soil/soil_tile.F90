@@ -197,74 +197,31 @@ type :: soil_hlsp_type
    integer :: nk_g = 0
    integer :: nj_g = 0
 
-   real :: elevmean_g = initval   
+   real :: elevmean_g = initval
    real :: elevmax_g = initval
    real :: soilfrac_g = initval
-   real :: pslope2p_g = initval 
-   real, allocatable :: tfrac_g(:, :) 
+   real :: pslope2p_g = initval
+   real, allocatable :: tfrac_g(:, :)
 
    real :: precip_T = initval !used only when do_hlsp_disagg_tpq is true
-   real :: evap_T = initval !used only when do_hlsp_disagg_tpq is true 
-   real :: hprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
-   real :: tprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+   real :: evap_T = initval !used only when do_hlsp_disagg_tpq is true
+   real :: hprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true
+   real :: tprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true
 
-   real :: lift = initval   
-   real :: pratio = initval   
-   real :: lprec = initval   
-   real :: fprec = initval   
-   real :: zatm = initval   
-   real :: tatm = initval   
-   real :: patm = initval   
-   real :: psurf = initval   
-   real :: qatm = initval   
+   real :: lift = initval
+   real :: pratio = initval
+   real :: lprec = initval
+   real :: fprec = initval
+   real :: zatm = initval
+   real :: tatm = initval
+   real :: patm = initval
+   real :: psurf = initval
+   real :: qatm = initval
    real :: tatm_nodis = initval
 
    real, allocatable :: lwc(:)
    real, allocatable :: swc(:)
-   real, allocatable :: temp(:)  
-
-
-   real :: transp_land = initval
-   real :: precip_land = initval
-   real :: precip_l_land = initval
-   real :: precip_s_land = initval
-   real :: runf_land = initval
-   real :: evap_land = initval
-   real :: sens_land = initval
-   real :: total_C_land = initval
-   real :: swdn_dif_1_land = initval
-   real :: swdn_dif_2_land = initval
-   real :: swup_dif_1_land = initval
-   real :: swup_dif_2_land = initval
-   real :: swdn_dir_1_land = initval
-   real :: swdn_dir_2_land = initval
-   real :: swup_dir_1_land = initval
-   real :: swup_dir_2_land = initval   
-   real :: fevapv_land = initval
-   real :: flw_land = initval
-   real :: fsw_land = initval
-   real :: FWSv_land = initval
-   real :: grnd_flux_land = initval
-   real :: levapv_land = initval
-   real :: LWSv_land = initval
-   real :: snow_land = initval
-   real :: Tca_land = initval
-   real :: grnd_T_land = initval
-   real :: fco2_land = initval
-   real :: water_land = initval
-   real :: lai_land = initval
-   real :: sai_land = initval
-   real :: treeFrac_land = initval
-   real :: melt_land = initval
-   real :: meltv_land = initval
-   real :: melts_land = initval
-   real :: snow_frac_land = initval
-   real :: snow_depth_land = initval
-
-   real :: gpp_vegn = initval
-   real :: npp_vegn = initval
-   real :: resp_vegn = initval
-   real :: cVeg_vegn = initval
+   real, allocatable :: temp(:)
 
    real :: irrrate_soil = initval
    real :: hirrrate_soil = initval
@@ -272,7 +229,7 @@ type :: soil_hlsp_type
    real :: habsts_soil = initval
    real :: abstd_soil = initval
    real :: habstd_soil = initval
-  
+
 end type soil_hlsp_type
 
 type :: soil_tile_type
@@ -789,7 +746,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
             ptr%div_hlsp_NH4   (num_l)         )
-           
+
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -849,7 +806,7 @@ subroutine soil_data_init_0d(soil)
   real    :: z ! depth at top of current layer
 
   k = soil%tag
-  
+
   soil%pars%vwc_sat           = dat_w_sat            (k)
   soil%pars%awc_lm2           = dat_awc_lm2          (k)
   soil%pars%k_sat_ref         = dat_k_sat_ref        (k)
@@ -1020,7 +977,7 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
       soil%pars%k_sat_sfc = soil%pars%k_sat_ref
       soil%alpha = 1.0
   endif
-  
+
   soil%pars%tau =    &
     (soil%pars%k_sat_gw*aspect*soil%pars%hillslope_length) &
      / ((soil%pars%k_sat_sfc+k_macro_x_local)*soil%pars%soil_e_depth)
@@ -1443,7 +1400,7 @@ function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
     real    :: w ! averaging weight
     real    :: N ! normalizing factor for averaging
     integer :: k
-  
+
     A = 0 ; N = 0
     do k = 1, num_l
        w = dz(k) * exp(-zfull(k)/depth) !m
