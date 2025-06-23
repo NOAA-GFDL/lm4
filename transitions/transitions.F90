@@ -3,17 +3,13 @@ module land_transitions_mod
 
 #include "../shared/debug.inc"
 
-use netcdf, only: nf90_max_name
-use constants_mod, only : PI
-
 use mpp_mod, only: input_nml_file
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, lowercase, get_unit, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+     mpp_pe, lowercase, check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 use fms2_io_mod, only: FmsNetcdfFile_t, file_exists
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
-     operator(//), operator(==), days_in_year, get_time, print_date
+     operator(//), operator(==), days_in_year, get_time
 use horiz_interp_mod, only : horiz_interp_init
 use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
@@ -35,13 +31,12 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_diag_mod, only : cmor_name
 
-use land_data_mod, only : lnd, log_version, horiz_interp_ug
+use land_data_mod, only : lnd, log_version
 use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date, land_error_message, dpri
 use land_numerics_mod, only : rank_descending
-use lake_mod, only : prohibit_shallow_lake, is_rsv_restart, use_reservoir
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
 
@@ -83,7 +78,7 @@ logical :: module_is_initialized = .FALSE.
 
 integer :: nlon_in, nlat_in
 
-type(infile_T), target :: ftran, fstate, firrig
+type(infile_T) :: ftran, fstate, firrig
 type(varset_T) :: input_tran  (N_LU_TYPES,N_LU_TYPES) ! input transition rate fields
 type(varset_T) :: input_state (N_LU_TYPES,N_LU_TYPES) ! input state field (for initial transition only)
 type(varset_T) :: input_irrig ! input irrigation fraction field
@@ -174,14 +169,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
   logical :: exists
-  character(len=nf90_max_name) :: name
   type(FmsNetcdfFile_t) :: fileobj_static
   integer :: ndims
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
-  call log_version(version, module_name, &
-  __FILE__)
+  call log_version(version, module_name, __FILE__)
 
   call horiz_interp_init()
   call transition_io_init()
@@ -197,8 +190,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   if (file_exists('INPUT/landuse.res')) then
      call error_mesg('land_transitions_init','reading restart "INPUT/landuse.res"',&
           NOTE)
-     unit = get_unit()
-     open(unit=unit, file='INPUT/landuse.res', action="read")
+     open(newunit=unit, file='INPUT/landuse.res', action="read")
      read(unit,*) year,month,day,hour,min,sec
      time0 = set_date(year,month,day,hour,min,sec)
      close(unit)
@@ -425,24 +417,13 @@ subroutine land_transitions_end()
 end subroutine land_transitions_end
 
 ! ============================================================================
-! subroutine lake_transitions_end()
-
-!   module_is_initialized_lake=.FALSE.
-!   if (associated(infile_lake_tran)) deallocate(infile_lake_tran)
-!   if (associated(infile_lake_state)) deallocate(infile_lake_state)
-!   if (associated(infile_depth_rsv)) deallocate(infile_depth_rsv)
-
-! end subroutine lake_transitions_end
-
-! ============================================================================
 subroutine save_land_transitions_restart(timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
   integer :: unit,year,month,day,hour,min,sec
 
   if (mpp_pe() == mpp_root_pe()) then
-     unit = get_unit()
-     open(unit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
+     open(newunit=unit, file='RESTART/'//trim(timestamp)//'landuse.res', action="write")
      call get_date(time0, year,month,day,hour,min,sec)
      write(unit,'(6i6,8x,a)') year,month,day,hour,min,sec, &
           'Time of previous landuse transition calculation'
@@ -450,22 +431,6 @@ subroutine save_land_transitions_restart(timestamp)
   endif
 
 end subroutine save_land_transitions_restart
-
-! ============================================================================
-! subroutine save_lake_transitions_restart(timestamp)
-!   character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-!   integer :: unit,year,month,day,hour,min,sec
-
-!   call mpp_open( unit, 'RESTART/'//trim(timestamp)//'laketran.res', nohdrs=.TRUE. )
-!   if (mpp_pe() == mpp_root_pe()) then
-!      call get_date(timel0, year,month,day,hour,min,sec)
-!      write(unit,'(6i6,8x,a)') year,month,day,hour,min,sec, &
-!           'Time of previous lake transition calculation'
-!   endif
-!   call mpp_close(unit)
-
-! end subroutine save_lake_transitions_restart
 
 ! =============================================================================
 subroutine land_transitions (time)
