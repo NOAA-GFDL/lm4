@@ -63,6 +63,7 @@ type :: infile_T
 
   type(time_type), allocatable :: time_in(:)   !< input data time axis
 
+  logical :: initialized      = .FALSE. !< set to TRUE when initialization completed successfully
   logical :: grid_initialized = .FALSE. !< set to TRUE when horizontal interpolator is set up
   integer                      :: nlon_in=-1, nlat_in=-1 !< sizes of input data horizontal grid
   real, allocatable            :: norm_in(:,:) !< normalizing factor to convert input data to
@@ -138,6 +139,7 @@ subroutine infile_init(this, path, static, data_type)
       trim(static)//'" could not be opened.', FATAL)
   ! get time axis
   call get_time_axis(this%ncobj,this%time_in)
+  this%initialized = .TRUE.
 end subroutine infile_init
 
 ! ============================================================================
@@ -155,6 +157,7 @@ subroutine infile_destroy(this)
   if (allocated(this%norm_in)) deallocate(this%norm_in)
   this%nlon_in = -1; this%nlat_in = -1
   this%grid_initialized = .FALSE.
+  this%initialized = .FALSE.
 end subroutine infile_destroy
 
 ! ==== end of infile_T member functions ======================================

@@ -78,14 +78,6 @@ integer, parameter :: tran_order(M_LU_TYPES) = [ LU_URBN, LU_RAINF, LU_IRRIG, LU
 
 ! TODO: describe differences between data sets
 
-! ==== data types ===========================================================
-! a description of single transition
-type :: tran_type
-   integer :: donor    = 0  ! kind of donor tile
-   integer :: acceptor = 0  ! kind of acceptor tile
-   real    :: frac     = 0  ! area of transition
-end type tran_type
-
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
 
@@ -237,7 +229,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      overshoot_opt = OPT_REPORT
   else
      call error_mesg('land_transitions_init','overshoot_handling value "'//&
-          trim(overshoot_handling)//'" is illegal, use "stop", "report", or "ignore"',&
+          trim(overshoot_handling)//'" is incorrect, use "stop", "report", or "ignore"',&
           FATAL)
   endif
 
@@ -250,7 +242,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      conservation_opt = OPT_REPORT
   else
      call error_mesg('land_transitions_init','conservation_handling value "'//&
-          trim(conservation_handling)//'" is illegal, use "stop", "report", or "ignore"',&
+          trim(conservation_handling)//'" is incorrect, use "stop", "report", or "ignore"',&
           FATAL)
   endif
 
@@ -275,7 +267,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
          units='%', standard_name='area_fraction', area = id_cellarea)
-     write(*,*)'k1',k1,'id_frac_in(k1)', id_frac_in(k1)
      call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
      id_frac_out(k1) = register_diag_field(cmor_name, &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
@@ -402,7 +393,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      ! initialize data structure representing input file and horizontal interpolator
      call firrig%init(irrigation_file,static_file,data_type)
      ! open state file, if necessary
-     ! if (.not. associated(fstate)) &
+     if (.not. fstate%initialized) &
          call fstate%init(state_file,static_file,data_type)
 
      ! create input variable set for irrigated fraction. Note that currently we sum up
@@ -480,28 +471,39 @@ end subroutine save_land_transitions_restart
 subroutine land_transitions (time)
   type(time_type), intent(in) :: time
 
-  ! ---- local vars.
-  integer :: i,k1,k2,i1,i2,l
-  real    :: frac(lnd%ls:lnd%le)
-  type(tran_type), pointer :: transitions(:,:)
+  ! ---- local vars
+  integer :: k,k1,k2,l,n
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  real    :: w
-  real    :: diag(lnd%ls:lnd%le)
-  real, allocatable :: tran(:,:,:) ! (ncells, M_LU_TYPES, M_LU_TYPES) array of transitions among various land use types
+  integer :: i1, i2; real :: w ! indices and weight from time interpolation
+
+  real    :: tran(lnd%ls:lnd%le, M_LU_TYPES, M_LU_TYPES) ! array of transitions among various land use types
+
   ! variables for optional irrigation transitions
   real    :: irr_area(lnd%ls:lnd%le), crop_area(lnd%ls:lnd%le)
   real    :: irr_frac(lnd%ls:lnd%le)
   real    :: area0 (M_LU_TYPES) ! fraction of each land use type before transitions
   real    :: atot ! total fraction of tiles that can be involved in transitions
   real    :: tran0 (N_LU_TYPES, N_LU_TYPES) ! array of transitions
+  ! NB: N_LU_TYPES is the number of land use types not distinguishing rain-fed and
+  ! irrigated crops (they are lumped together); M_LU_TYPES is the number of land
+  ! use types differentiating irrigated and cropland areas. The LUH1 and LUH2
+  ! transitions do not have rain-fed and irrigated crops as separate categories,
+  ! therefore this code tries to split transitions from/to crops to into from/to
+  ! rain-fed and from/to irrigated.
+
   ! input arguments for land_transitions_0d
   integer :: src(M_LU_TYPES*M_LU_TYPES), dst(M_LU_TYPES*M_LU_TYPES) ! source and destination LU types
+  real    :: frac(M_LU_TYPES*M_LU_TYPES) ! fraction of area undergoing transition
+
   ! variables for diagnostics
-  integer :: sec, days, n
-  logical :: used
+  real    :: diag(lnd%ls:lnd%le) ! data to be sent to various diagnostics
+  integer :: sec, days
+  real    :: part_of_year ! doe calculations of annual rates
+  logical :: used ! return value from send_data
+
+  ! variables for loops over tiles (in this case, tiles in a grid cell)
   type(land_tile_enum_type) :: ce    ! land tile enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-
 
   if (.not.do_landuse_change) &
        return ! do nothing if landuse change not requested
@@ -516,61 +518,55 @@ subroutine land_transitions (time)
   if (mpp_pe()==mpp_root_pe()) &
        call log_date('land_transitions: applying land use transitions on ', time)
 
+  ! calculate time interval since last transition application, for diagnostics of annual rates
+  call get_time(time-time0, sec, days)
+  part_of_year = (days+sec/86400.0)/days_in_year(time0)
+
   ! get transition rates for current time: read map of transitions, and accumulate
-  ! as many time steps in array of transitions as necessary. Note that "transitions"
-  ! array gets reallocated inside add_to_transitions as necessary, it has only as many
-  ! layers as the max number of transitions occurring at a point at the time.
-  transitions => NULL()
+  ! as many time steps in array of transitions as necessary.
+  tran(:,:,:) = 0.0
   do k1 = 1,N_LU_TYPES
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
-     frac(:) = 0.0
      if (time0==set_date(0001,01,01).and.fstate%ncobj%is_open) then
         ! read initial transition from state file
         call time_interp(time, fstate%time_in, w, i1,i2)
-        call input_state(k1,k2)%get_data(i1,frac)
+        call input_state(k1,k2)%get_data(i1,tran(:,k1,k2))
      else
         if (input_tran(k1,k2)%nvars>0) then
-           call integral_transition(time0,time,input_tran(k1,k2),frac)
+           call integral_transition(time0,time,input_tran(k1,k2),tran(:,k1,k2))
         endif
      endif
-     call add_to_transitions(frac,time0,time,k1,k2,transitions)
+     if(diag_ids(k1,k2)>0) then
+        used = send_data(diag_ids(k1,k2), tran(:,k1,k2)/part_of_year, time)
+     endif
   enddo
   enddo
 
   ! save the "in" and "out" diagnostics for the transitions
   do k1 = 1, N_LUMIP_TYPES
-     if (id_frac_out(k1) > 0) then
-        diag(:) = 0.0
-        do k2 = 1, size(transitions,2)
-        do i = lnd%ls,lnd%le
-           if (transitions(i,k2)%donor>0) then
-              if (lu2lumip(transitions(i,k2)%donor) == k1) &
-                      diag(i) = diag(i) + transitions(i,k2)%frac
-           endif
-        enddo
-        enddo
-        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac*100.0, time)
-     endif
+     if (id_frac_out(k1) <= 0) cycle
+     diag(:) = 0.0
+     do k2 = 1, M_LU_TYPES
+        if(lu2lumip(k2) == k1) then
+           diag(:) = diag(:) + sum(tran(:,k1,:),2)
+        endif
+     enddo
+     used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac*100.0, time)
   enddo
   do k1 = 1, N_LUMIP_TYPES
-     if (id_frac_in(k1) > 0) then
-        diag(:) = 0.0
-        do k2 = 1, size(transitions,2)
-        do i = lnd%ls,lnd%le
-           if (transitions(i,k2)%acceptor>0) then
-              if (lu2lumip(transitions(i,k2)%acceptor) == k1) &
-                    diag(i) = diag(i) + transitions(i,k2)%frac
-           endif
-        enddo
-        enddo
-
-        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac*100.0, time)
-      endif
+     if (id_frac_out(k1) <= 0) cycle
+     diag(:) = 0.0
+     do k2 = 1, M_LU_TYPES
+        if(lu2lumip(k2) == k1) then
+           diag(:) = diag(:) + sum(tran(:,:,k2),2)
+        endif
+     enddo
+     used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac*100.0, time)
   enddo
 
   if (do_irrigation) then
-     write(*,*)'################### Doing irrigation ######################'
+!      write(*,*)'################### Doing irrigation ######################'
      ! calculate irrigated fraction of crops. Using irrigated fraction
      ! of crops instead of irrigated area allows to use irrigation data
      ! with different land use data sets that may have a different total crop
@@ -600,7 +596,7 @@ subroutine land_transitions (time)
            atot     = atot     + tile%frac
            area0(n) = area0(n) + tile%frac
         enddo
-        write(*,*)'Area of LU_IRRIG:',area0(LU_IRRIG),'Area of irr_frac(l):',irr_frac(l)
+!         write(*,*)'Area of LU_IRRIG:',area0(LU_IRRIG),'Area of irr_frac(l):',irr_frac(l)
         if ((area0(LU_IRRIG).ne.0).or.(irr_frac(l).ne.0)) then
            tran0(:,:) = tran(l,1:N_LU_TYPES,1:N_LU_TYPES)
            call add_irrigation_transitions(area0(:), tran0, irr_frac(l), atot, &
@@ -613,15 +609,18 @@ subroutine land_transitions (time)
   do l = lnd%ls,lnd%le
      ! set current point for debugging
      call set_current_point(l,1)
-     ! transition land area between different tile types
-     call land_transitions_0d(land_tile_map(l), &
-          transitions(l,:)%donor, &
-          transitions(l,:)%acceptor,&
-          transitions(l,:)%frac )
-  enddo
+     ! assemble arrays of LU types involved in transition, and transition rates
+     k = 0
+     do k1 = 1,M_LU_TYPES
+     do k2 = 1,M_LU_TYPES
+        if (tran(l,k1,k2)<=0) cycle
+        k = k+1; src(k) = k1; dst(k) = k2; frac(k) = tran(l,k1,k2)
+     enddo
+     enddo
 
-  ! deallocate array of transitions
-  if (associated(transitions)) deallocate(transitions)
+     ! transition land area between different tile types
+     call land_transitions_0d(land_tile_map(l), src(1:k), dst(1:k), frac(1:k))
+  enddo
 
   ! store current time for future reference
   time0=time
@@ -727,14 +726,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      ! arranged array.
      do k = 1,size(tran_order)
         do i = 1,size(a_kinds)
-                if (mpp_pe()==mpp_root_pe()) then
-                    write(*,*)'land_transitions_0d: list donors and acceptors'
-                    write(*,*)'Acceptors',a_kinds(i)
-                    write(*,*)'Donors',d_kinds(i)
-                    write(*,*)'Area',area(i)
-                endif
            if (a_kinds(i)==tran_order(k)) then
-
               call split_changing_tile_parts_by_priority( &
                          d_list,d_kinds(i),a_kinds(i),area(i)*atot,a_list)
            endif
@@ -1828,56 +1820,6 @@ subroutine simp3(a,i1,k1,ip,kp)
   end do
   a(ip+1,kp+1)=piv
 end subroutine simp3
-
-subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
-  real, intent(in) :: frac(lnd%ls:lnd%le)
-  type(time_type), intent(in) :: time0       ! time of previous calculation of
-    ! transitions (the integral transitions will be calculated between time0
-    ! and time)
-  type(time_type), intent(in) :: time1       ! current time
-  integer, intent(in) :: k1,k2               ! kinds of tiles
-  type(tran_type), pointer :: tran(:,:)    ! transition info
-
-  ! ---- local vars
-  integer :: k,sec,days,l
-  type(tran_type), pointer :: ptr(:,:) => NULL()
-  real    :: part_of_year
-  logical :: used
-
-  ! allocate array of transitions, if necessary
-  if (.not.associated(tran)) allocate(tran(lnd%ls:lnd%le,1))
-
-  do l = lnd%ls, lnd%le
-     if(frac(l) == 0) cycle ! skip points where transition rate is zero
-     ! find the first empty transition element for the current indices
-     k = 1
-     do while ( k <= size(tran,2) )
-        if(tran(l,k)%donor == 0) exit
-        k = k+1
-     enddo
-
-     if (k>size(tran,2)) then
-        ! if there is no room, make the array of transitions larger
-        allocate(ptr(lnd%ls:lnd%le,size(tran,2)*2))
-        ptr(:,1:size(tran,2)) = tran
-        deallocate(tran)
-        tran => ptr
-        nullify(ptr)
-     end if
-
-     ! store the transition element
-     tran(l,k) = tran_type(k1,k2,frac(l))
-  enddo
-
-  ! send transition data to diagnostics
-  if(diag_ids(k1,k2)>0) then
-     call get_time(time1-time0, sec,days)
-     part_of_year = (days+sec/86400.0)/days_in_year(time0)
-     used = send_data(diag_ids(k1,k2), frac/part_of_year, time1)
-  endif
-
-end subroutine add_to_transitions
-
 
 ! ==============================================================================
 ! given boundaries of time interval [t1,t2], calculates total transition (time
