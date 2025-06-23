@@ -268,9 +268,6 @@ integer :: &
   id_sens,     id_sensv,    id_senss,    id_sensg,                         &
 !
   id_e_res_1,  id_e_res_2,  id_cd_m,     id_cd_t,                          &
-  id_bnv, id_ulow,                                                         &
-  id_z_atm_dis, id_t_atm_dis, id_p_atm_dis, id_p_surf_dis, id_q_atm_dis,   & 
-  id_z_atm_nodis, id_t_atm_nodis, id_p_atm_nodis, id_p_surf_nodis, id_q_atm_nodis,   &   
   id_cellarea, id_landfrac,                                                &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
@@ -1262,9 +1259,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
-!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_bnv,id_ulow,id_snc,&
-!$OMP                                  id_z_atm_dis,id_t_atm_dis,id_p_atm_dis,id_p_surf_dis,id_q_atm_dis,&
-!$OMP                                  id_z_atm_nodis,id_t_atm_nodis,id_p_atm_nodis,id_p_surf_nodis,id_q_atm_nodis,&
+!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,&
 !$OMP                                  id_tws, tws) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
 
@@ -1321,18 +1316,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_qca,  land2cplr%tr(l,k,isphum),     tile%diag)
         call send_tile_data(id_cd_m, cplr2land%cd_m(l,k),          tile%diag)
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
-        call send_tile_data(id_bnv,  cplr2land%bnv(l,k),           tile%diag)
-        call send_tile_data(id_ulow, cplr2land%ulow(l,k),          tile%diag)
-        call send_tile_data(id_z_atm_dis,cplr2land%z_atm_dis(l,k), tile%diag)
-        call send_tile_data(id_t_atm_dis,cplr2land%t_atm_dis(l,k), tile%diag) 
-        call send_tile_data(id_p_atm_dis,cplr2land%p_atm_dis(l,k), tile%diag) 
-        call send_tile_data(id_p_surf_dis,cplr2land%p_surf_dis(l,k),tile%diag)   
-        call send_tile_data(id_q_atm_dis,cplr2land%q_atm_dis(l,k), tile%diag)
-        call send_tile_data(id_z_atm_nodis,cplr2land%z_atm_nodis(l,k), tile%diag)
-        call send_tile_data(id_t_atm_nodis,cplr2land%t_atm_nodis(l,k), tile%diag) 
-        call send_tile_data(id_p_atm_nodis,cplr2land%p_atm_nodis(l,k), tile%diag) 
-        call send_tile_data(id_p_surf_nodis,cplr2land%p_surf_nodis(l,k),tile%diag)   
-        call send_tile_data(id_q_atm_nodis,cplr2land%q_atm_nodis(l,k), tile%diag)             
 
         if (id_snc>0) then
            call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
@@ -1409,8 +1392,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      if(associated(tile%soil))then
        tile%soil%hlsp%FWSv_land=vegn_FMASS
        tile%soil%hlsp%LWSv_land=vegn_LMASS
-       tile%soil%hlsp%snow_land=snow_LMASS+snow_FMASS    
-       tile%soil%hlsp%water_land=subs_LMASS+subs_FMASS  
+       tile%soil%hlsp%snow_land=snow_LMASS+snow_FMASS
+       tile%soil%hlsp%water_land=subs_LMASS+subs_FMASS
      endif
 
      call send_tile_data(id_VWS,  cana_VMASS, tile%diag)
@@ -1639,9 +1622,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
                                            ! heat swept with tiny snow
   integer, parameter :: max_fog_steps = 2
-  real :: irr_flux !actual irrigation flux kg/(m2 s) 
-  real :: hirr_flux !heat of irrigated water W/m2 
-  real :: hirr_fac                                
+  real :: irr_flux !actual irrigation flux kg/(m2 s)
+  real :: hirr_flux !heat of irrigated water W/m2
+  real :: hirr_fac
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -1853,7 +1836,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     precip_T = atmos_T
   else
     precip_T = cana_T
-  endif 
+  endif
   if (use_atmos_T_for_evap_T) then
     evap_T = atmos_T
   else
@@ -2569,12 +2552,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     tile%soil%hlsp%evap_land=land_evap
     tile%soil%hlsp%sens_land=land_sens
     tile%soil%hlsp%total_C_land=land_tile_carbon(tile)
-    tile%soil%hlsp%swdn_dif_1_land=ISa_dn_dif(1)                     
-    tile%soil%hlsp%swdn_dif_2_land=ISa_dn_dif(2)                        
+    tile%soil%hlsp%swdn_dif_1_land=ISa_dn_dif(1)
+    tile%soil%hlsp%swdn_dif_2_land=ISa_dn_dif(2)
     tile%soil%hlsp%swup_dif_1_land=ISa_dn_dif(1)*tile%land_refl_dif(1)
     tile%soil%hlsp%swup_dif_2_land=ISa_dn_dif(2)*tile%land_refl_dif(2)
-    tile%soil%hlsp%swdn_dir_1_land=ISa_dn_dir(1)                     
-    tile%soil%hlsp%swdn_dir_2_land=ISa_dn_dir(2)                        
+    tile%soil%hlsp%swdn_dir_1_land=ISa_dn_dir(1)
+    tile%soil%hlsp%swdn_dir_2_land=ISa_dn_dir(2)
     tile%soil%hlsp%swup_dir_1_land=ISa_dn_dir(1)*tile%land_refl_dir(1)
     tile%soil%hlsp%swup_dir_2_land=ISa_dn_dir(2)*tile%land_refl_dir(2)
     tile%soil%hlsp%fevapv_land=sum(f(:)*vegn_fevap)
@@ -2585,12 +2568,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     tile%soil%hlsp%grnd_T_land=grnd_T
     tile%soil%hlsp%fco2_land=vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos
     tile%soil%hlsp%lai_land=sum(tile%vegn%cohorts(1:N)%lai * tile%vegn%cohorts(1:N)%layerfrac)
-    tile%soil%hlsp%sai_land=sum(tile%vegn%cohorts(1:N)%sai * tile%vegn%cohorts(1:N)%layerfrac) 
+    tile%soil%hlsp%sai_land=sum(tile%vegn%cohorts(1:N)%sai * tile%vegn%cohorts(1:N)%layerfrac)
     tile%soil%hlsp%treeFrac_land=cohort_area_frac(tile%vegn, is_tree)*lnd%ug_landfrac(l)
     tile%soil%hlsp%melt_land=vegn_melt+snow_melt+subs_melt
     tile%soil%hlsp%meltv_land=vegn_melt
-    tile%soil%hlsp%melts_land=snow_melt      
-  endif  
+    tile%soil%hlsp%melts_land=snow_melt
+  endif
 
   call send_tile_data(id_total_C, cmass1,                             tile%diag)
   call send_tile_data(id_total_N, nmass1,                             tile%diag)
@@ -3910,11 +3893,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%rough_heat     (l,k) = tile%land_z0s
   land2cplr%rsl_scale      (l,k) = tile%land_RSL
 
-  ! Assign the downscaling weights
-  call get_date(lnd%time,year,month,day,hour,minute,second)
-  land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
-  land2cplr%dws_prec (l,k) = tile%dws_prec(month)
-
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
      call dpri('land2cplr%mask',land2cplr%mask(l,k));             write(*,*)
@@ -4474,30 +4452,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'drag coefficient for momentum', missing_value=-1e20)
   id_cd_t    = register_tiled_diag_field ( module_name, 'cd_t', axes, time, &
        'drag coefficient for heat and tracers', missing_value=-1e20)
-  id_bnv     = register_tiled_diag_field ( module_name, 'bnv', axes, time, &
-       'brunt-vaisala frequency','-',missing_value=-1e20)  
-  id_ulow    = register_tiled_diag_field ( module_name, 'ulow', axes, time, &
-       'wind speed in lower-level atmosphere','m/s', missing_value=-1e20)
-  id_z_atm_dis     = register_tiled_diag_field ( module_name, 'z_atm_dis', axes, time, &
-       'gridcell-mean disaggregated height above the surface for the lowest atmos level', 'm', missing_value=-1e20)   
-  id_t_atm_dis     = register_tiled_diag_field ( module_name, 't_atm_dis', axes, time, &
-       'gridcell-mean disaggregated temperature at lowest atmos level', 'degK', missing_value=-1e20) 
-  id_p_atm_dis     = register_tiled_diag_field ( module_name, 'p_atm_dis', axes, time, &
-       'gridcell-mean disaggregated pressure at lowest atmos level', 'Pa', missing_value=-1e20)      
-  id_p_surf_dis     = register_tiled_diag_field ( module_name, 'p_surf_dis', axes, time, &
-       'gridcell-mean disaggregated surface pressure', 'Pa', missing_value=-1e20)   
-  id_q_atm_dis     = register_tiled_diag_field ( module_name, 'q_atm_dis', axes, time, &
-       'gridcell-mean disaggregated specific humidity at lowest atmos level', 'kg/kg', missing_value=-1e20)  
-  id_z_atm_nodis     = register_tiled_diag_field ( module_name, 'z_atm_nodis', axes, time, &
-       'gridcell-mean non-disaggregated height above the surface for the lowest atmos level', 'm', missing_value=-1e20)   
-  id_t_atm_nodis     = register_tiled_diag_field ( module_name, 't_atm_nodis', axes, time, &
-       'gridcell-mean non-disaggregated temperature at lowest atmos level', 'degK', missing_value=-1e20) 
-  id_p_atm_nodis     = register_tiled_diag_field ( module_name, 'p_atm_nodis', axes, time, &
-       'gridcell-mean non-disaggregated pressure at lowest atmos level', 'Pa', missing_value=-1e20)      
-  id_p_surf_nodis     = register_tiled_diag_field ( module_name, 'p_surf_nodis', axes, time, &
-       'gridcell-mean non-disaggregated surface pressure', 'Pa', missing_value=-1e20)   
-  id_q_atm_nodis     = register_tiled_diag_field ( module_name, 'q_atm_nodis', axes, time, &
-       'gridcell-mean non-disaggregated specific humidity at lowest atmos level', 'kg/kg', missing_value=-1e20)                     
   id_sens    = register_tiled_diag_field ( module_name, 'sens', axes, time, &
              'sens heat flux from land', 'W/m2', missing_value=-1.0e+20 )
   id_sensv   = register_tiled_diag_field ( module_name, 'sensv', axes, time, &
@@ -5109,17 +5063,6 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_snow_heat = 0.0
   endif
 
-  ! allocate the downscaling weights
-  allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
-  allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
-  bnd%dws_t_atm = init_value
-  bnd%dws_prec = init_value
-
-  allocate( bnd%h_ref(lnd%ls:lnd%le,n_tiles) )
-  allocate( bnd%heat_e_pr(lnd%ls:lnd%le,n_tiles) )
-  bnd%h_ref = init_value
-  bnd%heat_e_pr = init_value  
-
 end subroutine realloc_land2cplr
 
 
@@ -5149,10 +5092,6 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%rsl_scale )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
-  __DEALLOC__( bnd%dws_t_atm )
-  __DEALLOC__( bnd%dws_prec )
-  __DEALLOC__( bnd%h_ref )  
-  __DEALLOC__( bnd%heat_e_pr )    
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )
@@ -5209,19 +5148,6 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%drag_q(lnd%ls:lnd%le,kd) )
 
   allocate( bnd%con_atm(lnd%ls:lnd%le,kd) )
-  allocate( bnd%bnv(lnd%ls:lnd%le,kd) )
-  allocate( bnd%ulow(lnd%ls:lnd%le,kd) ) 
-
-  allocate( bnd%z_atm_dis(lnd%ls:lnd%le,kd))
-  allocate( bnd%t_atm_dis(lnd%ls:lnd%le,kd))
-  allocate( bnd%p_atm_dis(lnd%ls:lnd%le,kd))
-  allocate( bnd%p_surf_dis(lnd%ls:lnd%le,kd))
-  allocate( bnd%q_atm_dis(lnd%ls:lnd%le,kd))
-  allocate( bnd%z_atm_nodis(lnd%ls:lnd%le,kd))
-  allocate( bnd%t_atm_nodis(lnd%ls:lnd%le,kd))
-  allocate( bnd%p_atm_nodis(lnd%ls:lnd%le,kd))
-  allocate( bnd%p_surf_nodis(lnd%ls:lnd%le,kd))
-  allocate( bnd%q_atm_nodis(lnd%ls:lnd%le,kd))
 
   bnd%t_flux                 = init_value
   bnd%lw_flux                = init_value
@@ -5250,19 +5176,6 @@ subroutine realloc_cplr2land( bnd )
   bnd%z_bot                  = init_value
 
   bnd%drag_q                 = init_value
-  bnd%bnv                    = init_value
-  bnd%ulow                   = init_value  
-
-  bnd%z_atm_dis              = init_value
-  bnd%t_atm_dis              = init_value
-  bnd%p_atm_dis              = init_value
-  bnd%p_surf_dis             = init_value
-  bnd%q_atm_dis              = init_value
-  bnd%z_atm_nodis            = init_value
-  bnd%t_atm_nodis            = init_value
-  bnd%p_atm_nodis            = init_value
-  bnd%p_surf_nodis           = init_value
-  bnd%q_atm_nodis            = init_value  
 
   bnd%con_atm                = init_value
 
@@ -5300,18 +5213,6 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%drag_q )
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
-  __DEALLOC__( bnd%bnv )  
-  __DEALLOC__( bnd%ulow ) 
-  __DEALLOC__( bnd%z_atm_dis )
-  __DEALLOC__( bnd%t_atm_dis ) 
-  __DEALLOC__( bnd%p_atm_dis )
-  __DEALLOC__( bnd%p_surf_dis )
-  __DEALLOC__( bnd%q_atm_dis )
-  __DEALLOC__( bnd%z_atm_nodis )
-  __DEALLOC__( bnd%t_atm_nodis ) 
-  __DEALLOC__( bnd%p_atm_nodis )
-  __DEALLOC__( bnd%p_surf_nodis )
-  __DEALLOC__( bnd%q_atm_nodis )
   __DEALLOC__( bnd%con_atm )
 
 

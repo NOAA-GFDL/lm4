@@ -53,18 +53,6 @@ type :: atmos_land_boundary_type
         lprec     => NULL(), &   ! liquid precipitation rate, kg/(m2 s)
         fprec     => NULL(), &   ! frozen precipitation rate, kg/(m2 s)
         tprec     => NULL(), &   ! temperature of precipitation, degK
-        bnv       => NULL(), &       
-        ulow      => NULL(), & 
-        z_atm_dis => NULL(), & 
-        t_atm_dis => NULL(), &
-        p_atm_dis => NULL(), &
-        p_surf_dis=> NULL(), &
-        q_atm_dis => NULL(), & 
-        z_atm_nodis => NULL(), & 
-        t_atm_nodis => NULL(), &
-        p_atm_nodis => NULL(), &
-        p_surf_nodis=> NULL(), &
-        q_atm_nodis => NULL(), &         
    ! components of downward shortwave flux, W/m2
         sw_flux_down_vis_dir   => NULL(), & ! visible direct
         sw_flux_down_total_dir => NULL(), & ! total direct
@@ -110,11 +98,6 @@ type :: land_data_type
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
         rsl_scale      => NULL(),  & ! roughness sublayer scale, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
-   real, pointer, dimension(:,:)   :: & !(grid index, tile)
-        dws_t_atm      => NULL(),  & ! downscaling weights for temperature
-        dws_prec       => NULL(),  & ! downscaling weights for precipitation
-        h_ref          => NULL(),  &
-        heat_e_pr      => NULL()
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
