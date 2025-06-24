@@ -133,42 +133,6 @@ subroutine soil_hirr_rate_ptr(t,p)
     endif
 end subroutine
 
-subroutine soil_abst_s_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%abst_s
-    endif
-end subroutine
-
-subroutine soil_habst_s_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%habst_s
-    endif
-end subroutine
-
-subroutine soil_abst_d_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%abst_d
-    endif
-end subroutine
-
-subroutine soil_habst_d_ptr(t,p)
-    type(land_tile_type),pointer::t
-    real,pointer::p
-    p=>NULL()
-    if(associated(t))then
-        if(associated(t%soil))p=>t%soil%habst_d
-    endif
-end subroutine
-
 subroutine soil_tag_ptr(t,p)
     type(land_tile_type),pointer::t
     integer,pointer::p
