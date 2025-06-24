@@ -1248,12 +1248,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call hlsp_hydrology_1(n_c_types)
   ! ZMS: Eventually pass these args into river or main tile loop.
 
-  do l = lnd%ls, lnd%le
-     i = lnd%i_index(l)
-     j = lnd%j_index(l)
-     ce = first_elmt(land_tile_map(l))
-  enddo
-
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
@@ -3666,7 +3660,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   integer :: face ! for debugging
   integer :: tr   ! tracer index
   integer :: i, j, m
-  integer :: year, month, day, hour, minute, second
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 
@@ -5128,8 +5121,6 @@ subroutine realloc_cplr2land( bnd )
 
   bnd%con_atm                = init_value
 
-
-
 end subroutine realloc_cplr2land
 
 
@@ -5163,8 +5154,6 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
   __DEALLOC__( bnd%con_atm )
-
-
 
 end subroutine dealloc_cplr2land
 
