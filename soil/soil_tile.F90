@@ -197,32 +197,6 @@ type :: soil_hlsp_type
    integer :: nk_g = 0
    integer :: nj_g = 0
 
-   real :: elevmean_g = initval
-   real :: elevmax_g = initval
-   real :: soilfrac_g = initval
-   real :: pslope2p_g = initval
-   real, allocatable :: tfrac_g(:, :)
-
-   real :: precip_T = initval !used only when do_hlsp_disagg_tpq is true
-   real :: evap_T = initval !used only when do_hlsp_disagg_tpq is true
-   real :: hprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true
-   real :: tprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true
-
-   real :: lift = initval
-   real :: pratio = initval
-   real :: lprec = initval
-   real :: fprec = initval
-   real :: zatm = initval
-   real :: tatm = initval
-   real :: patm = initval
-   real :: psurf = initval
-   real :: qatm = initval
-   real :: tatm_nodis = initval
-
-   real, allocatable :: lwc(:)
-   real, allocatable :: swc(:)
-   real, allocatable :: temp(:)
-
    real :: irrrate_soil = initval
    real :: hirrrate_soil = initval
    real :: absts_soil = initval

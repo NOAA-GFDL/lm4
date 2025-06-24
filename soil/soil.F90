@@ -5400,16 +5400,6 @@ subroutine soil_hlsp_diag()
      enddo
   enddo
 
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle
-       tile%soil%hlsp%lwc = tile%soil%wl/dz(1:num_l) !kg/m2 / m = kg/m3
-       tile%soil%hlsp%swc = tile%soil%ws/dz(1:num_l)
-       tile%soil%hlsp%temp = tile%soil%T
-     enddo
-  enddo
-
 end subroutine soil_hlsp_diag
 
 ! ============================================================================
