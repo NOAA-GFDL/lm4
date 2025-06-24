@@ -1393,7 +1393,7 @@ enddo
      !
      ! The true mechanism of the exchange is probably much more complicated, as
      ! the consumption/dropping happens simultaneously; it also could be very
-     ! different for crioturbation
+     ! different for cryoturbation
      if (tend(k).ge.0) then
         ! positive tendency: apply the same concentration increase to rhizosphere and
         ! bulk soil
@@ -1511,7 +1511,7 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
      !
      ! The true mechanism of the exchange is probably much more complicated, as
      ! the consumption/dropping happens simultaneously; it also could be very
-     ! different for crioturbation
+     ! different for cryoturbation
      if (tend(k).ge.0) then
         ! positive tendency: apply the same concentration increase to rhizosphere and
         ! bulk soil

@@ -28,7 +28,7 @@ public :: new_soilc_SIMPLE
 public :: read_soil_BGC_SIMPLE_namelist, soil_BGC_diag_init_SIMPLE
 public :: save_equilibration_data
 
-! ---- interfces
+! ---- interfaces
 interface new_soilc_SIMPLE
    module procedure soilc_SIMPLE_ctor
    module procedure soilc_SIMPLE_copy
@@ -505,7 +505,7 @@ subroutine tracer_leaching_SIMPLE(soilC, diag, &
   class(soil_BGC_SIMPLE_t),  intent(inout) :: soilC
   type(diag_buff_type), intent(inout) :: diag
 
-  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+  real, intent(in) :: flow(:), div(:), wl(:) ! flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (should be mm)
   real, intent(in) :: div_hlsp_DOC(:,:) ! (N_C_TYPES, num_l) [kg C/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
   real, intent(in) :: div_hlsp_DON(:,:) ! (N_C_TYPES, num_l) [kg N/m^2/s] net divergence
   real, intent(in) :: div_hlsp_NO3(:),div_hlsp_NH4(:) ! (num_l) [kg N/m^2/s] net divergence loss from tile calculated in hlsp_hydrology
@@ -599,7 +599,7 @@ end subroutine
 !! pool to the destination.
 !!
 !! @note
-!! In contrast to "deplete_pool" subroutime it accepts the time scale tau,
+!! In contrast to "deplete_pool" subroutine it accepts the time scale tau,
 !! instead of spending rate
 subroutine deplete_pool1(pool, tau, dest, accum)
    real, intent(inout) :: pool !< C or N intermediate pool, kg
@@ -697,7 +697,7 @@ subroutine step3_SIMPLE(soilc, diag)
 end subroutine
 
 ! ============================================================================
-! The combined reduction in decomposition rate as a funciton of TEMP and MOIST
+! The combined reduction in decomposition rate as a function of TEMP and MOIST
 ! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
 ! CENTURY code
 elemental function A_function(soilt, theta) result(A)
@@ -707,9 +707,9 @@ elemental function A_function(soilt, theta) result(A)
 
   real :: soil_temp; ! temperature of the soil, deg C
   real :: Td; ! rate multiplier due to temp
-  real :: Wd; ! rate reduction due to mositure
+  real :: Wd; ! rate reduction due to moisture
 
-  ! coefficeints and terms used in temperaturex term
+  ! coefficients and terms used in temperature term
   real :: Topt,Tmax,t1,t2,tshl,tshr;
 
   soil_temp = soilt-273.16;
