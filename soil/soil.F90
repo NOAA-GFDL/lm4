@@ -70,8 +70,7 @@ use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
 
 use hillslope_mod, only : do_hillslope_model, max_num_topo_hlsps, &
      num_vertclusters, hlsp_coldfracs, use_geohydrodata, & !pond, &
-     horiz_wt_depth_to_init, calculate_wt_init, simple_inundation, &
-     elev_scale_to_use, elev_scale, do_hlsp_disagg_precip
+     horiz_wt_depth_to_init, calculate_wt_init, simple_inundation
 use land_io_mod, only : &
      init_cover_field
 use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &

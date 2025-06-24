@@ -115,13 +115,6 @@ logical, protected, public :: limit_intertile_flow = .false. ! True ==> Limit ex
                        ! to improve numerical stability
 real, protected, public    :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
 logical, protected, public :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
-logical, protected,public :: do_hlsp_disagg_precip = .FALSE.
-logical, protected,public :: disagg_precip_phase = .FALSE.
-character(32), protected, public :: elev_scale_to_use = "ERMM"
-real,protected,public :: elev_scale = 1050.
-logical, protected,public :: do_hlsp_disagg_tpq = .FALSE.
-real,protected,public :: tlapse = -6.5e-3 !K/m
-logical, protected,public :: hprec_e_to_atm = .FALSE.
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -134,9 +127,7 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     strm_depth_penetration, use_hlsp_aspect_in_gwflow, use_geohydrodata, &
                     diagnostics_by_cluster, init_wt_strmelev, dammed_strm_bc, &
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
-                    limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
-                    do_hlsp_disagg_precip, disagg_precip_phase, elev_scale_to_use, elev_scale, &
-                    do_hlsp_disagg_tpq, tlapse, hprec_e_to_atm
+                    limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 

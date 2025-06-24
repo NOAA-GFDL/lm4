@@ -107,8 +107,7 @@ use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
-                         read_hlsp_namelist, hlsp_init, hlsp_config_check, &
-                         do_hlsp_disagg_tpq, tlapse, hprec_e_to_atm
+                         read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
 
@@ -132,7 +131,6 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 public set_default_diag_filter, register_tiled_diag_field, send_tile_data, dump_tile_diag_fields
 public send_global_land_diag
 
-public do_hlsp_disagg_tpq, tlapse, hprec_e_to_atm
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
