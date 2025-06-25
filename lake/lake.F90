@@ -94,9 +94,10 @@ namelist /lake_nml/ init_temp, init_w,       &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
-		    K_z_background, K_z_min, K_z_factor, &
-		    lake_depth_max, lake_depth_min, max_plain_slope, &
-          do_lake_abstraction, use_reservoir, ResMin, ResMax, prohibit_shallowlake, lake_area_bug
+                    K_z_background, K_z_min, K_z_factor, &
+                    lake_depth_max, lake_depth_min, max_plain_slope, &
+                    do_lake_abstraction, use_reservoir, ResMin, ResMax, prohibit_shallowlake, &
+                    lake_area_bug
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec

@@ -5405,36 +5405,24 @@ end subroutine soil_hlsp_diag
 ! Calculate irrigation demand for each gridcell
 subroutine irrigation_deficit()
   ! ---- local vars ----------------------------------------------------------
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
-  type(soil_tile_type), pointer :: soil
-  type(vegn_tile_type), pointer :: vegn
+  type(land_tile_enum_type)     :: ce   ! tile iterator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   real  :: &
-       irr_tot, & ! irrigation deficit
        irr_demand_ac, & !kg/m2
-       irr_area_temp, irr_area_input, &
-       soil_water_supply_irronly, ground_evap_irronly, evap_demand_irronly, vegn_uptk_irronly, &
-       prec_irronly, test_a
+       irr_area_temp, irr_area_input
   real  :: time_fac
-  real, dimension(1:num_l) :: lwc_irronly, swc_irronly, temp_irronly
-  integer :: l, j, i, k, s, f, kk
-  character(len=256)  :: floodirr_ind_file = 'INPUT/floodirr_ind.nc'
-  integer :: second, minute, hour, day0, month0, year0
-  integer :: loch
-  integer :: flood_time
+  integer :: l, j, i, k
   real :: depth_ave, theta_test, soil_def, irr_cohorts, soil_target
-  integer :: layer, thread = 1
-  real :: percentile = 0.95, lon, lat
-  integer, save :: n = 0  ! fast time step with each slow time step
-  real,dimension(lnd%ls:lnd%le) :: atots
+  integer :: layer
+  integer, save :: n = 0  ! fast time step within each slow time step
+  real :: atots(lnd%ls:lnd%le) ! fraction of land occupied by soil in each grid cell, unitless
   real :: tot_wl_v, tot_v, root_theta
-  character(len=256) :: lutype_str, lut
-  character(len=1) :: ew, ns
+
+  real, parameter :: percentile = 0.95
 !----------------------------------------------------
  !if (.not. use_irrigation_routine) return
 
  atots = 0.
-!  print *, 'land ls and le:', string(lnd%ls), string(lnd%le)
  do l=lnd%ls, lnd%le ! entire land domain by grid cell
      ce = first_elmt(land_tile_map(l))
      k = 1
@@ -5444,30 +5432,20 @@ subroutine irrigation_deficit()
      enddo
  enddo
 
-
- n = n + 1
+ n = n + 1 ! increment time step counter
 
  do l=lnd%ls, lnd%le
    ce = first_elmt(land_tile_map(l))
    do while(loop_over_tiles(ce,tile,k=k))
       call set_current_point(l,k)
       if (.not.associated(tile%soil)) cycle
-      soil => tile%soil
-      vegn => tile%vegn
+      associate(soil => tile%soil, vegn => tile%vegn)
 
       if(use_fc_irr_deficit)then
 
          !update soil%irr_demand_ac, soil%irr_area2frac_input, soil%irr_area2frac_real only when n == num_fast_calls
          IF(n == num_fast_calls) THEN
-            test_a = 0
-            write(lutype_str,"(I0)") vegn%landuse
-            lut = "landuse_type="//trim(lutype_str)
-            !   call get_current_point(i,j,k,f)
-            !   print *, 'vegn_landuse_mapping tile-indices (', string(i), ', ', string(j),', ', string(k),', ', string(f), ') landuse_type: ',string(vegn%landuse), ' and k should be: ', string(ce%k)
             if(vegn%landuse == LU_IRRIG) then
-               ! test_a= 5.2
-               !  call check_var_range(test_a,0.2,0.5,'vegn_landuse_mapping',lut,WARNING)
-               ! call check_var_range(tile%frac, 0.0, 0.7, 'irrigation_tile', 'tile%frac', WARNING)
                irr_area_input = tile%frac*lnd%ug_area(l)
                irr_area_temp = tile%frac*lnd%ug_area(l) !m2
                irr_demand_ac = 0. !kg/m2
@@ -5560,7 +5538,7 @@ subroutine irrigation_deficit()
             else !use_irrigation_routine
                irr_demand_ac = 0.
             endif !use_irrigation_routine
-            if(irr_demand_ac == 0.) irr_area_temp = 0. ! This if statement ends on this line
+            if(irr_demand_ac == 0.) irr_area_temp = 0.
          else     ! if(vegn%landuse /= LU_IRRIG)
             irr_demand_ac=0.
             irr_area_input = 0.
@@ -5597,6 +5575,7 @@ subroutine irrigation_deficit()
          __DEBUG1__(soil%irr_area2frac_input)
       end if
 
+      end associate ! soil, vegn
    enddo
 
 enddo
