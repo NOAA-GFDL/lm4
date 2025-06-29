@@ -543,6 +543,9 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
       allocate(gw_param(lnd%ls:lnd%le))
       if(.not.use_irr_fac_et_glob)then
           exists = open_file(fileobj, "INPUT/irr_fac.nc", "read")
+          if (.not. exists) then
+             call error_mesg("soil_init", "INPUT/irr_fac.nc does not exist", FATAL)
+          endif
           call read_field(fileobj, 'irr_fac', gw_param, interp='bilinear')
           call close_file(fileobj)
       else
@@ -557,8 +560,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      allocate(albedo(lnd%ls:lnd%le,NBANDS))
      exists = open_file(fileobj, "INPUT/soil_albedo.nc", "read")
      if (.not. exists) then
-       call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", &
-                       FATAL)
+        call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", FATAL)
      endif
      call read_field( fileobj, 'SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
      call read_field( fileobj, 'SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
@@ -578,8 +580,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      allocate(refl_dif(lnd%ls:lnd%le,NBANDS))
      exists = open_file(fileobj, "INPUT/soil_brdf.nc", "read")
      if (.not. exists) then
-       call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", &
-                       FATAL)
+       call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", FATAL)
      endif
      call read_field( fileobj, 'f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
      call read_field( fileobj, 'f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
