@@ -6,7 +6,7 @@ module soil_mod
 #include "../shared/debug.inc"
 
 use mpp_mod, only: input_nml_file
-use fms_mod, only: error_mesg, string, check_nml_error, stdlog, mpp_pe, &
+use fms_mod, only: error_mesg, string, lowercase, check_nml_error, stdlog, mpp_pe, &
                  & mpp_root_pe, FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
@@ -179,10 +179,9 @@ real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets
 real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
 real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
-logical :: use_irrigation_routine = .false.
+character(32) :: irr_demand_to_use = 'none' ! or 'plant-evap-demand', or 'soil-water-deficit'
 real :: irr_fac = 0.5
 real :: irr_tau = 1. !days
-logical :: use_fc_irr_deficit = .false.
 logical :: use_irr_fac_et_glob = .false.
 real :: irr_fac_et_glob = 5.
 
@@ -214,7 +213,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     tau_smooth_frozen_freq, &
                     fix_neg_subsurface_wl_revisited, excess_soil_water_to_numerical_runoff, &
                     push_up_sfc_excess, predefined_wtd, &
-                    use_irrigation_routine, irr_fac, irr_tau, use_fc_irr_deficit, &
+                    irr_demand_to_use, irr_fac, irr_tau, &
                     use_irr_fac_et_glob, irr_fac_et_glob
 !---- end of namelist --------------------------------------------------------
 
@@ -233,6 +232,12 @@ integer :: i_river_DOC     = NO_TRACER
 integer :: i_river_DON     = NO_TRACER
 integer :: i_river_NO3     = NO_TRACER
 integer :: i_river_NH4     = NO_TRACER
+
+integer, parameter :: &
+    IRR_DEMAND_NONE = 1, & ! no irrigation demand: nothing is irrigated
+    IRR_DEMAND_EVAP = 2, & ! irrigation demand using plat evaporation demand-supply
+    IRR_DEMAND_FC   = 3    ! irrigation demand based on soil water content and field capacity
+integer :: irr_demand_option = -1
 
 ! ---- diagnostic field IDs
 ! unused:
@@ -539,21 +544,32 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      end if
   endif ! single geo
 
-  if(use_irrigation_routine .and. .not.use_fc_irr_deficit)then
+  ! parse irrigation options and read option-specific data
+  select case(trim(lowercase(irr_demand_to_use)))
+  case ('none')
+      irr_demand_option = IRR_DEMAND_NONE
+  case ('plant-evap-demand')
+      irr_demand_option = IRR_DEMAND_EVAP
       allocate(gw_param(lnd%ls:lnd%le))
-      if(.not.use_irr_fac_et_glob)then
+      if (use_irr_fac_et_glob) then
+          gw_param(lnd%ls:lnd%le) = irr_fac_et_glob
+      else
           exists = open_file(fileobj, "INPUT/irr_fac.nc", "read")
           if (.not. exists) then
              call error_mesg("soil_init", "INPUT/irr_fac.nc does not exist", FATAL)
           endif
           call read_field(fileobj, 'irr_fac', gw_param, interp='bilinear')
           call close_file(fileobj)
-      else
-          gw_param(lnd%ls:lnd%le) = irr_fac_et_glob
       endif
       call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_irr_fac_et_ptr )
       deallocate(gw_param)
-  endif
+  case ('soil-water-deficit')
+      irr_demand_option = IRR_DEMAND_FC
+  case default
+      call error_mesg('soil_init','irr_demand_to use = "'//trim(irr_demand_to_use)// &
+         '" is incorrect, use "none", "plant-evap-demand", or "soil-water-deficit"', &
+         FATAL)
+  end select
 
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
@@ -5437,94 +5453,86 @@ subroutine irrigation_deficit()
       if (.not.associated(tile%soil)) cycle
       associate(soil => tile%soil, vegn => tile%vegn)
 
-      if(use_fc_irr_deficit)then
-
+      select case (irr_demand_option)
+      case (IRR_DEMAND_FC)
+         ! demand based on soil moisture availability
          !update soil%irr_demand_ac, soil%irr_area2frac_input, soil%irr_area2frac_real only when n == num_fast_calls
          IF(n == num_fast_calls) THEN
+            irr_demand_ac  = 0.
+            irr_area_input = 0.
+            irr_area_temp  = 0.
+
             if(vegn%landuse == LU_IRRIG) then
                irr_area_input = tile%frac*lnd%ug_area(l)
                irr_area_temp = tile%frac*lnd%ug_area(l) !m2
                irr_demand_ac = 0. !kg/m2
-               if(use_irrigation_routine)then
-                  do i = 1, vegn%n_cohorts
-                     ! depth for 95% of root according to Jackson distribution
-                     depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
-                     theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
-                     soil_target = soil%w_wilt(1) + irr_fac*(soil%w_fc(1)-soil%w_wilt(1)) !1
-                     if(is_watch_point()) then
-                        write(*,*) '########### irrigation checkpoint 1 ###########'
-                        __DEBUG1__(vegn%landuse)
-                        __DEBUG1__(depth_ave)
-                        __DEBUG1__(theta_test)
-                        __DEBUG1__(soil_target)
-                        __DEBUG1__(soil%w_wilt(1))
-                        __DEBUG1__(irr_fac)
-                        __DEBUG1__(soil%w_fc(1))
-                     end if
-                     if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
-                        call check_var_range(tile%frac, 0.0, 0.5, 'irrigation_tile', 'tile%frac', WARNING)
-                        soil_def = max(0., soil_target-theta_test) ! 1
-                        time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)
-                        irr_cohorts = soil_def*(dens_h2o*sum(dz(1:layer)))*time_fac ! kg/m3 * m = kg/m2
-                     else
-                        irr_cohorts = 0.
-                     endif
-                     irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
-                     !   call check_var_range(irr_demand_ac,0.0,0.1,'irrigation_deficit','irr_demand_ac', WARNING)
-                  enddo
-               else !use_irrigation_routine
-                  irr_demand_ac = 0.
-               endif !use_irrigation_routine
+               do i = 1, vegn%n_cohorts
+                  ! depth for 95% of root according to Jackson distribution
+                  depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
+                  theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
+                  soil_target = soil%w_wilt(1) + irr_fac*(soil%w_fc(1)-soil%w_wilt(1)) !1
+                  if(is_watch_point()) then
+                     write(*,*) '########### irrigation checkpoint 1 ###########'
+                     __DEBUG1__(vegn%landuse)
+                     __DEBUG1__(depth_ave)
+                     __DEBUG1__(theta_test)
+                     __DEBUG1__(soil_target)
+                     __DEBUG1__(soil%w_wilt(1))
+                     __DEBUG1__(irr_fac)
+                     __DEBUG1__(soil%w_fc(1))
+                  end if
+                  if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
+                     call check_var_range(tile%frac, 0.0, 0.5, 'irrigation_tile', 'tile%frac', WARNING)
+                     soil_def = max(0., soil_target-theta_test) ! 1
+                     time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)
+                     irr_cohorts = soil_def*(dens_h2o*sum(dz(1:layer)))*time_fac ! kg/m3 * m = kg/m2
+                  else
+                     irr_cohorts = 0.
+                  endif
+                  irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
+                  !   call check_var_range(irr_demand_ac,0.0,0.1,'irrigation_deficit','irr_demand_ac', WARNING)
+               enddo
                if(irr_demand_ac == 0.) irr_area_temp = 0.
-            else     ! if(vegn%landuse /= LU_IRRIG)
-               irr_demand_ac=0.
-               irr_area_input = 0.
-               irr_area_temp = 0.
-            endif
+            endif ! if(vegn%landuse /= LU_IRRIG)
             soil%irr_demand_ac = irr_demand_ac ! kg/m2
             soil%irr_area2frac_input = irr_area_input / tile%frac !m2
             soil%irr_area2frac_real = irr_area_temp / tile%frac !m2
-         ENDIF
+         endif ! num_fast_calls
 
          call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
          call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
          call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
 
-      else ! not use_fc_irr_deficit
-
+     case (IRR_DEMAND_EVAP)
+         ! irrigation demand based on plant water deficit
+         irr_demand_ac=0.
+         irr_area_input = 0.
+         irr_area_temp = 0.
          if(vegn%landuse == LU_IRRIG) then
             irr_area_input = tile%frac*lnd%ug_area(l)
             irr_area_temp = tile%frac*lnd%ug_area(l) !m2
             irr_demand_ac = 0. !kg/m2
-            if(use_irrigation_routine)then
-               do i = 1, vegn%n_cohorts
-                  if(vegn%cohorts(i)%evap_demand > vegn%cohorts(i)%soil_water_supply &
-                     .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
-                     if(.not.use_irr_fac_et_glob)then
-                        irr_cohorts = soil%pars%irr_fac_et &
-                                    * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
-                                    * vegn%cohorts(i)%nindivs &
-                                    * delta_time !kg/m2
-                     else
-                        irr_cohorts = irr_fac_et_glob &
-                                    * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
-                                    * vegn%cohorts(i)%nindivs &
-                                    * delta_time !kg/m2
-                     endif
+            do i = 1, vegn%n_cohorts
+               if(vegn%cohorts(i)%evap_demand > vegn%cohorts(i)%soil_water_supply &
+                  .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
+                  if(.not.use_irr_fac_et_glob)then
+                     irr_cohorts = soil%pars%irr_fac_et &
+                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
+                                 * vegn%cohorts(i)%nindivs &
+                                 * delta_time !kg/m2
                   else
-                     irr_cohorts = 0.
+                     irr_cohorts = irr_fac_et_glob &
+                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
+                                 * vegn%cohorts(i)%nindivs &
+                                 * delta_time !kg/m2
                   endif
-                  irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
-               enddo
-            else !use_irrigation_routine
-               irr_demand_ac = 0.
-            endif !use_irrigation_routine
+               else
+                  irr_cohorts = 0.
+               endif
+               irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
+            enddo
             if(irr_demand_ac == 0.) irr_area_temp = 0.
-         else     ! if(vegn%landuse /= LU_IRRIG)
-            irr_demand_ac=0.
-            irr_area_input = 0.
-            irr_area_temp = 0.
-         endif ! if(vegn%landuse = LU_IRRIG)
+         endif ! if(vegn%landuse == LU_IRRIG)
 
          soil%irr_demand_ac_et = soil%irr_demand_ac_et + irr_demand_ac ! kg/m2
          soil%irr_area2frac_real_et = soil%irr_area2frac_real_et + irr_area_temp / tile%frac /num_fast_calls !m2
@@ -5547,7 +5555,10 @@ subroutine irrigation_deficit()
          call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
          call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
 
-      endif ! use_fc_irr_deficit
+      case (IRR_DEMAND_NONE)
+         ! do nothing
+      end select
+
       if(is_watch_point()) then
          write(*,*) '########### irrigation checkpoint 1.5 ###########'
          __DEBUG1__(soil%irr_demand_ac_et)
