@@ -1050,16 +1050,17 @@
  integer, dimension(num_crop_seasons), intent(out) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
  integer :: k, km, kp, daybeg, mths_after, doy, k_at_SI_min, ktest, day, iseason, max_range_length
  real :: Temp, Prec, annual_SI_min, dlen
- real, dimension(num_test_days) :: TSI, DSI, PSI, SI
+ real :: TSI, DSI, PSI
+ real, dimension(num_test_days) :: SI
  character(len=24) :: crp_name
 !---------------------------------------------------------------------
  if(trim(water) /= 'irrigated' .and. trim(water) /= 'rainfed') then
    call error_mesg('CCA_Maize_Soybean_Rice ERROR: '//trim(water), 'is not a valid value of water', FATAL)
  endif
  k_loop_1: do k=1,num_test_days ! Compute the suitability index at 5 day intervals, starting with Jan 5
-   TSI(k) = 0.0
-   PSI(k) = 0.0
-   DSI(k) = 0.0
+   TSI = 0.0
+   PSI = 0.0
+   DSI = 0.0
    daybeg = 5*k
    mths_loop: do mths_after=0,num_m
      day = daybeg + 30*mths_after
@@ -1067,17 +1068,18 @@
      km = doy/5
      kp = km+1
      Temp = interp_between_mid_mths(doy, vegn%Crop%T_mid_mth)
-     TSI(k) = TSI(k) + (Temp - central_T(mths_after))**2/variance_T(mths_after)
+     TSI = TSI + (Temp - central_T(mths_after))**2/variance_T(mths_after)
      if(mths_after < 4) then
        ! Month 4 is not tested for precip or day length
        Prec = interp_between_mid_mths(doy, vegn%Crop%P_mid_mth)
        if(trim(water) == 'irrigated') Prec = max(Prec,central_P(mths_after))
-       PSI(k) = PSI(k) + (Prec - central_P(mths_after))**2/variance_P(mths_after)
+       PSI = PSI + (Prec - central_P(mths_after))**2/variance_P(mths_after)
        dlen = .2*((doy-5*km)*day_length(kp,L) + (5*kp-doy)*day_length(km,L))
-       DSI(k) = DSI(k) + (dlen - central_D(mths_after))**2/variance_D(mths_after)
+       DSI = DSI + (dlen - central_D(mths_after))**2/variance_D(mths_after)
      endif
    enddo mths_loop
-   SI(k) = TSI(k) + DSI(k) + PSI(k)
+   SI(k) = TSI + DSI + PSI
+   if(SI(k) > SI_crit) cycle k_loop_1
  enddo k_loop_1
 
  annual_SI_min = HUGE(1.0)
