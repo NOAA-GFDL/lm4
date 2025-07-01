@@ -109,6 +109,8 @@ contains
   procedure :: total_N => total_N_GIMICS ! returns total N [kgN/m2]
   procedure :: total_soil_C => total_soil_C_GIMICS ! returns total C in soil, excluding surface litter [kgC/m2]
   procedure :: total_soil_N => total_soil_N_GIMICS ! returns total N in soil, excluding surface litter [kgN/m2]
+  procedure :: total_soil_C_to_depth => total_soil_C_to_depth_GIMICS ! returns total C in soil from the
+                                         ! surface to the specified depth [kgC/m2]
 
   procedure :: rav_C => rav_C_GIMICS ! returns amounts of C [kgC/m2]
                                                        ! for legacy surface resistance calculations
@@ -1011,6 +1013,30 @@ real function total_soil_C_GIMICS(soilc) result(answer)
            ( C_density(soilc%rhiz(k)) * soilc%fRhiz(k)     &
            + C_density(soilc%bulk(k)) * (1-soilc%fRhiz(k)) &
            ) * dz(k)
+  enddo
+end function
+
+! ============================================================================
+!> @brief Given soil carbon state, and a depth, return total soil C in the layer
+!! from the surface to the specified depth
+!! @return total soil carbon in the depth range [0,arg], kgC/m2
+real function total_soil_C_to_depth_GIMICS(soilc, arg) result(answer)
+  class(soil_BGC_GIMICS_t), intent(in)  :: soilc !< soil carbon data structure
+  real, intent(in) :: arg !< depth over which to calculate the total
+
+  integer :: k ! layer counter
+  real :: z    ! depth to the top of the current layer
+  real :: dz1  ! thickness of the current layer that is within the interval [0,arg]
+
+  answer = 0.0; z = 0.0
+  do k = 1, num_l
+     if (z.ge.arg) exit ! from loop
+     dz1 = max(min(arg-z,dz(k)),0.0)
+     answer = answer + &
+           ( C_density(soilc%rhiz(k)) * soilc%fRhiz(k)     &
+           + C_density(soilc%bulk(k)) * (1-soilc%fRhiz(k)) &
+           ) * dz1
+     z = z+dz(k)
   enddo
 end function
 

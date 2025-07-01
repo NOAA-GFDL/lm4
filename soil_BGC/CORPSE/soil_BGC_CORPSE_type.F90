@@ -168,6 +168,8 @@ contains
   procedure :: total_C => total_C_CORPSE ! returns total C [kgC/m2]
   procedure :: total_N => total_N_CORPSE ! returns total N [kgN/m2]
   procedure :: total_soil_C => total_soil_C_CORPSE ! returns total C in soil, excluding surface litter [kgC/m2]
+  procedure :: total_soil_C_to_depth => total_soil_C_to_depth_CORPSE ! returns total C in soil from the
+                                         ! surface to the specified depth [kgC/m2]
   procedure :: total_soil_N => total_soil_N_CORPSE ! returns total N in soil, excluding surface litter [kgN/m2]
   procedure :: rav_C   => rav_C_CORPSE   ! returns amounts of fas, slow, and (dead) microbial C [kgC/m2]
   procedure :: get_DOC => retrieve_DOC
@@ -750,6 +752,29 @@ real function total_soil_C_CORPSE (soilc) result(soil_tile_carbon)
   do i=1,num_l
      call poolTotals(soilc%org_matter(i),totalCarbon=temp)
      soil_tile_carbon=soil_tile_carbon+temp
+  enddo
+end function
+
+! ============================================================================
+!> @brief Given soil carbon state, and a depth, return total soil C in the layer
+!! from the surface to the specified depth
+!! @return total soil carbon in the depth range [0,arg], kgC/m2
+real function total_soil_C_to_depth_CORPSE(soilc, arg) result(answer)
+  class(soil_BGC_CORPSE_t), intent(in)  :: soilc !< soil carbon data structure
+  real, intent(in) :: arg !< depth over which to calculate the total
+
+  integer :: k ! layer counter
+  real :: z    ! depth to the top of the current layer
+  real :: frac ! fraction of current layer that is above depth=arg
+  real :: temp ! total carbon in the current layer
+
+  answer = 0.0; z = 0.0
+  do k = 1, num_l
+     if (z.ge.arg) exit ! from loop
+     call poolTotals(soilc%org_matter(k),totalCarbon=temp)
+     frac  = max(min((arg-z)/dz(k),1.0),0.0)
+     answer = answer + frac*temp
+     z = z+dz(k)
   enddo
 end function
 
