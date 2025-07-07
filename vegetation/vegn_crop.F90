@@ -51,8 +51,8 @@
 ! These two arrays are then used by vegn_harvesting_mod to decide what and when to plant and harvest.
 
 #include "../shared/debug.inc"
- use mpp_mod, only: input_nml_file
- use fms_mod, only: error_mesg, NOTE, FATAL, check_nml_error, stdlog
+ use mpp_mod, only: input_nml_file, mpp_clock_id, mpp_clock_begin, mpp_clock_end, CLOCK_ROUTINE
+ use fms_mod, only: error_mesg, NOTE, FATAL, check_nml_error, stdlog, CLOCK_FLAG_DEFAULT
  use time_manager_mod, only: time_type, set_date, get_date, operator(-), set_time, operator(+), length_of_year, operator(//), operator(<)
  use constants_mod, only: TFREEZE, SECONDS_PER_DAY, PI
  use land_tile_mod, only: land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles, land_tile_map
@@ -158,7 +158,7 @@
 ! of the previous year and t_mid_month(13) is > 365. because it is the middle of Jan of the following year.
 
  integer :: id_crop_calendars(2,num_crop_periods,num_crop_seasons,num_crop_types), id_chosen_calendars(num_crop_seasons)
- integer :: id_T_ave, id_P_ave, id_potential_crop, id_chosen_crop
+ integer :: id_T_ave, id_P_ave, id_potential_crop, id_chosen_crop, cropclock
 
  real :: weight_climate=.10
  real :: max_planting_SI_SW = 9.75
@@ -192,6 +192,7 @@
  character(len=2) :: Wheat_type
 
  if(.not.crop_mod_initialized) call error_mesg('compute_crop_calendars','vegn_crop_init has not been called', FATAL)
+ call mpp_clock_begin(cropclock)
  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
  call get_date(lnd%time, year0,month0,day0,hour,minute,second)
  new_month = month0 /= month1
@@ -319,6 +320,7 @@
      enddo
    enddo
  enddo
+ call mpp_clock_end(cropclock)
 
  end subroutine compute_crop_calendars
 !======================================================================================================================================================
@@ -1580,6 +1582,8 @@
  integer :: ipref
  character(len=256) :: text
 
+ cropclock = mpp_clock_id('compute_crop_calendars', CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
+
  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
  call get_date(lnd%time, year0,month0,day0,hour,minute,second)
 
@@ -2090,7 +2094,7 @@
    enddo
  enddo
  call add_int_tile_data(restart, 'chosen_crop_is_active', 'crop_seasons', vegn_chosen_crop_is_active_ptr, 'true when actively growing')
- call add_int_tile_data(restart, 'grass_is_active', vegn_grass_is_active_ptr, 'true when actively growing') ! Here Convert to integer
+ call add_int_tile_data(restart, 'grass_is_active', vegn_grass_is_active_ptr, 'true when actively growing') ! Convert to integer
  call save_land_restart(restart)
  call free_land_restart(restart)
  end subroutine save_crop_restart
