@@ -123,6 +123,9 @@ real    :: h2_psi_ws       = -100e2   !minimum psi for HA-HOB activation (m) - 1
 real    :: h2_psi_opt      = -0.5e2   !optimal psi for HA-HOB (m)
 real    :: h2_beta1        = 1.       !exponent (see Bertagni (GBC, 2021)
 
+real    :: h2_precip_min   = -1       !if precip_ann is less than h2_precip_min, reduce h2 uptake
+
+
 character(32) :: h2_soilC_mod      = "NONE"         !name of the soilC parameterization
 real          :: h2_soilC_param(2) = (/-1,-1/)!Definition depends on soilC modulation
                                               !Similar to Paulot (2021) but h2_soilC(1) is in in kgC/m2 (h2_soilC(2) is not used)
@@ -140,7 +143,7 @@ namelist /land_tracer_driver_nml/ &
             A_aer_lake,A_aer_swamp,                  &
             gamma_aer_lake,gamma_aer_swamp,gamma_aer_desert,gamma_aer_frz,    &
             alpha_aer_lake,alpha_aer_swamp,alpha_aer_desert,alpha_aer_frz,    &
-            h2_psi_ws, h2_psi_opt, h2_beta1, h2_km, h2_depth, h2_soilC_mod, h2_soilC_param, h2_litterC_mod, &
+            h2_psi_ws, h2_psi_opt, h2_beta1, h2_km, h2_depth, h2_soilC_mod, h2_soilC_param, h2_litterC_mod, h2_precip_min, &
             c_snow, c_dry, c_wet, e_lai_dry,e_lai_wet,e_lai_frz, e_ustar, &
             r_snows_max, r_snows_max, b_lai_aer
 
@@ -1755,6 +1758,14 @@ real function con_h2(tile,p) result(con)
             h2_km_eff = h2_km
          end if
 
+         if (h2_precip_min.gt.0. .and. associated(tile%vegn)) then
+            !this is a short-term solution to reduce h2 uptake in deserts.
+            !scale h2_km_eff linearly from 0 to 1. between 0 and h2_precip_min (kg/m2)
+            if (tile%vegn%p_ann.lt.h2_precip_min) then
+               h2_km_eff = h2_km_eff * max(tile%vegn%p_ann,0.)/h2_precip_min
+            end if
+         end if
+
          !regardless, we turn off h2 uptake if there is no soilC
          if (soil_C.le.epsln) h2_km_eff=0.
 
@@ -1771,6 +1782,8 @@ real function con_h2(tile,p) result(con)
          f_M         = 0.
          f_T         = 0.
          diff_H2     = 0.
+         h2_km_eff   = 0.
+         soil_C      = 0.
       end if
 
       !litter
