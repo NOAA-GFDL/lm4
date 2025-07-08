@@ -38,7 +38,7 @@ use land_tile_io_mod, only: land_restart_type, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
 use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
-     LEAF_ON, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, &
+     LEAF_ON, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, nspecies, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
@@ -63,6 +63,7 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      check_var_range, land_error_message
+use vegn_debug_crop_mod, only: debug_crop, debug_crop_1
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
      co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
@@ -76,7 +77,8 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
 use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
-     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport
+     vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting, crop_seed_transport, &
+     save_harvesting_restart
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_BGC_type_mod, only : soil_BGC_t
 use soil_BGC_SIMPLE_type_mod, only : soil_BGC_SIMPLE_t
@@ -105,6 +107,8 @@ public :: update_vegn_slow
 public :: cohort_area_frac
 public :: cohort_test_func
 public :: any_vegn, is_tree, is_grass, is_c3, is_c4, is_c3grass, is_c4grass
+
+public :: debug_crop_1
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -330,7 +334,6 @@ subroutine read_vegn_namelist()
   call vegn_photosynthesis_init()
 
 end subroutine read_vegn_namelist
-
 
 ! ============================================================================
 ! initialize vegetation
@@ -746,11 +749,11 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   call static_vegn_init ()
   call read_static_vegn ( lnd%time )
 
-  ! initialize harvesting options
-  call vegn_harvesting_init(id_ug)
-
   ! initialize fire
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
+
+  ! initialize harvesting options
+  call vegn_harvesting_init(id_ug)
 
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_ug, id_band, lnd%time )
@@ -1333,7 +1336,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
 end subroutine
 
-
 ! ============================================================================
 ! write restart file and release memory
 subroutine vegn_end ()
@@ -1345,7 +1347,6 @@ subroutine vegn_end ()
   call static_vegn_end()
   call vegn_dynamics_end()
 end subroutine vegn_end
-
 
 ! ============================================================================
 subroutine save_vegn_restart(tile_dim_length,timestamp)
@@ -1412,7 +1413,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! to handle the situation when there are no tiles in the current domain
   call mpp_max(n_accum); call mpp_max(nmn_acm)
 
-  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
+  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps within the month')
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
 
   call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
@@ -1579,8 +1580,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call save_land_restart(restart2)
   call free_land_restart(restart2)
+  call save_harvesting_restart(tile_dim_length,timestamp)
 end subroutine save_vegn_restart
-
 
 ! ============================================================================
 ! given vegetation state and snow depth, calculate integral diffusion-related
@@ -1712,6 +1713,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      enddo
      __DEBUG2__(precip_l, precip_s)
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
+     __DEBUG1__(vegn%landuse)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
      __DEBUG1__(cc%species)
@@ -1959,7 +1961,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
 
 end subroutine vegn_step_1
 
-
 ! ============================================================================
 ! Given the surface solution, substitute it back into the vegetation equations
 ! to determine new vegetation state.
@@ -2130,7 +2131,6 @@ subroutine vegn_step_2 ( vegn, diag, &
   end associate
 end subroutine vegn_step_2
 
-
 ! ============================================================================
 ! do the vegetation calculations that require updated (end-of-timestep) values
 ! of prognostic land variables
@@ -2154,6 +2154,7 @@ subroutine vegn_step_3(vegn, soil, soilc, cana_T, precip, ndep_nit, ndep_amm, nd
   real :: harv_pool_nitrogen_loss(N_HARV_POOLS)
   integer :: k, N
 
+! call debug_crop(vegn,'beginning of vegn_step_3')
   associate(cc=>vegn%cohorts)
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
   ! depth for 95% of root according to Jackson distribution
@@ -2256,6 +2257,8 @@ subroutine vegn_step_3(vegn, soil, soilc, cana_T, precip, ndep_nit, ndep_amm, nd
      call send_tile_data(id_psiph, psist, diag)
   endif
   end associate
+
+! call debug_crop(vegn,'end of vegn_step_3')
 end subroutine vegn_step_3
 
 ! ===========================================================================
@@ -2274,7 +2277,6 @@ real function phen_ave_theta(soil,zeta)
      call land_error_message('phen_ave_theta: phen_theta_option is invalid. This should never happen.',WARNING)
   end select
 end function phen_ave_theta
-
 
 ! ============================================================================
 ! given a vegetation tile with the state variables set up, calculate derived
@@ -2657,8 +2659,7 @@ subroutine update_vegn_slow( )
   ! would happen if we used average length of year for given calendar.
   age_increment = time_type_to_real(lnd%dt_slow)/(days_in_year(lnd%time-lnd%dt_slow)*86400.0)
 
-  if(month0 /= month1) then
-     ! heartbeat
+  if(day0 /= day1) then
      write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
@@ -2666,6 +2667,8 @@ subroutine update_vegn_slow( )
   call update_fire_data(lnd%time)
 
   if (day0/=day1) then
+     ! It looks like this shouldn't be called here
+     ! Looks like it should be called at the beginning of vegn_harvesting
      call crop_seed_transport(doy)
   endif
 
@@ -2676,6 +2679,8 @@ subroutine update_vegn_slow( )
 
      ! + conservation check, part 1: calculate the pre-transition totals
      call check_conservation_1(tile,lmass0,fmass0,cmass0,nmass0)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_0')
 
      if (day1 /= day0) then
         do ii = 1, tile%vegn%n_cohorts
@@ -2694,6 +2699,8 @@ subroutine update_vegn_slow( )
      endif
 
      call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0,nmass0)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_1')
 
      ! monthly averaging
      if (month1 /= month0) then
@@ -2736,6 +2743,8 @@ subroutine update_vegn_slow( )
 
      call check_conservation_2(tile,'update_vegn_slow 2',lmass0,fmass0,cmass0,nmass0)
 
+!    call debug_crop(tile%vegn,'update_vegn_slow_2')
+
      ! annual averaging
      if (year1 /= year0) then
         ! The ncm smoothing is coded as a low-pass exponential filter. See, for
@@ -2769,9 +2778,13 @@ subroutine update_vegn_slow( )
         enddo
       endif
 
+!    call debug_crop(tile%vegn,'update_vegn_slow_3')
+
      if (year1 /= year0 .and. do_biogeography) then
         call vegn_biogeography(tile%vegn)
      endif
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_4')
 
      call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0,nmass0)
 
@@ -2779,11 +2792,15 @@ subroutine update_vegn_slow( )
         call tile%soilc%redistribute_peat_carbon()
      endif
 
+!    call debug_crop(tile%vegn,'update_vegn_slow_5')
+
      if (month1 /= month0.and.do_patch_disturbance) then
         call update_fuel(tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
      call check_conservation_2(tile,'update_vegn_slow 4',lmass0,fmass0,cmass0,nmass0)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_6')
 
      if (day1 /= day0 .and. do_cohort_dynamics) then
         N = tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts(1:N)
@@ -2795,32 +2812,40 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
 
         call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
-        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0)
 
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soilc)
-           call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
+           call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
            if (do_phenology) call vegn_phenology_ppa (tile)
-           call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
+           call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soilc,86400.0)
         endif
      endif
-     call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0,nmass0)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_7')
 
      if  (month1 /= month0 .and. do_phenology) then
         if (.not.do_ppa) &
             call vegn_phenology_lm3 (tile%vegn, tile%soil, tile%soilc)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
-     call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0,nmass0)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_8')
 
      if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soilc, seconds_per_year)
      endif
-     call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 10',lmass0,fmass0,cmass0,nmass0)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_9')
 
      call vegn_harvesting(tile, year0/=year1, month0/=month1, day0/=day1, doy, l)
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_10')
 
      if (year1 /= year0) then
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
@@ -2839,7 +2864,7 @@ subroutine update_vegn_slow( )
            tile%vegn%harv_rate_C(:) = 0.0
         end where
      endif
-     call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 11',lmass0,fmass0,cmass0,nmass0)
 
      ! + sanity checks
      do ii = 1,tile%vegn%n_cohorts
@@ -2857,15 +2882,15 @@ subroutine update_vegn_slow( )
      enddo
      ! - sanity checks
 
-     call check_conservation_2(tile,'update_vegn_slow',lmass0,fmass0,cmass0,nmass0)
+     call check_conservation_2(tile,'update_vegn_slow 12',lmass0,fmass0,cmass0,nmass0)
 
      ! perhaps we need to move that either inside vegn_reproduction_ppa, or after that
      if (do_ppa.and.year1 /= year0) then
         call vegn_relayer_cohorts_ppa(tile%vegn)
-        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0,nmass0)
+        call check_conservation_2(tile,'update_vegn_slow 13',lmass0,fmass0,cmass0,nmass0)
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
         tile%e_res_2 = tile%e_res_2 - dheat
-        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0,nmass0)
+        call check_conservation_2(tile,'update_vegn_slow 14',lmass0,fmass0,cmass0,nmass0)
         ! update DBH_ys
         do ii = 1, tile%vegn%n_cohorts
            tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
@@ -2874,10 +2899,14 @@ subroutine update_vegn_slow( )
         enddo
      endif
 
+!    call debug_crop(tile%vegn,'update_vegn_slow_12')
+
      if (do_ppa.and.day1 /= day0) then
         call kill_small_cohorts_ppa(tile%vegn,tile%soilc)
-        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 15',lmass0,fmass0,cmass0)
      endif
+
+!    call debug_crop(tile%vegn,'update_vegn_slow_13')
 
      ! ---- increment tile ages
      call send_tile_data(id_age_since_disturbance,   tile%vegn%age_since_disturbance,   tile%diag)
@@ -3120,6 +3149,8 @@ subroutine update_vegn_slow( )
      endif
   enddo
 
+! call debug_crop_1('update_vegn_slow_14')
+
   if (year1 /= year0) then
     if (do_ppa) then
        call vegn_reproduction_ppa(seed_transport_option) ! includes seed transport.
@@ -3157,13 +3188,13 @@ subroutine update_vegn_slow( )
      tile%vegn%litterfall_C(:,:) = 0.0 ! reset for the accumulation on next time step
   enddo
 
+! call debug_crop_1('update_vegn_slow_16')
+
   ! override with static vegetation
   if(day1/=day0) &
        call  read_static_vegn(lnd%time)
 
 end subroutine update_vegn_slow
-
-
 
 ! ============================================================================
 subroutine vegn_seed_transport_lm3(seed_transport_option)
@@ -3221,7 +3252,6 @@ subroutine vegn_seed_transport_lm3(seed_transport_option)
           f_demand_N*vegn_seed_demand(tile%vegn)/C2N_seed-f_supply_N*vegn_seed_N_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport_lm3
-
 
 ! ============================================================================
 ! reads species table (if exists) from the input netcdf file and replaces

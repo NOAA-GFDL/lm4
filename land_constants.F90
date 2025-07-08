@@ -8,8 +8,8 @@ private
 ! ==== public interfaces =====================================================
 integer, public, parameter :: &
      NBANDS   = 2, & ! number of spectral bands for short-wave radiation calculations
-     BAND_VIS = 1, & ! visible radiation (wavelenght range?)
-     BAND_NIR = 2    ! near infra-red radiation (wavelenght range?)
+     BAND_VIS = 1, & ! visible radiation (wavelength range?)
+     BAND_NIR = 2    ! near infra-red radiation (wavelength range?)
 
 integer, public, parameter :: MAX_SOIL_LEV = 100 ! max number of soil layers (max dimension of arrays)
 ! litter pool constants
@@ -27,7 +27,7 @@ integer, public, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulos
 integer, public, parameter :: & ! indices of carbon chemical species
      C_FAST = 1, & ! cellulose (fast)
      C_SLOW = 2, & ! lignin (slow)
-     C_MIC  = 3    ! microbial producs
+     C_MIC  = 3    ! microbial products
 ! names of the carbon types, for i/o
 character(len=12), public, parameter :: &
      c_shortname(N_C_TYPES) = [ 'fast        ', 'slow        ', 'deadmic     ' ], & ! for restart field names

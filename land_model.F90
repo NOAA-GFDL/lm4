@@ -55,7 +55,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
      cohort_test_func, cohort_area_frac, any_vegn, is_tree, is_grass, is_c3, is_c4, &
-     is_c3grass, is_c4grass
+     is_c3grass, is_c4grass, debug_crop_1
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
@@ -3235,6 +3235,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
 
+! call debug_crop_1('update_land_model_slow_0')
   if (day0/=day1) then
      ! calculate daily average canopy air temperature
      ce = first_elmt(land_tile_map)
@@ -3245,9 +3246,13 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   endif
 
   ! invoke any processes that potentially change tiling
+! call debug_crop_1('update_land_model_slow_1')
   call vegn_nat_mortality_ppa( )
+! call debug_crop_1('update_land_model_slow_2')
   call fire_transitions(lnd%time)
+! call debug_crop_1('update_land_model_slow_3')
   call land_transitions(lnd%time)
+! call debug_crop_1('update_land_model_slow_4')
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
@@ -3256,6 +3261,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
         call remerge_tile_list(land_tile_map(l))
      enddo
   endif
+! call debug_crop_1('update_land_model_slow_5')
 
   call update_vegn_slow( )
   call update_dust_slow(lnd%time)

@@ -30,6 +30,37 @@ integer, public, parameter :: & ! life form of the plant
  FORM_WOODY = 1
  ! in future, possibly add mosses...
 
+ integer, public, parameter :: &
+ NO_DATE      = 0, &
+ NO_CROP      = 0, & ! domimant_crop = NO_CROP when the landuse data has non-zero crop area but the MIRCA data has zero crop area.
+                     ! In such cases the crop tile is treated the same way as it was before vegn_crop_mod was introduced.
+ IRRIGATED_MAIZE        = 1, &
+ IRRIGATED_SOYBEAN      = 2, &
+ IRRIGATED_RICE         = 3, &
+ IRRIGATED_SPRING_WHEAT = 4, &
+ IRRIGATED_WINTER_WHEAT = 5, &
+ RAINFED_MAIZE          = 6, &
+ RAINFED_SOYBEAN        = 7, &
+ RAINFED_RICE           = 8, &
+ RAINFED_SPRING_WHEAT   = 9, &
+ RAINFED_WINTER_WHEAT   = 10, &
+ num_crop_types = 10, &
+ num_crop_seasons = 2, &
+ num_crop_periods = 3, &
+ num_crop_water_sources = 2, &
+ num_crop_cal = 6, &
+ MAIN_SEASON = 1, &
+ SECOND_SEASON = 2
+
+ character(len=24), public, parameter :: crop_name(0:num_crop_types) = &
+                (/'No_crop                 ','irrigated_Maize         ','irrigated_Soybean       ', 'irrigated_Rice          ', &
+                  'irrigated_Spring_Wheat  ','irrigated_Winter_Wheat  ','rainfed_Maize           ','rainfed_Soybean          ', &
+                  'rainfed_Rice            ','rainfed_Spring_Wheat    ','rainfed_Winter_Wheat    '/)
+
+ character(len= 9), public, parameter :: water_source_name(num_crop_water_sources) = (/'irrigated','rainfed  '/)
+ character(len=16), public, parameter :: season_name(num_crop_seasons) = (/'first_season  ','second_season'/)
+ character(len=8),  public, parameter :: period_name(num_crop_periods) = (/'optimal ','earliest','latest  '/)
+
 integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
  SP_C3GRASS   = 1, & ! c3 grass
@@ -414,7 +445,7 @@ type spec_data_type
   real    :: tau_smooth_Nstress       = 0.0
 
   ! dry deposition related parameters
-  !based on deciduous by default
+  ! based on deciduous by default
   real    :: r_cus     = 2500.    !dry cuticle resistance, SO2, s/m
   real    :: r_cuo     = 6000.    !dry cuticle resistance, O3, s/m
   real    :: r_stems   = 1000.    !dry stem resistance, SO2, s/m
@@ -1185,8 +1216,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tau_smooth_alloc)
   __GET_SPDATA_REAL__(alloc_allowed_over_limit)
   __GET_SPDATA_REAL__(tau_smooth_Nstress)
-  ! dry deposition
-  !dry deposition parameters
+  ! dry deposition parameters
   __GET_SPDATA_REAL__(r_cus)
   __GET_SPDATA_REAL__(r_cuo)
   __GET_SPDATA_REAL__(r_stems)
@@ -1581,8 +1611,7 @@ subroutine print_species_data(unit, skip_default)
   call add_row(table, 'alloc_allowed_over_limit', spdata(idx)%alloc_allowed_over_limit)
   call add_row(table, 'tau_smooth_Nstress', spdata(idx)%tau_smooth_Nstress)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(idx)%max_n_stress_for_seed_production)
-
-  !dry deposition parameters
+  ! dry deposition parameters
   call add_row(table, 'r_cus',spdata(idx)%r_cus)
   call add_row(table, 'r_cuo',spdata(idx)%r_cuo)
   call add_row(table, 'r_stems',spdata(idx)%r_stems)

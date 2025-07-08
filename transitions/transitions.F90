@@ -23,7 +23,7 @@ use vegn_data_mod, only : &
      landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
-use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
+use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood, crop_type
 use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
@@ -35,13 +35,15 @@ use land_tile_mod, only : land_tile_map, &
 use land_tile_diag_mod, only : cmor_name
 
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
-use vegn_harvesting_mod, only : vegn_cut_forest
+use vegn_harvesting_mod, only : vegn_cut_forest, clear_all_on_conversion_to_crop
 
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date, string_from_time
 use land_numerics_mod, only : rank_descending
 
 use transition_io_mod, only : transition_io_init, infile_T, varset_T
+
+use vegn_debug_crop_mod, only: debug_crop
 
 implicit none
 private
@@ -96,6 +98,9 @@ integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
 real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data to
         ! units of [fractions of vegetated area per year]
 type(time_type) :: time0 ! time of previous transition calculations
+
+type(crop_type) :: crop
+logical :: crop_exists
 
 integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
 integer :: overshoot_opt = -1 ! selector for overshoot handling options, for efficiency
@@ -424,6 +429,8 @@ subroutine land_transitions (time)
   real    :: w
   real    :: diag(lnd%ls:lnd%le)
   logical :: used
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
 
   if (.not.do_landuse_change) &
        return ! do nothing if landuse change not requested
@@ -495,11 +502,35 @@ subroutine land_transitions (time)
   do l = lnd%ls,lnd%le
      ! set current point for debugging
      call set_current_point(l,1)
+     ce = first_elmt(land_tile_map(l))
+     crop_exists = .FALSE.
+     do while (loop_over_tiles(ce,tile))
+        if (associated(tile%vegn)) then
+           if (tile%vegn%landuse == LU_CROP) then
+              crop = tile%vegn%Crop
+              crop_exists = .TRUE.
+!             call debug_crop(tile%vegn,'preexisting crop tile before transitions')
+           endif
+        endif
+     enddo
      ! transition land area between different tile types
      call land_transitions_0d(land_tile_map(l), &
           transitions(l,:)%donor, &
           transitions(l,:)%acceptor,&
           transitions(l,:)%frac )
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile))
+        if (associated(tile%vegn)) then
+           if (tile%vegn%landuse == LU_CROP) then
+              if(crop_exists) then
+                 tile%vegn%Crop = crop
+!                call debug_crop(tile%vegn,'preexisting crop tile after transitions')
+              else
+!                call debug_crop(tile%vegn,'new crop tile after transitions')
+              endif
+           endif
+        endif
+     enddo
   enddo
 
   ! deallocate array of transitions
@@ -560,7 +591,12 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: input parameters ###'
      do i = 1, size(d_kinds)
-        __DEBUG4__(i,d_kinds(i),a_kinds(i),area(i))
+        write(*,'(i2.2,2x)', advance='no') i
+        call dpri('from LU',landuse_name(d_kinds(i)))
+        call dpri('to LU',  landuse_name(a_kinds(i)))
+        call dpri('frac',   landuse_name(area(i)))
+!         __DEBUG4__(i,d_kinds(i),a_kinds(i),area(i))
+        write(*,*)
      enddo
 
      write(*,*)'### land_transitions_0d: land fractions before transitions (initial state) ###'
@@ -568,8 +604,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (loop_over_tiles(ts,ptr))
         if (associated(ptr%vegn)) then
             write(*,'(i2.2,2x)', advance='no') k; k = k+1
-            call dpri('landuse',ptr%vegn%landuse)
-            call dpri('area',ptr%frac)
+            call dpri('LU',landuse_name(ptr%vegn%landuse))
+            call dpri('frac',ptr%frac)
             call dpri('heat',vegn_tile_heat(ptr%vegn))
             call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
             write(*,*)
@@ -618,19 +654,28 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   end select
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions after splitting changing parts ###'
-     atot = 0 ; ts = first_elmt(d_list)
+     atot = 0 ; ts = first_elmt(d_list); k = 1
      do while (loop_over_tiles(ts,ptr))
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'   donor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(i2.2,2x)', advance='no') k; k = k+1
+        call dpri('donor LU',landuse_name(ptr%vegn%landuse))
+        call dpri('frac',ptr%frac)
+        write(*,*)
+!         write(*,'(2(a,g23.16,2x))')'   donor: LU = '//landuse_name(ptr%vegn%landuse),' frac=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     ts = first_elmt(a_list)
+     ts = first_elmt(a_list); k = 1
      do while (loop_over_tiles(ts, ptr))
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'acceptor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(i2.2,2x)', advance='no') k; k = k+1
+        call dpri('acceptor LU',landuse_name(ptr%vegn%landuse))
+        call dpri('frac',ptr%frac)
+        write(*,*)
+!         write(*,'(2(a,g23.16,2x))')'acceptor: LU = '//landuse_name(ptr%vegn%landuse),' frac=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     write(*,*)
   endif
 
   ! move all tiles from the donor list to the acceptor list -- this will ensure
@@ -672,8 +717,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (loop_over_tiles(ts,ptr))
         if (associated(ptr%vegn)) then
             write(*,'(i2.2,2x)', advance='no') k; k = k+1
-            call dpri('landuse',ptr%vegn%landuse)
-            call dpri('area',ptr%frac)
+            call dpri('LU',landuse_name(ptr%vegn%landuse))
+            call dpri('frac',ptr%frac)
             call dpri('heat',vegn_tile_heat(ptr%vegn))
             call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
             write(*,*)
@@ -802,8 +847,13 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%frac = darea
         tile%frac = tile%frac-darea
         ! convert land use type of the tile: cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
-                call vegn_cut_forest(temp, a_kind)
+        if( temp%vegn%landuse==LU_NTRL.or.  &
+            temp%vegn%landuse==LU_SCND.or.  &
+            temp%vegn%landuse==LU_RANGE.or. &
+           ((temp%vegn%landuse/=LU_CROP.and.a_kind==LU_CROP).and.clear_all_on_conversion_to_crop) &
+          ) then
+           call vegn_cut_forest(temp, a_kind)
+        endif
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! reset time elapsed since last disturbance and time elapsed since last land use
@@ -812,6 +862,7 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
+!       call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! calculate remaining area of transition
         tfrac = tfrac-darea
      endif
@@ -931,16 +982,22 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         temp => new_land_tile(tile)
         temp%frac = tile%frac*darea
         tile%frac = tile%frac*(1.0-darea)
-        ! convert land use type of the tile:
-        ! cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
-             call vegn_cut_forest(temp, a_kind)
+        ! convert land use type of the tile: cut the forest, if necessary
+        if( temp%vegn%landuse==LU_NTRL.or.  &
+            temp%vegn%landuse==LU_SCND.or.  &
+            temp%vegn%landuse==LU_RANGE.or. &
+           ((temp%vegn%landuse/=LU_CROP.and.a_kind==LU_CROP).and.clear_all_on_conversion_to_crop) &
+          ) then
+           call vegn_cut_forest(temp, a_kind)
+        endif
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! reset time elapsed since last disturbance and time elapsed since last land use
         ! event in the new tile
         temp%vegn%age_since_disturbance = 0.0
         temp%vegn%age_since_landuse     = 0.0
+
+!       call debug_crop(temp%vegn,'transition from "'//landuse_name(tile%vegn%landuse)//'"')
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif

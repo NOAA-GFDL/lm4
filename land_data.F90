@@ -172,7 +172,7 @@ type :: land_state_type
    logical :: append_io_id ! if FALSE, io_id is not appended to the file names
                            ! (for the case io_layout = 1,1)
 
-   integer, allocatable :: i_index(:), j_index(:) ! i,j-index of the unstructured grid on current processor
+   integer, allocatable :: i_index(:), j_index(:) ! i,j-index of the structured grid on current processor
    integer, allocatable :: l_index(:)             ! l-index (unstructured grid) for idx value.
 
    type(domain2D) :: sg_domain ! structured grid domain

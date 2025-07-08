@@ -13,7 +13,7 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
-     FORM_GRASS, FORM_WOODY, LEAF_OFF, DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, &
+     FORM_GRASS, FORM_WOODY, DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, &
      treeline_base_T, treeline_thresh_T, treeline_season_length, treeline_season_snow_limited, &
      COLD_INTOLERANT, WARM_INTOLERANT
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
