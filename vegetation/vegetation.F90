@@ -51,7 +51,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      saturation_depth_thresh, saturation_freq_thresh, &
      tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE, &
-     zbot_assumption_bug, root_length_double_norm
+     zbot_assumption_bug, root_length_double_norm, landuse_name
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -1713,7 +1713,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      enddo
      __DEBUG2__(precip_l, precip_s)
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
-     __DEBUG1__(vegn%landuse)
+     call dpri('landuse',landuse_name(vegn%landuse)); write(*,*)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
      __DEBUG1__(cc%species)
