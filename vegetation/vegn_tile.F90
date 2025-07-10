@@ -15,7 +15,8 @@ use vegn_data_mod, only : &
      MSPECIES, nspecies, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
+     BSEED, C2N_SEED, LU_NTRL, LU_CRP, LU_PSL, LU_PST, LU_RAINF, LU_IRRIG, &
+     LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, track_vegn_nitrogen, N_limits_live_biomass, &
      tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
@@ -71,6 +72,9 @@ interface new_vegn_tile
    module procedure vegn_tile_ctor
    module procedure vegn_tile_copy_ctor
 end interface
+! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'vegn_tile_mod'
+#include "../shared/version_variable.inc"
 
 ! ======= types related to crops =================================================================
 
@@ -1042,13 +1046,16 @@ function vegn_is_selected(vegn, sel)
 
   select case (sel%idata1)
   case (LU_SEL_TAG)
-     if (sel%idata2 == LU_PSL) then
+     select case (sel%idata2)
+     case (LU_CRP)
+        vegn_is_selected = ((vegn%landuse == LU_RAINF).or.(vegn%landuse == LU_IRRIG))
+     case (LU_PSL)
         vegn_is_selected = ((vegn%landuse == LU_NTRL).or.(vegn%landuse == LU_SCND))
-     else if (sel%idata2 == LU_PST) then
+     case (LU_PST)
         vegn_is_selected = ((vegn%landuse == LU_PAST).or.(vegn%landuse == LU_RANGE))
-     else
+     case default
         vegn_is_selected = (sel%idata2 == vegn%landuse)
-     endif
+     end select
   case (SP_SEL_TAG)
      if (.not.associated(vegn%cohorts)) then
         vegn_is_selected = .FALSE.

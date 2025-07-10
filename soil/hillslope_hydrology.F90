@@ -769,20 +769,20 @@ subroutine hlsp_hydrology_1(num_species)
                            ground_to_stream_DOC(ll,s) = ground_to_stream_DOC(ll,s) &
                                   + docflux(s) * A1
 
-                          soil%div_hlsp_DON(s,l) = soil%div_hlsp_DON(s,l) + donflux(s)
-                          gtosDON_bytile(k,l,s) = donflux(s)
-                          ground_to_stream_DON(ll,s) = ground_to_stream_DON(ll,s) &
-                                 + donflux(s) * A1
+                           soil%div_hlsp_DON(s,l) = soil%div_hlsp_DON(s,l) + donflux(s)
+                           gtosDON_bytile(k,l,s) = donflux(s)
+                           ground_to_stream_DON(ll,s) = ground_to_stream_DON(ll,s) &
+                                  + donflux(s) * A1
                         end do
                         soil%div_hlsp_NO3(l) = soil%div_hlsp_NO3(l) + NO3flux
                         gtosNO3_bytile(k,l) = NO3flux
                         ground_to_stream_NO3(ll) = ground_to_stream_NO3(ll) &
                                + NO3flux * A1
 
-                       soil%div_hlsp_NH4(l) = soil%div_hlsp_NH4(l) + NH4flux
-                       gtosNH4_bytile(k,l) = NH4flux
-                       ground_to_stream_NH4(ll) = ground_to_stream_NH4(ll) &
-                              + NH4flux * A1
+                        soil%div_hlsp_NH4(l) = soil%div_hlsp_NH4(l) + NH4flux
+                        gtosNH4_bytile(k,l) = NH4flux
+                        ground_to_stream_NH4(ll) = ground_to_stream_NH4(ll) &
+                               + NH4flux * A1
 
                      end if
                   end if

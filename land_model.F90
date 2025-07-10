@@ -45,12 +45,12 @@ use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp,
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
-     soil_cover_cold_start, retrieve_soil_tags
+     soil_cover_cold_start, retrieve_soil_tags, irrigation_deficit, soil_hlsp_diag
 use soil_BGC_base_mod, only : read_soil_BGC_namelist
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, save_snow_restart, &
     snow_option, SNOW_CM, SNOW_GL
 use snow_tile_mod, only : N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
-use vegn_data_mod, only : LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, track_vegn_nitrogen
+use vegn_data_mod, only : LU_PAST, LU_RAINF, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, track_vegn_nitrogen
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
@@ -109,7 +109,7 @@ use land_transitions_mod, only : &
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
-use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
+use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use land_dust_mod, only : update_dust_slow
@@ -314,9 +314,11 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_grassFrac, id_grassFracC3, id_grassFracC4, &
   id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
   id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
-
+! diag IDs of tile output
+integer :: id_transp_std, id_precip_std, id_runf_std, id_evap_std, id_snow_std, &
+  id_water_std, id_sens_std, id_grnd_T_std, id_total_C_std, id_lprec_std, id_fprec_std
 integer :: id_treeFrac_L, id_grassFrac_L, id_grassFracC3_L, id_grassFracC4_L
-
+! processor decomposition diagnostics
 integer :: id_sg_face, id_ug_face, id_ug_pe
 
 integer :: id_gex_lnd2atm_test
@@ -442,7 +444,7 @@ subroutine land_model_init &
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
      ! read map of tiles -- retrieve information from
-     call land_cover_warm_start(restart)
+        call land_cover_warm_start(restart)
      ! initialize land model data
      if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
      if (field_exists(restart, 'e_res_1')) call get_tile_data(restart,'e_res_1',land_e_res_1_ptr)
@@ -452,7 +454,7 @@ subroutine land_model_init &
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
      call error_mesg('land_model_init','cold-starting land cover map',NOTE)
-     call land_cover_cold_start()
+        call land_cover_cold_start()
   endif
   call free_land_restart(restart)
 
@@ -1357,10 +1359,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
-!$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
-!$OMP                                  wetdconc, drydep, drydep_overridden, &
-!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_gex_atm2lnd_diag) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,n)
+!$OMP      phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,id_RSL, &
+!$OMP      wetdconc, drydep, drydep_overridden, tws, &
+!$OMP      id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc,id_tws,id_gex_atm2lnd_diag) &
+!$OMP      private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,n)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
@@ -1432,6 +1434,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         __DEBUG1__(runoff_c(l,:))
      endif
   enddo
+
+  ! Calculate demand of irrigation rate for each gridcell
+  call irrigation_deficit()
 
   !--- pass runoff from unstructured grid to structured grid.
   runoff_sg = 0 ; runoff_c_sg = 0
@@ -1516,6 +1521,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! CMOR variables
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
+
+     ! Standard deviation diagnostics
+     call send_tile_data(id_snow_std, snow_LMASS+snow_FMASS, tile%diag)
+     call send_tile_data(id_water_std, subs_LMASS+subs_FMASS, tile%diag)
+
      ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
      call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
      if (id_tws>0) then
@@ -1525,7 +1535,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          tws(l) = tws(l) + (subs_LMASS+subs_FMASS)*tile%frac
      endif
   enddo
+
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
+
+  call soil_hlsp_diag()
 
   if (do_checksums) then
      __CHECK__(land2cplr%t_surf)
@@ -1725,6 +1738,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                                            ! heat swept with tiny snow
   integer :: nlayers ! numer of snow layers
   integer, parameter :: max_fog_steps = 2
+  real :: irr_flux  ! actual irrigation flux kg/(m2 s)
+  real :: hirr_flux ! heat of irrigated water W/m2
+  real :: hirr_fac
 
   ! ====== EZSNOW additional local variables
   real :: grnd_T_preprec
@@ -1892,6 +1908,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   cana_T   = tile%cana%T
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
+  irr_flux  = 0.0
+  hirr_flux = 0.0
 
   ! calculate conductances between canopy air and underlying surfaces, and between canopy
   ! air and vegetation if vegetation exists
@@ -1911,9 +1929,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      cana_co2_mol = cana_co2*mol_air/mol_CO2/(1-cana_q)
      if (phot_co2_overridden) cana_co2_mol = phot_co2_data
 
+     irr_flux = tile%soil%irr_rate !kg/(m2 s)
+     hirr_flux = tile%soil%hirr_rate !W/m2
+
      call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
         p_surf, drag_q, &
-        swdn, swnet, precip_l, precip_s, &
+        swdn, swnet, precip_l+irr_flux, precip_s, &
         cana_T, cana_q, cana_co2_mol, &
         con_v_h, con_v_v, &
         ! output
@@ -1934,7 +1955,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
      ! calculate precipitation intercepted by vegetation; need to be calculated here
      ! since vegn_lprec and vegn_fprec get modified with drip and overflow later
-     prveg = precip_l + precip_s - vegn_lprec - vegn_fprec
+     prveg = precip_l + irr_flux + precip_s - vegn_lprec - vegn_fprec !kg/(m2 s)
   else ! i.e., no vegetation
      swnet    = 0
      con_st_v = 0.0 ! does it matter?
@@ -2003,6 +2024,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     eT = evap_T
     gT = grnd_T
     vT = vegn_T
+    hirr_fac = 1.0
   else
     hlv_Tv = hlv    + cpw*(vegn_T-tfreeze)
     hls_Tv = hlf    + hlv_Tv
@@ -2012,6 +2034,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     eT = evap_T-tfreeze
     gT = grnd_T-tfreeze
     vT = vegn_T-tfreeze
+    if(irr_flux.gt.0.)then
+      hirr_fac = (clw*(precip_T-tfreeze)*precip_l + hirr_flux) / (clw*(precip_T-tfreeze)*(precip_l+irr_flux)) ! J/(kg K) * K * kg/(m2 s) = W/m2
+    else
+      hirr_fac = 1.0
+    endif
   endif
 
   call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
@@ -2183,7 +2210,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                 +hlv_Tu(k)*DEtDwf(k) + hlv_Tv(k)*DEliDwf(k) + hls_Tv(k)*DEsiDwf(k)
               B0(iTv+k-1) = sum(swnet(k,:)) &
                 + flwv0(k) - Hv0(k) - hlv_Tu(k)*Et0(k) - Hlv_Tv(k)*Eli0(k) - hls_Tv(k)*Esi0(k) &
-                + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
+                + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT*hirr_fac + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
                 - clw*vegn_drip_l(k)*vT(k) - csw*vegn_drip_s(k)*vT(k)
               B1(iTv+k-1) = DflwvDTg(k)
               B2(iTv+k-1) = 0
@@ -2515,7 +2542,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
           vegn_ovfl_l,   vegn_ovfl_s, &
           vegn_ovfl_Hl, vegn_ovfl_Hs )
      ! calculate heat carried by liquid and solid precipitation below the canopy
-     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze) &
+     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze)*hirr_fac &
                       + sum(f(:)*vegn_drip_l(:)*(vegn_T(:)+delta_Tv(:)-tfreeze)) &
                       ) + vegn_ovfl_Hl
      vegn_hfprec = csw*(vegn_fprec*(precip_T-tfreeze) &
@@ -2816,7 +2843,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (calc_water_cons) then
      call get_tile_water(tile,lmass1,fmass1)
      if (do_check_conservation) call check_conservation (tag,'water', &
-         lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
+         lmass0+fmass0+(precip_l+irr_flux+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
          lmass1+fmass1, water_cons_tol)
      v0=lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time
      call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
@@ -3021,6 +3048,17 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
   if (id_tslsiLut>0) &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
+
+  ! stdev variables
+  call send_tile_data(id_transp_std,vegn_uptk,tile%diag)
+  call send_tile_data(id_precip_std,precip_l+precip_s,tile%diag)
+  call send_tile_data(id_runf_std,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
+  call send_tile_data(id_evap_std,land_evap,tile%diag)
+  call send_tile_data(id_sens_std,land_sens,tile%diag)
+  call send_tile_data(id_total_C_std, land_tile_carbon(tile),tile%diag)
+  call send_tile_data(id_fprec_std,precip_s,tile%diag)
+  call send_tile_data(id_lprec_std,precip_l,tile%diag)
+
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
   if (id_cTot1 > 0) &
@@ -4329,6 +4367,9 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
 
+  !Std data
+!   call send_tile_data(id_grnd_T_std, land_grnd_T(tile),     tile%diag)
+
   contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
   subroutine realloc1(x,N)
@@ -4383,6 +4424,19 @@ subroutine update_land_bc_slow (land2cplr)
   endif
 
 end subroutine update_land_bc_slow
+
+! ============================================================================
+! AP Commented out for merge
+!  real function land_grnd_T(tile)
+!    type(land_tile_type), intent(in) :: tile
+
+!    if (associated(tile%glac)) land_grnd_T = tile%glac%T(1)
+!    if (associated(tile%lake)) land_grnd_T = tile%lake%T(1)
+!    if (associated(tile%soil)) land_grnd_T = tile%soil%T(1)
+
+!    if (snow_active(tile%snow)) land_grnd_T = tile%snow%T(1)
+!  end function land_grnd_T
+! END AP Commented out for merge
 
 
 ! ============================================================================
@@ -5167,6 +5221,30 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   call diag_field_add_attribute (id_grassFracC3, 'normalization_corrected', 'per-grid-cell-area')
   call diag_field_add_attribute (id_grassFracC4, 'normalization_corrected', 'per-grid-cell-area')
 
+  !Standard deviation of the values
+  id_transp_std  = register_tiled_diag_field ( module_name, 'transp_std', axes, time, &
+             'Transpiration', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_precip_std = register_tiled_diag_field ( module_name, 'precip_std', axes, time, &
+             'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_lprec_std = register_tiled_diag_field ( module_name, 'lprec_l_std', axes, time, &
+             'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_fprec_std = register_tiled_diag_field ( module_name, 'fprec_l_std', axes, time, &
+             'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_evap_std = register_tiled_diag_field ( module_name, 'evap_std', axes, time, &
+             'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_runf_std   = register_tiled_diag_field ( module_name, 'runf_std', axes, time, &
+             'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_snow_std = register_tiled_diag_field ( module_name, 'snow_std', axes, time, &
+             'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,op='stdev')
+  id_sens_std = register_tiled_diag_field ( module_name, 'sens_std', axes, time, &
+             'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,op='stdev')
+  id_water_std = register_tiled_diag_field ( module_name, 'water_std', axes, time, &
+             'column-integrated soil water', 'kg/m2', missing_value=-1.0e+20,op='stdev')
+  id_grnd_T_std = register_tiled_diag_field ( module_name, 'Tgrnd_std', axes, time, &
+       'ground surface temperature', 'degK', missing_value=-1.0,op='stdev')
+  id_total_C_std = register_tiled_diag_field ( module_name, 'Ctot_std', axes, time, &
+       'total land carbon', 'kg C/m2', missing_value=-1.0,op='stdev')
+
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','%', &
@@ -5280,7 +5358,7 @@ function is_crop(tile) result(answer); logical :: answer
   answer = .FALSE.
   if (.not.associated(tile)) return
   if (.not.associated(tile%vegn)) return
-  answer = (tile%vegn%landuse == LU_CROP)
+  answer = (tile%vegn%landuse == LU_RAINF.or.tile%vegn%landuse == LU_IRRIG)
 end function is_crop
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -5485,7 +5563,6 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   type(land_data_type), intent(inout) :: bnd  ! data to de-allocate
   logical, intent(in) :: dealloc_discharges
 
-  __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%t_surf )
   __DEALLOC__( bnd%t_ca )

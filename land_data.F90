@@ -359,7 +359,7 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   if (exists) then
      write(stdout(),*)'set_land_state_ug: reading land information from "INPUT/land_domain.nc" '// &
                       'to use number of land tiles per grid cell for efficient domain decomposition.'
- 	  call read_data(fileobj, "nland_face", num_lnd)
+     call read_data(fileobj, "nland_face", num_lnd)
      nland = sum(num_lnd)
      allocate(grid_index(nland))
      allocate(ntiles_grid(nland))

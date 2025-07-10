@@ -55,6 +55,7 @@ public :: soil_ave_temp  ! calculate average soil temperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
 public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
+public :: soil_ave_theta3
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta        ! returns array of soil moisture, for all layers
 public :: soil_porosity     ! returns array of soil porosity, for all layers
@@ -153,14 +154,28 @@ type :: soil_pars_type
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
   real tile_hlsp_width  ! width of tile perpendicular to hillslope, normalized to strm width (-)
                         ! (proportional to tile area)
-!  real transm_bedrock    ! bedrock / inf-depth-wat-tab transmissivity (m^2/s, or vol wat/m/s)
   real disturb_scale    ! characteristic horizontal disturbance lengthscale within hillslope (m)
                         ! This will need to be set in transitions; otherwise, defaults to 1/2
                         ! tile_hlsp_width.
 
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
+
+  real irr_fac_et
 end type soil_pars_type
 
+
+type :: soil_hlsp_type
+   integer :: nk_g = 0
+   integer :: nj_g = 0
+
+   real :: irrrate_soil = initval
+   real :: hirrrate_soil = initval
+   real :: absts_soil = initval
+   real :: habsts_soil = initval
+   real :: abstd_soil = initval
+   real :: habstd_soil = initval
+
+end type soil_hlsp_type
 
 type :: soil_tile_type
    integer :: tag ! kind of the soil
@@ -172,6 +187,7 @@ type :: soil_tile_type
        ! disturbance. So these indices function similarly to "tag".)
 
    type(soil_pars_type) :: pars
+   type(soil_hlsp_type) :: hlsp
 
    real, allocatable ::  &
        wl(:)           , & ! liquid water, kg/m2
@@ -224,7 +240,23 @@ type :: soil_tile_type
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
 
+
+   ! For irrigation module
+   real :: irr_demand_ac = 0. !kg/m2
+   real :: irr_rate      = 0. !kg/(m2 s)
+   real :: hirr_rate     = 0. !W/m2
+   real :: irr_area2frac_input= 0. !m2, per tile frac
+   real :: irr_area2frac_real = 0. !m2, per tile frac
+   real :: abst_s = 0. !kg/(m2 s)
+   real :: habst_s = 0. !W/m2
+   real :: abst_d = 0. !kg/(m2 s)
+   real :: habst_d = 0. !W/m2
    real :: r_pores ! surface pore radius, m
+
+   real :: irr_demand_ac_et = 0. !kg/m2
+   real :: irr_area2frac_input_et = 0. !m2, per tile frac
+   real :: irr_area2frac_real_et = 0. !m2, per tile frac
+
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -674,6 +706,14 @@ subroutine delete_soil_tile(ptr)
   deallocate(ptr)
 end subroutine delete_soil_tile
 
+! Begin AP Commented for merge - lookup not working, but not needed
+! subroutine soil_data_init_0d(soil)
+!  type(soil_tile_type), intent(inout) :: soil
+
+!  call soil_data_init_0d_lookup(soil,soil%tag)
+
+! end subroutine
+! End AP Commented for merge
 
 ! ============================================================================
 subroutine soil_data_init_0d(soil)
@@ -1252,6 +1292,28 @@ function soil_ave_theta2(soil, depth) result (A) ; real :: A
   enddo
   A = A/N
 end function soil_ave_theta2
+
+
+! ============================================================================
+function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
+    type(soil_tile_type), intent(in) :: soil
+    real, intent(in)                 :: depth ! m, averaging depth
+    integer, intent(out) :: layer
+    real    :: w ! averaging weight
+    real    :: N ! normalizing factor for averaging
+    integer :: k
+
+    A = 0 ; N = 0
+    do k = 1, num_l
+       w = dz(k) * exp(-zfull(k)/depth) !m
+       A = A +max(soil%wl(k)/(dens_h2o*dz(k)),0.0) * w ! kg/m2 / (kg/m3 * m) * m = m
+       N = N + w !m
+       if (zhalf(k+1).gt.depth) exit
+    enddo
+    A = A/N ! m / m = 1
+    layer = k
+  end function soil_ave_theta3
+
 
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water

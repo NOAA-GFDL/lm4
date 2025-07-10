@@ -7,6 +7,7 @@ use fms_mod, only : string, lowercase, error_mesg, FATAL, WARNING, NOTE
 use time_manager_mod, only : time_type, set_date, valid_calendar_types, get_calendar_type, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
      operator(//), operator(==)
+use time_interp_mod, only : time_interp ! used for irrigation
 use get_cal_time_mod, only : get_cal_time
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp_new, horiz_interp_del
 use fms2_io_mod, only: FmsNetcdfFile_t, Valid_t, read_data, open_file, close_file, &
@@ -43,13 +44,12 @@ character(len=*), parameter :: module_name = 'transitions_io_mod'
 
 ! ==== data types ===========================================================
 
-!> container for information about input file and grid information
+!> container for information about input file and grid
 !!
 !! We assume that all variables from this file are on the same grid (horizontal and time),
 !! that the valid values mask is the same does not change in time, and that the same
 !! normalization factor (if any) must be applied to all of them
 type :: infile_T
-  logical         :: initialized = .FALSE.
   character(1024) :: path      = '' !< file path
   character(1024) :: static    = '' !< static path
   character(16)   :: data_type = '' !< type of input data (LUH1 or LUH2). Due to differences
@@ -61,6 +61,7 @@ type :: infile_T
 
   type(time_type), allocatable :: time_in(:)   !< input data time axis
 
+  logical :: initialized      = .FALSE. !< set to TRUE when initialization completed successfully
   logical :: grid_initialized = .FALSE. !< set to TRUE when horizontal interpolator is set up
   integer                      :: nlon_in=-1, nlat_in=-1 !< sizes of input data horizontal grid
   real, allocatable            :: norm_in(:,:) !< normalizing factor to convert input data to
@@ -90,6 +91,7 @@ contains
   procedure :: descr    => varset_descr
   procedure :: destroy  => varset_destroy
   procedure :: get_data => varset_get_data
+  procedure :: interpolate => varset_interpolate
 end type varset_T
 
 ! ---- module variables
@@ -102,8 +104,8 @@ contains
 
 subroutine transition_io_init()
   if(module_is_initialized) return
-  call log_version(version, module_name, &
-  __FILE__)
+
+  call log_version(version, module_name, __FILE__)
   module_is_initialized = .TRUE.
 end subroutine transition_io_init
 
@@ -325,11 +327,11 @@ subroutine varset_add_var(this,infile,varname)
 end subroutine varset_add_var
 
 ! ============================================================================
-!> read, aggregate, and interpolate set of transitions
+!> read, aggregate, and interpolate (in horizontal dimensions) the set of transitions
 subroutine varset_get_data(this,rec,frac)
    class(varset_T), intent(in) :: this
-   integer, intent(in) :: rec
-   real, intent(out) :: frac(:)
+   integer, intent(in)  :: rec     !< 1-based index of time record to read from input fields
+   real,    intent(out) :: frac(:) !< aggregated value of this variable set
 
    real, allocatable :: buff0(:,:),buff1(:,:)
    integer :: i
@@ -350,6 +352,54 @@ subroutine varset_get_data(this,rec,frac)
    call horiz_interp_ug(this%file%interp,buff1*this%file%norm_in,frac)
    deallocate(buff0,buff1)
 end subroutine varset_get_data
+
+! ============================================================================
+!> interpolate variables that belong to the set in time
+subroutine varset_interpolate(this, time, frac, interp)
+  class(varset_T), intent(in)  :: this
+  type(time_type), intent(in)  :: time    !< time to interpolate to
+  real           , intent(out) :: frac(:) !< value of the aggregated and interpolated input fields, on unstructured grid
+  character(*)   , intent(in), optional :: interp !< time interpolation method
+    !! 'exact' interpolates linearly in time,
+    !! 'before' takes data from the beginning of the time interval,
+    !! 'after' takes data from the beginning of the time interval,
+    !! Default is 'exact'
+
+  real :: frac1(lnd%ls:lnd%le)
+  real :: frac2(lnd%ls:lnd%le)
+  integer :: i1,i2, n
+  real :: w  ! time interpolation weight
+  type(time_type) :: time_adjust
+  character(16) :: interp_
+
+  interp_ = 'exact'
+  if (present(interp)) interp_ = interp
+
+  if (.not.associated(this%file)) call error_mesg('transition_io',&
+       'variable set "'//trim(this%name)//'" has no associated file', FATAL)
+
+  n = size(this%file%time_in)
+  time_adjust = time
+  if (time_adjust<this%file%time_in(1)) time_adjust = this%file%time_in(1)
+  if (time_adjust>this%file%time_in(n)) time_adjust = this%file%time_in(n)
+
+  call time_interp(time_adjust, this%file%time_in, w, i1,i2)
+
+  select case (trim(lowercase(interp_)))
+  case('exact')
+     call this%get_data(i1,frac1)
+     call this%get_data(i2,frac2)
+
+     frac = frac1*(1-w)+frac2*w
+  case('before')
+     call this%get_data(i1,frac)
+  case('after')
+     call this%get_data(i2,frac)
+  case default
+     call error_mesg('transition_io',&
+         'time interpolation method "'//trim(interp)//'" is incorrect, must be "before", "after", or "exact"',FATAL)
+  end select
+end subroutine varset_interpolate
 
 ! ============================================================================
 !> string representation of variable set

@@ -49,7 +49,6 @@ public :: hlsp_config_check     ! Check configuration for errors, at the end of 
                                 ! Also deallocate any module variables used during cold start.
 public :: calculate_wt_init  ! Calculates water table depth for initialization to be returned by
                              ! horiz_wt_depth_to_init.
-
 ! =====end of public interfaces ==============================================
 
 ! =====private methods
@@ -608,6 +607,11 @@ subroutine hlsp_init(id_ug)
 
      if (.not.associated(tile%soil)) cycle
 
+     !NWC Note: Set the hillslope fraction to the grid cell fraction. The parameter tile_hlsp_frac
+     !has been added with the predefined tiles. However, for the baseline case it can be seen
+     !simply as the grid cell fraction
+    !  tile%soil%pars%tile_hlsp_frac = tile%frac
+
      hj = tile%soil%hidx_j
      hk = tile%soil%hidx_k
      ! ZMS Note: To allow multiple instances of each topo hillslope, add check here to see if
@@ -773,10 +777,10 @@ subroutine hlsp_diag_init(id_ug)
       missing_value=-100.0 )
 !   id_transm_bedrock = register_tiled_static_field ( module_name, 'bedrock_transmissivity', &
 !      axes, 'bedrock hydraulic transmissivity', 'm^2/s', missing_value=-100.0 )
-   id_hidx_j = register_tiled_static_field ( module_name, 'hillslope_position', &
-      axes, 'horizontal position index along hillslope', missing_value=0., op='sum' )
-   id_hidx_k = register_tiled_static_field ( module_name, 'hillslope_parent', &
-      axes, 'index of hillslope parent', missing_value=0., op='sum' )
+!    id_hidx_j = register_tiled_static_field ( module_name, 'hillslope_position', &
+!       axes, 'horizontal position index along hillslope', missing_value=0., op='sum' )
+!    id_hidx_k = register_tiled_static_field ( module_name, 'hillslope_parent', &
+!       axes, 'index of hillslope parent', missing_value=0., op='sum' )
 
 end subroutine hlsp_diag_init
 
@@ -834,9 +838,9 @@ subroutine hlsp_config_check()
 
   ! ZMS fill in this function
   ! NWC - Why is was this ever conditional??? Eventually set externally
-  if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
+  !if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
       call transitions_disturbance_length_init()
-  end if
+  !end if
 
   ! Deallocate variables used during init, as this function is called at end of land_model init
   ! sequence.

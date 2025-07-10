@@ -120,19 +120,30 @@ integer, public, parameter :: &
 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
+ M_LU_TYPES = 7, & ! including irrigated cropland
  LU_PAST    = 1, & ! pasture
- LU_CROP    = 2, & ! crops
+ LU_RAINF   = 2, & ! rain-fed crops
  LU_NTRL    = 3, & ! natural vegetation
  LU_SCND    = 4, & ! secondary vegetation
  LU_URBN    = 5, & ! urban
  LU_RANGE   = 6, & ! rangeland
+ LU_IRRIG   = 7, & ! irrigated crops
  LU_PSL     = 1001, & ! primary and secondary land, for LUMIP
- LU_PST     = 1002    ! pasture and rangeland, for LUMIP
+ LU_PST     = 1002, & ! pasture and rangeland, for LUMIP
+ LU_CRP     = 1003    ! rain-fed and irrigated croplands combined
 
 character(len=5), public, parameter  :: &
-     landuse_name (N_LU_TYPES) = (/ 'past ','crop ','ntrl ','scnd ', 'urbn ', 'range'/)
+     landuse_name (M_LU_TYPES) = [ character(5) :: &
+          'past ', 'rainf', 'ntrl', 'scnd', 'urbn', 'range', 'irrig' ]
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    ','rangeland'/)
+     landuse_longname (M_LU_TYPES) = [ character(32):: &
+          'pasture',         &
+          'rain-fed crops',  &
+          'natural',         &
+          'secondary',       &
+          'urban',           &
+          'rangeland',       &
+          'irrigated crops'  ]
 
 integer, public, parameter :: & ! harvesting pools parameters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -208,8 +219,9 @@ integer, protected :: snow_masking_option = -1
 integer, protected :: phen_theta_option = -1
 integer, protected :: tree_grass_option = -1
 
-! ---- public subroutine
+! ---- public subroutines
 public :: read_vegn_data_namelist
+public :: is_crop
 ! ==== end of public interfaces ==============================================
 
 ! ==== constants =============================================================
@@ -869,10 +881,12 @@ subroutine read_vegn_data_namelist()
   call print_species_data(stdlog(),.TRUE.)
 
   ! register selectors for land use type-specific diagnostics
-  do i=1, N_LU_TYPES
+  do i=1, M_LU_TYPES
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
           tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo
+  call register_tile_selector('crop', 'crop',&
+       tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_CRP )
   call register_tile_selector('psl', 'primary and secondary land',&
        tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_PSL )
   call register_tile_selector('pst', 'pasture and rangeland',&
@@ -1633,5 +1647,11 @@ subroutine print_species_data(unit, skip_default)
   call print(table,unit,head_width=32)
   deallocate(idx)
 end subroutine print_species_data
+
+logical function is_crop(lu_type)
+   integer, intent(in) :: lu_type
+
+   is_crop = (lu_type==LU_RAINF.or.lu_type==LU_IRRIG)
+end function
 
 end module

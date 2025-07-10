@@ -205,4 +205,9 @@ DEFINE_COHORT_ACCESSOR(real,Kla)
 ! ens for branch sapwood
 DEFINE_COHORT_ACCESSOR(real,brsw)
 
+! for reproducibility across mid-day restarts
+DEFINE_COHORT_ACCESSOR(real,carbon_gain)
+DEFINE_COHORT_ACCESSOR(real,bwood_gain)
+DEFINE_COHORT_ACCESSOR(real,npp_previous_day_tmp)
+
 end module vegn_accessors_mod

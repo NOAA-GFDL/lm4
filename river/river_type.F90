@@ -77,6 +77,14 @@ module river_type_mod
      real, dimension(:),        pointer :: vf_ref        => NULL()
      real, dimension(:),        pointer :: q10           => NULL()
      real, dimension(:),        pointer :: kinv          => NULL()
+     real, dimension(:,:),      pointer :: threshold     => NULL() !m3
+     real, dimension(:,:),      pointer :: env_flow      => NULL() !m3/s
+     real, dimension(:,:),      pointer :: abst          => NULL() !m3
+     real, dimension(:,:,:),    pointer :: abstflow_c    => NULL() !units as outflow_c, m3/s, J (m3/kg)/s
+     real, dimension(:,:),      pointer :: lake_abst     => NULL() !m3
+     real, dimension(:,:),      pointer :: lake_habst    => NULL() !J
+
+
      real                               :: o_exp
      real                               :: d_exp
      real                               :: w_exp
@@ -86,6 +94,7 @@ module river_type_mod
      integer                            :: nlon, nlat, num_species, num_c
      integer                            :: num_phys
      integer                            :: i_age ! index of the age tracer (or NO_TRACER)
+     integer                            :: nstep = 0
   end type river_type
 
   type Leo_Mad_trios

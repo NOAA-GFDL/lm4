@@ -40,9 +40,8 @@ use land_tile_selectors_mod, only : tile_selector_type, &
 use tile_diag_buff_mod, only : &
      diag_buff_type, init_diag_buff
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : &
-     is_watch_cell, check_conservation, &
-     water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, heat_cons_tol
+use land_debug_mod, only : is_watch_cell, &
+     check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, heat_cons_tol
 
 implicit none
 private
@@ -137,13 +136,13 @@ type :: land_tile_type
    integer :: tag = 0   ! defines type of the tile
 
    real    :: frac      ! fractional tile area, dimensionless
-   type(glac_tile_type),  pointer :: glac  => NULL() ! glacier model data
-   type(lake_tile_type),  pointer :: lake  => NULL() ! lake model data
-   type(soil_tile_type),  pointer :: soil  => NULL() ! soil model data
-   class(snow_tile_type), pointer :: snow  => NULL() ! snow data EZSNOW
-   type(cana_tile_type),  pointer :: cana  => NULL() ! canopy air data
-   type(vegn_tile_type),  pointer :: vegn  => NULL() ! vegetation model data
-   class(soil_BGC_t),     pointer :: soilc => NULL() ! soil carbon data
+   type  (glac_tile_type), pointer :: glac  => NULL() ! glacier model data
+   type  (lake_tile_type), pointer :: lake  => NULL() ! lake model data
+   type  (soil_tile_type), pointer :: soil  => NULL() ! soil model data
+   class (snow_tile_type), pointer :: snow  => NULL() ! snow data EZSNOW
+   type  (cana_tile_type), pointer :: cana  => NULL() ! canopy air data
+   type  (vegn_tile_type), pointer :: vegn  => NULL() ! vegetation model data
+   class (soil_BGC_t),     pointer :: soilc => NULL() ! soil carbon data
 
    type(diag_buff_type) :: diag ! diagnostic data storage
 
@@ -350,7 +349,7 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   integer, optional, intent(in) :: tag  ! general tile tag
   integer, optional, intent(in) :: htag_j  ! optional hillslope position tag
   integer, optional, intent(in) :: htag_k  ! optional hillslope parent tag
-  type(land_tile_type), pointer :: tile ! return value
+   type(land_tile_type), pointer :: tile ! return value
 
   ! ---- local vars
   integer :: glac_, lake_, soil_, vegn_
@@ -361,16 +360,16 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   soil_ = -1 ; if(present(soil)) soil_ = soil
   vegn_ = -1 ; if(present(vegn)) vegn_ = vegn
 
-  allocate(tile)
-  ! fill common fields
+   allocate(tile)
+   ! fill common fields
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
   tile%tag  = 0   ; if(present(tag))  tile%tag  = tag
 
-  ! create sub-model tiles
-  tile%cana => new_cana_tile()
+   ! create sub-model tiles
+   tile%cana => new_cana_tile()
   if(glac_>=0) tile%glac => new_glac_tile(glac_)
   if(lake_>=0) tile%lake => new_lake_tile(lake_)
-  tile%snow => new_snow_tile()
+   tile%snow => new_snow_tile()
   if(soil_>=0) then
     if (present(htag_j) .and. present(htag_k)) then
         tile%soil => new_soil_tile(soil_, htag_j, htag_k)
@@ -382,9 +381,8 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   end if
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
-  ! create a buffer for diagnostic output
-  call init_diag_buff(tile%diag)
-
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
 end function land_tile_ctor
 
 

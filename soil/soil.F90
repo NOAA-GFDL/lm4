@@ -5,19 +5,18 @@ module soil_mod
 
 #include "../shared/debug.inc"
 
-
 use mpp_mod, only: input_nml_file
-use fms_mod, only: error_mesg, string, check_nml_error, stdlog, mpp_pe, &
+use fms_mod, only: error_mesg, string, lowercase, check_nml_error, stdlog, mpp_pe, &
      mpp_root_pe, FATAL, WARNING, NOTE
+use fms2_io_mod,        only: FmsNetcdfFile_t, open_file, close_file
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, &
-     N_C_TYPES, C_FAST, C_SLOW, C_MIC, c_shortname, &
-     N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, l_shortname, &
-     seconds_per_year
+     N_C_TYPES, N_LITTER_POOLS, LITT_LEAF, l_shortname, &
+     seconds_per_year, days_per_year
 use land_numerics_mod, only : tridiag
 use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
@@ -32,7 +31,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, g_RT, aspect,&
      gw_scale_length, gw_scale_relief, gw_scale_soil_depth, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
-     soil_type_file, &
+     soil_type_file, soil_ave_theta3, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 use soil_accessors_mod ! use everything
 
@@ -60,7 +59,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
-use vegn_data_mod, only: spdata
+use vegn_data_mod, only: spdata, LU_IRRIG
 use vegn_cohort_mod, only : vegn_cohort_type, &
      cohort_uptake_profile, cohort_root_litter_profile
 
@@ -79,9 +78,7 @@ use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
      soil_index_constant, input_cover_types
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
-use river_mod, only : river_tracer_index
-
-use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
+use river_mod, only : river_tracer_index, num_fast_calls ! Kept for irrigation
 
 implicit none
 private
@@ -99,6 +96,9 @@ public :: soil_radiation
 public :: soil_step_1
 public :: soil_step_2
 public :: soil_data_beta
+
+public :: irrigation_deficit
+public :: soil_hlsp_diag
 
 ! helper functions that may be better moved elsewhere:
 ! public :: register_litter_soilc_diag_fields
@@ -124,6 +124,9 @@ logical :: write_when_flagged   = .false.
 logical :: corrected_lm2_gw     = .true.
 logical :: use_fringe           = .false.
 logical :: push_down_sfc_excess = .true.
+logical :: push_up_sfc_excess = .false.
+logical :: predefined_wtd = .false.
+logical :: excess_soil_water_to_numerical_runoff = .false.
 logical :: lrunf_from_div       = .true.
 logical :: cold_infilt          = .false.
 logical :: bottom_up_cold_infilt= .false.
@@ -142,8 +145,10 @@ logical :: horiz_init_wt        = .false.   ! initialize horizontal water table,
 logical :: use_coldstart_wtt_data = .false. ! read additional data for soil initialization
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
-logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are set to zero
-                                            ! in case water content of *any* layer is negative
+logical :: fix_neg_subsurface_wl       = .false.
+logical :: fix_neg_subsurface_wl_revisited       = .false.
+logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
+  ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
 real    :: cold_depth           = 0.
 real    :: bwood_macinf         = -1.
@@ -160,6 +165,12 @@ real :: tau_smooth_saturated_freq  = 2.0 ! time scale for saturated soil frequen
 real :: thresh_saturated           = 0.99 ! threshold for saturated condition: if water+ice content
 ! of a layer is higher than this fraction of porosity, then the soil is considered saturated for
 ! saturated frequency calculations
+
+character(32) :: irr_demand_to_use = 'none' ! or 'plant-evap-demand', or 'soil-water-deficit'
+real :: irr_fac = 0.5
+real :: irr_tau = 1. !days
+logical :: use_irr_fac_et_glob = .false.
+real :: irr_fac_et_glob = 5.
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -184,7 +195,11 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     bwood_macinf, &
                     layer_for_gw_switch, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
-                    tau_smooth_frozen_freq, tau_smooth_saturated_freq, thresh_saturated
+                    tau_smooth_frozen_freq, tau_smooth_saturated_freq, thresh_saturated, &
+                    fix_neg_subsurface_wl_revisited, excess_soil_water_to_numerical_runoff, &
+                    push_up_sfc_excess, predefined_wtd, &
+                    irr_demand_to_use, irr_fac, irr_tau, &
+                    use_irr_fac_et_glob, irr_fac_et_glob
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -203,6 +218,12 @@ integer :: i_river_DON     = NO_TRACER
 integer :: i_river_NO3     = NO_TRACER
 integer :: i_river_NH4     = NO_TRACER
 
+integer, parameter :: &
+    IRR_DEMAND_NONE = 1, & ! no irrigation demand: nothing is irrigated
+    IRR_DEMAND_EVAP = 2, & ! irrigation demand using plat evaporation demand-supply
+    IRR_DEMAND_FC   = 3    ! irrigation demand based on soil water content and field capacity
+integer :: irr_demand_option = -1
+
 ! ---- diagnostic field IDs
 ! unused:
 integer ::  &
@@ -210,7 +231,7 @@ integer ::  &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
     id_hie, id_hsn, id_hbf, id_hif, id_hal, id_hnu, id_hsc, &
     id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, &
-    id_slope_Z, id_zeta_bar, id_e_depth, id_vwc_sat, id_vwc_fc, &
+    id_slope_Z, id_zeta_bar, id_e_depth, id_vwc_sat, id_vwc_fc, id_irr_fac_et, &
     id_vwc_wilt, id_K_sat, id_K_gw, id_w_fc, id_alpha, &
     id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir, &
     id_f_iso_dry, id_f_vol_dry, id_f_geo_dry, &
@@ -260,6 +281,9 @@ integer ::  &
 !     id_total_NH4,id_total_NO3,&
 !     id_soil_NO3,id_soil_NH4
 
+! diag IDs of std of variables
+integer :: id_lwc_std,id_swc_std
+
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
@@ -270,6 +294,11 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
 !     id_csoilfast, id_csoilmedium, id_csoilslow, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
 !     id_cSoilAbove1m, &
 !     id_nSoil, id_nLitter, id_nLitterCwd, id_nLitterLeaf, id_nMineral, id_nMineralNH4, id_nMineralNO3
+
+! diag of irrigation-ralted variables
+integer :: id_irr_demand, id_irr_area_input, id_irr_area_real
+integer :: id_irr_rate, id_hirr_rate, id_abst_s, id_habst_s, id_abst_d, id_habst_d
+integer :: id_soil_area, id_soil_frac
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -339,6 +368,9 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
 
   integer :: i, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
+  real, dimension(lnd%ls:lnd%le) :: soil_frac
+
+!   integer :: ls, le                     ! compute domain decomposition
 
   type(land_restart_type) :: restart
   logical :: restart_exists
@@ -492,13 +524,39 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      end if
   endif ! single geo
 
+  ! parse irrigation options and read option-specific data
+  select case(trim(lowercase(irr_demand_to_use)))
+  case ('none')
+      irr_demand_option = IRR_DEMAND_NONE
+  case ('plant-evap-demand')
+      irr_demand_option = IRR_DEMAND_EVAP
+      allocate(gw_param(lnd%ls:lnd%le))
+      if (use_irr_fac_et_glob) then
+          gw_param(lnd%ls:lnd%le) = irr_fac_et_glob
+      else
+          exists = open_file(fileobj, "INPUT/irr_fac.nc", "read")
+          if (.not. exists) then
+             call error_mesg("soil_init", "INPUT/irr_fac.nc does not exist", FATAL)
+          endif
+          call read_field(fileobj, 'irr_fac', gw_param, interp='bilinear')
+          call close_file(fileobj)
+      endif
+      call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_irr_fac_et_ptr )
+      deallocate(gw_param)
+  case ('soil-water-deficit')
+      irr_demand_option = IRR_DEMAND_FC
+  case default
+      call error_mesg('soil_init','irr_demand_to use = "'//trim(irr_demand_to_use)// &
+         '" is incorrect, use "none", "plant-evap-demand", or "soil-water-deficit"', &
+         FATAL)
+  end select
+
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
      allocate(albedo(lnd%ls:lnd%le,NBANDS))
      exists = open_file(fileobj, "INPUT/soil_albedo.nc", "read")
      if (.not. exists) then
-       call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", &
-                       FATAL)
+        call error_mesg("soil_init", "INPUT/soil_albedo.nc does not exist", FATAL)
      endif
      call read_field( fileobj, 'SOIL_ALBEDO_VIS', albedo(:,BAND_VIS),'bilinear')
      call read_field( fileobj, 'SOIL_ALBEDO_NIR', albedo(:,BAND_NIR),'bilinear')
@@ -518,8 +576,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      allocate(refl_dif(lnd%ls:lnd%le,NBANDS))
      exists = open_file(fileobj, "INPUT/soil_brdf.nc", "read")
      if (.not. exists) then
-       call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", &
-                       FATAL)
+       call error_mesg("soil_init", "INPUT/soil_brdf.nc does not exist.", FATAL)
      endif
      call read_field( fileobj, 'f_iso_vis', f_iso(:,BAND_VIS),'bilinear')
      call read_field( fileobj, 'f_vol_vis', f_vol(:,BAND_VIS),'bilinear')
@@ -645,7 +702,12 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
           call get_tile_data(restart, 'saturated_freq', 'zfull', soil_saturated_freq_ptr)
      if(field_exists(restart, 'uptake_T')) &
           call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
+     if(field_exists(restart, 'irr_rate')) then
+          call get_tile_data(restart, 'irr_rate',  soil_irr_rate_ptr)
+          call get_tile_data(restart, 'hirr_rate', soil_hirr_rate_ptr)
+     endif
      call free_land_restart(restart)
+
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
@@ -660,6 +722,7 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   call send_tile_data_r0d_fptr(id_tau,          soil_tau_ptr)
   call send_tile_data_r0d_fptr(id_vwc_wilt,     soil_vwc_wilt_ptr)
   call send_tile_data_r0d_fptr(id_vwc_fc,       soil_vwc_fc_ptr)
+  call send_tile_data_r0d_fptr(id_irr_fac_et,   soil_irr_fac_et_ptr)
   call send_tile_data_r0d_fptr(id_vwc_sat,      soil_vwc_sat_ptr)
   call send_tile_data_r0d_fptr(id_K_sat,        soil_k_sat_ref_ptr)
   call send_tile_data_r0d_fptr(id_K_gw,         soil_k_sat_gw_ptr)
@@ -990,6 +1053,30 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_macro_infilt = register_tiled_diag_field (module_name, 'macro_inf', axes(1:1), &
        lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
 
+  id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
+       lnd%time, 'irrigation demand rate on soil area, only meaningful when the all demand has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )
+  id_irr_rate = register_tiled_diag_field ( module_name, 'irr_rate', axes(1:1), &
+       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)',  missing_value=-100.0 )
+  id_hirr_rate = register_tiled_diag_field ( module_name, 'hirr_rate', axes(1:1), &
+       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2',  missing_value=-100.0 )
+  id_abst_s = register_tiled_diag_field ( module_name, 'abst_s', axes(1:1), &
+       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )
+  id_habst_s = register_tiled_diag_field ( module_name, 'habst_s', axes(1:1), &
+       lnd%time, 'heat associated with shallow groundwater withdrawal', 'W/m2',  missing_value=-100.0 )
+  id_abst_d = register_tiled_diag_field ( module_name, 'abst_d', axes(1:1), &
+       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )
+  id_habst_d = register_tiled_diag_field ( module_name, 'habst_d', axes(1:1), &
+       lnd%time, 'heat associated with deep groundwater withdrawal', 'W/m2',  missing_value=-100.0 )
+  id_irr_area_input = register_tiled_diag_field ( module_name, 'irr_area_input', axes(1:1), &
+       lnd%time, 'irrigated area from input data', 'm2',  missing_value=-100.0 )
+  id_irr_area_real = register_tiled_diag_field ( module_name, 'irr_area_real', axes(1:1), &
+       lnd%time, 'real irrigated area', 'm2',  missing_value=-100.0 )
+
+  id_soil_area = register_tiled_diag_field ( module_name, 'soil_area', axes(1:1), &
+       lnd%time, 'soil area', 'm2',  missing_value=-100.0 )
+  id_soil_frac = register_tiled_diag_field ( module_name, 'soil_frac', axes(1:1), &
+       lnd%time, 'soil frac', '-',  missing_value=-100.0 )
+
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
   id_tau_gw = register_tiled_static_field ( module_name, 'tau_gw',  &
@@ -1010,6 +1097,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        axes(1:1), 'wilting water content', '-', missing_value=-100.0 )
   id_vwc_fc = register_tiled_static_field ( module_name, 'soil_fc',  &
        axes(1:1), 'field capacity', '-', missing_value=-100.0 )
+  id_irr_fac_et = register_tiled_static_field ( module_name, 'irr_fac_et',  &
+       axes(1:1), 'irrigation factor used in ET-based irrigation estimates', '-', missing_value=-100.0 )
   id_vwc_sat = register_tiled_static_field ( module_name, 'soil_sat',  &
        axes(1:1), 'soil porosity', '-', missing_value=-100.0 )
   id_K_sat = register_tiled_static_field ( module_name, 'soil_Ksat',  &
@@ -1219,6 +1308,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 !        missing_value=-100.0, standard_name='leaf_debris_mass_content_of_nitrogen', &
 !        fill_missing=.TRUE.)
 
+  !Std output
+  call set_default_diag_filter('soil')
+  id_lwc_std = register_tiled_diag_field ( module_name, 'soil_liq_std', axes,  &
+       lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0,op='stdev')
+  id_swc_std  = register_tiled_diag_field ( module_name, 'soil_ice_std',  axes,  &
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0,op='stdev')
+
 end subroutine soil_diag_init
 
 
@@ -1255,6 +1351,9 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'frozen_freq'  , 'zfull', soil_frozen_freq_ptr, 'frequency of frozen soil occurence')
   call add_tile_data(restart,'saturated_freq','zfull', soil_saturated_freq_ptr, 'frequency of saturated soil occurence')
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
+  ! irrigation fields
+  call add_tile_data(restart,'irr_rate',  soil_irr_rate_ptr,  'irrigation rate', 'kg/(m2 s)')
+  call add_tile_data(restart,'hirr_rate', soil_hirr_rate_ptr, 'heat carried by irrigation', 'W/m2')
 
   call save_land_restart(restart)
   call free_land_restart(restart)
@@ -1550,6 +1649,7 @@ end subroutine soil_step_1
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
+!  real, dimension(num_l  ) :: div_gtos,hdiv_gtos
   real, dimension(num_l  ) :: hdiv_it, &! divergence of heat due to inter-tile water flow [W/m^2]
        div_bf, & ! baseflow [mm/s]
        div_if, & ! interlow [mm/s]
@@ -1849,11 +1949,13 @@ end subroutine soil_step_1
   endif
 
   ! ---- push down any excess surface water, with heat ---------------------
+  lrunf_nu=0; hlrunf_nu=0; frunf=0; hfrunf = 0
   IF (PUSH_DOWN_SFC_EXCESS) THEN
      CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
-  ELSE
-     lrunf_nu=0; hlrunf_nu=0; frunf=0; hfrunf = 0
-  ENDIF
+  endif
+  if (push_up_sfc_excess) then
+     call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  endif
 
   ! ---- fetch soil hydraulic properties -----------------------------------
   do l = 1, num_l
@@ -2121,7 +2223,7 @@ end subroutine soil_step_1
   END SELECT
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
-  lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -2420,13 +2522,32 @@ end subroutine soil_step_1
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
+
+  if (is_watch_cell()) then
+    write(*,*)'Checking on lrunf_nu before soil_push_down_excess'
+    __DEBUG1__(lrunf_nu)
+  endif
+
+!!! AP, April 1 2025 --> Commented out to test if this is causing problems with the water conservation
+!   IF (PUSH_DOWN_SFC_EXCESS) THEN
+!      CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+!   endif
+!   if (push_up_sfc_excess) then
+!      call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+!   endif
+
+  if (is_watch_cell()) then
+    write(*,*)'Checking on lrunf_nu after soil_push_down_excess'
+    __DEBUG1__(lrunf_nu)
+  endif
+
   if (lrunf_from_div) then
-     soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
-     if (gw_option /= GW_TILED) then
-         soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
+    soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
+    if (gw_option /= GW_TILED) then
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
      else
-         soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
              + hlrunf_nu + hlrunf_sc
      end if
   else
@@ -2669,7 +2790,213 @@ end subroutine soil_step_1
   call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
   call send_tile_data(id_saturated_freq, soil%saturated_freq, diag)
 
+  ! std variables
+  if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
+  if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
+
 end subroutine soil_step_2
+
+! ============================================================================
+subroutine soil_excess_to_numerical_runoff ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(out) :: lrunf_nu, hlrunf_nu
+  real, intent(out) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  lrunf_nu = 0.0
+  hlrunf_nu = 0.0
+  frunf = 0.0
+  hfrunf = 0.0
+  do l = 1,num_l
+   !if (zhalf(l) .gt. soil%pars%soil_e_depth)exit
+   liq_frac=0;excess_wat=0;excess_liq=0;excess_ice=0;h1=0;h2=0
+   summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
+   if (summax > 0) then
+      liq_frac = max(0.,soil%wl(l)) / summax
+   else
+      liq_frac = 1
+   endif
+   excess_wat = max(0., soil%wl(l) + soil%ws(l) &
+        - dens_h2o*dz(l)*soil%vwc_max(l) )
+   excess_liq = exp(-zhalf(l)/soil%pars%soil_e_depth)*excess_wat*liq_frac
+   excess_ice = exp(-zhalf(l)/soil%pars%soil_e_depth)*(excess_wat-excess_liq)
+   excess_t   = soil%T(l)
+   soil%wl(l) = soil%wl(l) - excess_liq
+   soil%ws(l) = soil%ws(l) - excess_ice
+
+   ! to avoid adding frozen runoff to soil interface, melt all remaining
+   ! excess ice, even if it results in supercooled liquid runoff
+   if (supercooled_rnu) then
+     lrunf_nu  = lrunf_nu + (excess_liq+excess_ice) / delta_time
+     hlrunf_nu = hlrunf_nu + (  excess_liq*clw*(excess_T-tfreeze)  &
+                  + excess_ice*csw*(excess_T-tfreeze)  &
+                  - hlf_factor*hlf*excess_ice                   ) / delta_time
+     frunf = 0.
+     hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+     lrunf_nu = lrunf_nu + excess_liq / delta_time
+     hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+     frunf = frunf + excess_ice / delta_time
+     hfrunf = hfrunf + excess_ice*csw*(excess_T-tfreeze) / delta_time
+  end if
+ enddo
+
+end subroutine soil_excess_to_numerical_runoff
+
+! ============================================================================
+subroutine soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(inout) :: lrunf_nu, hlrunf_nu
+  real, intent(inout) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, excess_heat, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  !Collect excesses
+  excess_liq = 0.0
+  excess_ice = 0.0
+  excess_heat = 0.0
+  do l = num_l,1,-1
+   excess_wat=0;h1=0;h2=0
+   excess_wat = max(0., max(soil%wl(l),0.0) - dens_h2o*dz(l)*soil%vwc_max(l) - max(soil%ws(l),0.0))
+   excess_liq = excess_liq + excess_wat
+   soil%wl(l) = soil%wl(l) - excess_wat
+   excess_heat = excess_heat + soil%T(l)*(clw*excess_wat)
+   if (excess_liq > 0) then
+     excess_T = excess_heat/(excess_liq*clw)
+     space_avail = dens_h2o*dz(l)*soil%vwc_max(l) - (max(soil%wl(l),0.0) + max(soil%ws(l),0.0))
+     liq_placed = max(min(space_avail, excess_liq), 0.)
+     h1 = (soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l) + csw*soil%ws(l))
+     h2 = liq_placed*clw
+     soil%T(l) = (h1 * soil%T(l) &
+           + h2 * excess_T )  / (h1+h2)
+     soil%wl(l) = soil%wl(l) + liq_placed
+     excess_liq = excess_liq - liq_placed
+     excess_heat = excess_heat - h2 * excess_T
+   endif
+  enddo
+
+! to avoid adding frozen runoff to soil interface, melt all remaining
+! excess ice, even if it results in supercooled liquid runoff
+  if (excess_liq > 0.0)then
+   excess_t = excess_heat/(excess_liq*clw)
+   if (supercooled_rnu) then
+      lrunf_nu  = lrunf_nu + excess_liq / delta_time !(excess_liq+excess_ice) / delta_time
+      hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+      !frunf = 0.
+      !hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+      lrunf_nu = lrunf_nu + excess_liq / delta_time
+      hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+      !frunf = 0.0!excess_ice / delta_time
+      !hfrunf = 0.0!excess_ice*csw*(excess_T-tfreeze) / delta_time
+   end if
+  endif
+
+end subroutine soil_push_up_excess
+
+! ============================================================================
+subroutine soil_push_up_excess_old ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(out) :: lrunf_nu, hlrunf_nu
+  real, intent(out) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, excess_heat, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  !Collect excesses
+  excess_liq = 0.0
+  excess_ice = 0.0
+  excess_heat = 0.0
+  do l = num_l,1,-1
+   liq_frac=0;excess_wat=0;h1=0;h2=0
+   !summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
+   !if (summax > 0) then
+   !   liq_frac = max(0.,soil%wl(l)) / summax
+   !else
+   !   liq_frac = 1
+   !endif
+   !excess_wat = max(0., soil%wl(l) + soil%ws(l) &
+   !     - dens_h2o*dz(l)*soil%vwc_max(l) )
+   excess_wat = max(0., max(soil%wl(l),0.0) - dens_h2o*dz(l)*soil%vwc_max(l) - max(soil%ws(l),0.0))
+   !print*,l,excess_liq,excess_ice,excess_wat*liq_frac,excess_wat-excess_liq
+   excess_liq = excess_liq + excess_wat
+   !excess_liq = excess_liq + excess_wat*liq_frac
+   !excess_ice = excess_ice + excess_wat - excess_wat*liq_frac
+   !excess_heat = excess_heat + soil%T(l)*(clw*excess_wat*liq_frac + csw*(excess_wat - excess_wat*liq_frac))
+   soil%wl(l) = soil%wl(l) - excess_wat!excess_wat*liq_frac
+   !soil%ws(l) = soil%ws(l) - excess_wat + excess_wat*liq_frac
+  enddo
+
+  !Fill in
+  do l = num_l,1,-1
+   !if (excess_liq+excess_ice>0) then
+   if (excess_liq > 0) then
+     !excess_T = excess_heat/(excess_liq*clw + excess_ice*csw)
+     excess_T = excess_heat/(excess_liq*clw)
+     !space_avail = dens_h2o*dz(l)*soil%vwc_max(l) &
+     !      - (soil%wl(l) + soil%ws(l))
+     space_avail = dens_h2o*dz(l)*soil%vwc_max(l) - (max(soil%wl(l),0.0) + max(soil%ws(l),0.0))
+     !print*,l,dens_h2o*dz(l)*soil%vwc_max(l),(soil%wl(l) + soil%ws(l))
+     liq_placed = max(min(space_avail, excess_liq), 0.)
+     !ice_placed = max(min(space_avail-liq_placed, excess_ice), 0.)
+     !h1 = (soil%heat_capacity_dry(l)*dz(l) &
+     !      + csw*soil%ws(l) + clw*soil%wl(l))
+     h1 = (soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l))
+     !h2 = liq_placed*clw+ice_placed*csw
+     h2 = liq_placed*clw
+     soil%T(l) = (h1 * soil%T(l) &
+           + h2 * excess_T )  / (h1+h2)
+     soil%wl(l) = soil%wl(l) + liq_placed
+     !soil%ws(l) = soil%ws(l) + ice_placed
+     excess_liq = excess_liq - liq_placed
+     !print*,soil%wl(l),excess_liq,liq_placed
+     !excess_ice = excess_ice - ice_placed
+     excess_heat = excess_heat - h2 * excess_T
+   endif
+  enddo
+  !print*,excess_liq,excess_ice,excess_heat
+
+! to avoid adding frozen runoff to soil interface, melt all remaining
+! excess ice, even if it results in supercooled liquid runoff
+  !if (excess_liq + excess_ice > 0.0)then
+  if (excess_liq > 0.0)then
+   !excess_t = excess_heat/(excess_liq*clw + excess_ice*csw)
+   excess_t = excess_heat/(excess_liq*clw)
+   if (supercooled_rnu) then
+      lrunf_nu  = excess_liq / delta_time !(excess_liq+excess_ice) / delta_time
+      hlrunf_nu = excess_liq*clw*(excess_T-tfreeze) / delta_time
+                  !(  excess_liq*clw*(excess_T-tfreeze)  &
+                  ! + excess_ice*csw*(excess_T-tfreeze)  &
+                  ! - hlf_factor*hlf*excess_ice                   ) / delta_time
+      frunf = 0.
+      hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+      lrunf_nu = excess_liq / delta_time
+      hlrunf_nu = excess_liq*clw*(excess_T-tfreeze) / delta_time
+      frunf = 0.0!excess_ice / delta_time
+      hfrunf = 0.0!excess_ice*csw*(excess_T-tfreeze) / delta_time
+   end if
+  endif
+
+end subroutine soil_push_up_excess_old
 
 ! ============================================================================
 subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
@@ -2749,8 +3076,8 @@ subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrun
   if(is_watch_point()) then
      write(*,*) ' ##### push_down_excess output #####'
      __DEBUG2__(lrunf_nu,hlrunf_nu)
-     write(*,*) 'For watch_cell'
-     __DEBUG3__(soil%hidx_k, frunf, hfrunf)
+    !  write(*,*) 'For watch_cell'
+    !  __DEBUG3__(soil%hidx_k, frunf, hfrunf)
      do l = 1, num_l
         write(*,'(i2.2,x)',advance='NO') l
         call dpri('T=',soil%T(l))
@@ -2779,7 +3106,7 @@ end subroutine soil_push_down_excess
   ! ---- local vars ----------------------------------------------------------
   integer l, ipt, jpt, kpt, fpt, l_internal
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dW_l_internal, w_to_move_up
+  real aaa, bbb, ccc, ddd, xxx, dW_l_internal, w_shortage
   logical flag
 
   flag = .false.
@@ -2941,28 +3268,53 @@ end subroutine soil_push_down_excess
      if (verbose) then
          call get_current_point(ipt,jpt,kpt,fpt)
          write(*,*) '=== warning: dPsi=',dPsi(1),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
-       endif
-     l_internal = 1
-     dW_l_internal = -1.e20
-     do l = 2, num_l
-        if (dW_l(l).gt.dW_l_internal) then
-           l_internal = l
-           dW_l_internal = dW_l(l)
-        endif
-     enddo
-     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
-     w_to_move_up = max(w_to_move_up, 0.)
-     write(*,*) 'l_internal=',l_internal
-     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
-     write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_internal.gt.1) then
-        dW_l(1) = dW_l(1) + w_to_move_up
-        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
-        do l = 2, l_internal
-           flow(l) = flow(l) - w_to_move_up
-        enddo
      endif
+     w_shortage = -(soil%wl(1)+dW_l(1))
+     l_internal = 1
+     call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+  endif
+
+! Adjust for negative water content in subsurface.
+  if (fix_neg_subsurface_wl) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_internal = l
+        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+        call move_up(dW_l, flow, w_shortage, num_l, l_internal)
+      endif
+    enddo
+  endif
+
+  if (fix_neg_subsurface_wl_revisited) then
+    !do l=1, num_l
+    !  if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+    !    call get_current_point(ipt,jpt,kpt,fpt)
+    !    !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+    !    l_internal = l
+    !    w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+    !    call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+    !  endif
+    !enddo
+    !do l=1, num_l
+    !  if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+    !    call get_current_point(ipt,jpt,kpt,fpt)
+    !    !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+    !    l_internal = l
+    !    w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+    !    call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+    !  endif
+    !enddo
+    do l=1, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_internal = l
+        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+        call move_all_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz, soil%pars%vwc_sat)
+      endif
+    enddo
   endif
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -3002,7 +3354,161 @@ end subroutine richards_clean
 
 
 ! ============================================================================
-subroutine advection(soil, flow, dW_l, tflow, d_GW, div, delta_time)
+  subroutine move_up_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_up
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+     l_source = l_internal
+     dW_l_source = -1.e20
+     do l = l_internal+1, num_l
+        !if (dW_l(l).gt.dW_l_source) then
+        if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
+           l_source = l
+           dW_l_source = dW_l(l)
+           exit
+        endif
+     enddo
+     !w_to_move_up = min(dW_l_source, w_shortage)
+     !w_to_move_up = max(w_to_move_up, 0.)
+     w_to_move_up = w_shortage
+     !write(*,*) 'l_internal,l_source=',l_internal,l_source
+     !write(*,*) 'dW_l_source=',dW_l_source
+     !write(*,*) 'w_shortage=',w_shortage
+     !write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.gt.l_internal) then
+        dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
+        dW_l(l_source) = dW_l(l_source) - w_to_move_up
+        do l = l_internal+1, l_source
+           flow(l) = flow(l) - w_to_move_up
+        enddo
+     endif
+  end subroutine move_up_revisited
+
+  subroutine move_down_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_down
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+     l_source = l_internal
+     dW_l_source = -1.e20
+     do l = l_internal-1, 1, -1
+        !if (dW_l(l).gt.dW_l_source) then
+        if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
+           l_source = l
+           dW_l_source = dW_l(l)
+           exit
+        endif
+     enddo
+     !w_to_move_up = min(dW_l_source, w_shortage)
+     !w_to_move_up = max(w_to_move_up, 0.)
+     w_to_move_down = w_shortage
+     !write(*,*) 'l_internal,l_source=',l_internal,l_source
+     !write(*,*) 'dW_l_source=',dW_l_source
+     !write(*,*) 'w_shortage=',w_shortage
+     !write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.lt.l_internal) then
+        dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_down
+        dW_l(l_source) = dW_l(l_source) - w_to_move_down
+        do l = l_source, l_internal-1
+           flow(l+1) = flow(l+1) + w_to_move_down
+        enddo
+     endif
+  end subroutine move_down_revisited
+
+  subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz, vwc_sat)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(in) :: vwc_sat
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(inout)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l2
+  real w_to_move_up, w_to_move_down
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+
+     do l = l_internal+1, num_l
+        if ((w_l(l)+dW_l(l)) .gt. 0.01*dz(l)) then
+           w_to_move_up = min(w_l(l)+dW_l(l)-0.01*dz(l),w_shortage)
+           dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
+           dW_l(l) = dW_l(l) - w_to_move_up
+           do l2 = l_internal+1, l
+             flow(l2) = flow(l2) - w_to_move_up
+           enddo
+           w_shortage = w_shortage - w_to_move_up
+           if (w_shortage <= -thetathresh*(dens_h2o*dz(l_internal)*vwc_sat))then
+             return
+           endif
+        endif
+     enddo
+
+     do l = l_internal-1, 1, -1
+        if ((w_l(l)+dW_l(l)) .gt. 0.01*dz(l)) then
+           w_to_move_down = min(w_l(l)+dW_l(l)-0.01*dz(l),w_shortage)
+           dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_down
+           dW_l(l) = dW_l(l) - w_to_move_down
+           do l2 = l, l_internal-1
+              flow(l2+1) = flow(l2+1) + w_to_move_down
+           enddo
+           w_shortage = w_shortage - w_to_move_down
+           if (w_shortage <= -thetathresh*(dens_h2o*dz(l_internal)*vwc_sat))then
+             return
+           endif
+        endif
+     enddo
+
+     print*,'WARNING: negative soil water storage, Th=', -w_shortage/(dens_h2o*dz(l_internal)*vwc_sat)
+
+  end subroutine move_all_revisited
+
+! ============================================================================
+  subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)
+   real, intent(inout), dimension(num_l)   :: dW_l
+   real, intent(inout), dimension(num_l+1) :: flow
+   real, intent(in)                        ::  w_shortage
+   integer, intent(in)                     ::  num_l, l_internal
+   ! ---- local vars ----------------------------------------------------------
+   integer l, l_source
+   real dW_l_source, w_to_move_up
+      l_source = l_internal
+      dW_l_source = -1.e20
+      do l = l_internal+1, num_l
+         if (dW_l(l).gt.dW_l_source) then
+            l_source = l
+            dW_l_source = dW_l(l)
+         endif
+      enddo
+      w_to_move_up = min(dW_l_source, w_shortage)
+      w_to_move_up = max(w_to_move_up, 0.)
+      write(*,*) 'l_internal,l_source=',l_internal,l_source
+      write(*,*) 'dW_l_source=',dW_l_source
+      write(*,*) 'w_shortage=',w_shortage
+      write(*,*) 'w_to_move_up=',w_to_move_up
+      if (l_source.gt.l_internal) then
+         dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
+         dW_l(l_source) = dW_l(l_source) - w_to_move_up
+         do l = l_internal+1, l_source
+            flow(l) = flow(l) - w_to_move_up
+         enddo
+      endif
+   end subroutine move_up
+
+! ============================================================================
+  subroutine advection(soil, flow, dW_l, tflow, d_GW, div, delta_time)
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in), dimension(:) :: flow  ! water tendency downwards into layer [mm]
   real, intent(in), dimension(:) :: dW_l  ! net water tendency in layer [mm]
@@ -3047,15 +3553,15 @@ subroutine advection(soil, flow, dW_l, tflow, d_GW, div, delta_time)
   fff(num_l-1) = aaa*(soil%T(num_l)-soil%T(num_l-1)) / bbb
 
   do l = num_l-1, 2, -1
-     hcap = (soil%heat_capacity_dry(l)*dz(l) &
-                               + csw*soil%ws(l))/clw
-     aaa = -flow(l)   * u_minus(l)
-     ccc =  flow(l+1) * u_plus (l)
-     bbb =  hcap + soil%wl(l) - dW_l(l) - aaa - ccc
-     eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
-     fff(l-1) = (   aaa*(soil%T(l)-soil%T(l-1))    &
-                        + ccc*(soil%T(l)-soil%T(l+1))    &
-                        - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
+    hcap = (soil%heat_capacity_dry(l)*dz(l) &
+                              + csw*soil%ws(l))/clw
+    aaa = -flow(l)   * u_minus(l)
+    ccc =  flow(l+1) * u_plus (l)
+    bbb =  hcap + soil%wl(l) - dW_l(l) - aaa - ccc
+    eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
+    fff(l-1) = (   aaa*(soil%T(l)-soil%T(l-1))    &
+                       + ccc*(soil%T(l)-soil%T(l+1))    &
+                       - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
   enddo
 
   hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%ws(1))/clw
@@ -3138,6 +3644,9 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
    real :: esum1, esum2 ! [W/m^2] heat content of soil before and after solution
    real, parameter :: ethresh = 1.e-4 ! [W/m^2] Allowable error in energy solution for roundoff
 
+  ! Initialize local variables
+  del_t(:) = 0.0 ! Needed?
+
 !   if (do_component_balchecks) then
       esum1 = clw*max(flow(1), 0.)*(tflow-tfreeze) ! initialize to incoming surface energy tendency
       do l = 1, num_l
@@ -3206,6 +3715,11 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
 
    ! Update temperature
    call tridiag(aaa, bbb, ccc, ddd, del_t)
+   ! NWC If there are NaNs then sen del_t to 0. If not this will crash. Probably
+   ! want to revisit this at some point.
+   do l =1,num_l
+    if (isnan(del_t(l))) del_t(l) = 0.0
+   enddo
    t_soil_tridiag(1:num_l) = soil%T(1:num_l) + del_t(1:num_l)
 
    if (use_tridiag_foradvec) then
@@ -3374,5 +3888,190 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
       end do
    end if
 end subroutine init_soil_twc
+! ============================================================================
+! hillslope output
+subroutine soil_hlsp_diag()
+  integer :: i,l,k
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
+  type(land_tile_type), pointer :: tile    ! pointer to tile
+
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle
+       !some irrigation variables are ouput here
+       call send_tile_data(id_irr_rate, tile%soil%irr_rate, tile%diag) !kg/(m2 s)
+       call send_tile_data(id_hirr_rate, tile%soil%hirr_rate, tile%diag) !W/m2
+       call send_tile_data(id_abst_s, tile%soil%abst_s, tile%diag)
+       call send_tile_data(id_habst_s, tile%soil%habst_s, tile%diag)
+       call send_tile_data(id_abst_d, tile%soil%abst_d, tile%diag)
+       call send_tile_data(id_habst_d, tile%soil%habst_d, tile%diag)
+
+     enddo
+  enddo
+
+end subroutine soil_hlsp_diag
+
+! ============================================================================
+! Calculate irrigation demand for each gridcell
+subroutine irrigation_deficit()
+  ! ---- local vars ----------------------------------------------------------
+  type(land_tile_enum_type)     :: ce   ! tile iterator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
+  real  :: &
+       irr_demand_ac, & !kg/m2
+       irr_area_temp, irr_area_input
+  real  :: time_fac
+  integer :: l, j, i, k
+  real :: depth_ave, theta_test, soil_def, irr_cohorts, soil_target
+  integer :: layer
+  integer, save :: n = 0  ! fast time step within each slow time step
+  real :: atots(lnd%ls:lnd%le) ! fraction of land occupied by soil in each grid cell, unitless
+
+  real, parameter :: percentile = 0.95
+
+ atots = 0.
+ do l=lnd%ls, lnd%le ! entire land domain by grid cell
+     ce = first_elmt(land_tile_map(l))
+     k = 1
+     do while(loop_over_tiles(ce,tile))
+       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac
+       k= k+1
+     enddo
+ enddo
+
+ n = n + 1 ! increment time step counter
+
+ do l=lnd%ls, lnd%le
+   ce = first_elmt(land_tile_map(l))
+   do while(loop_over_tiles(ce,tile,k=k))
+      call set_current_point(l,k)
+      if (.not.associated(tile%soil)) cycle
+      associate(soil => tile%soil, vegn => tile%vegn)
+
+      select case (irr_demand_option)
+      case (IRR_DEMAND_FC)
+         ! demand based on soil moisture availability
+         !update soil%irr_demand_ac, soil%irr_area2frac_input, soil%irr_area2frac_real only when n == num_fast_calls
+         IF(n == num_fast_calls) THEN
+            irr_demand_ac  = 0.
+            irr_area_input = 0.
+            irr_area_temp  = 0.
+
+            if(vegn%landuse == LU_IRRIG) then
+               irr_area_input = tile%frac*lnd%ug_area(l)
+               irr_area_temp = tile%frac*lnd%ug_area(l) !m2
+               irr_demand_ac = 0. !kg/m2
+               do i = 1, vegn%n_cohorts
+                  ! depth for 95% of root according to Jackson distribution
+                  depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
+                  theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
+                  soil_target = soil%w_wilt(1) + irr_fac*(soil%w_fc(1)-soil%w_wilt(1)) !1
+                  if(is_watch_point()) then
+                     write(*,*) '########### irrigation checkpoint 1 ###########'
+                     __DEBUG1__(vegn%landuse)
+                     __DEBUG1__(depth_ave)
+                     __DEBUG1__(theta_test)
+                     __DEBUG1__(soil_target)
+                     __DEBUG1__(soil%w_wilt(1))
+                     __DEBUG1__(irr_fac)
+                     __DEBUG1__(soil%w_fc(1))
+                  end if
+                  if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
+                     call check_var_range(tile%frac, 0.0, 0.5, 'irrigation_tile', 'tile%frac', WARNING)
+                     soil_def = max(0., soil_target-theta_test) ! 1
+                     time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)
+                     irr_cohorts = soil_def*(dens_h2o*sum(dz(1:layer)))*time_fac ! kg/m3 * m = kg/m2
+                  else
+                     irr_cohorts = 0.
+                  endif
+                  irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
+                  !   call check_var_range(irr_demand_ac,0.0,0.1,'irrigation_deficit','irr_demand_ac', WARNING)
+               enddo
+               if(irr_demand_ac == 0.) irr_area_temp = 0.
+            endif ! if(vegn%landuse /= LU_IRRIG)
+            soil%irr_demand_ac = irr_demand_ac ! kg/m2
+            soil%irr_area2frac_input = irr_area_input / tile%frac !m2
+            soil%irr_area2frac_real = irr_area_temp / tile%frac !m2
+         endif ! num_fast_calls
+
+         call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
+         call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
+         call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
+
+     case (IRR_DEMAND_EVAP)
+         ! irrigation demand based on plant water deficit
+         irr_demand_ac=0.
+         irr_area_input = 0.
+         irr_area_temp = 0.
+         if(vegn%landuse == LU_IRRIG) then
+            irr_area_input = tile%frac*lnd%ug_area(l)
+            irr_area_temp = tile%frac*lnd%ug_area(l) !m2
+            irr_demand_ac = 0. !kg/m2
+            do i = 1, vegn%n_cohorts
+               if(vegn%cohorts(i)%evap_demand > vegn%cohorts(i)%soil_water_supply &
+                  .and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
+                  if(.not.use_irr_fac_et_glob)then
+                     irr_cohorts = soil%pars%irr_fac_et &
+                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
+                                 * vegn%cohorts(i)%nindivs &
+                                 * delta_time !kg/m2
+                  else
+                     irr_cohorts = irr_fac_et_glob &
+                                 * (vegn%cohorts(i)%evap_demand-vegn%cohorts(i)%soil_water_supply) &
+                                 * vegn%cohorts(i)%nindivs &
+                                 * delta_time !kg/m2
+                  endif
+               else
+                  irr_cohorts = 0.
+               endif
+               irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
+            enddo
+            if(irr_demand_ac == 0.) irr_area_temp = 0.
+         endif ! if(vegn%landuse == LU_IRRIG)
+
+         soil%irr_demand_ac_et = soil%irr_demand_ac_et + irr_demand_ac ! kg/m2
+         soil%irr_area2frac_real_et = soil%irr_area2frac_real_et + irr_area_temp / tile%frac /num_fast_calls !m2
+         if(n == num_fast_calls)then ! once a day...
+            soil%irr_demand_ac = soil%irr_demand_ac_et
+            soil%irr_area2frac_input = irr_area_input / tile%frac !m2
+            soil%irr_area2frac_real = soil%irr_area2frac_real_et
+            if(is_watch_point()) then
+               write(*,*) '########### irrigation checkpoint not using field capacity ###########'
+               __DEBUG1__(soil%irr_demand_ac_et)
+               __DEBUG1__(soil%irr_area2frac_real_et)
+               __DEBUG1__(soil%irr_demand_ac)
+               __DEBUG1__(soil%irr_area2frac_input)
+            end if
+            soil%irr_demand_ac_et = 0. ! kg/m2
+            soil%irr_area2frac_real_et = 0. !m2
+         endif
+
+         call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
+         call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)
+         call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
+
+      case (IRR_DEMAND_NONE)
+         ! do nothing
+      end select
+
+      if(is_watch_point()) then
+         write(*,*) '########### irrigation checkpoint 1.5 ###########'
+         __DEBUG1__(soil%irr_demand_ac_et)
+         __DEBUG1__(soil%irr_area2frac_real_et)
+         __DEBUG1__(soil%irr_demand_ac)
+         __DEBUG1__(soil%irr_area2frac_input)
+      end if
+
+      end associate ! soil, vegn
+   enddo
+
+enddo
+
+
+if(n == num_fast_calls) n = 0
+
+end subroutine irrigation_deficit
 
 end module soil_mod
