@@ -17,7 +17,7 @@ use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attr
 use vegn_data_mod, only : &
      N_LU_TYPES, M_LU_TYPES, LU_PAST, LU_RAINF, LU_IRRIG,LU_RAINF, LU_IRRIG, &
      LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, landuse_name, landuse_longname, &
-     is_crop
+     is_cropland
 
 use cana_tile_mod, only : cana_tile_heat
 use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood, crop_type
@@ -401,7 +401,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      input_irrig%name='irrigation fraction'
      input_crop %name='cropland fraction'
      do n2 = 1,size(luh2type)
-        if (is_crop(luh2type(n2))) then
+        if (is_cropland(luh2type(n2))) then
            call input_irrig%addvar(firrig,trim(luh2name(n2))//'_irrig')
            call input_crop%addvar(fstate,trim(luh2name(n2)))
         endif
@@ -591,7 +591,7 @@ subroutine land_transitions (time)
      crop_exists = .FALSE.
      do while (loop_over_tiles(ce,tile))
         if (associated(tile%vegn)) then
-           if (is_crop(tile%vegn%landuse)) then
+           if (is_cropland(tile%vegn%landuse)) then
               crop = tile%vegn%Crop
               crop_exists = .TRUE.
 !             call debug_crop(tile%vegn,'preexisting crop tile before transitions')
@@ -616,7 +616,7 @@ subroutine land_transitions (time)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile))
         if (associated(tile%vegn)) then
-           if (is_crop(tile%vegn%landuse)) then
+           if (is_cropland(tile%vegn%landuse)) then
               if(crop_exists) then
                  tile%vegn%Crop = crop
 !                call debug_crop(tile%vegn,'preexisting crop tile after transitions')
@@ -942,7 +942,7 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         if( temp%vegn%landuse==LU_NTRL.or.  &
             temp%vegn%landuse==LU_SCND.or.  &
             temp%vegn%landuse==LU_RANGE.or. &
-           ((is_crop(temp%vegn%landuse).and.is_crop(a_kind)).and.clear_all_on_conversion_to_crop) &
+           ((is_cropland(temp%vegn%landuse).and.is_cropland(a_kind)).and.clear_all_on_conversion_to_crop) &
           ) then
            call vegn_cut_forest(temp, a_kind)
         endif
@@ -984,7 +984,7 @@ function landuse_priority(tile, dst) result(P); real P
      ! hidx_j is the index of the hillslope tile; the higher the index the
      ! higher the tile in the hillslope
      P = tile%soil%hidx_j
-  else if (is_crop(src).and.dst==LU_PAST) then
+  else if (is_cropland(src).and.dst==LU_PAST) then
      ! for CROP->PAST conversion, start from the top of the hill
      P = tile%soil%hidx_j
   else
@@ -1078,7 +1078,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         if( temp%vegn%landuse==LU_NTRL.or.  &
             temp%vegn%landuse==LU_SCND.or.  &
             temp%vegn%landuse==LU_RANGE.or. &
-           ((is_crop(temp%vegn%landuse).and.is_crop(a_kind)).and.clear_all_on_conversion_to_crop) &
+           ((is_cropland(temp%vegn%landuse).and.is_cropland(a_kind)).and.clear_all_on_conversion_to_crop) &
           ) then
            call vegn_cut_forest(temp, a_kind)
         endif

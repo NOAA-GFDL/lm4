@@ -35,9 +35,9 @@ use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_b
 use land_tracers_mod, only : isphum
 use land_fire_emis_mod, only : update_fire_emissions
 
-use vegn_data_mod, only : spdata, nspecies, agf_bs, do_ppa, &
+use vegn_data_mod, only : spdata, nspecies, agf_bs, do_ppa, is_cropland, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-      LU_RAINF, LU_IRRIG, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
+      LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
@@ -2872,7 +2872,7 @@ subroutine vegn_fire_BA_agri(vegn,num_days,BF_ag)
   ! Fcrop and Fpast are per-day rates. Since they are just being called once in a while,
   ! (once per day or per month), they need to be multiplied by the number of days in the
   ! period to get the total burned fraction over the period
-  if (vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) then
+  if (is_cropland(vegn%landuse)) then
      BF_ag = vegn%Fcrop * num_days
   elseif (vegn%landuse==LU_PAST) then
      BF_ag = vegn%Fpast * num_days
@@ -2884,7 +2884,7 @@ subroutine vegn_fire_BA_agri(vegn,num_days,BF_ag)
 
   if (is_watch_point()) then
      write(*,*) '##### checkpoint vegn_fire_BA_agri #####'
-     if (vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) then
+     if (is_cropland(vegn%landuse)) then
         write(*,'(a14)',advance='NO') 'CROP tile : '; __DEBUG2__(vegn%Fcrop,BF_ag)
      elseif (vegn%landuse==LU_PAST) then
         write(*,'(a14)',advance='NO') 'PAST tile : '; __DEBUG2__(vegn%Fpast,BF_ag)
@@ -3534,7 +3534,7 @@ subroutine fire_transitions_0D(tiles, land_area, l)
      BA_km2 = land_area*tile%frac*tile%vegn%burned_frac*1e-6
      if ( do_fire_tiling &
          .AND. BA_km2 >= min_BA_to_split &
-         .AND. (tile%vegn%landuse/=LU_RAINF.and.tile%vegn%landuse/=LU_IRRIG) &
+         .AND. (.not.is_cropland(tile%vegn%landuse)) &
          .AND. (tile%vegn%landuse/=LU_PAST .OR. (tile%vegn%landuse==LU_PAST .AND. split_past_tiles)) &   ! SSR20151118
          ) then
         temp => new_land_tile(tile)
@@ -3612,7 +3612,7 @@ function burns_as_agri(tile) result(answer)
   if (.not.associated(tile%vegn))      return
   if (.not.fire_option==FIRE_UNPACKED) return
 
-  answer =   (tile%vegn%landuse==LU_RAINF.or.tile%vegn%landuse==LU_IRRIG) &
+  answer =   is_cropland(tile%vegn%landuse) &
             .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTFP)
 end function burns_as_agri
 

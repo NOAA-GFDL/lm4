@@ -24,7 +24,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, do_ppa, track_vegn_nitrogen, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
-     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_RAINF, LU_IRRIG, &
+     ALLOM_EW, ALLOM_EW1, ALLOM_HML, is_cropland, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
@@ -2410,7 +2410,7 @@ subroutine vegn_reproduction_ppa(seed_transport_option)
         enddo
      endif
 
-     if ((tile%vegn%landuse==LU_RAINF.or.tile%vegn%landuse==LU_IRRIG) .and. .not.allow_weeds_on_crops) then
+     if (is_cropland(tile%vegn%landuse) .and. .not.allow_weeds_on_crops) then
         germ_factor = 0.0 ! no weed seeds germinate. Note tha this also means that the
                           ! crops are  not allowed to reproduce by themselves.
      else

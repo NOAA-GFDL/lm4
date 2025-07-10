@@ -16,7 +16,7 @@ use land_debug_mod, only : string_from_time, land_error_message, check_conservat
      do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, check_var_range, is_watch_cell
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
-use vegn_data_mod, only : do_ppa, &
+use vegn_data_mod, only : do_ppa, is_cropland, &
      N_LU_TYPES, LU_PAST, LU_RAINF, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
@@ -1447,7 +1447,7 @@ subroutine crop_seed_demand(vegn, l, day_of_year, crop_seed_demand_C, crop_seed_
    real, intent(out) :: crop_seed_demand_C, crop_seed_demand_N
 
    crop_seed_demand_C = 0.0; crop_seed_demand_N = 0.0
-   if (vegn%landuse==LU_RAINF.or.vegn%landuse==LU_IRRIG) then
+   if (is_cropland(vegn%landuse)) then
      if(crop_schedule_option == CROP_SCHEDULE_COMPUTED) then
         if(day_of_year==vegn%Crop%chosen_calendars(1,1) .or. day_of_year==vegn%Crop%chosen_calendars(1,2)) then
           crop_seed_demand_C = MAX(crop_seed_density               - vegn%harv_pool_C(HARV_POOL_CROP),0.0)

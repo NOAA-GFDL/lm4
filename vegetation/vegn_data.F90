@@ -221,7 +221,7 @@ integer, protected :: tree_grass_option = -1
 
 ! ---- public subroutines
 public :: read_vegn_data_namelist
-public :: is_crop
+public :: is_cropland
 ! ==== end of public interfaces ==============================================
 
 ! ==== constants =============================================================
@@ -1648,10 +1648,12 @@ subroutine print_species_data(unit, skip_default)
   deallocate(idx)
 end subroutine print_species_data
 
-logical function is_crop(lu_type)
-   integer, intent(in) :: lu_type
+!> @brief Given land use index, retuns TRUE if this is one of the cropland types
+!! (ran-fed or irrigated)
+logical function is_cropland(landuse) result(answer)
+   integer, intent(in) :: landuse !< land use index
 
-   is_crop = (lu_type==LU_RAINF.or.lu_type==LU_IRRIG)
+   answer = (landuse==LU_RAINF.or.landuse==LU_IRRIG)
 end function
 
 end module

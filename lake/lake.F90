@@ -110,7 +110,6 @@ integer         :: num_l              ! # of water layers
 real, allocatable:: zfull (:)    ! diag axis, dimensionless layer number
 real, allocatable:: zhalf (:)
 real            :: max_rat
-logical, public, protected :: is_rsv_restart = .false. !public for lake transitions
 
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp
@@ -339,9 +338,6 @@ subroutine lake_init ( id_ug )
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
 
-  if(field_exists(restart,'Afrac_rsv').and.field_exists(restart,'Vfrac_rsv').and.field_exists(restart,'depth_rsv'))then
-    is_rsv_restart=.true.
-  endif
   call free_land_restart(restart)
 
   call lake_diag_init(id_ug)

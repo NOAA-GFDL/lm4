@@ -12,9 +12,9 @@ use vegn_data_mod, only : spdata, &
    tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
    phen_ev1, phen_ev2, cmc_eps, sai_cover, track_vegn_nitrogen, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-   LEAF_OFF, LU_RAINF, LU_IRRIG, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
+   LEAF_OFF, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, &
-   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
+   do_ppa, DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, is_cropland, &
    grass_merge_option, GRASS_MERGE_BY_DBH, GRASS_MERGE_BY_HEIGHT, height_merge_rel, &
    snow_masking_option, permafrost_depth_thresh, permafrost_freq_thresh, &
    SNOW_MASKING_NONE, SNOW_MASKING_LM3, SNOW_MASKING_MCM, SNOW_MASKING_HEIGHT
@@ -499,7 +499,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   pt    = c3c4(c,t_ann,p_ann)
   phent = phenology_type(c, cm)
 
-  if(landuse == LU_RAINF .or. landuse == LU_IRRIG) phent = PHEN_DECIDUOUS ! crops cannot be evergreen
+  if(is_cropland(landuse)) phent = PHEN_DECIDUOUS ! crops cannot be evergreen
 
   if(pt==PT_C4) then
      spp=SP_C4GRASS;  ! c4 grass

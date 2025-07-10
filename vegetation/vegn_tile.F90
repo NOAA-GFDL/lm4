@@ -12,10 +12,10 @@ use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
 
 use vegn_data_mod, only : &
-     MSPECIES, nspecies, spdata, &
+     MSPECIES, nspecies, spdata, is_cropland, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     BSEED, C2N_SEED, LU_NTRL, LU_CRP, LU_PSL, LU_PST, LU_RAINF, LU_IRRIG, &
+     BSEED, C2N_SEED, LU_NTRL, LU_CRP, LU_PSL, LU_PST, &
      LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, track_vegn_nitrogen, N_limits_live_biomass, &
@@ -1048,7 +1048,7 @@ function vegn_is_selected(vegn, sel)
   case (LU_SEL_TAG)
      select case (sel%idata2)
      case (LU_CRP)
-        vegn_is_selected = ((vegn%landuse == LU_RAINF).or.(vegn%landuse == LU_IRRIG))
+        vegn_is_selected = is_cropland(vegn%landuse)
      case (LU_PSL)
         vegn_is_selected = ((vegn%landuse == LU_NTRL).or.(vegn%landuse == LU_SCND))
      case (LU_PST)

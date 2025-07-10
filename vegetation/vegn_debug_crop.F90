@@ -3,7 +3,7 @@ module vegn_debug_crop_mod
 #include "../shared/debug.inc"
 
 use land_debug_mod, only : is_watch_cell, set_current_point, log_date
-use vegn_data_mod, only : FORM_GRASS, LU_RAINF, LU_IRRIG, spdata
+use vegn_data_mod, only : FORM_GRASS, spdata, is_cropland
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_LAI
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
@@ -27,7 +27,7 @@ subroutine debug_crop(vegn, tag)
   real :: LAI
 
   if (.not.is_watch_cell())    return
-  if (.not.(vegn%landuse.eq.LU_RAINF).or.(vegn%landuse.eq.LU_IRRIG)) return
+  if (.not.is_cropland(vegn%landuse)) return
 
   call log_date('#### debug_crop: '//trim(tag)//' ',lnd%time)
 ! do k = 1, vegn%n_cohorts
@@ -138,7 +138,7 @@ subroutine debug_crop_2(vegn, tag)
   integer :: k
 
   if (.not.is_watch_cell())    return
-  if (.not.(vegn%landuse.eq.LU_RAINF).or.(vegn%landuse.eq.LU_IRRIG)) return
+  if (.not.is_cropland(vegn%landuse)) return
 
   call log_date('#### debug_crop_2: '//trim(tag)//' ',lnd%time)
   write(*,*)
