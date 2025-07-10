@@ -15,7 +15,7 @@ use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, M_LU_TYPES, LU_PAST, LU_RAINF, LU_IRRIG,LU_RAINF, LU_IRRIG, &
+     N_LU_TYPES, M_LU_TYPES, LU_PAST, LU_RAINF, LU_IRRIG, &
      LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, landuse_name, landuse_longname, &
      is_cropland
 
@@ -92,14 +92,11 @@ real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data t
         ! units of [fractions of vegetated area per year]
 type(time_type) :: time0 ! time of previous transition calculations
 
-type(crop_type) :: crop
-logical :: crop_exists
-
 integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
 integer :: overshoot_opt = -1 ! selector for overshoot handling options, for efficiency
 integer :: conservation_opt = -1 ! selector for non-conservation handling options, for efficiency
 
-! translation of luh2 names and LM3 landuse types
+! translation of luh2 names and LM3 land use types
 character(5) :: luh2name(13)
 integer      :: luh2type(13)
 integer :: idata
@@ -478,6 +475,13 @@ subroutine land_transitions (time)
   type(land_tile_enum_type) :: ce    ! land tile enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
 
+  ! variables to save/restore crop schedule status during transitions:
+  integer :: n_rainf, n_irrig ! number of rain-fed and irrigated tiles per grid cell:
+     ! the current code assumes -- and is limited to -- onlu one of each rain-fed
+     ! or irrigate crop tiles per grid cell. If there is more than one (e.g. with
+     ! hydroblocks) the model will stop with FATAL error.
+  type(crop_type) :: saved_crop_rainf, saved_crop_irrig ! storage for crop schedule data
+
   if (.not.do_landuse_change) &
        return ! do nothing if landuse change not requested
   ! NB: in this case file/interp/data are not initialized, so it is
@@ -584,20 +588,27 @@ subroutine land_transitions (time)
      ! set current point for debugging
      call set_current_point(l,1)
 
-     ! save crop data:
-     !  FIXME: slm this assumes there is only one crop tile per rid cell
-     !  FIXME: slm for irriation code, we need to save rainfed and irriated info separately
+     ! save crop schedule data: this assumes there is only one rain-fed or irrigated
+     ! crop tile per grid cell
+     n_rainf = 0; n_irrig = 0
      ce = first_elmt(land_tile_map(l))
-     crop_exists = .FALSE.
      do while (loop_over_tiles(ce,tile))
-        if (associated(tile%vegn)) then
-           if (is_cropland(tile%vegn%landuse)) then
-              crop = tile%vegn%Crop
-              crop_exists = .TRUE.
-!             call debug_crop(tile%vegn,'preexisting crop tile before transitions')
-           endif
-        endif
+        if (.not.associated(tile%vegn)) cycle
+        select case (tile%vegn%landuse)
+        case (LU_RAINF)
+           saved_crop_rainf = tile%vegn%Crop
+           n_rainf = n_rainf+1
+        case (LU_IRRIG)
+           saved_crop_irrig = tile%vegn%Crop
+           n_irrig = n_irrig+1
+        end select
      enddo
+     if (n_rainf>1) then
+        call land_error_message('land_transitions: assumption of single rain-fed crop tile in a grid cell is violated: have '//string(n_rainf), FATAL)
+     endif
+     if (n_irrig>1) then
+        call land_error_message('land_transitions: assumption of single irrigated crop tile in a grid cell is violated: have '//string(n_irrig), FATAL)
+     endif
 
      ! assemble arrays of LU types involved in transition, and transition rates
      k = 0
@@ -611,20 +622,16 @@ subroutine land_transitions (time)
      ! transition land area between different tile types
      call land_transitions_0d(land_tile_map(l), src(1:k), dst(1:k), frac(1:k))
 
-     ! restore crop informaion
-     ! FIXME: need to restor rainfed and irrigates data separately
+     ! restore crop schedule data
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile))
-        if (associated(tile%vegn)) then
-           if (is_cropland(tile%vegn%landuse)) then
-              if(crop_exists) then
-                 tile%vegn%Crop = crop
-!                call debug_crop(tile%vegn,'preexisting crop tile after transitions')
-              else
-!                call debug_crop(tile%vegn,'new crop tile after transitions')
-              endif
-           endif
-        endif
+        if (.not.associated(tile%vegn)) cycle
+        select case (tile%vegn%landuse)
+        case (LU_RAINF)
+           tile%vegn%Crop = saved_crop_rainf
+        case (LU_IRRIG)
+           tile%vegn%Crop = saved_crop_irrig
+        end select
      enddo
   enddo
 
