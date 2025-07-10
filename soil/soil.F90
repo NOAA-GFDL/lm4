@@ -242,38 +242,10 @@ integer ::  &
     id_cf_1, id_cf_3, id_wt_1, id_wt_2, id_wt_2a, id_wt_2b, id_wt_3, id_wt2_3, id_wt_4, &
     id_div_bf, id_div_if, id_div_al, id_div, &
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
-!     id_protected_total_C, id_protected_total_N, &
     id_wet_frac, id_macro_infilt, &
-!     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, id_total_ON_leaching, id_NO3_leaching, id_NH4_leaching, &
-!     id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss,
     id_passive_N_uptake,&
     id_Qmax, id_frozen_freq, id_saturated_freq
 
-! integer :: &
-!     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
-!     id_protected_N, id_livemic_total_N, id_deadmic_total_N, id_fsn, id_ssn, &
-!     id_livemic_C, id_total_soil_C, id_dissolved_total_C, id_total_C_layered, &
-!     id_livemic_N, id_total_soil_N, id_dissolved_total_N, id_total_N_layered, &
-!     id_negative_litter_C(N_C_TYPES), id_tot_negative_litter_C, &
-!     id_negative_litter_N(N_C_TYPES), id_tot_negative_litter_N, &
-!     id_soil_DOC, id_soil_DON
-
-! integer, dimension(N_LITTER_POOLS) :: &
-! id_nlittercohorts, &
-!     id_litter_livemic_C, id_litter_total_C,
-!     id_litter_total_C_leaching, id_litter_total_ON_leaching, id_litter_NO3_leaching, id_litter_NH4_leaching
-!     id_litter_livemic_N, id_litter_total_N, id_litter_nitrate, id_litter_ammonium
-
-! integer, dimension(N_C_TYPES) :: &
-!     id_soil_C,           id_soil_N, &
-!     id_soil_dissolved_C, id_soil_dissolved_N, &
-!     id_soil_protected_C, id_soil_protected_N, &
-!      id_C_leaching, id_DON_leaching
-! integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
-!     id_litter_C_leaching, id_litter_DON_leaching
-!     id_litter_C, id_litter_N, id_litter_dissolved_C, id_litter_dissolved_N, &
-!     id_litter_protected_C, id_litter_protected_N, &
-!     id_litter_rsoil_C,     id_litter_rsoil_N, &
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -779,154 +751,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   call set_default_diag_filter('soil')
 
   ! define diagnostic fields
-!   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'tot_DOC_div', axes(1:1), &
-!        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
-!   id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'tot_DON_div', axes(1:1), &
-!        lnd%time, 'total rate of DON divergence loss', 'kg N/m^2/s', missing_value=initval)
-!   id_total_NO3_div_loss = register_tiled_diag_field ( module_name, 'tot_NO3_div', axes(1:1), &
-!        lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
-!   id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'tot_NH4_div', axes(1:1), &
-!        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
   id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
         (/id_ug/), lnd%time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
   id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
 
-!   id_protected_C = register_tiled_diag_field ( module_name, 'prot_soil_C', axes,  &
-!        lnd%time, 'protected soil carbon content', 'kg C/m3', missing_value=-100.0 )
-!   id_protected_N = register_tiled_diag_field ( module_name, 'prot_soil_N', axes,  &
-!        lnd%time, 'protected soil nitrogen content', 'kg N/m3', missing_value=-100.0 )
-!   id_total_C_layered = register_tiled_diag_field ( module_name, 'soil_C', &
-!        axes, lnd%time, 'total soil carbon', 'kg C/m3', missing_value=-100.0 )
-!   id_total_N_layered = register_tiled_diag_field ( module_name, 'soil_N', axes,  &
-!        lnd%time, 'total soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-!   id_soil_DOC = register_tiled_diag_field ( module_name, 'soil_DOC', axes,  &
-!        lnd%time, 'dissolved organic carbon', 'kg C/m3', missing_value=-100.0 )
-!   id_soil_DON = register_tiled_diag_field ( module_name, 'soil_DON', axes,  &
-!        lnd%time, 'dissolved organic nitrogen', 'kg C/m3', missing_value=-100.0 )
-
-  ! by-carbon-species diag fields
-!   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
-!        axes, lnd%time, '<ctype> soil carbon', 'kg C/m3', missing_value=-100.0 )
-!   id_soil_dissolved_C(:) = register_soilc_diag_fields(module_name, '<ctype>_diss_C', &
-!        axes, lnd%time, '<ctype> dissolved soil carbon', 'kg C/m3', missing_value=-100.0 )
-!   id_soil_protected_C(:) = register_soilc_diag_fields(module_name, '<ctype>_prot_C', &
-!        axes, lnd%time, '<ctype> protected soil carbon', 'kg C/m3', missing_value=-100.0 )
-!
-!   id_C_leaching(:) = register_soilc_diag_fields ( module_name, '<ctype>_C_leaching', axes, &
-!        lnd%time, 'net layer <ctype> soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
-!   id_DON_leaching(:) = register_soilc_diag_fields ( module_name, '<ctype>_DON_leaching', axes, &
-!        lnd%time, 'net layer <ctype> soil DON leaching',  'kg/(m2 s)', missing_value=-100.0)
-!
-!   id_soil_N(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_N', &
-!        axes, lnd%time, '<ctype> soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-!   id_soil_dissolved_N(:) = register_soilc_diag_fields(module_name, '<ctype>_diss_N', &
-!        axes, lnd%time, '<ctype> dissolved soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-!   id_soil_protected_N(:) = register_soilc_diag_fields(module_name, '<ctype>_prot_N', &
-!        axes, lnd%time, '<ctype> protected soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-
-  ! litter fields
-!   id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C', &
-!        axes(1:1), lnd%time, '<ctype> <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-!   id_litter_dissolved_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_diss_C', &
-!        axes(1:1), lnd%time, '<ctype> <ltype> litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
-!   id_litter_protected_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_prot_C', &
-!        axes(1:1), lnd%time, '<ctype> <ltype> litter protected carbon', 'kg C/m2', missing_value=-100.0 )
-!   id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C_leaching', &
-!        axes(1:1), lnd%time, '<ltype> litter <ctype> C leaching','kg/(m2 s)', missing_value=-100.0)
-!   id_litter_rsoil_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_C_resp',  &
-!        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> carbon degradation', 'kg C/(m2 year)', missing_value=-100.0 )
-!   id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_C', &
-!        axes(1:1),  lnd%time, 'live microbe <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
-!   id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litt_C', &
-!        axes(1:1),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
-!   id_nlittercohorts(:) = register_litter_diag_fields ( module_name, '<ltype>litt_n_cohorts', axes(1:1),  &
-!        lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
-
-!   id_litter_DON_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_DON_leaching', &
-!        axes(1:1), lnd%time, '<ltype> litter <ctype> DON leaching','kg/(m2 s)', missing_value=-100.0)
-!   id_litter_total_C_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_C_leaching', &
-!        axes(1:1),  lnd%time, '<ltype> litter total carbon leaching', 'kg C/m2/s', missing_value=-100.0 )
-!   id_litter_total_ON_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_DON_leaching', &
-!        axes(1:1),  lnd%time, '<ltype> litter total organic N leaching', 'kg N/m2/s', missing_value=-100.0 )
-!   id_litter_NO3_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_NO3_leaching', &
-!        axes(1:1),  lnd%time, '<ltype> litter NO3 leaching', 'kg N/m2/s', missing_value=-100.0 )
-!   id_litter_NH4_leaching(:) = register_litter_diag_fields ( module_name, '<ltype>litt_tot_NH4_leaching', &
-!        axes(1:1),  lnd%time, '<ltype> litter NH4 leaching', 'kg N/m2/s', missing_value=-100.0 )
-
-!   id_litter_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_N', &
-!        axes(1:1), lnd%time, '<ctype> <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-!   id_litter_dissolved_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_diss_N', &
-!        axes(1:1), lnd%time, '<ctype> <ltype> litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
-!   id_litter_protected_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_prot_N', &
-!        axes(1:1), lnd%time, '<ctype> <ltype> litter protected nitrogen', 'kg N/m2', missing_value=-100.0 )
-!   id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ltype>litt_<ctype>_N_resp',  &
-!        axes(1:1), lnd%time, 'surface <ltype> litter <ctype> nitrogen degradation', 'kg N/(m2 year)', missing_value=-100.0 )
-!   id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_lmic_N', &
-!        axes(1:1),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
-!   id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litt_N', &
-!        axes(1:1),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
-!   id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NH4', &
-!       axes(1:1),  lnd%time, '<ltype> litter ammonium', 'kg N/m2', missing_value=-100.0 )
-!   id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litt_NO3', &
-!        axes(1:1),  lnd%time, '<ltype> litter nitrate', 'kg N/m2', missing_value=-100.0 )
-
-
-!   id_total_NH4 = register_tiled_diag_field ( module_name, 'tot_soil_NH4', axes(1:1),  &
-!       lnd%time, 'total NH4 including litter', 'kg N/m2', missing_value=-100.0 )
-!   id_total_NO3 = register_tiled_diag_field ( module_name, 'tot_soil_NO3', axes(1:1),  &
-!        lnd%time, 'total NO3 including litter', 'kg N/m2', missing_value=-100.0 )
-!   id_soil_NO3 = register_tiled_diag_field ( module_name, 'soil_NO3', axes,  &
-!        lnd%time, 'soil NO3 content', 'kg N/m3', missing_value=-100.0 )
-!   id_soil_NH4 = register_tiled_diag_field ( module_name, 'soil_NH4', axes,  &
-!        lnd%time, 'soil NH4 content', 'kg N/m3', missing_value=-100.0 )
-
   id_Qmax = register_tiled_static_field ( module_name, 'soil_Qmax', axes(1:1),  &
        'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
-!   id_deadmic_total_C = register_tiled_diag_field ( module_name, 'tot_dmic_C', axes(1:1),  &
-!        lnd%time, 'total dead microbe carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_deadmic_total_N = register_tiled_diag_field ( module_name, 'tot_dmic_N', axes(1:1),  &
-!        lnd%time, 'total dead microbe nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
-!   id_livemic_C = register_tiled_diag_field ( module_name, 'lmic_soil_C', axes,  &
-!        lnd%time, 'Total live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
-!   id_livemic_N = register_tiled_diag_field ( module_name, 'lmic_soil_N', axes,  &
-!        lnd%time, 'Total live microbe soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-!   id_livemic_total_C = register_tiled_diag_field ( module_name, 'tot_lmic_C', axes(1:1),  &
-!        lnd%time, 'total live microbe carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_livemic_total_N = register_tiled_diag_field ( module_name, 'tot_lmic_N', axes(1:1),  &
-!        lnd%time, 'total live microbe nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
-!   id_protected_total_C = register_tiled_diag_field ( module_name, 'tot_prot_C', axes(1:1),  &
-!        lnd%time, 'total protected carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_protected_total_N = register_tiled_diag_field ( module_name, 'tot_prot_N', axes(1:1),  &
-!        lnd%time, 'total protected nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
-!   id_dissolved_total_C = register_tiled_diag_field ( module_name, 'tot_diss_C', axes(1:1),  &
-!        lnd%time, 'total dissolved carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_dissolved_total_N = register_tiled_diag_field ( module_name, 'tot_diss_N', axes(1:1),  &
-!        lnd%time, 'total dissolved nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
-!   id_total_soil_C = register_tiled_diag_field ( module_name, 'tot_soil_C', axes(1:1),  &
-!        lnd%time, 'total carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_total_soil_N = register_tiled_diag_field ( module_name, 'tot_soil_N', axes(1:1),  &
-!        lnd%time, 'total nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
-!   id_total_C_leaching = register_tiled_diag_field ( module_name, 'soil_DOC_leaching', axes, &
-!        lnd%time, 'net layer total vertical soil C leaching', 'kg/(m2 s)', missing_value=initval)
-!   id_total_ON_leaching = register_tiled_diag_field ( module_name, 'soil_DON_leaching', axes, &
-!        lnd%time, 'net layer total vertical soil organic N leaching', 'kg/(m2 s)', missing_value=initval)
-!   id_NO3_leaching = register_tiled_diag_field ( module_name, 'NO3_leaching', axes, &
-!        lnd%time, 'net layer vertical soil NO3 leaching', 'kg/(m2 s)', missing_value=initval)
-!   id_NH4_leaching = register_tiled_diag_field ( module_name, 'NH4_leaching', axes, &
-!        lnd%time, 'net layer vertical soil NH4 leaching', 'kg/(m2 s)', missing_value=initval)
-!
-!   id_surf_DOC_loss = register_tiled_diag_field ( module_name, 'surf_DOC_loss', axes(1:1), &
-!        lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
-!        missing_value=initval)
-!   id_fsc = register_tiled_diag_field ( module_name, 'fsc', axes(1:1),  &
-!        lnd%time, 'total fast soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_fsn = register_tiled_diag_field ( module_name, 'fsn', axes(1:1),  &
-!        lnd%time, 'total fast soil nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
-!   id_ssc = register_tiled_diag_field ( module_name, 'ssc', axes(1:1),  &
-!        lnd%time, 'total slow soil carbon, including soil and litter pools', 'kg C/m2', missing_value=-100.0 )
-!   id_ssn = register_tiled_diag_field ( module_name, 'ssn', axes(1:1),  &
-!        lnd%time, 'total slow soil nitrogen, including soil and litter pools', 'kg N/m2', missing_value=-100.0 )
   id_lwc = register_tiled_diag_field ( module_name, 'soil_liq', axes,  &
        lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'soil_ice',  axes,  &
@@ -1239,74 +1070,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Average layer fraction of liquid moisture', '1', missing_value=-100.0, &
        standard_name='mass_fraction_of_unfrozen_water_in_soil_moisture', fill_missing=.TRUE.)
 
-!   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:1),  &
-!        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
-!   call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:1),  &
-!        lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_carbon', fill_missing=.FALSE.)
-!   id_cSoilAbove1m = register_tiled_diag_field ( cmor_name, 'cSoilAbove1m', axes(1:1),  &
-!        lnd%time, 'Carbon mass in soil pool above 1m depth', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
-
-!   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
-!        lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
-!        standard_name='fast_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
-!   id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:1),  &
-!        lnd%time, 'Carbon Mass in Medium Soil Pool', 'kg m-2', missing_value=-100.0, &
-!        standard_name='medium_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
-!   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
-!        lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
-!        standard_name='slow_soil_pool_mass_content_of_carbon', fill_missing=.TRUE.)
-!   id_cSoilLevels = register_tiled_diag_field ( cmor_name, 'cSoilLevels', axes,  lnd%time, &
-!        'Carbon mass in each model soil level (summed over all soil carbon pools in that level)', &
-!        'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_carbon', fill_missing=.TRUE.)
-!   id_cLitter = register_tiled_diag_field ( cmor_name, 'cLitter', axes(1:1), &
-!        lnd%time, 'Carbon Mass in Litter Pool', 'kg m-2', &
-!        missing_value=-100.0, standard_name='litter_mass_content_of_carbon', &
-!        fill_missing=.TRUE.)
-!   call add_tiled_diag_field_alias ( id_cLitter, cmor_name, 'cLitterLut', axes(1:1),  &
-!        lnd%time, 'carbon in above and belowground litter pools on land use tiles', &
-!        'kg m-2', missing_value=-100.0, &
-!        standard_name='litter_mass_content_of_carbon', fill_missing=.FALSE.)
-!   id_cLitterCwd = register_tiled_diag_field ( cmor_name, 'cLitterCwd', axes(1:1), &
-!        lnd%time, 'Carbon Mass in Coarse Woody Debris', 'kg m-2', &
-!        missing_value=-100.0, standard_name='wood_debris_mass_content_of_carbon', &
-!        fill_missing=.TRUE.)
-!   id_cLitterLeaf = register_tiled_diag_field ( cmor_name, 'cLitterLeaf', axes(1:1), &
-!        lnd%time, 'Carbon Mass in Leaf Debris', 'kg m-2', &
-!        missing_value=-100.0, standard_name='leaf_debris_mass_content_of_carbon', &
-!        fill_missing=.TRUE.)
   id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', axes(1:1), &
        lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
        fill_missing=.FALSE.)
-
-!   id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
-!        lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_nitrogen', fill_missing=.TRUE.)
-!   id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
-!        lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
-!   id_nMineralNH4 = register_tiled_diag_field ( cmor_name, 'nMineralNH4', axes(1:1),  &
-!        lnd%time, 'Mineral ammonium in the soil', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_inorganic_ammonium_expressed_as_nitrogen', fill_missing=.TRUE.)
-!   id_nMineralNO3 = register_tiled_diag_field ( cmor_name, 'nMineralNO3', axes(1:1),  &
-!        lnd%time, 'Mineral nitrate in the soil', 'kg m-2', missing_value=-100.0, &
-!        standard_name='soil_mass_content_of_inorganic_nitrate_expressed_as_nitrogen', fill_missing=.TRUE.)
-!   id_nLitter = register_tiled_diag_field ( cmor_name, 'nLitter', axes(1:1), &
-!        lnd%time, 'Nitrogen Mass in Litter Pool', 'kg m-2', &
-!        missing_value=-100.0, standard_name='litter_mass_content_of_nitrogen', &
-!        fill_missing=.TRUE.)
-!   id_nLitterCwd = register_tiled_diag_field ( cmor_name, 'nLitterCwd', axes(1:1), &
-!        lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
-!        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
-!        fill_missing=.TRUE.)
-!   id_nLitterLeaf = register_tiled_diag_field ( cmor_name, 'nLitterLeaf', axes(1:1), &
-!        lnd%time, 'Nitrogen Mass in Leaf Debris', 'kg m-2', &
-!        missing_value=-100.0, standard_name='leaf_debris_mass_content_of_nitrogen', &
-!        fill_missing=.TRUE.)
 
   !Std output
   call set_default_diag_filter('soil')
@@ -1497,13 +1264,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
         write(*,'(i2.2,x)',advance='NO') l
         __DEBUG3__(soil%w_wilt(l),soil%w_fc(l), soil%alpha(l))
      enddo
-!     do l = 1,N_LITTER_POOLS
-!        call debug_pool(soil%litter_corpse(l), trim(l_shortname(l))//'_litter')
-!     enddo
-!      do l = 1, num_l
-!         write(*,'(i2.2,x)',advance='NO') l
-!         call debug_pool(soil%org_matter(l), '')
-!      enddo
      write(*,*) '########### end of soil_step_1 input ###########'
   endif
 ! ----------------------------------------------------------------------------
