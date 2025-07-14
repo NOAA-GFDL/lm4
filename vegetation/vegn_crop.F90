@@ -2001,10 +2001,11 @@
 !======================================================================================================================================================
  subroutine crop_diag_init(id_ug)
  integer, intent(in) :: id_ug
- integer :: id_month, mth, id_crop_num, ical, id_season, icrop, iseason, iph, ipref, iperiod, nn
+ integer :: id_month, mth, id_crop_num, ical, id_season, icrop, iseason, iph, ipref, iperiod, nn, id_plant_harvest
  character(len=256) :: diag_fieldname
 
  id_month = diag_axis_init('month', (/(float(mth),mth=1,12)/),'none','Z','month of year')
+ id_plant_harvest = diag_axis_init('plant_harvest', (/float(iph),iph=1,2/), 'none','Z','plant harvest')
 
  diag_fieldname = trim(crop_name(1))
  do icrop=2,num_crop_types
@@ -2043,7 +2044,7 @@
 
  do iseason=1,num_crop_seasons
    diag_fieldname = trim(season_name(iseason))//'_planting_and_harvest_dates'
-   id_chosen_calendars(iseason) = register_tiled_diag_field(module_name,trim(diag_fieldname),(/id_ug,id_season/),lnd%time,trim(diag_fieldname),missing_value=0.0)
+   id_chosen_calendars(iseason) = register_tiled_diag_field(module_name,trim(diag_fieldname),(/id_ug,id_plant_harvest/),lnd%time,trim(diag_fieldname),missing_value=0.0)
  enddo
 
  id_potential_crop  = register_static_field(module_name,'potential_crop',(/id_ug,id_crop_num/), 'crops sorted by area in the MIRCA2000 data set',missing_value=0.0)
