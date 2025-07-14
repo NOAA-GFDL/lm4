@@ -2005,7 +2005,7 @@
  character(len=256) :: diag_fieldname
 
  id_month = diag_axis_init('month', (/(float(mth),mth=1,12)/),'none','Z','month of year')
- id_plant_harvest = diag_axis_init('plant_harvest', (/float(iph),iph=1,2/), 'none','Z','plant harvest')
+ id_plant_harvest = diag_axis_init('plant_harvest', (/(float(iph),iph=1,2)/), 'none','Z','plant harvest')
 
  diag_fieldname = trim(crop_name(1))
  do icrop=2,num_crop_types
