@@ -324,17 +324,18 @@
 
  end subroutine compute_crop_calendars
 !======================================================================================================================================================
- subroutine crop_selection(vegn)
+ subroutine crop_selection(vegn, water_source)
  integer :: calendars(2, num_crop_periods, num_crop_seasons, num_crop_types)
  integer :: potential_crop(num_crop_types)
  integer :: potential_chosen_crops(num_crop_seasons)
  integer :: potential_chosen_calendars(2,num_crop_seasons)
  type(vegn_tile_type), intent(inout) :: vegn
+ character(len=*), optional, intent(in) :: water_source
  integer :: iseason
 
  calendars      = vegn%Crop%crop_calendars
  potential_crop = vegn%Crop%potential_crop
- call crop_selection_sub(calendars, potential_crop, potential_chosen_crops, potential_chosen_calendars)
+ call crop_selection_sub(calendars, potential_crop, potential_chosen_crops, potential_chosen_calendars, water_source)
 
  ! Change the chosen crop and it's calendar only if it is not active
  do iseason=1,num_crop_seasons
@@ -346,12 +347,13 @@
 
  end subroutine crop_selection
 !======================================================================================================================================================
- subroutine crop_selection_sub(calendars, potential_crop, chosen_crops, chosen_calendars)
+ subroutine crop_selection_sub(calendars, potential_crop, chosen_crops, chosen_calendars, water_source)
  integer, intent(in)  :: calendars(2, num_crop_periods, num_crop_seasons, num_crop_types)
  integer, intent(in)  :: potential_crop(num_crop_types)
  integer, intent(out) :: chosen_crops(num_crop_seasons)
  integer, intent(out) :: chosen_calendars(2,num_crop_seasons)
- integer :: ipref
+ integer :: ipref, ipref_beg, ipref_end
+ character(len=*), optional, intent(in) :: water_source
  integer, dimension(2,num_crop_seasons) :: dble_cropping_calendar
  character(len=256) :: text
  character(len=16) :: cn1, cn2
@@ -374,7 +376,21 @@
 ! Valid optimal planting dates for the 1st season exist when the CCA has determined that conditions are suitable.
  vcal_1 = 0; vcal_2 = 0; vcal_3 = 0; vcal_4 = 0; vcal_5 = 0
  vcal_6 = 0; vcal_7 = 0; vcal_8 = 0; vcal_9 = 0; vcal_10 = 0
- ipref_loop_1: do ipref=1,num_crop_types
+ if(present(water_source)) then
+   if(trim(water_source) == trim(water_source_name(1))) then
+     ipref_beg = 1
+     ipref_end = 5
+   else if(trim(water_source) == trim(water_source_name(2))) then
+     ipref_beg = 6
+     ipref_end = 10
+   else
+     call error_mesg('crop_selection','When present, water_source must be '//trim(water_source_name(1))//' or '//trim(water_source_name(2)), FATAL)
+   endif
+ else
+   ipref_beg = 1
+   ipref_end = 10
+ endif
+ ipref_loop_1: do ipref=ipref_beg,ipref_end
    if(calendars(1,1,1,ipref) == NO_DATE) cycle ipref_loop_1
    if(vcal_1 == 0) then
      vcal_1 = ipref
@@ -1985,10 +2001,11 @@
 !======================================================================================================================================================
  subroutine crop_diag_init(id_ug)
  integer, intent(in) :: id_ug
- integer :: id_month, mth, id_crop_num, ical, id_season, icrop, iseason, iph, ipref, iperiod, nn
+ integer :: id_month, mth, id_crop_num, ical, id_season, icrop, iseason, iph, ipref, iperiod, nn, id_plant_harvest
  character(len=256) :: diag_fieldname
 
  id_month = diag_axis_init('month', (/(float(mth),mth=1,12)/),'none','Z','month of year')
+ id_plant_harvest = diag_axis_init('plant_harvest', (/(float(iph),iph=1,2)/), 'none','Z','plant harvest')
 
  diag_fieldname = trim(crop_name(1))
  do icrop=2,num_crop_types
@@ -2027,7 +2044,7 @@
 
  do iseason=1,num_crop_seasons
    diag_fieldname = trim(season_name(iseason))//'_planting_and_harvest_dates'
-   id_chosen_calendars(iseason) = register_tiled_diag_field(module_name,trim(diag_fieldname),(/id_ug,id_season/),lnd%time,trim(diag_fieldname),missing_value=0.0)
+   id_chosen_calendars(iseason) = register_tiled_diag_field(module_name,trim(diag_fieldname),(/id_ug,id_plant_harvest/),lnd%time,trim(diag_fieldname),missing_value=0.0)
  enddo
 
  id_potential_crop  = register_static_field(module_name,'potential_crop',(/id_ug,id_crop_num/), 'crops sorted by area in the MIRCA2000 data set',missing_value=0.0)
