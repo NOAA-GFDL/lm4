@@ -35,6 +35,7 @@ type fire_emis_type
   real    :: fire_mw = 1.0       ! molecular weight of this fire tracers
   real, allocatable  :: efactors(:) ! emission factors for fire emissions of the
                                  ! tracer species
+  real    :: scale_factor = 1.0  ! scale factor for fire emissions of tracer
 end type
 
 ! module variables
@@ -104,6 +105,9 @@ subroutine init_fire_emis_data()
            if ( parse(parameters, 'mw', value) > 0 ) then
               frdata(i)%fire_mw = value
            endif
+           if ( parse(parameters, 'scale', value) > 0 ) then
+              frdata(i)%scale_factor = value
+           endif
            allocate(frdata(i)%efactors(0:nspecies-1))
            frdata(i)%efactors(:) = -1.0
            do sp = 0, nspecies-1
@@ -132,6 +136,7 @@ subroutine init_fire_emis_data()
   call add_row(table, 'atm.tr.number',   frdata(:)%tr_atm)
   call add_row(table, 'GEX.tr.number',   frdata(:)%tr_gex)
   call add_row(table, 'fire_mw',         frdata(:)%fire_mw)
+  call add_row(table, 'scale_factor',    frdata(:)%scale_factor)
 
   allocate(value1(n_fire_tr))
   do sp = 0, nspecies-1
