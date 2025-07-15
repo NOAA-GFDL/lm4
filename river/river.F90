@@ -176,6 +176,8 @@ type tracer_data_type
       flux_units  = '', & ! units of associated flux
       store_units = ''    ! units of associated storage
   character(fm_string_len)     :: longname = '' ! longname of the species
+  ! tracer removal parameters:
+  logical :: do_removal = .true.
   real :: &
       t_ref  = 298.0, &
       vf_ref = 0.0,   &
@@ -310,10 +312,11 @@ contains
 
 ! TODO: get rid of the parameters below in "River" data structure and use trdata
 ! directly
-    River%t_ref  = trdata(num_phys+1:num_species)%t_ref
-    River%vf_ref = trdata(num_phys+1:num_species)%vf_ref
-    River%q10    = trdata(num_phys+1:num_species)%q10
-    River%kinv   = trdata(num_phys+1:num_species)%kinv
+    River%do_removal = trdata(1:num_species)%do_removal
+    River%t_ref  = trdata(1:num_species)%t_ref
+    River%vf_ref = trdata(1:num_species)%vf_ref
+    River%q10    = trdata(1:num_species)%q10
+    River%kinv   = trdata(1:num_species)%kinv
 
 !    if (do_age) flux_units(3)                   = 'kg/m2  '
 !    if (do_age) store_units(3)                  = 'kg-s/m2'
@@ -364,13 +367,13 @@ contains
                     call register_restart_field(river_restart, "disch2ocn_"//trdata(i_species)%name, &
                                                 discharge2ocean_next_c(:,:,i_species))
                 else
-                    call mpp_error(WARNING, "river_init: disch2ocn_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
+                    call mpp_error(NOTE, "river_init: disch2ocn_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
                 endif
                 if (variable_exists(river_restart, "storage_"//trdata(i_species)%name)) then
                     call register_restart_field(river_restart, "storage_"//trdata(i_species)%name, &
                                                 river%storage_c(:,:,i_species))
                 else
-                    call mpp_error(WARNING, "river_init: storage_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
+                    call mpp_error(NOTE, "river_init: storage_"//trim(trdata(i_species)%name)//" does not exist in "//trim(filename))
                 endif
              enddo
         endif
@@ -537,7 +540,8 @@ subroutine read_river_tracer_data(name,tr)
   tr%units       = fm_util_get_string('units',       caller='river_mod', default_value=tr%units,       scalar=.true.)
   tr%flux_units  = fm_util_get_string('flux_units',  caller='river_mod', default_value=tr%flux_units,  scalar=.true.)
   tr%store_units = fm_util_get_string('store_units', caller='river_mod', default_value=tr%store_units, scalar=.true.)
-
+  ! tracer removal parameters:
+  tr%do_removal  = fm_util_get_logical('do_removal', caller='river_mod', default_value=tr%do_removal,  scalar=.true.)
 #define __PARSE__(v) tr%v = fm_util_get_real(#v, caller='river_mod', default_value=tr%v, scalar=.true.)
   __PARSE__(t_ref)
   __PARSE__(vf_ref)
@@ -560,6 +564,7 @@ subroutine print_river_tracer_data(unit)
   call add_row(table, 'units',    trdata(:)%units)
   call add_row(table, 'flux_units', trdata(:)%flux_units)
   call add_row(table, 'store_units', trdata(:)%store_units)
+  call add_row(table, 'do_removal', trdata(:)%do_removal)
   call add_row(table, 't_ref', trdata(:)%t_ref)
   call add_row(table, 'vf_ref', trdata(:)%vf_ref)
   call add_row(table, 'q10', trdata(:)%q10)
@@ -1003,7 +1008,7 @@ end subroutine print_river_tracer_data
     deallocate(River%infloc_c ,     River%storage_c ,     River%stordis_c    )
     deallocate(River%inflow_c, River%outflow_c )
     deallocate(River%removal_c )
-    deallocate(River%vf_ref,River%t_ref,River%q10,River%kinv)
+    deallocate(River%do_removal,River%vf_ref,River%t_ref,River%q10,River%kinv)
     deallocate(River%d_coef,River%o_coef,River%w_coef)
 
     deallocate(trdata)
@@ -1221,8 +1226,11 @@ end subroutine print_river_tracer_data
     allocate(River%o_coef    (isc:iec, jsc:jec) )
     allocate(River%w_coef    (isc:iec, jsc:jec) )
     allocate(River%outflowmean(isc:iec, jsc:jec) )
-    allocate(River%t_ref(num_phys+1:num_species),River%vf_ref(num_phys+1:num_species))
-    allocate(River%q10  (num_phys+1:num_species),River%kinv  (num_phys+1:num_species))
+    ! allocate for all tracers, to avoid index confusion, even though the values
+    ! of removal parameters for "physical tracers" (ice, het) are not used
+    allocate(River%do_removal(num_species))
+    allocate(River%t_ref(num_species),River%vf_ref(num_species))
+    allocate(River%q10  (num_species),River%kinv  (num_species))
 
     if(ntiles == 1) then   ! lat-lon grid, use actual grid location
        River%lon_1d(:)      = glon(:,1)

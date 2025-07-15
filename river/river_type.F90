@@ -73,10 +73,13 @@ module river_type_mod
      real, dimension(:,:),      pointer :: depth         => NULL()
      real, dimension(:,:),      pointer :: width         => NULL()
      real, dimension(:,:),      pointer :: vel           => NULL()
+! tracer removal parameters
+     logical, dimension(:),     pointer :: do_removal    => NULL()
      real, dimension(:),        pointer :: t_ref         => NULL()
      real, dimension(:),        pointer :: vf_ref        => NULL()
      real, dimension(:),        pointer :: q10           => NULL()
      real, dimension(:),        pointer :: kinv          => NULL()
+! end of tracer removal parameters
      real                               :: o_exp
      real                               :: d_exp
      real                               :: w_exp
