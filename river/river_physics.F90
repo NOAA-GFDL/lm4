@@ -197,13 +197,15 @@ contains
     real      :: lake_area, h, ql, qs, qh, qt, h0, t_scale
     real      :: influx
     real      :: influx_c(River%num_species)
-    real      :: v_r_d(River%num_species-River%num_c+1:River%num_species)
+!     real      :: v_r_d(River%num_species-River%num_c+1:River%num_species)
+    real      :: v_r_d
     real      :: conc(1:River%num_species)
     logical, dimension(isc:iec,jsc:jec) :: &
          diag_mask ! mask of valid ice and temperature values fo diagnostics
     real, dimension(isc:iec,jsc:jec) :: &
          ice, temperature ! variables for diag output (were in River_type)
     logical :: used ! flag returned by the send_data
+    integer :: tr ! river tracer index
 
     ! invalidate diag_mask everywhere
     diag_mask = .FALSE.
@@ -504,30 +506,52 @@ contains
                     conc(River%num_phys+1:River%num_species) = 0.
                   endif
 
-                if(River%num_c.gt.0) then
-                    if (River%depth(i,j).gt.0. .and. conc(2).gt.100.) then
-                        v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
-                           / ((1+River%kinv*conc(River%num_species-River%num_c+1:River%num_species)) &
-                           *River%depth(i,j))
+                do tr = River%num_phys+1,River%num_species
+                   ! write(*,*) 'tr,lbound,ubound',tr,lbound(River%do_removal(:)),ubound(River%do_removal(:))
+                   if (River%do_removal(tr)) then
+                      if (River%depth(i,j)>0 .and. conc(2)>100.0) then
+                         v_r_d = River%vf_ref(tr) * River%Q10(tr)**((conc(2)-River%t_ref(tr))/10.)&
+                            / ((1+River%kinv(tr)*conc(tr)) * River%depth(i,j))
                         ! next should not be necessary if storage_c is positive, but maybe it's not.
-                        v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
-                           / ((1+River%kinv*max(0.,conc(River%num_species-River%num_c+1:River%num_species)))*River%depth(i,j))
+                         v_r_d = River%vf_ref(tr) * River%Q10(tr)**((conc(2)-River%t_ref(tr))/10.)&
+                            / ((1+River%kinv(tr)*max(0.,conc(tr)))*River%depth(i,j))
                       else
-                        v_r_d = 0.
+                         v_r_d = 0.0
                       endif
-                    River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
-                       River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
-                       * (1-exp( -v_r_d * River%dt_slow)) &
-                       / River%dt_slow
-                    River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
-                       River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
-                       - River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)* River%dt_slow
-
-                  if (is_watch_cell()) then
-                     write(*,*)'removal_c(num_phys+1:num_species):', &
-                           River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)
+                      River%removal_c(i,j,tr) = &
+                         River%storage_c(i,j,tr) * (1-exp( -v_r_d * River%dt_slow)) / River%dt_slow
+                   else
+                      River%removal_c(i,j,tr) = 0.0
                   end if
-              end if
+                   River%storage_c(i,j,tr) = &
+                      River%storage_c(i,j,tr) - River%removal_c(i,j,tr)* River%dt_slow
+                enddo
+
+!                 if(River%num_c.gt.0) then
+!                     if (River%depth(i,j).gt.0. .and. conc(2).gt.100.) then
+!                         v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
+!                            / ((1+River%kinv*conc(River%num_species-River%num_c+1:River%num_species)) &
+!                            *River%depth(i,j))
+!                         ! next should not be necessary if storage_c is positive, but maybe it's not.
+!                         v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
+!                            / ((1+River%kinv*max(0.,conc(River%num_species-River%num_c+1:River%num_species)))*River%depth(i,j))
+!                       else
+!                         v_r_d = 0.
+!                       endif
+!                     River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
+!                        River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
+!                        * (1-exp( -v_r_d * River%dt_slow)) &
+!                        / River%dt_slow
+!                     River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
+!                        River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
+!                        - River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)* River%dt_slow
+!
+!                   if (is_watch_cell()) then
+!                      write(*,*)'removal_c(num_phys+1:num_species):', &
+!                            River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)
+!                   end if
+!               end if
+
             endif
 
             ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE
