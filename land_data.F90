@@ -112,6 +112,7 @@ type :: land_data_type
    ! have implications for the data reallocation procedure.
    real, pointer, dimension(:,:) :: &  ! (lon, lat)
      discharge           => NULL(),  & ! liquid water flux from land to ocean
+     discharge_DOC       => NULL(),  & ! DOC carbon from land to ocean
      discharge_heat      => NULL(),  & ! sensible heat of discharge (0 C datum)
      discharge_snow      => NULL(),  & ! solid water flux from land to ocean
      discharge_snow_heat => NULL()     ! sensible heat of discharge_snow (0 C datum)

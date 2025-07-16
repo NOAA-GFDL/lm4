@@ -1557,6 +1557,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      __CHECK__(land2cplr%rsl_scale)
      __CHECK__(land2cplr%rough_scale)
      __CHECK__(land2cplr%discharge)
+     __CHECK__(land2cplr%discharge_DOC)
      __CHECK__(land2cplr%discharge_heat)
      __CHECK__(land2cplr%discharge_snow)
      __CHECK__(land2cplr%discharge_snow_heat)
@@ -5604,6 +5605,7 @@ subroutine realloc_land2cplr ( bnd )
   ! not in update_land_bc_*, and therefore would be lost if re-allocated.
   if (.not.associated(bnd%discharge)) then
      allocate( bnd%discharge          (lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge_DOC      (lnd%is:lnd%ie,lnd%js:lnd%je) )
      allocate( bnd%discharge_heat     (lnd%is:lnd%ie,lnd%js:lnd%je) )
      allocate( bnd%discharge_snow     (lnd%is:lnd%ie,lnd%js:lnd%je) )
      allocate( bnd%discharge_snow_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
@@ -5612,6 +5614,7 @@ subroutine realloc_land2cplr ( bnd )
      ! values, filled with zeroes. The reason is because not all of the usable elements
      ! are updated by the land model (only coastal points are).
      bnd%discharge           = 0.0
+     bnd%discharge_DOC       = 0.0
      bnd%discharge_heat      = 0.0
      bnd%discharge_snow      = 0.0
      bnd%discharge_snow_heat = 0.0
@@ -5649,6 +5652,7 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )
+     __DEALLOC__( bnd%discharge_DOC       )
      __DEALLOC__( bnd%discharge_heat      )
      __DEALLOC__( bnd%discharge_snow      )
      __DEALLOC__( bnd%discharge_snow_heat )
@@ -5856,6 +5860,7 @@ subroutine land_data_type_chksum(id, timestep, land)
     write(outunit,100) 'land%tr                ',mpp_chksum(land%tr(:,:,n))
     enddo
     write(outunit,100) 'land%discharge         ',mpp_chksum(land%discharge)
+    write(outunit,100) 'land%discharge_DOC     ',mpp_chksum(land%discharge_DOC)
     write(outunit,100) 'land%discharge_snow    ',mpp_chksum(land%discharge_snow)
     write(outunit,100) 'land%discharge_heat    ',mpp_chksum(land%discharge_heat)
 

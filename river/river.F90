@@ -297,6 +297,7 @@ contains ! ===--------------------------------------------------------
     i_river_DOC  = river_tracer_index('doc')
     if (i_river_ice  == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for ice not found')
     if (i_river_heat == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for heat not found')
+    if (i_river_DOC  == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for DOC not found')
 
 !--- register diag field
     if(mpp_get_ntile_count(domain)==1) then
@@ -499,6 +500,7 @@ contains ! ===--------------------------------------------------------
        land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,:,i_river_heat) / (1-lnd%sg_landfrac)
        land2cplr%discharge_snow_heat =               discharge_c(:,:,i_river_heat) / (1-lnd%sg_landfrac) &
                                       - land2cplr%discharge_heat
+       land2cplr%discharge_DOC        = discharge_c(:,:,i_river_DOC) / (1-lnd%sg_landfrac)
     end where
 
 #ifdef ZMSDEBUG
@@ -1686,7 +1688,7 @@ end subroutine groundwater_abstraction
     call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
     id_dis_DOC    = register_diag_field ( mod_name, 'dis_DOC', (/id_lon, id_lat/), &
          River%time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
-    call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
+    call diag_field_add_attribute(id_dis_DOC,'cell_methods', 'area: mean')
 
     ! static fields
 
