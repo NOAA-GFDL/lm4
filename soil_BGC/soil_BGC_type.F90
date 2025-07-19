@@ -20,6 +20,8 @@ contains
   procedure (get_real_func), deferred, pass :: total_N ! returns total N, soil+surface litter [kgN/m2]
   procedure (get_real_func), deferred, pass :: total_soil_C ! returns total C in soil, excluding surface litter [kgC/m2]
   procedure (get_real_func), deferred, pass :: total_soil_N ! returns total N in soil, excluding surface litter [kgN/m2]
+  procedure (get_real_f_r),  deferred, pass :: total_soil_C_to_depth ! returns total C in soil from the
+                                                       ! surface to the specified depth [kgC/m2]
   procedure (get_real_3),    deferred, pass :: rav_C   ! returns amounts of C [kgC/m2]
                                                        ! for legacy surface resistance calculations
   procedure (get_real_2D),   deferred, pass :: get_DOC ! returns DOC, by type and by layer
@@ -57,8 +59,15 @@ abstract interface
 
    ! given soil carbon data, returns real number
    function get_real_func(soilC)
-      import :: soil_BGC_t ! soil carbon data structure
-      class(soil_BGC_t), intent(in) :: soilC
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(in) :: soilC ! soil carbon data structure
+   end function
+
+   ! given soil carbon data and a floating-point argument, returns real number
+   function get_real_f_r(soilC,arg)
+      import :: soil_BGC_t
+      class(soil_BGC_t), intent(in) :: soilC  ! soil carbon data structure
+      real,              intent(in) :: arg    ! real argument: meaning depends on application
    end function
 
    ! given soil carbon data, returns three kinds of carbon
@@ -78,7 +87,7 @@ abstract interface
       real,           intent(out):: values(:,:) ! in many cases (N_C_TYPES, num_l)
    end subroutine
 
-   ! given soil carbon data, returns 2D data
+   ! given soil carbon data, returns 1D data
    subroutine get_real_1D(soilC, values)
       import :: soil_BGC_t ! soil carbon data structure
       class(soil_BGC_t), intent(in) :: soilC

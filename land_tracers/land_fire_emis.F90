@@ -157,7 +157,7 @@ subroutine update_fire_emissions(vegn, burned_by_sp)
      vegn%fire_emis_land(tr) = 0.0
      do sp = 0,nspecies-1
         vegn%fire_emis_land(tr) = vegn%fire_emis_land(tr) + &
-             frdata(tr)%efactors(sp) * &
+             frdata(tr)%efactors(sp) * frdata(tr)%scale_factor * &
              csmoke_by_sp(sp) * &
              (1./(spdata(sp)%c_per_dry_matter * 1.E-3)) * & !! convert C to DM in grams
              1.E-4 * &                 !! m2_to_cm2
