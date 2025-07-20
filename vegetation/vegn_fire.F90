@@ -14,6 +14,7 @@ use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
 use sphum_mod, only : qscomp
 use diag_manager_mod, only : register_diag_field, send_data
 use time_interp_external2_mod, only : ERR_FIELD_NOT_FOUND
+use field_manager_mod, only: MODEL_LAND, MODEL_ATMOS
 
 use land_constants_mod, only : N_LITTER_POOLS, LITT_LEAF, LITT_CWOOD, N_C_TYPES, &
       seconds_per_year
@@ -43,6 +44,7 @@ use soil_tile_mod, only : num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_t
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
 use soil_BGC_type_mod, only : soil_BGC_t
 use vegn_util_mod, only : kill_plants_ppa
+use gex_mod, only : gex_get_property, gex_get_index, gex_name, gex_units
 
 implicit none
 private
@@ -51,6 +53,7 @@ private
 public  ::  vegn_fire_init, vegn_fire_end, save_fire_restart
 public  ::  update_fire_fast
 public  ::  update_fire_data ! reads external data for fire model
+public  ::  update_lightning ! updates ATMOS lightning input for fire model
 ! public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  fire_transitions
 
@@ -84,7 +87,7 @@ character(3), parameter :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN'
 
 integer, parameter :: FIRE_WIND_CANTOP = 0, FIRE_WIND_10MTMP = 1, FIRE_WIND_10MSHEFFIELD = 2
 real, parameter    :: days_per_year = seconds_per_year/86400.0  ! number of days in year for computing csmoke_rate
-
+integer, parameter :: LIGHTNING_FROM_GEX = 1, LIGHTNING_FIREMIP = 2, LIGHTNING_LISO_CLIMO = 3
 ! ==== variables =============================================================
 integer :: fire_option_past = FIRE_PASTLI
 
@@ -93,9 +96,12 @@ integer :: fire_option_fAGB = 0
 integer :: fire_option_fRH = 0
 integer :: fire_option_fTheta = 0
 integer :: agri_fire_freq = -1
+integer :: lightning_option = 0
+
+integer :: id_gex_groundflash = 0 ! ID of the GEX lightning input from the atmosphere
 
 ! slm: was in vegn_harvesting
-integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
+! integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
                                 ! 1 for attempted fix based on burned/killed leaves
                                 ! 2 for attempted fix based on burned/killed bliving
                                 ! 3 to remove all
@@ -512,6 +518,18 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
         'option agri_fire_frequency="'//trim(agri_fire_frequency)//'" is invalid, use "monthly" or "daily"', &
         FATAL)
   end select
+
+  id_gex_groundflash = gex_get_index( MODEL_ATMOS, MODEL_LAND, 'groundflash')
+  if (id_gex_groundflash > 0) then
+     lightning_option = LIGHTNING_FROM_GEX
+     call error_mesg('fire_init','lightning from atmospheric model', NOTE)
+  else if (FireMIP_ltng) then
+     lightning_option = LIGHTNING_FIREMIP
+     call error_mesg('fire_init','lightning from FireMIP-like time series', NOTE)
+  else
+     lightning_option = LIGHTNING_LISO_CLIMO
+     call error_mesg('fire_init','lightning from LISO-like monthly climatology', NOTE)
+  endif
 
   ! SSR20151009
   if (C_beta_params_likeRH) write(*,*) 'C_beta_params_likeRH is .TRUE., so ignoring setting of C_beta_threshUP and C_beta_threshLO.'
@@ -1002,6 +1020,24 @@ subroutine save_fire_restart(tile_dim_length,timestamp)
 end subroutine save_fire_restart
 
 ! ==============================================================================
+subroutine update_lightning(gex_atm2land, time)
+  real, intent(in) :: gex_atm2land(:,:,:) ! array of GEX fields
+  type(time_type), intent(in) :: time
+
+  !!! dsward added code to read in FireMIP monthly lightning
+  select case (lightning_option)
+  case (LIGHTNING_FROM_GEX)
+     ! atmos passes flashes/m2/s
+     ! in fire model, lightning is in flashes/km2/day
+     ! NOTE: fire model assumes that  lightning is the same for all tiles
+     !   within the grid cell, and atmos dos the same. For that reason, we
+     !   only use data from the first tile of the GEX array
+     lightning_in(:) = gex_atm2land(:,1,id_gex_groundflash) * 1e6 * 86400.0
+  end select
+
+end subroutine update_lightning
+
+! ==============================================================================
 ! reads external data for the fire model
 subroutine update_fire_data(time)
   type(time_type), intent(in) :: time
@@ -1033,11 +1069,14 @@ subroutine update_fire_data(time)
   Fp_in = past_burn_rate_in(:,month)
 
   !!! dsward added code to read in FireMIP monthly lightning
-  if (FireMIP_ltng) then
+  select case (lightning_option)
+  case (LIGHTNING_FIREMIP)
      call read_external_ts(lightning_ts,time,lightning_in)
-  else
+  case (LIGHTNING_LISO_CLIMO)
      lightning_in = lightning_in_v2(:,month)
-  endif
+  case (LIGHTNING_FROM_GEX)
+     ! do nothing, input from GEX is on the fast time scale
+  end select
 
   ! SSR: Check lightning data
   do l = lnd%ls, lnd%le

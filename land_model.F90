@@ -57,7 +57,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      cohort_test_func, cohort_area_frac, any_vegn, is_tree, is_grass, is_c3, is_c4, &
      is_c3grass, is_c4grass
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
-use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
+use vegn_fire_mod, only : update_lightning, update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, save_cana_restart, &
      cana_roughness, cana_v_turb, cana_g_turb, surface_resistances, &
@@ -1345,6 +1345,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! get the fertilization data
   call update_nitrogen_sources(lnd%time, lnd%time+lnd%dt_fast)
+
+  call update_lightning(cplr2land%gex_atm2lnd, lnd%time)
 
   ! clear the runoff values, for accumulation over the tiles
   runoff = 0 ; runoff_c = 0
