@@ -592,7 +592,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
           'bilinear', fill=0.0)
   endif
   !!! dsward added code for reading FireMIP monthly lightning timeseries
-  if (FireMIP_ltng) then
+  if(lightning_option == LIGHTNING_FIREMIP) then
      call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
           'bilinear', fill=0.0)
   endif
@@ -611,7 +611,7 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   allocate(crop_burn_rate_in(lnd%ls:lnd%le,12))
   allocate(past_burn_rate_in(lnd%ls:lnd%le,12))
 
-  if (.not.FireMIP_ltng) then
+  if(lightning_option == LIGHTNING_LISO_CLIMO) then
      allocate(lightning_in_v2(lnd%ls:lnd%le,12))
      exists = open_file(fileobj, 'INPUT/lightning.nc' , "read")
      if (.not. exists) then
@@ -1342,7 +1342,7 @@ subroutine update_fire_ntrl(vegn,soil,soilc,diag, &
        ! call check_var_range(vegn%max_fire_size, max_fire_size_min, 1e37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
 
-    call update_Nfire_BA_fast(vegn, diag,l,tile_area, &
+    call update_Nfire_BA_fast(vegn, diag,tile_area, &
                               fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                               BAperFire_0, &
                               vegn%trop_code, &   ! SSR20150831
@@ -2011,7 +2011,8 @@ subroutine vegn_fire_In(latitude,lightning,In)
     else
        cloud2ground_frac = 1. / (5.16 + 2.16*cos(3.*latitude)) !!!added boreal fire fix by Rui
     endif
-    if (FireMIP_ltng) cloud2ground_frac = 1. !!! dsward added for FireMIP lightning file
+    if (lightning_option == LIGHTNING_FIREMIP .or. &
+        lightning_option == LIGHTNING_FROM_GEX ) cloud2ground_frac = 1.0 !!! dsward added for FireMIP lightning file
     In = lightning * cloud2ground_frac * In_c2g_ign_eff
     In = In * dt_fast/86400.
 
@@ -2931,7 +2932,7 @@ subroutine vegn_fire_BA_agri(vegn,num_days,BF_ag)
 end subroutine vegn_fire_BA_agri
 
 
-subroutine update_Nfire_BA_fast(vegn, diag, l, tile_area, &
+subroutine update_Nfire_BA_fast(vegn, diag, tile_area, &
                                 fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                                 BAperFire_0, &
                                 vegn_trop_code, &   ! SSR20150831
@@ -2945,7 +2946,6 @@ subroutine update_Nfire_BA_fast(vegn, diag, l, tile_area, &
                                 kop ) !!! dsward_kop
   type(vegn_tile_type), intent(in) :: vegn
   type(diag_buff_type), intent(inout) :: diag
-  integer, intent(in) :: l   ! index of current point, for fire data
   real, intent(in)    :: tile_area   ! Area of tile (m2)
   real, intent(in)    :: fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb
   real, intent(in)    :: BAperFire_0
