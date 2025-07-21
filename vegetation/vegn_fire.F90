@@ -1024,16 +1024,33 @@ subroutine update_lightning(gex_atm2land, time)
   real, intent(in) :: gex_atm2land(:,:,:) ! array of GEX fields
   type(time_type), intent(in) :: time
 
+  integer :: year,month,day,hour,minute,second
+  integer :: l ! grid cell index
+
+  if (fire_option /= FIRE_UNPACKED) return ! we do not need do do anything
+
+  call get_date(time,year,month,day,hour,minute,second)
+
   !!! dsward added code to read in FireMIP monthly lightning
   select case (lightning_option)
+  case (LIGHTNING_FIREMIP)
+     call read_external_ts(lightning_ts,time,lightning_in)
+  case (LIGHTNING_LISO_CLIMO)
+     lightning_in = lightning_in_v2(:,month)
   case (LIGHTNING_FROM_GEX)
-     ! atmos passes flashes/m2/s
-     ! in fire model, lightning is in flashes/km2/day
-     ! NOTE: fire model assumes that  lightning is the same for all tiles
-     !   within the grid cell, and atmos dos the same. For that reason, we
-     !   only use data from the first tile of the GEX array
+     ! atmos passes flashes/m2/s; in fire model, lightning is in flashes/km2/day
+     ! NOTE: the fire model always assumed that lightning is the same for all tiles
+     !   within the grid cell, and atmos assumes the same. For that reason, this
+     !   code only uses data from the first tile of the array passed through GEX
+     !   mechanism.
      lightning_in(:) = gex_atm2land(:,1,id_gex_groundflash) * 1e6 * 86400.0
   end select
+
+  ! SSR: Check lightning data
+  do l = lnd%ls, lnd%le
+     call set_current_point(l,1)
+     call check_var_range(lightning_in(l), 0.0, 1e37, 'update_lightning', 'lightning', FATAL)
+  end do
 
 end subroutine update_lightning
 
@@ -1067,21 +1084,6 @@ subroutine update_fire_data(time)
   call get_date(time,year,month,day,hour,minute,second)
   Fc_in = crop_burn_rate_in(:,month)
   Fp_in = past_burn_rate_in(:,month)
-
-  !!! dsward added code to read in FireMIP monthly lightning
-  select case (lightning_option)
-  case (LIGHTNING_FIREMIP)
-     call read_external_ts(lightning_ts,time,lightning_in)
-  case (LIGHTNING_LISO_CLIMO)
-     lightning_in = lightning_in_v2(:,month)
-  case (LIGHTNING_FROM_GEX)
-     ! do nothing, input from GEX is on the fast time scale
-  end select
-
-  ! SSR: Check lightning data
-  do l = lnd%ls, lnd%le
-     call check_var_range(lightning_in(l), 0.0, 1e37, 'update_fire_data', 'lightning', FATAL)
-  end do
 
   ! recalculate burnable (as natural) and fragmenting fractions
   fragmenting_frac(:) = 0.0; burnable_frac(:) = 0.0
