@@ -35,7 +35,8 @@ module river_physics_mod
   use lake_mod,        only : large_dyn_small_stat, use_reservoir, lake_abstraction, ResMin, ResMax
   use lake_tile_mod,   only : num_l
   use constants_mod,   only : tfreeze, hlf, DENS_H2O
-  use land_debug_mod,  only : set_current_point_sg, is_watch_cell, check_var_range
+  use land_debug_mod,  only : set_current_point_sg, is_watch_cell, check_var_range, &
+        land_error_message
   use land_data_mod,   only : log_version
 
   implicit none
@@ -259,6 +260,7 @@ contains
 
             if (River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.) then
                 ! terminal, all-land cell (must have lake)
+                call land_error_message('Terminal river point on land', FATAL)
                 if (is_watch_cell()) then
                     write(*,*) '############################  TERMINAL CELL! ############################'
                     __DEBUG1__(cur_travel)
@@ -386,7 +388,28 @@ contains
                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
                      endif
                      is_terminal = .False.
-
+                     call lake_abstraction( is_terminal, &
+                                            irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
+                                            influx, influx_c(1:2), &
+                                            tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
+                                            lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:),lake_dhcap(i,j,:), &
+                                            River%lake_abst(i,j), River%lake_habst(i,j), &
+                                            rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)
+                     if (is_watch_cell()) then
+                         write(*,*) 'after lake_abstraction'
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
+                         write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
+                         write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
+                         ! write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
+                         write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
+                         write(*,*) 'rsv_outflow_s:', rsv_outflow_s
+                         write(*,*) 'rsv_outflow_h:', rsv_outflow_h
+                         write(*,*) 'vr1:', vr1
+                     endif
                      ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
                      !h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
                      !                       -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
