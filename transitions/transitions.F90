@@ -52,7 +52,6 @@ public :: land_transitions_end
 public :: save_land_transitions_restart
 
 public :: land_transitions
-public :: do_irrigation
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================
@@ -132,7 +131,7 @@ logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the la
 character(len=1024) :: input_file  = '' ! input data set of transition dates
 character(len=1024) :: state_file  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: static_file = '' ! static data file, for input land fraction
-logical :: do_irrigation = .FALSE. ! if true, then the irrigation transitions are applied
+logical, protected, public :: do_irrigation = .FALSE. ! if true, then the irrigation transitions are applied
 character(len=1024) :: irrigation_file = '' ! input data set of irrigation fractions
 character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
 ! distribute_transitions sets how the land use transitions are distributed among

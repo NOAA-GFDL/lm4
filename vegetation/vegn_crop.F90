@@ -61,7 +61,7 @@
                           IRRIGATED_MAIZE, IRRIGATED_SOYBEAN, IRRIGATED_RICE, IRRIGATED_SPRING_WHEAT, IRRIGATED_WINTER_WHEAT, &
                           RAINFED_MAIZE,   RAINFED_SOYBEAN,   RAINFED_RICE,   RAINFED_SPRING_WHEAT,   RAINFED_WINTER_WHEAT, &
                           crop_name, num_crop_types, num_crop_cal, num_crop_seasons, num_crop_periods, &
-                          landuse_name, water_source_name, landuse_longname
+                          landuse_name, water_source_name, landuse_longname, LU_IRRIG, LU_RAINF
  use land_data_mod, only: lnd
  use land_tile_io_mod, only: land_restart_type, init_land_restart, open_land_restart, save_land_restart, &
                              free_land_restart, add_restart_axis, add_tile_data, get_tile_data, field_exists, add_int_tile_data, get_int_tile_data
@@ -170,10 +170,23 @@
  real :: SI_crit(num_crop_types)
  integer :: GP(num_crop_types)
  real, dimension(0:num_m,num_crop_types) :: central_T, central_P, central_D, variance_T, variance_P, variance_D
+ logical :: match_crop_water_source_with_landuse = .FALSE. ! If TRUE, the crop
+        !  selection only allows crops with matching water source on the land tiles marked
+        !  as irrigated or rain-fed by the land use data set: that is, rain-fed crops are
+        !  not allowed on irrigated land use tiles, and irrigated crops are not allowed on
+        !  rain-fed tiles.
+        !
+        ! By default (FALSE), any crop (rain-fed or irrigated) can be selected for any
+        ! cropland land use type (irrigated or rain-fed). This is appropriate for the case
+        ! when irrigation transitions are not turned on in the land use module: all crop
+        ! tiles are tagged as "rain-fed" in this case, so excluding certain crops from
+        ! selection would likely result in underestimation of the crop coverage compared
+        ! to the real world.
 
  namelist / vegn_crop_nml / weight_climate, &
             max_planting_SI_SW, Tbase_Wheat, length_of_vernalization_period, &
-            max_T_for_vernalization, min_T_GP_SW, absolute_min_T_for_Wheat
+            max_T_for_vernalization, min_T_GP_SW, absolute_min_T_for_Wheat, &
+            match_crop_water_source_with_landuse
  contains
 !============================================================================
  subroutine compute_crop_calendars(vegn, diag, L)
@@ -324,18 +337,17 @@
 
  end subroutine compute_crop_calendars
 !======================================================================================================================================================
- subroutine crop_selection(vegn, water_source)
+ subroutine crop_selection(vegn)
  integer :: calendars(2, num_crop_periods, num_crop_seasons, num_crop_types)
  integer :: potential_crop(num_crop_types)
  integer :: potential_chosen_crops(num_crop_seasons)
  integer :: potential_chosen_calendars(2,num_crop_seasons)
  type(vegn_tile_type), intent(inout) :: vegn
- character(len=*), optional, intent(in) :: water_source
  integer :: iseason
 
  calendars      = vegn%Crop%crop_calendars
  potential_crop = vegn%Crop%potential_crop
- call crop_selection_sub(calendars, potential_crop, potential_chosen_crops, potential_chosen_calendars, water_source)
+ call crop_selection_sub(calendars, potential_crop, vegn%landuse, potential_chosen_crops, potential_chosen_calendars)
 
  ! Change the chosen crop and it's calendar only if it is not active
  do iseason=1,num_crop_seasons
@@ -347,13 +359,13 @@
 
  end subroutine crop_selection
 !======================================================================================================================================================
- subroutine crop_selection_sub(calendars, potential_crop, chosen_crops, chosen_calendars, water_source)
+ subroutine crop_selection_sub(calendars, potential_crop, landuse, chosen_crops, chosen_calendars)
  integer, intent(in)  :: calendars(2, num_crop_periods, num_crop_seasons, num_crop_types)
  integer, intent(in)  :: potential_crop(num_crop_types)
+ integer, intent(in)  :: landuse
  integer, intent(out) :: chosen_crops(num_crop_seasons)
  integer, intent(out) :: chosen_calendars(2,num_crop_seasons)
  integer :: ipref, ipref_beg, ipref_end
- character(len=*), optional, intent(in) :: water_source
  integer, dimension(2,num_crop_seasons) :: dble_cropping_calendar
  character(len=256) :: text
  character(len=16) :: cn1, cn2
@@ -376,17 +388,23 @@
 ! Valid optimal planting dates for the 1st season exist when the CCA has determined that conditions are suitable.
  vcal_1 = 0; vcal_2 = 0; vcal_3 = 0; vcal_4 = 0; vcal_5 = 0
  vcal_6 = 0; vcal_7 = 0; vcal_8 = 0; vcal_9 = 0; vcal_10 = 0
- if(present(water_source)) then
-   if(trim(water_source) == trim(water_source_name(1))) then
+ if(match_crop_water_source_with_landuse) then
+   ! In this case, irrigated and rain-fed crops are distinct land use types:
+   ! the result of land use transitions that distinguish them.
+   select case (landuse)
+   case (LU_IRRIG) ! irrigated crop
      ipref_beg = 1
      ipref_end = 5
-   else if(trim(water_source) == trim(water_source_name(2))) then
+   case (LU_RAINF) ! rain-fed crop
      ipref_beg = 6
      ipref_end = 10
-   else
-     call error_mesg('crop_selection','When present, water_source must be '//trim(water_source_name(1))//' or '//trim(water_source_name(2)), FATAL)
-   endif
+   case default
+     call error_mesg('crop_selection','landuse argument must be LU_IRRIG or LU_RAINF', FATAL)
+   end select
  else
+   ! Irrigated or rain-fed crops could be selected for any crop tile, regardless of water
+   ! source. NOTE: if do_irrigation is FALSE in transition, all crop tiles have LU_RAINF
+   ! land use type.
    ipref_beg = 1
    ipref_end = 10
  endif
