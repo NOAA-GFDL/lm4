@@ -67,9 +67,6 @@ character(len=*), parameter :: module_name = 'river_physics_mod'
   real :: storage_threshold_for_diag = 1.e6
   logical :: ice_frac_from_sfc = .false.
   logical :: use_lake_area_bug = .false.
-  logical :: zero_frac_bug     = .false. ! it TRUE, reverts to quebec (buggy)
-      ! behavior, where the discharge points with zero land fraction were
-      ! missed, resulting in water non-conservation
   real :: ice_frac_factor = 0.
   logical :: prohibit_cold_ice_outflow = .TRUE. ! default retrieves old behavior,
       ! to activate bugfix, set it to FALSE
@@ -84,7 +81,7 @@ character(len=*), parameter :: module_name = 'river_physics_mod'
                                lake_sfc_w_min, storage_threshold_for_melt, &
                                storage_threshold_for_diag, &
                                ice_frac_from_sfc, ice_frac_factor, &
-                               use_lake_area_bug, zero_frac_bug, &
+                               use_lake_area_bug, &
                                prohibit_cold_ice_outflow, lockstep, &
                                river_impedes_lake, river_impedes_large_lake, &
                                do_river_abstraction
@@ -230,13 +227,7 @@ contains
     do j = jsc, jec
       do i = isc, iec
         call set_current_point_sg(i,j,1) ! for debug output
-        if (River%travel(i,j)==cur_travel.and.&
-            ((.not.zero_frac_bug).or.(River%landfrac(i,j).gt.0))) then
-            ! if zero_frac_bug is FALSE, the second line of condition is
-            ! always TRUE, so we revert to bugfix
-            ! if zero_frac_bug is TRUE, the second line is simply
-            ! River%landfrac(i,j).gt.0, so we get quebec (buggy) condition
-
+        if (River%travel(i,j) == cur_travel) then
             ! FIRST COMPUTE LAKE MASS BALANCE (FROM INFLOC AND INFLOW TO LAKE_OUTFLOW)
             tot_area = lake_sfc_A(i,j)
             lake_area = (1.-Afrac_rsv(i,j))*lake_sfc_A(i,j)
@@ -261,56 +252,18 @@ contains
 
             if (River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.) then
                 ! terminal, all-land cell (must have lake)
+                ! slm:
+                ! The current model configuration mandates that there are no terminal lakes in the
+                ! river routing data: in other words, all runoff should be (eventually) routed to
+                ! the ocean. Consequently, the code below should never be executed. It is not
+                ! deleted in case some future changes to the model enable the ability for terminal
+                ! lakes to exist while maintaining global water balance.
                 call land_error_message('Terminal river point on land', FATAL)
-                if (is_watch_cell()) then
-                    write(*,*) '############################  TERMINAL CELL! ############################'
-                    __DEBUG1__(cur_travel)
-                    __DEBUG1__(tot_area)
-                    __DEBUG1__(lake_area)
-                    __DEBUG1__(lake_wl(i,j,1))
-                    __DEBUG1__(lake_ws(i,j,1))
-                    __DEBUG1__(lake_T (i,j,1))
-                    __DEBUG1__(h)
-
-                    __DEBUG1__(influx)
-                    __DEBUG1__(influx_c(1))
-                    __DEBUG1__(influx_c(2))
-
-                    __DEBUG1__(River%inflow  (i,j))
-                    __DEBUG1__(River%inflow_c(i,j,1))
-                    __DEBUG1__(River%inflow_c(i,j,2))
-
-                    __DEBUG1__(River%infloc  (i,j))
-                    __DEBUG1__(River%infloc_c(i,j,1))
-                    __DEBUG1__(River%infloc_c(i,j,2))
-
-                    call dpri('River%inflow_temp(i,j)', tfreeze+River%inflow_c(i,j,2)/(clw*(River%inflow(i,j)-River%inflow_c(i,j,1))+csw*River%inflow_c(i,j,1)))
-                    call dpri('River%infloc_temp(i,j)', tfreeze+River%infloc_c(i,j,2)/(clw*(River%infloc(i,j)-River%infloc_c(i,j,1))+csw*River%infloc_c(i,j,1)))
-                endif
                 h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
                 lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/tot_area
                 lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
                 lake_T (i,j,1) = tfreeze + &
                    (h+influx_c(2)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1)) !(J/m2)/(J/(kgK)*(kg/m2))= (J/m2)/(J/(Km2)) = K
-                if (is_watch_cell()) then
-                         write(*,*) 'before lake_abstraction'
-                         write(*,*) 'tot_area:', tot_area
-                         write(*,*) 'lake_area:', lake_area
-                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                         write(*,*) 'influx    :', influx
-                         write(*,*) 'influx_c(1):', influx_c(1)
-                         write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
-                         write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
-                         write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
-                         write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
-                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
-                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
-                         write(*,*) 'Afrac_rsv(i,j):', Afrac_rsv(i,j)
-                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
-                         write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
-                endif
                 is_terminal = .True.
                 call lake_abstraction( is_terminal, &
                                        irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
@@ -329,24 +282,6 @@ contains
                   vr1 = Vfrac_rsv(i,j)*v1
                   ! rsv_outflow(i,j) could be less than 0 here
                   rsv_outflow(i,j) = rsv_outflow(i,j) + (vr1_bak - vr1)*DENS_H2O !kg
-                endif
-                if (is_watch_cell()) then
-                         write(*,*) 'after lake_abstraction'
-                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
-                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)
-                         write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
-                         write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         write(*,*) 'River%lake_abst_temp(i,j):', tfreeze+River%lake_habst(i,j)/(clw*River%lake_abst(i,j)*DENS_H2O)
-                         write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)
-                         write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
-                         write(*,*) 'rsv_outflow_s:', rsv_outflow_s
-                         write(*,*) 'rsv_outflow_h:', rsv_outflow_h
-                         write(*,*) 'vr1:', vr1
-                         write(*,*) 'v1:', v1
-                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
                 endif
                 ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
               else
