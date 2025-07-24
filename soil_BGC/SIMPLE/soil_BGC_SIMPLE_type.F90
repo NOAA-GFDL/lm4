@@ -17,8 +17,9 @@ use tile_diag_base_mod, only : set_default_diag_filter, &
 use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool
 use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
-use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz
+use soil_tile_mod, only: soil_tile_type, num_l, soil_theta, dz, zhalf
 use vegn_tile_mod, only: vegn_tile_type
+use vegn_data_mod, only: soil_carbon_depth_scale
 
 implicit none; private
 
@@ -55,6 +56,8 @@ contains
   procedure :: total_N => total_N_SIMPLE ! returns total N [kgN/m2]
   procedure :: total_soil_C => total_soil_C_SIMPLE ! returns total C in soil, excluding surface litter [kgC/m2]
   procedure :: total_soil_N => total_soil_N_SIMPLE ! returns total N in soil, excluding surface litter [kgN/m2]
+  procedure :: total_soil_C_to_depth => total_soil_C_to_depth_SIMPLE ! returns total C in soil from the
+                                                   ! surface to the specified depth [kgC/m2]
   procedure :: rav_C   => rav_C_SIMPLE   ! returns amounts of fast, slow, and (dead) microbial C [kgC/m2]
                                        ! for litter evaporation resistance calculations
   procedure :: get_DOC => get_zero_2D
@@ -292,6 +295,48 @@ end function
 real function total_soil_C_SIMPLE(soilc) result(tot_C)
   class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure
   tot_C = sum(soilc%fast_soil_C(:))+sum(soilc%slow_soil_C(:))
+end function
+
+!> @brief Given soil carbon state, and a depth, return total soil C in the layer
+!! from the surface to the specified depth
+!! @return total soil carbon in the depth range [0,arg], kgC/m2
+real function total_soil_C_to_depth_SIMPLE(soilc, arg) result(answer)
+  class(soil_BGC_SIMPLE_t), intent(in)  :: soilc !< soil carbon data structure
+  real, intent(in) :: arg !< depth over which to calculate the total
+
+  ! for vertically-distributed soil carbon option
+  integer :: k ! layer counter
+  real :: z    ! depth to the top of the current layer
+  real :: frac ! fraction of current layer that is above depth=arg
+
+  ! for bulk soil carbon option
+  real :: totC ! total C in the entire soil
+  real :: z0   ! e-folding depth scale of exponential soil C profile
+  real :: ztot ! total soil depth
+
+  if (bulk) then
+     ! C(z) = c0*exp(z/soil_carbon_depth_scale)
+     ! integral of c(z) from zero to soil depth == total soil_C
+     totC = soilc%total_soil_C()
+     z0 = soil_carbon_depth_scale
+     ztot = zhalf(num_l+1)
+     if (arg.ge.ztot) then
+         answer = totC
+     else if (arg.le.0) then
+         answer = 0.0
+     else
+         answer = totC * (1-exp(-arg/z0))/(1-exp(-ztot/z0))
+     endif
+  else
+     ! layer-by-layer calculations
+     answer = 0.0; z = 0.0
+     do k = 1, num_l
+        if (z.ge.arg) exit ! from loop
+        frac  = max(min((arg-z)/dz(k),1.0),0.0)
+        answer = answer + frac*(soilc%fast_soil_C(k)+soilc%slow_soil_C(k))
+        z = z+dz(k)
+     enddo
+  endif
 end function
 
 !> @brief Given soil carbon state, return total soil C by layer
