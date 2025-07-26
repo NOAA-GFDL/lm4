@@ -32,6 +32,7 @@ module river_physics_mod
   use diag_manager_mod,only : register_diag_field, send_data
   use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
+  use river_tracers_mod, only : num_phys, num_species, trdata, river_tracer_index
   use lake_mod,        only : large_dyn_small_stat, use_reservoir, lake_abstraction, ResMin, ResMax
   use lake_tile_mod,   only : num_l
   use constants_mod,   only : tfreeze, hlf, DENS_H2O
@@ -92,7 +93,6 @@ character(len=*), parameter :: module_name = 'river_physics_mod'
   integer                          :: isd, ied, jsd, jed  ! data domain
   integer                          :: maxtravel
   integer                          :: npes
-  integer                          :: num_species
 
   type comm_type
      integer          :: count
@@ -115,6 +115,8 @@ character(len=*), parameter :: module_name = 'river_physics_mod'
 
   ! ---- diag field IDs
   integer :: id_temp, id_ice
+
+integer :: i_age ! index of the age tracer (or NO_TRACER)
 
 contains
 
@@ -144,9 +146,10 @@ contains
     call mpp_get_data_domain(domain, isd, ied, jsd, jed)
 
     num_lake_lev = num_l
-    num_species = size(River%outflow_c,3)
     maxtravel = maxval(River%travel)
     call mpp_max(maxtravel)
+
+    i_age = river_tracer_index('age')
 
 !--- set up the halo update
     call setup_halo_update(River, domain)
@@ -205,9 +208,9 @@ subroutine river_physics_step(River, cur_travel, &
   real      :: liq_to_flow, ice_to_flow, liq_this_lev, ice_this_lev
   real      :: tot_area, lake_area, h, ql, qs, qh, qt, h0, t_scale
   real      :: influx
-  real      :: influx_c(River%num_species)
+  real      :: influx_c(num_species)
   real      :: v_r_d
-  real      :: conc(1:River%num_species)
+  real      :: conc(1:num_species)
   logical, dimension(isc:iec,jsc:jec) :: &
        diag_mask ! mask of valid ice and temperature values fo diagnostics
   real, dimension(isc:iec,jsc:jec) :: &
@@ -220,7 +223,7 @@ subroutine river_physics_step(River, cur_travel, &
   real    :: V2A_l
   logical :: is_terminal
 
-  trs = River%num_phys+1 ; tre = River%num_species
+  trs = num_phys+1 ; tre = num_species
 
   ! invalidate diag_mask everywhere
   diag_mask = .FALSE.
@@ -242,7 +245,7 @@ subroutine river_physics_step(River, cur_travel, &
         influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow ! J m3/kg /s * kg/m3 * s = J
 
 !            ! ZMS Simple update for storage_c. Skip over lakes.
-        if (River%num_c > 0) then
+        if (tre.ge.trs) then
 !               River%storage_c(i,j,trs:tre) = &
 !                     River%storage_c(i,j,trs:tre) + influx_c(trs:tre)
            if (is_watch_cell()) then
@@ -473,9 +476,8 @@ subroutine river_physics_step(River, cur_travel, &
         endif ! terminal vs non-terminal cell
 
         ! ZMS Bypass rivers for tracers.
-        if (River%num_c > 0) then
-           River%lake_outflow_c(i,j,trs:tre) = &
-                 influx_c(trs:tre)
+        if (tre.ge.trs) then
+           River%lake_outflow_c(i,j,trs:tre) = influx_c(trs:tre)
         end if
 
         if (is_watch_cell()) then
@@ -596,11 +598,9 @@ subroutine river_physics_step(River, cur_travel, &
            else
               River%outflow_c(i,j,1) = max(River%outflow_c(i,j,1), 0.)
               River%abstflow_c(i,j,1) = max(River%abstflow_c(i,j,1), 0.)
-              if(River%num_phys+1 <= River%num_species) then
-                 River%outflow_c(i,j,trs:tre) = &
-                   max(River%outflow_c(i,j,trs:tre), 0.)
-                 River%abstflow_c(i,j,trs:tre) = &
-                   max(River%abstflow_c(i,j,trs:tre), 0.)
+              if(tre.ge.trs) then
+                 River%outflow_c(i,j,trs:tre)  = max(River%outflow_c(i,j,trs:tre),  0.0)
+                 River%abstflow_c(i,j,trs:tre) = max(River%abstflow_c(i,j,trs:tre), 0.0)
               endif
            endif
            River%outflow_c(i,j,1) = min(River%outflow_c(i,j,1), River%outflow(i,j))
@@ -643,27 +643,26 @@ subroutine river_physics_step(River, cur_travel, &
            ice(i,j)=conc(1)
            temperature(i,j)=conc(2)
 
-           if (River%i_age/=NO_TRACER) then
-              River%removal_c(i,j,River%i_age) = -River%storage(i,j)/sec_in_day
-              River%storage_c(i,j,River%i_age) = River%storage_c(i,j,River%i_age) &
-                 - River%removal_c(i,j,River%i_age)*River%dt_slow
+           if (i_age/=NO_TRACER) then
+              River%removal_c(i,j,i_age) = -River%storage(i,j)/sec_in_day
+              River%storage_c(i,j,i_age) = River%storage_c(i,j,i_age) &
+                 - River%removal_c(i,j,i_age)*River%dt_slow
            endif
 
            if (River%storage(i,j) .gt. 0.) then
-              conc(trs:tre) = &
-                 River%storage_c(i,j,trs:tre)/River%storage(i,j)
+              conc(trs:tre) = River%storage_c(i,j,trs:tre)/River%storage(i,j)
            else
-              conc(trs:tre) = 0.
+              conc(trs:tre) = 0.0
            endif
 
            do tr = trs,tre
-              if (River%do_removal(tr)) then
+              if (trdata(tr)%do_removal) then
                  if (River%depth(i,j)>0 .and. conc(2)>100.0) then
-                    v_r_d = River%vf_ref(tr) * River%Q10(tr)**((conc(2)-River%t_ref(tr))/10.)&
-                       / ((1+River%kinv(tr)*conc(tr)) * River%depth(i,j))
+                    v_r_d = trdata(tr)%vf_ref * trdata(tr)%Q10**((conc(2)-trdata(tr)%t_ref)/10.0)&
+                       / ((1+trdata(tr)%kinv*conc(tr)) * River%depth(i,j))
                     ! next should not be necessary if storage_c is positive, but maybe it's not.
-                    v_r_d = River%vf_ref(tr) * River%Q10(tr)**((conc(2)-River%t_ref(tr))/10.)&
-                       / ((1+River%kinv(tr)*max(0.,conc(tr)))*River%depth(i,j))
+                    v_r_d = trdata(tr)%vf_ref * trdata(tr)%Q10**((conc(2)-trdata(tr)%t_ref)/10.)&
+                       / ((1+trdata(tr)%kinv*max(0.,conc(tr)))*River%depth(i,j))
                  else
                     v_r_d = 0.0
                  endif

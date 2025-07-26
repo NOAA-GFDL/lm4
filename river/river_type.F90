@@ -73,13 +73,7 @@ module river_type_mod
      real, dimension(:,:),      pointer :: depth         => NULL()
      real, dimension(:,:),      pointer :: width         => NULL()
      real, dimension(:,:),      pointer :: vel           => NULL()
-! tracer removal parameters
-     logical, dimension(:),     pointer :: do_removal    => NULL()
-     real, dimension(:),        pointer :: t_ref         => NULL()
-     real, dimension(:),        pointer :: vf_ref        => NULL()
-     real, dimension(:),        pointer :: q10           => NULL()
-     real, dimension(:),        pointer :: kinv          => NULL()
-! end of tracer removal parameters
+
      real, dimension(:,:),      pointer :: threshold     => NULL() !m3
      real, dimension(:,:),      pointer :: env_flow      => NULL() !m3/s
      real, dimension(:,:),      pointer :: abst          => NULL() !m3
@@ -94,9 +88,7 @@ module river_type_mod
      real                               :: channel_tau
      type (time_type)                   :: Time
      integer                            :: dt_fast, dt_slow
-     integer                            :: nlon, nlat, num_species, num_c
-     integer                            :: num_phys
-     integer                            :: i_age ! index of the age tracer (or NO_TRACER)
+     integer                            :: nlon, nlat
      integer                            :: nstep = 0
   end type river_type
 

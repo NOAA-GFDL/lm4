@@ -63,7 +63,7 @@ use data_override_mod,   only : data_override
 use tracer_manager_mod, only : NO_TRACER
 
 use river_type_mod,      only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
-use river_tracers_mod,   only : num_river_tracers, river_tracer_index, num_phys, trdata
+use river_tracers_mod,   only : num_phys, num_species, trdata, river_tracer_index
 use river_physics_mod,   only : river_physics_step, river_physics_init, &
    river_impedes_lake, river_impedes_large_lake
 use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
@@ -178,8 +178,6 @@ type(river_type), save :: River
 !--- clock id variable
 integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
 
-integer, protected, public :: num_species  ! number of river tracers, public for test_river_solo
-
 character(len=8),parameter :: river_res_xdim = "xaxis_1"
 character(len=8),parameter :: river_res_ydim = "yaxis_1"
 character(len=8),parameter :: river_res_zdim = "zaxis_1"
@@ -222,8 +220,7 @@ contains ! ===--------------------------------------------------------
     ierr = check_nml_error(io_status, 'river_nml')
 
 !--- write version and namelist info to logfile --------------------
-    call log_version(version, module_name, &
-    __FILE__)
+    call log_version(version, module_name, __FILE__)
     unit=stdlog()
     write(unit, river_nml)
 
@@ -241,11 +238,7 @@ contains ! ===--------------------------------------------------------
     River%channel_tau = channel_tau
 
     num_fast_calls = River%dt_slow/River%dt_fast
-    num_species = num_river_tracers()
-    River%num_species = num_species
-    River%num_c = num_species-num_phys
-    River%num_phys = num_phys
-    River%i_age = river_tracer_index('age')
+
     call mpp_error(NOTE,'river_mod: tracer numbers: num_phys='//string(num_phys)//' num_species='//string(num_species))
 
     if(River%dt_slow .lt. River%dt_fast) call mpp_error(FATAL, &
@@ -304,17 +297,6 @@ contains ! ===--------------------------------------------------------
     i_river_DOC  = river_tracer_index('doc')
     if (i_river_ice  == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for ice not found')
     if (i_river_heat == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for heat not found')
-
-! TODO: get rid of the parameters below in "River" data structure and use trdata
-! directly
-    River%do_removal = trdata(1:num_species)%do_removal
-    River%t_ref  = trdata(1:num_species)%t_ref
-    River%vf_ref = trdata(1:num_species)%vf_ref
-    River%q10    = trdata(1:num_species)%q10
-    River%kinv   = trdata(1:num_species)%kinv
-
-!    if (do_age) flux_units(3)                   = 'kg/m2  '
-!    if (do_age) store_units(3)                  = 'kg-s/m2'
 
 !--- register diag field
     if(mpp_get_ntile_count(domain)==1) then
@@ -1150,7 +1132,6 @@ end subroutine groundwater_abstraction
     deallocate(River%infloc_c ,     River%storage_c ,     River%stordis_c    )
     deallocate(River%inflow_c, River%outflow_c )
     deallocate(River%removal_c )
-    deallocate(River%do_removal,River%vf_ref,River%t_ref,River%q10,River%kinv)
     deallocate(River%d_coef,River%o_coef,River%w_coef)
     deallocate(River%threshold)
     deallocate(River%env_flow)
@@ -1380,14 +1361,6 @@ end subroutine groundwater_abstraction
     allocate(River%abstflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%lake_abst (isc:iec, jsc:jec) )
     allocate(River%lake_habst (isc:iec, jsc:jec) )
-
-    ! allocate for all tracers, to avoid index confusion, even though the values
-    ! of removal parameters for "physical tracers" (ice, het) are not used
-    ! TODO: remove these from river type and use parameters directly from
-    ! tracer table
-    allocate(River%do_removal(num_species))
-    allocate(River%t_ref(num_species),River%vf_ref(num_species))
-    allocate(River%q10  (num_species),River%kinv  (num_species))
 
     if(ntiles == 1) then   ! lat-lon grid, use actual grid location
        River%lon_1d(:)      = glon(:,1)

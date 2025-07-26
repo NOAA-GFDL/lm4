@@ -9,6 +9,7 @@ use field_manager_mod, only: fm_field_name_len, fm_string_len, &
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 use tracer_manager_mod, only : NO_TRACER
 use table_printer_mod
+use land_data_mod, only : log_version
 
 
 implicit none
@@ -23,16 +24,18 @@ public :: river_tracers_init
 public :: num_river_tracers
 public :: river_tracer_index
 public :: river_tracer_names
+
+public :: num_phys, num_species
 !--- end of public interface -----------------------------------------
 
 !--- tracer-related constants, types, and data
 character(*), parameter :: trtable='/land_mod/river_tracer' ! name of the field manager tracer table
-integer :: num_species  ! index of last tracer in zero-based table "trdata"
+integer, protected :: num_species  ! index of last tracer in zero-based table "trdata"
 ! In river modules, three "tracers" are always defined and hardcoded
 ! to occupy slots 0, 1, and 2 of the trdata table: h2o (total water) is 0,
 ! heat (called "het") is 1, and ice is 3.
 
-integer, public, parameter :: num_phys = 2 ! number of "physical" tracers: currently they are ice and heat content
+integer, parameter :: num_phys = 2 ! number of "physical" tracers: currently they are ice and heat content
 
 type tracer_data_type
   character(fm_field_name_len) :: &
@@ -76,6 +79,9 @@ subroutine river_tracers_init()
  integer :: i, m, n
  character(fm_field_name_len) :: name ! name of the river tracer
  character(fm_type_name_len)  :: typ  ! type of the river tracer
+
+!--- write version and namelist info to logfile --------------------
+ call log_version(version, module_name, __FILE__)
 
  ! number of river tracers in the field table (can be 0)
  m = fm_get_length(trtable)
