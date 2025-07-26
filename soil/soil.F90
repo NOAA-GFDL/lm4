@@ -78,7 +78,8 @@ use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
      soil_index_constant, input_cover_types
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
-use river_mod, only : river_tracer_index, num_fast_calls ! Kept for irrigation
+use river_tracers_mod, only : river_tracer_index
+use river_mod, only : num_fast_calls ! Yujin Kept for irrigation
 
 implicit none
 private

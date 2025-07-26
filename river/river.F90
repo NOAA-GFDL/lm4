@@ -42,176 +42,149 @@ module river_mod
 !  </DATA>
 ! </NAMELIST>
 
-  use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE
-  use mpp_mod,             only : mpp_error, FATAL, WARNING, NOTE, stdout, stdlog
-  use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max, input_nml_file
-  use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
-  use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
-  use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count, mpp_get_tile_id
-  use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
-  use mpp_domains_mod,     only : mpp_pass_sg_to_ug
-  use fms_mod,             only : check_nml_error, string, &
-                                & CLOCK_FLAG_DEFAULT, error_mesg
-  use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
-                         register_restart_field, variable_exists, register_field, &
-                         read_restart, close_file, write_data, &
-                         get_global_io_domain_indices, FmsNetcdfFile_t, &
-                         get_variable_size, read_data, get_variable_num_dimensions, unlimited, &
-                         get_instance_filename
-  use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
-  use time_manager_mod,    only : time_type, increment_time, get_time
-  use data_override_mod,   only : data_override
-  use river_type_mod,      only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
-  use river_physics_mod,   only : river_physics_step, river_physics_init, river_impedes_lake, &
-                                  river_impedes_large_lake
-  use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
-  use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
-  use land_io_mod,         only : register_variable_string_attribute, read_field
-  use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles, nitems, elmt_at_index
-  use land_data_mod,       only : land_data_type, log_version, lnd
-  use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &
-     set_current_point, check_var_range, check_conservation, land_error_message, &
-     carbon_cons_tol, nitrogen_cons_tol
-  use lake_tile_mod,       only : num_l
-  use field_manager_mod, only: fm_field_name_len, fm_string_len, &
-     fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
-     fm_get_current_list, fm_loop_over_list, fm_change_list
-  use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
-  use tracer_manager_mod, only : NO_TRACER
-  use table_printer_mod
-  use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
-  use lake_mod,           only : use_reservoir
-  use land_numerics_mod,  only : rank_descending
+use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE, &
+   mpp_error, FATAL, WARNING, NOTE, stdout, stdlog, input_nml_file, &
+   mpp_pe, mpp_chksum, mpp_max, &
+   mpp_clock_id, mpp_clock_begin, mpp_clock_end
+use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain, &
+   mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count, mpp_get_tile_id, &
+   domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg, mpp_pass_sg_to_ug
+use fms_mod,             only : check_nml_error, string, CLOCK_FLAG_DEFAULT, error_mesg
+use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, register_axis, &
+   register_restart_field, variable_exists, register_field, &
+   read_restart, close_file, write_data, &
+   get_global_io_domain_indices, FmsNetcdfFile_t, &
+   get_variable_size, read_data, get_variable_num_dimensions, unlimited, &
+   get_instance_filename
+use diag_manager_mod,    only : diag_axis_init, register_diag_field, &
+   register_static_field, send_data, diag_field_add_attribute
+use time_manager_mod,    only : time_type, increment_time, get_time
+use data_override_mod,   only : data_override
+use tracer_manager_mod, only : NO_TRACER
 
-  implicit none
-  private
+use river_type_mod,      only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
+use river_tracers_mod,   only : num_river_tracers, river_tracer_index, num_phys, trdata
+use river_physics_mod,   only : river_physics_step, river_physics_init, &
+   river_impedes_lake, river_impedes_large_lake
+use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
+use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
+use land_io_mod,         only : register_variable_string_attribute, read_field
+use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
+   first_elmt, loop_over_tiles, nitems, elmt_at_index
+use land_data_mod,       only : land_data_type, log_version, lnd
+use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &
+   set_current_point, check_var_range, check_conservation, land_error_message, &
+   carbon_cons_tol, nitrogen_cons_tol
+use lake_tile_mod,       only : num_l
+use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
+use lake_mod,           only : use_reservoir
+use land_numerics_mod,  only : rank_descending
+
+implicit none
+private
 
 !--- version information ---------------------------------------------
 character(len=*), parameter :: module_name = 'river_mod'
 #include "../shared/version_variable.inc"
 
 !--- public interface ------------------------------------------------
-  public :: river_init, river_end, river_type, update_river, river_stock_pe
-  public :: save_river_restart
-  public :: river_tracers_init
-  public :: num_river_tracers
-  public :: river_tracer_index, river_tracer_names
-  public :: get_river_water
+public :: river_init, river_end, river_type, update_river, river_stock_pe
+public :: save_river_restart
+public :: get_river_water
 
 !--- namelist interface ----------------------------------------------
-  logical            :: do_rivers       = .TRUE.  ! if FALSE, rivers are essentially turned off to save computing time
-  real               :: dt_slow
-  integer            :: diag_freq       = 1       ! Number of slow time steps between sending out diagnostics data.
-  logical            :: debug_river     = .FALSE.
-  real               :: Somin           = 0.00005 ! There are 7 points with So = -9.999 but basinid > 0....
-  real               :: outflowmean_min = 1.      ! temporary fix, should not allow zero in input file
-  logical            :: land_area_called_cellarea = .false.
-  logical            :: all_big_outlet_ctn0 = .false.
+logical            :: do_rivers       = .TRUE.  ! if FALSE, rivers are essentially turned off to save computing time
+real               :: dt_slow
+integer            :: diag_freq       = 1       ! Number of slow time steps between sending out diagnostics data.
+logical            :: debug_river     = .FALSE.
+real               :: Somin           = 0.00005 ! There are 7 points with So = -9.999 but basinid > 0....
+real               :: outflowmean_min = 1.      ! temporary fix, should not allow zero in input file
+logical            :: land_area_called_cellarea = .false.
+logical            :: all_big_outlet_ctn0 = .false.
 
-  real, dimension(3) :: ave_DHG_exp = (/0.49,0.33,0.18/)  ! (/B, F, M for avg of many rivers, 15Nov05/)
-  real, dimension(3) :: ave_AAS_exp = (/0.19,0.39,0.42/)  ! (/b, f, m for avg of many rivers, 15Nov05/)
-  real, dimension(3) :: ave_DHG_coef = (/4.62,0.26,0.82/) ! (/A, C, K for avg of many rivers, 15Nov05/)
-  real               :: sinuosity = 1.3
-  real               :: channel_tau = 86400*365.25*10     ! channel geometry reflects average flow over O(10 y)
-  logical :: lake_area_bug = .FALSE. ! if set to true, reverts to buggy (quebec)
-      ! behavior, where by mistake cell area was used instead of land area to
-      ! compute the area of lakes.
-  logical :: stop_on_mask_mismatch = .TRUE. ! If set to false, then the data mismatches
-      ! (mismatch of land and river masks, and discharges in points where there is no
-      ! ocean) are reported, but do not cause the abort of the program.
+real, dimension(3) :: ave_DHG_exp = (/0.49,0.33,0.18/)  ! (/B, F, M for avg of many rivers, 15Nov05/)
+real, dimension(3) :: ave_AAS_exp = (/0.19,0.39,0.42/)  ! (/b, f, m for avg of many rivers, 15Nov05/)
+real, dimension(3) :: ave_DHG_coef = (/4.62,0.26,0.82/) ! (/A, C, K for avg of many rivers, 15Nov05/)
+real               :: sinuosity = 1.3
+real               :: channel_tau = 86400*365.25*10     ! channel geometry reflects average flow over O(10 y)
+logical :: lake_area_bug = .FALSE. ! if set to true, reverts to buggy (quebec)
+    ! behavior, where by mistake cell area was used instead of land area to
+    ! compute the area of lakes.
+logical :: stop_on_mask_mismatch = .TRUE. ! If set to false, then the data mismatches
+    ! (mismatch of land and river masks, and discharges in points where there is no
+    ! ocean) are reported, but do not cause the abort of the program.
 
-  ! ZMS
-  logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
-          ! rather than source concentration and flux files
-  logical :: do_groundwater_abstraction = .false.
-  logical :: do_deep_gw_abst = .false. ! If true, water is borrowed from imaginary
-          ! "deep aquifers" of infinite capacity, violating water conservation
-          ! in the system.
+! ZMS
+logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
+        ! rather than source concentration and flux files
+logical :: do_groundwater_abstraction = .false.
+logical :: do_deep_gw_abst = .false. ! If true, water is borrowed from imaginary
+        ! "deep aquifers" of infinite capacity, violating water conservation
+        ! in the system.
 
-  namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
-                       Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
-                       ave_DHG_coef, do_rivers, sinuosity, channel_tau,      &
-                       land_area_called_cellarea, all_big_outlet_ctn0,       &
-                       lake_area_bug, stop_on_mask_mismatch,                 &
-                       tracers_from_runoff, &
-                       do_groundwater_abstraction, do_deep_gw_abst
+namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
+                     Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
+                     ave_DHG_coef, do_rivers, sinuosity, channel_tau,      &
+                     land_area_called_cellarea, all_big_outlet_ctn0,       &
+                     lake_area_bug, stop_on_mask_mismatch,                 &
+                     tracers_from_runoff, &
+                     do_groundwater_abstraction, do_deep_gw_abst
 
-  character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
-  character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
-  character(len=128) :: river_threshold_file = 'INPUT/threshold.nc'
-  character(len=128) :: env_flow_file = 'INPUT/env_flow.nc'
+character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
+character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
+character(len=128) :: river_threshold_file = 'INPUT/threshold.nc'
+character(len=128) :: env_flow_file = 'INPUT/env_flow.nc'
+
 !---------------------------------------------------------------------
-  logical :: module_is_initialized = .FALSE.
-  integer :: isc, iec, jsc, jec                         ! compute domain decomposition
-  integer :: isd, ied, jsd, jed                         ! data domain decomposition
-  integer :: lsc, lec                                   ! unstructured domain decomposition
-  integer :: nlon, nlat                                 ! size of computational river grid
-  integer :: num_lake_lev
-  integer :: id_outflowmean, id_lake_depth_sill
-  integer :: id_dx, id_basin, id_So, id_depth, id_width, id_vel
-  integer :: id_lake_abst, id_lake_habst
-  integer :: id_rsv_outflow
-  integer :: id_irr_full, id_irr_met, id_irr_unmet
-  integer :: id_gw_s_abst, id_gw_d_abst, id_gw_s_habst, id_gw_d_habst
-  integer :: id_LWSr, id_FWSr, id_HSr, id_meltr
-  integer :: id_travel, id_elev, id_tocell
-  integer :: maxtravel
-  real    :: missing = -1.e8
+logical :: module_is_initialized = .FALSE.
+integer :: isc, iec, jsc, jec                         ! compute domain decomposition
+integer :: isd, ied, jsd, jed                         ! data domain decomposition
+integer :: lsc, lec                                   ! unstructured domain decomposition
+integer :: nlon, nlat                                 ! size of computational river grid
+integer :: num_lake_lev
+integer :: id_outflowmean, id_lake_depth_sill
+integer :: id_dx, id_basin, id_So, id_depth, id_width, id_vel
+integer :: id_lake_abst, id_lake_habst
+integer :: id_rsv_outflow
+integer :: id_irr_full, id_irr_met, id_irr_unmet
+integer :: id_gw_s_abst, id_gw_d_abst, id_gw_s_habst, id_gw_d_habst
+integer :: id_LWSr, id_FWSr, id_HSr, id_meltr
+integer :: id_travel, id_elev, id_tocell
+integer :: maxtravel
+real    :: missing = -1.e8
 
-  real,    parameter :: CONST_OMEAN = 80000
-  real,    parameter :: epsln = 1.e-6
-  real,    parameter :: sec_in_day = 86400.
+real,    parameter :: CONST_OMEAN = 80000
+real,    parameter :: epsln = 1.e-6
+real,    parameter :: sec_in_day = 86400.
 
-  real     :: discharge_tol=0.0, clw=0.0, csw=0.0  ! will get these values from land model
-  integer  :: i_river_ice, i_river_heat, i_river_DOC
-  logical, allocatable, dimension(:,:) :: missing_rivers
-  real,  allocatable, dimension(:,:)   :: discharge2ocean_next   ! store discharge value
-  real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
-  ! IDs of diag fields normalized per land area
-  integer, allocatable, dimension(:)   :: id_infloc,  id_storage, id_stordis, id_inflow, &
-        id_run_stor, id_outflow, id_removal, id_dis, id_lake_outflow, id_abstflow
-  ! IDs of diag fields normalized per cell area
-  integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
-        id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c, id_abstflow_c
-  integer :: id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink, id_dis_DOC, id_no_riv
-  integer, public :: num_fast_calls !public for soil_mod, this is not good, but in original code of lm4p1, soil_mod calls river_mod
-  integer :: slow_step = 0          ! record number of slow time step run.
-  type(domain2d), pointer :: domain    => NULL()
-  type(domainUG), pointer :: UG_domain => NULL()
-  type(river_type), save :: River
+real     :: discharge_tol=0.0, clw=0.0, csw=0.0  ! will get these values from land model
+integer  :: i_river_ice, i_river_heat, i_river_DOC
+logical, allocatable, dimension(:,:) :: missing_rivers
+real,  allocatable, dimension(:,:)   :: discharge2ocean_next   ! store discharge value
+real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
+! IDs of diag fields normalized per land area
+integer, allocatable, dimension(:)   :: id_infloc,  id_storage, id_stordis, id_inflow, &
+      id_run_stor, id_outflow, id_removal, id_dis, id_lake_outflow, id_abstflow
+! IDs of diag fields normalized per cell area
+integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
+      id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c, id_abstflow_c
+integer :: id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink, id_dis_DOC, id_no_riv
+integer, public :: num_fast_calls !public for soil_mod, this is not good, but in original code of lm4p1, soil_mod calls river_mod
+integer :: slow_step = 0          ! record number of slow time step run.
+type(domain2d), pointer :: domain    => NULL()
+type(domainUG), pointer :: UG_domain => NULL()
+type(river_type), save :: River
 
 !--- clock id variable
-  integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
+integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
 
-!--- tracer-related constants, types, and data
-character(*), parameter :: trtable='/land_mod/river_tracer' ! name of the field manager tracer table
 integer, protected, public :: num_species  ! number of river tracers, public for test_river_solo
-integer, parameter :: num_phys = 2 ! number of "physical" tracers: currently they are ice and heat content
 
-type tracer_data_type
-  character(fm_field_name_len) :: &
-      name        = '', & ! name of the tracer
-      units       = '', & ! units of the tracer
-      flux_units  = '', & ! units of associated flux
-      store_units = ''    ! units of associated storage
-  character(fm_string_len)     :: longname = '' ! longname of the species
-  ! tracer removal parameters:
-  logical :: do_removal = .true.
-  real :: &
-      t_ref  = 298.0, &
-      vf_ref = 0.0,   &
-      q10    = 1.0,   &
-      kinv   = 1.0
-end type
-
-type(tracer_data_type), allocatable :: trdata(:) ! common tracer data
 character(len=8),parameter :: river_res_xdim = "xaxis_1"
 character(len=8),parameter :: river_res_ydim = "yaxis_1"
 character(len=8),parameter :: river_res_zdim = "zaxis_1"
 
-contains
-
+contains ! ===--------------------------------------------------------
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, land_UG_domain, &
@@ -257,7 +230,6 @@ contains
     if(.not.do_rivers) return ! do nothing further if the rivers are turned off
 
 !--- check name list variables
-
     if(diag_freq .le. 0) call mpp_error(FATAL,'river_mod: diag_freq should be a positive integer')
 
 ! set up time-related values
@@ -269,6 +241,7 @@ contains
     River%channel_tau = channel_tau
 
     num_fast_calls = River%dt_slow/River%dt_fast
+    num_species = num_river_tracers()
     River%num_species = num_species
     River%num_c = num_species-num_phys
     River%num_phys = num_phys
@@ -450,150 +423,6 @@ contains
     module_is_initialized = .TRUE.
 
   end subroutine river_init
-
-!#####################################################################
-! initialize river tracers
-subroutine river_tracers_init()
-
- integer :: i, m, n
- character(fm_field_name_len) :: name ! name of the river tracer
- character(fm_type_name_len)  :: typ  ! type of the river tracer
-
- ! number of river tracers in the field table (can be 0)
- m = fm_get_length(trtable)
-
- ! dump river tracer table
- if(.not.fm_dump_list(trtable, recursive=.TRUE.)) &
-    call mpp_error(NOTE, 'river_mod: Cannot dump field list "'//trtable//'"')
-
- ! allocating more space than absolutely necessary, in case water, and "physical
- ! tracers" (ice and heat) are not present in the user-supplied tracer table
- allocate(trdata(0:m+num_phys))
- ! initialize some parameters of the pre-defined species (water and "physical" tracers)
- trdata(0)%name = 'h2o'; trdata(0)%longname = 'h2o mass'
- trdata(0)%units = 'kg'; trdata(0)%flux_units = 'kg/m2/s'; trdata(0)%store_units = 'kg/m2'
-
- trdata(1)%name = 'ice'; trdata(1)%longname = 'ice mass'
- trdata(1)%units = 'kg/kg'; trdata(1)%flux_units = 'kg/m2/s'; trdata(1)%store_units = 'kg/m2'
-
- trdata(2)%name = 'het'; trdata(2)%longname = 'sensible heat content'
- trdata(2)%units = 'K'; trdata(2)%flux_units = 'W/m2'; trdata(2)%store_units = 'J/m2'
-
- ! read generic parameters of the tracers
- do while (fm_loop_over_list(trtable, name, typ, n))
-    ! look for the tracer already in the table
-    do i = 0,ubound(trdata,1)
-       if (trim(trdata(i)%name)==trim(name)) exit ! found existing slot for this tracer
-    enddo
-    ! if tracer not found, look for an empty slot in the table
-    if (i>=ubound(trdata,1)) then
-       do i = 0, ubound(trdata,1)
-          if (trim(trdata(i)%name)=='') exit ! found an empty slot
-       enddo
-    endif
-    call read_river_tracer_data(name,trdata(i))
- enddo
- ! finally, calculate the actual number of tracers
- do num_species = ubound(trdata,1),0,-1
-    if (trdata(num_species)%name/='') exit ! from loop
- enddo
-
- ! TODO: read specific tracer parameters. Different tracers might have different parameter sets.
-
- call print_river_tracer_data(stdout())
- call print_river_tracer_data(stdlog())
-
-end subroutine river_tracers_init
-
-!#####################################################################
-function num_river_tracers()
-   integer num_river_tracers
-   num_river_tracers = num_species
-end function num_river_tracers
-
-!#####################################################################
-function river_tracer_index(name) result(tr)
-   integer :: tr
-   character(*), intent(in) :: name
-
-   integer :: i
-
-   tr = NO_TRACER
-   do i = 1, num_species
-      if (name==trdata(i)%name) then
-         tr = i;
-         exit
-      endif
-   enddo
-end function river_tracer_index
-
-!#####################################################################
-subroutine river_tracer_names(tr,name,long_name,units,flux_units,store_units)
-   integer, intent(in) :: tr
-   character(*), intent(out), optional :: name, long_name, units, flux_units, store_units
-
-   if (tr<0.or.tr>num_species) call mpp_error( FATAL, &
-      'river_mod: tracer index '//string(tr)//' is outside of range of river tracers')
-   if(present(name))        name        = trdata(tr)%name
-   if(present(long_name))   long_name   = trdata(tr)%longname
-   if(present(units))       units       = trdata(tr)%units
-   if(present(store_units)) store_units = trdata(tr)%store_units
-   if(present(flux_units))  flux_units  = trdata(tr)%flux_units
-end subroutine river_tracer_names
-
-!#####################################################################
-! reads the field_table entry for specific tracers and fills in
-! generic tracer parameters
-subroutine read_river_tracer_data(name,tr)
-  character(*), intent(in) :: name
-  type(tracer_data_type), intent(inout) :: tr
-
-  ! ---- local vars
-  character(fm_path_name_len)  :: listname
-  character(fm_path_name_len)  :: current_list
-
-  current_list = fm_get_current_list()
-  if (current_list .eq. ' ') call mpp_error(FATAL, 'river_mod: Could not get the current list')
-  listname = trtable//'/'//trim(name)
-  if (.not.fm_change_list(listname)) call mpp_error(FATAL,'river_mod: Cannot change field manager list to "'//trim(listname)//'"')
-
-  tr%name        = name
-  tr%longname    = fm_util_get_string('long_name',   caller='river_mod', default_value=tr%longname,    scalar=.true.)
-  tr%units       = fm_util_get_string('units',       caller='river_mod', default_value=tr%units,       scalar=.true.)
-  tr%flux_units  = fm_util_get_string('flux_units',  caller='river_mod', default_value=tr%flux_units,  scalar=.true.)
-  tr%store_units = fm_util_get_string('store_units', caller='river_mod', default_value=tr%store_units, scalar=.true.)
-  ! tracer removal parameters:
-  tr%do_removal  = fm_util_get_logical('do_removal', caller='river_mod', default_value=tr%do_removal,  scalar=.true.)
-#define __PARSE__(v) tr%v = fm_util_get_real(#v, caller='river_mod', default_value=tr%v, scalar=.true.)
-  __PARSE__(t_ref)
-  __PARSE__(vf_ref)
-  __PARSE__(q10)
-  __PARSE__(kinv)
-#undef __PARSE__
-
-  if (.not.fm_change_list(current_list)) call mpp_error(FATAL,'river_mod: Cannot change field manager list to "'//trim(listname)//'"')
-end subroutine read_river_tracer_data
-
-!#####################################################################
-! prints a table of tracer data to specified output unit
-subroutine print_river_tracer_data(unit)
-  integer, intent(in) :: unit
-
-  type(table_printer_type) :: table
-
-  call init_with_headers(table, trdata(:)%name)
-  call add_row(table, 'longname', trdata(:)%longname)
-  call add_row(table, 'units',    trdata(:)%units)
-  call add_row(table, 'flux_units', trdata(:)%flux_units)
-  call add_row(table, 'store_units', trdata(:)%store_units)
-  call add_row(table, 'do_removal', trdata(:)%do_removal)
-  call add_row(table, 't_ref', trdata(:)%t_ref)
-  call add_row(table, 'vf_ref', trdata(:)%vf_ref)
-  call add_row(table, 'q10', trdata(:)%q10)
-  call add_row(table, 'kinv', trdata(:)%kinv)
-
-  call print(table,unit)
-end subroutine print_river_tracer_data
 
 !#####################################################################
   subroutine update_river ( runoff, runoff_c, land2cplr)
@@ -1330,7 +1159,6 @@ end subroutine groundwater_abstraction
     deallocate(River%lake_abst)
     deallocate(River%lake_habst)
 
-    deallocate(trdata)
     module_is_initialized = .FALSE.
 
   end subroutine river_end

@@ -62,9 +62,10 @@ use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_til
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, save_cana_restart, &
      cana_roughness, cana_v_turb, cana_g_turb, surface_resistances, &
      do_fog, fog_form_rate, fog_diss_time
+use river_tracers_mod, only : river_tracers_init, num_river_tracers, river_tracer_index, &
+     river_tracer_names
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
-     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
-     river_tracer_names, get_river_water
+     save_river_restart, get_river_water
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_cohort_mod, only : vegn_cohort_type, plant_C
