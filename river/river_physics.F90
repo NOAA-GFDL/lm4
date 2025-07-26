@@ -134,8 +134,7 @@ contains
     ierr = check_nml_error(io_status, 'river_physics_nml')
 
 !--- write version and namelist info to logfile --------------------
-    call log_version(version, module_name, &
-    __FILE__)
+    call log_version(version, module_name, __FILE__)
     unit=stdlog()
     write (unit, river_physics_nml)
 
@@ -199,7 +198,9 @@ subroutine river_physics_step(River, cur_travel, &
   real, dimension(isd:ied,jsd:jed), intent(inout) :: Vfrac_rsv
   real, dimension(isc:iec,jsc:jec), intent(inout) :: rsv_outflow !kg
 ! ---- local vars ----------------------------------------------------------
-  integer   :: i, j, to_i, to_j, i_species, lev
+  integer :: i, j, to_i, to_j, lev
+  integer :: tr ! river tracer index
+  integer :: trs,tre ! indices of the first and last "non-physical" tracers
   real      :: Q0, dQ_dV, dh_dQ, avail, out_frac, qmelt, abst_frac
   real      :: liq_to_flow, ice_to_flow, liq_this_lev, ice_this_lev
   real      :: tot_area, lake_area, h, ql, qs, qh, qt, h0, t_scale
@@ -218,7 +219,8 @@ subroutine river_physics_step(River, cur_travel, &
   real    :: rsv_outflow_h
   real    :: V2A_l
   logical :: is_terminal
-  integer :: tr ! river tracer index
+
+  trs = River%num_phys+1 ; tre = River%num_species
 
   ! invalidate diag_mask everywhere
   diag_mask = .FALSE.
@@ -241,11 +243,11 @@ subroutine river_physics_step(River, cur_travel, &
 
 !            ! ZMS Simple update for storage_c. Skip over lakes.
         if (River%num_c > 0) then
-!               River%storage_c(i,j,River%num_phys+1:River%num_species) = &
-!                     River%storage_c(i,j,River%num_phys+1:River%num_species) + influx_c(River%num_phys+1:River%num_species)
+!               River%storage_c(i,j,trs:tre) = &
+!                     River%storage_c(i,j,trs:tre) + influx_c(trs:tre)
            if (is_watch_cell()) then
               write(*,*)'infloc_c(num_phys+1:num_species), inflow_c(numphys+1:num_species) for watch_cell:', &
-                         River%infloc_c(i,j,River%num_phys+1:num_species), River%inflow_c(i,j,River%num_phys+1:num_species)
+                         River%infloc_c(i,j,trs:tre), River%inflow_c(i,j,trs:tre)
            end if
         end if
 
@@ -472,8 +474,8 @@ subroutine river_physics_step(River, cur_travel, &
 
         ! ZMS Bypass rivers for tracers.
         if (River%num_c > 0) then
-           River%lake_outflow_c(i,j,River%num_phys+1:River%num_species) = &
-                 influx_c(River%num_phys+1:River%num_species)
+           River%lake_outflow_c(i,j,trs:tre) = &
+                 influx_c(trs:tre)
         end if
 
         if (is_watch_cell()) then
@@ -595,10 +597,10 @@ subroutine river_physics_step(River, cur_travel, &
               River%outflow_c(i,j,1) = max(River%outflow_c(i,j,1), 0.)
               River%abstflow_c(i,j,1) = max(River%abstflow_c(i,j,1), 0.)
               if(River%num_phys+1 <= River%num_species) then
-                 River%outflow_c(i,j,River%num_phys+1:River%num_species) = &
-                   max(River%outflow_c(i,j,River%num_phys+1:River%num_species), 0.)
-                 River%abstflow_c(i,j,River%num_phys+1:River%num_species) = &
-                   max(River%abstflow_c(i,j,River%num_phys+1:River%num_species), 0.)
+                 River%outflow_c(i,j,trs:tre) = &
+                   max(River%outflow_c(i,j,trs:tre), 0.)
+                 River%abstflow_c(i,j,trs:tre) = &
+                   max(River%abstflow_c(i,j,trs:tre), 0.)
               endif
            endif
            River%outflow_c(i,j,1) = min(River%outflow_c(i,j,1), River%outflow(i,j))
@@ -648,13 +650,13 @@ subroutine river_physics_step(River, cur_travel, &
            endif
 
            if (River%storage(i,j) .gt. 0.) then
-              conc(River%num_phys+1:River%num_species) = &
-                 River%storage_c(i,j,River%num_phys+1:River%num_species)/River%storage(i,j)
+              conc(trs:tre) = &
+                 River%storage_c(i,j,trs:tre)/River%storage(i,j)
            else
-              conc(River%num_phys+1:River%num_species) = 0.
+              conc(trs:tre) = 0.
            endif
 
-           do tr = River%num_phys+1,River%num_species
+           do tr = trs,tre
               if (River%do_removal(tr)) then
                  if (River%depth(i,j)>0 .and. conc(2)>100.0) then
                     v_r_d = River%vf_ref(tr) * River%Q10(tr)**((conc(2)-River%t_ref(tr))/10.)&
@@ -678,11 +680,11 @@ subroutine river_physics_step(River, cur_travel, &
         ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE
 
         if (River%landfrac(i,j).lt.1.) then
-           River%disw2o(i,j) = River%outflow(i,j)
-           River%outflow(i,j) = 0.
-           do i_species = 1, num_species
-              River%disc2o(i,j,i_species) = River%outflow_c(i,j,i_species)
-              River%outflow_c(i,j,i_species) = 0.
+           River%disw2o(i,j)  = River%outflow(i,j)
+           River%outflow(i,j) = 0.0
+           do tr = 1, tre
+              River%disc2o(i,j,tr)    = River%outflow_c(i,j,tr)
+              River%outflow_c(i,j,tr) = 0.0
            enddo
         endif
      endif

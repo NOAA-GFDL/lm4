@@ -102,7 +102,7 @@ character(len=*), parameter :: module_name = 'river_mod'
 !--- namelist interface ----------------------------------------------
   logical            :: do_rivers       = .TRUE.  ! if FALSE, rivers are essentially turned off to save computing time
   real               :: dt_slow
-  integer            :: diag_freq       = 1       ! Number of slow time steps between sending out diagnositics data.
+  integer            :: diag_freq       = 1       ! Number of slow time steps between sending out diagnostics data.
   logical            :: debug_river     = .FALSE.
   real               :: Somin           = 0.00005 ! There are 7 points with So = -9.999 but basinid > 0....
   real               :: outflowmean_min = 1.      ! temporary fix, should not allow zero in input file
@@ -117,14 +117,17 @@ character(len=*), parameter :: module_name = 'river_mod'
   logical :: lake_area_bug = .FALSE. ! if set to true, reverts to buggy (quebec)
       ! behavior, where by mistake cell area was used instead of land area to
       ! compute the area of lakes.
-  logical :: stop_on_mask_mismatch = .TRUE. ! if set to false, then the data mismatches (mmismatch
-      ! of land and river masks, and discharges in pouints where there is no ocean) are reported,
-      ! but do not cause the abort of the program.
+  logical :: stop_on_mask_mismatch = .TRUE. ! If set to false, then the data mismatches
+      ! (mismatch of land and river masks, and discharges in points where there is no
+      ! ocean) are reported, but do not cause the abort of the program.
+
   ! ZMS
   logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
           ! rather than source concentration and flux files
   logical :: do_groundwater_abstraction = .false.
-  logical :: do_deep_gw_abst = .false.
+  logical :: do_deep_gw_abst = .false. ! If true, water is borrowed from imaginary
+          ! "deep aquifers" of infinite capacity, violating water conservation
+          ! in the system.
 
   namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
                        Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
@@ -142,7 +145,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   logical :: module_is_initialized = .FALSE.
   integer :: isc, iec, jsc, jec                         ! compute domain decomposition
   integer :: isd, ied, jsd, jed                         ! data domain decomposition
-  integer :: lsc, lec                                   ! unstructure domain decomposition
+  integer :: lsc, lec                                   ! unstructured domain decomposition
   integer :: nlon, nlat                                 ! size of computational river grid
   integer :: num_lake_lev
   integer :: id_outflowmean, id_lake_depth_sill
@@ -184,7 +187,7 @@ character(len=*), parameter :: module_name = 'river_mod'
 !--- tracer-related constants, types, and data
 character(*), parameter :: trtable='/land_mod/river_tracer' ! name of the field manager tracer table
 integer, protected, public :: num_species  ! number of river tracers, public for test_river_solo
-integer, parameter :: num_phys = 2 ! number of "physical" tracres: currently they are ice and heat content
+integer, parameter :: num_phys = 2 ! number of "physical" tracers: currently they are ice and heat content
 
 type tracer_data_type
   character(fm_field_name_len) :: &
@@ -282,7 +285,7 @@ contains
     clw = clw_in
     csw = csw_in
 
-!--- get the domain decompsition, river and land will be on the same grid and have the same domain decomposition.
+!--- get the domain decomposition, river and land will be on the same grid and have the same domain decomposition.
     domain => land_domain
     UG_domain => land_UG_domain
     call mpp_get_global_domain (domain, xsize=River%nlon, ysize=River%nlat)
@@ -466,7 +469,7 @@ subroutine river_tracers_init()
  ! allocating more space than absolutely necessary, in case water, and "physical
  ! tracers" (ice and heat) are not present in the user-supplied tracer table
  allocate(trdata(0:m+num_phys))
- ! initialize some parameters of the pre-defined species (water and "physical" tracres)
+ ! initialize some parameters of the pre-defined species (water and "physical" tracers)
  trdata(0)%name = 'h2o'; trdata(0)%longname = 'h2o mass'
  trdata(0)%units = 'kg'; trdata(0)%flux_units = 'kg/m2/s'; trdata(0)%store_units = 'kg/m2'
 
@@ -957,7 +960,7 @@ end subroutine print_river_tracer_data
              ! set to river depth in same cell
              lake_depth_sill(i,j) = lake_depth_sill(i,j) + River%depth(i,j)
           elseif (lake_conn(i,j).gt.0.5 ) then
-             ! for all but furthest dowstream cell of a multi-cell lake,
+             ! for all but furthest downstream cell of a multi-cell lake,
              ! relax toward level in next cell (same lake) downstream
              if (lake_conn(i_next,j_next).gt.0.5 .or. all_big_outlet_ctn0) then
                   lake_depth_sill(i,j) = lake_sfc_bot(i_next,j_next) &
@@ -1014,7 +1017,7 @@ end subroutine print_river_tracer_data
        if(use_reservoir) tile%lake%Vfrac_rsv = Vfrac_rsv_ug(l)
     enddo
 
-    ! account for groundwater abstraction and calculate irrigaition rate for next dt_slow
+    ! account for groundwater abstraction and calculate irrigation rate for next dt_slow
     demand_full_ug(:) = 0.  !m3
     demand_met_ug(:) = 0.   !m3
     demand_unmet_ug(:) = 0. !m3
@@ -1444,8 +1447,8 @@ end subroutine groundwater_abstraction
 
 !#####################################################################
   subroutine get_river_data(land_lon, land_lat, land_frac)
-    real,            intent(in) :: land_lon(isc:,jsc:)  ! geographical lontitude of cell center
-    real,            intent(in) :: land_lat(isc:,jsc:)  ! geographical lattitude of cell center
+    real,            intent(in) :: land_lon(isc:,jsc:)  ! geographical longitude of cell center
+    real,            intent(in) :: land_lat(isc:,jsc:)  ! geographical latitude of cell center
     real,            intent(in) :: land_frac(isc:,jsc:) ! land area fraction of land grid.
 
     integer                           :: ni, nj, i, j, ntiles
@@ -1925,7 +1928,7 @@ end subroutine groundwater_abstraction
     logical :: used   ! logical for send_data
     real diag_factor  (isc:iec,jsc:jec)
     real diag_factor_2(isc:iec,jsc:jec)
-    integer :: tr ! iteratior over river tracers
+    integer :: tr ! iterator over river tracers
 
     diag_factor   = DENS_H2O/lnd%sg_cellarea(:,:) !kg/m3 / m2
     diag_factor_2 = 1.0/(lnd%sg_cellarea(:,:)*River%dt_slow) ! 1/(m2 s)
@@ -2088,7 +2091,7 @@ end select
 end subroutine river_stock_pe
 
 !#####################################################################
-! returns total amount of water (liquid and frozed) in rivers, kg/m2 of land
+! returns total amount of water (liquid and frozen) in rivers, kg/m2 of land
 subroutine get_river_water(water)
   real, intent(out) :: water(lnd%is:lnd%ie,lnd%js:lnd%je)
 
@@ -2102,7 +2105,7 @@ subroutine get_river_water(water)
 end subroutine get_river_water
 
 !#####################################################################
-! returns string indicating the coordiantes of the point i,j
+! returns string indicating the coordinates of the point i,j
 function coordinates(i,j) result(s); character(128) :: s
    integer, intent(in) :: i,j
    s ='('//trim(string(i))//','//trim(string(j))//')'
