@@ -301,6 +301,10 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
    id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF, &
    ! input rates
    id_InputStrC, id_InputMtbC, id_InputExdC
+! diag fields for column-integrated soil carbon pools:
+integer :: id_clmn_metabolicC, id_clmn_structuralC, id_clmn_protectedC, &
+   id_clmn_chemResistantC, id_clmn_availableC, id_clmn_microbesR, id_clmn_microbesK, &
+   id_clmn_DOC
 
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
@@ -428,6 +432,23 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Volumetric density of oligotrophic (K) microbes', 'kg C/m3', missing_value=-100.0 )
   id_DOC       = register_3_diag_fields ( diag_mod_name, 'DOC', axes(:),  &
        lnd%time, 'Volumetric density of DOC', 'kg C/m3', missing_value=-100.0 )
+
+  id_clmn_metabolicC = register_tiled_diag_field ( diag_mod_name, 'clmn_metabolicC', axes(1:1),  &
+       lnd%time, 'Column-integrated metabolic C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_structuralC = register_tiled_diag_field ( diag_mod_name, 'clmn_structuralC', axes(1:1),  &
+       lnd%time, 'Column-integrated structural C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_protectedC = register_tiled_diag_field ( diag_mod_name, 'clmn_protectedC', axes(1:1),  &
+       lnd%time, 'Column-integrated protected C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_chemResistantC = register_tiled_diag_field ( diag_mod_name, 'clmn_chemResistantC', axes(1:1),  &
+       lnd%time, 'Column-integrated chemically resistant C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_availableC = register_tiled_diag_field ( diag_mod_name, 'clmn_availableC', axes(1:1),  &
+       lnd%time, 'Column-integrated available C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_microbesR = register_tiled_diag_field ( diag_mod_name, 'clmn_microbesR', axes(1:1),  &
+       lnd%time, 'Column-integrated copiotrophic (R) microbes in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_microbesK = register_tiled_diag_field ( diag_mod_name, 'clmn_microbesk', axes(1:1),  &
+       lnd%time, 'Column-integrated oligotrophic (K) microbes in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_DOC = register_tiled_diag_field ( diag_mod_name, 'clmn_DOC', axes(1:1),  &
+       lnd%time, 'Column-integrated DOC in soil', 'kg C/m2', missing_value=-100.0 )
 
   id_DecompMrLm = register_3_diag_fields ( diag_mod_name, 'DecompMrLm', axes(:),  &
        lnd%time, 'Rate of metabolic C decomposition by R microbes', 'kg C/m3/h', missing_value=-100.0 )
@@ -796,40 +817,40 @@ subroutine merge_GIMICS(s2,w2,s1,w1)
         ! rhizosphere pools
         f1 = s1%fRhiz(k)         ; f2 = s2%fRhiz(k)
         if (f1>0.or.f2>0) then
-	
+
 	!   if (.not.(x1*f1+x2*f2 .gt. 0)) then
 	!      __DEBUG5__(x1,f1,x2,f2,x1*f1+x2*f2)
 	!      call land_error_message('denominator is 0 in rhiz tile merge',FATAL)
 	!   endif
-	   
+
         !   y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
-	   
+
 	   if (x1*f1+x2*f2 > 0) then
               y1 = x1*f1/(x1*f1+x2*f2)
            else
               y1 = 0.0
            endif
            y2 = 1.0 - y1
-	   
+
            call combine_GIMICS_pools(s2%rhiz(k),y2,s1%rhiz(k),y1)
         endif
         ! bulk pools
         f1 = 1.0 - s1%fRhiz(k)   ; f2 = 1.0 - s2%fRhiz(k)
         if (f1>0.or.f2>0) then
-	
+
 	 !  if (.not.(x1*f1+x2*f2 .gt. 0)) then
 	 !     call land_error_message('denominator is 0 in bulk tile merge',FATAL)
 	 !  endif
-	   
+
          !  y1 = x1*f1/(x1*f1+x2*f2) ; y2 = 1.0 - y1
-	 
+
 	   if (x1*f1+x2*f2 > 0) then
               y1 = x1*f1/(x1*f1+x2*f2)
            else
               y1 = 0.0
            endif
            y2 = 1.0 - y1
-	   
+
            call combine_GIMICS_pools(s2%bulk(k),y2,s1%bulk(k),y1)
         endif
         ! update the rhizosphere fraction
@@ -992,6 +1013,26 @@ real function total_C_GIMICS(soilc) result(answer)
   enddo
 
   answer = answer + total_soil_C(soilc)
+end function
+
+! ============================================================================
+! > @brief Given the fraction of rhizosphere in each layer and two arrays of
+!! the concentrations (for rhizosphere and bulk soil), calculate total
+!! amount in the entire soil
+real function total_amount(fRhiz, rhiz, bulk) result(answer)
+  real, intent(in) :: fRhiz(:) !< fraction of rhizosphere
+  real, intent(in) :: rhiz(:)  !< concentration in the rhizosphere
+  real, intent(in) :: bulk(:)  !< concentration in the bulk soil
+
+  integer :: k
+
+  answer = 0.0
+  do k = 1,num_l
+     answer = answer + &
+           ( rhiz(k) * fRhiz(k)     &
+           + bulk(k) * (1-fRhiz(k)) &
+           ) * dz(k)
+  enddo
 end function
 
 ! ============================================================================
@@ -1572,7 +1613,7 @@ subroutine step3_GIMICS(soilc, diag)
   ! NOTE that IDs in calls to send_3_tile_data are arrays, so protecting them
   !      with "if" statements would be more involved
 
-  ! carbon pools
+  ! vertical distribution of carbon pools
   call send_3_tile_data(id_metabolicC,     soilc%rhiz(:)%metabolicLitterC,  soilc%bulk(:)%metabolicLitterC,  soilc%fRhiz(:), diag)
   call send_3_tile_data(id_structuralC,    soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, soilc%fRhiz(:), diag)
   call send_3_tile_data(id_protectedC,     soilc%rhiz(:)%protectedC,        soilc%bulk(:)%protectedC,        soilc%fRhiz(:), diag)
@@ -1581,6 +1622,40 @@ subroutine step3_GIMICS(soilc, diag)
   call send_3_tile_data(id_microbesR,      soilc%rhiz(:)%microbesR,         soilc%bulk(:)%microbesR,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_microbesK,      soilc%rhiz(:)%microbesK,         soilc%bulk(:)%microbesK,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_DOC,            soilc%rhiz(:)%DOC,               soilc%bulk(:)%DOC,               soilc%fRhiz(:), diag)
+
+  ! totals of carbon pools
+  if (id_clmn_metabolicC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%metabolicLitterC, soilc%bulk(:)%metabolicLitterC)
+     call send_tile_data(id_clmn_metabolicC, s, diag)
+  endif
+  if (id_clmn_structuralC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC)
+     call send_tile_data(id_clmn_structuralC, s, diag)
+  endif
+  if (id_clmn_protectedC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%protectedC, soilc%bulk(:)%protectedC)
+     call send_tile_data(id_clmn_protectedC, s, diag)
+  endif
+  if (id_clmn_chemResistantC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%chemResistantC, soilc%bulk(:)%chemResistantC)
+     call send_tile_data(id_clmn_chemResistantC, s, diag)
+  endif
+  if (id_clmn_availableC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC)
+     call send_tile_data(id_clmn_availableC, s, diag)
+  endif
+  if (id_clmn_microbesR > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR)
+     call send_tile_data(id_clmn_microbesR, s, diag)
+  endif
+  if (id_clmn_microbesK > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%microbesK, soilc%bulk(:)%microbesK)
+     call send_tile_data(id_clmn_microbesK, s, diag)
+  endif
+  if (id_clmn_DOC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%DOC, soilc%bulk(:)%DOC)
+     call send_tile_data(id_clmn_DOC, s, diag)
+  endif
 
   ! decomposition rates
   call send_3_tile_data(id_DecompMrLm,     soilc%rhiz(:)%DecompMrLm,        soilc%bulk(:)%DecompMrLm,        soilc%fRhiz(:), diag)
