@@ -25,7 +25,7 @@ public :: num_river_tracers
 public :: river_tracer_index
 public :: river_tracer_names
 
-public :: num_phys, num_species
+public :: num_phys, num_species, TR_ICE, TR_HET
 !--- end of public interface -----------------------------------------
 
 !--- tracer-related constants, types, and data
@@ -33,9 +33,12 @@ character(*), parameter :: trtable='/land_mod/river_tracer' ! name of the field 
 integer, protected :: num_species  ! index of last tracer in zero-based table "trdata"
 ! In river modules, three "tracers" are always defined and hardcoded
 ! to occupy slots 0, 1, and 2 of the trdata table: h2o (total water) is 0,
-! heat (called "het") is 1, and ice is 3.
+! ice is 1, heat (called "het") is 2
 
 integer, parameter :: num_phys = 2 ! number of "physical" tracers: currently they are ice and heat content
+integer, parameter :: &
+    TR_ICE = 1, & ! index of ice tracer
+    TR_HET = 2    ! index o heat tracer
 
 type tracer_data_type
   character(fm_field_name_len) :: &
