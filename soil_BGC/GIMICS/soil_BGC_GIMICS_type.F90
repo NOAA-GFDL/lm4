@@ -304,7 +304,8 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
 ! diag fields for column-integrated soil carbon pools:
 integer :: id_clmn_metabolicC, id_clmn_structuralC, id_clmn_protectedC, &
    id_clmn_chemResistantC, id_clmn_availableC, id_clmn_microbesR, id_clmn_microbesK, &
-   id_clmn_DOC
+   id_clmn_DOC, id_clmn_InputStrC, id_clmn_InputMtbC, id_clmn_InputExdC, &
+   id_clmn_Resp, id_clmn_Desorb
 
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
@@ -483,10 +484,22 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_InputExdC = register_3_diag_fields ( diag_mod_name, 'InputExdC', axes(:),  &
        lnd%time, 'Rate of C exudate input', 'kg C/m3/h', missing_value=-100.0 )
 
+  id_clmn_InputStrC = register_tiled_diag_field ( diag_mod_name, 'clmn_InputStrC', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of input of structural C to soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_InputMtbC = register_tiled_diag_field ( diag_mod_name, 'clmn_InputMtbC', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of input of metabolic C to soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_InputExdC = register_tiled_diag_field ( diag_mod_name, 'clmn_InputExdC', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of exudate C input to soil', 'kg C/m2/h', missing_value=-100.0 )
+
   id_Resp = register_3_diag_fields ( diag_mod_name, 'Resp', axes(:),  &
        lnd%time, 'Rate of respiration', 'kg C/m3/h', missing_value=-100.0 )
   id_Desorb = register_3_diag_fields ( diag_mod_name, 'Desorb', axes(:),  &
        lnd%time, 'Rate of desorption', 'kg C/m3/h', missing_value=-100.0 )
+
+  id_clmn_Resp = register_tiled_diag_field ( diag_mod_name, 'clmn_Resp', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of respiration in soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_Desorb = register_tiled_diag_field ( diag_mod_name, 'clmn_Desorb', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of desorption in soil', 'kg C/m2/h', missing_value=-100.0 )
 
   id_fRhiz = register_tiled_diag_field ( diag_mod_name, 'fRhiz', axes(:),  &
        lnd%time, 'Volumetric fraction of rhizosphere', 'm3/m3', missing_value=-100.0 )
@@ -1679,6 +1692,29 @@ subroutine step3_GIMICS(soilc, diag)
   call send_3_tile_data(id_InputStrC,      soilc%rhiz(:)%InputStrC,         soilc%bulk(:)%InputStrC,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_InputMtbC,      soilc%rhiz(:)%InputMtbC,         soilc%bulk(:)%InputMtbC,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_InputExdC,      soilc%rhiz(:)%InputExdC,         soilc%bulk(:)%InputExdC,         soilc%fRhiz(:), diag)
+
+  if (id_clmn_Resp > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%Resp, soilc%bulk(:)%Resp)
+     call send_tile_data(id_clmn_Resp, s, diag)
+  endif
+  if (id_clmn_Desorb > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%Desorb, soilc%bulk(:)%Desorb)
+     call send_tile_data(id_clmn_Desorb, s, diag)
+  endif
+
+  if (id_clmn_InputStrC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%InputStrC, soilc%bulk(:)%InputStrC)
+     call send_tile_data(id_clmn_InputStrC, s, diag)
+  endif
+  if (id_clmn_InputMtbC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%InputMtbC, soilc%bulk(:)%InputMtbC)
+     call send_tile_data(id_clmn_InputMtbC, s, diag)
+  endif
+  if (id_clmn_InputExdC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%InputExdC, soilc%bulk(:)%InputExdC)
+     call send_tile_data(id_clmn_InputExdC, s, diag)
+  endif
+
   ! reset input accumulators for the next time step
   soilc%rhiz(:)%InputStrC = 0.0; soilc%bulk(:)%InputStrC = 0.0
   soilc%rhiz(:)%InputMtbC = 0.0; soilc%bulk(:)%InputMtbC = 0.0
