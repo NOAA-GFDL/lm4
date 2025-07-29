@@ -46,7 +46,7 @@ type tracer_data_type
       units       = '', & ! units of the tracer
       flux_units  = '', & ! units of associated flux
       store_units = ''    ! units of associated storage
-  character(fm_string_len)     :: longname = '' ! longname of the species
+  character(fm_string_len) :: longname = '' ! longname of the tracer
   ! tracer removal parameters:
   logical :: do_removal = .true.
   real :: &
@@ -54,6 +54,10 @@ type tracer_data_type
       vf_ref = 0.0,   &
       q10    = 1.0,   &
       kinv   = 1.0
+  logical :: do_abstraction = .true. ! if TRUE, the irrigation borrows
+  ! tracers from the rivers with the water; but since the irrigation code
+  ! does not add them to the water system when irrigation is applied, this
+  ! would lead to mass non-conservation
 end type
 
 ! In river code, three "tracers" are always defined and hardcoded to occupy
@@ -175,6 +179,8 @@ subroutine read_river_tracer_data(name,tr)
   __PARSE__(q10)
   __PARSE__(kinv)
 #undef __PARSE__
+  ! tracer abstraction flag
+  tr%do_abstraction = fm_util_get_logical('do_abstraction', caller='river_tracers_mod', default_value=tr%do_abstraction,  scalar=.true.)
 
   if (.not.fm_change_list(current_list)) call mpp_error(FATAL,'river_tracers_mod: Cannot change field manager list to "'//trim(listname)//'"')
 end subroutine read_river_tracer_data
@@ -196,6 +202,7 @@ subroutine print_river_tracer_data(unit)
   call add_row(table, 'vf_ref', trdata(:)%vf_ref)
   call add_row(table, 'q10', trdata(:)%q10)
   call add_row(table, 'kinv', trdata(:)%kinv)
+  call add_row(table, 'do_abstraction', trdata(:)%do_abstraction)
 
   call print(table,unit)
 end subroutine print_river_tracer_data

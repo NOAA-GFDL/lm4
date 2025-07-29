@@ -510,86 +510,91 @@ subroutine river_physics_step(River, cur_travel, &
 
         ! NEXT COMPUTE RIVER-REACH MASS BALANCE (FROM LAKE_OUTFLOW TO OUTFLOW)
         if (River%tocell(i,j).gt.0 .or. River%landfrac(i,j).lt.1.) then
-            ! avail is volume to be split between outflow and new storage
-            avail = River%storage(i,j) + River%lake_outflow(i,j) / DENS_H2O !kg / kg/m3 = m3
-            if(is_watch_cell())then
-                write(*,*)"river storage and lake outflow"
-                write(*,'(a,g30.20)')'storage:', River%storage(i,j)
-                write(*,'(a,g30.20)')'lake_outflow:', River%lake_outflow(i,j)
-                write(*,'(a,g30.20)')'avail:', avail
-            endif
-            ! determine total water storage at end of step
-            if (River%reach_length(i,j) .gt. 0.) then
-               if (algor.eq.'linear') then   ! assume outflow = Q0+dQ_dV*dS
-                  if (River%storage(i,j) .le. 0.) then
-                     Q0 = 0.; dQ_dV = 0.
-                  else
-                     Q0=River%o_coef(i,j)*River%storage(i,j)**River%o_exp
-                     dQ_dV=River%o_exp*Q0/River%storage(i,j)
-                  endif
-                  if (.not.river_impedes_lake.or..not.lockstep) then
-                     River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
-                       ((River%lake_outflow(i,j)-River%abst(i,j)*DENS_H2O)/(DENS_H2O*River%dt_slow)-Q0) &
-                       /(1.+River%dt_slow*dQ_dV)
-                  else
-                     if (River%storage(i,j) .le. 0.) then
-                        dh_dQ = 0.
-                     else
-                        dh_dQ = River%d_coef(i,j)*River%d_exp*Q0**(River%d_exp-1)
-                     endif
-                     River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
+           ! avail is volume to be split between outflow and new storage
+           avail = River%storage(i,j) + River%lake_outflow(i,j) / DENS_H2O !kg / kg/m3 = m3
+           if(is_watch_cell())then
+               write(*,*)"river storage and lake outflow"
+               write(*,'(a,g30.20)')'storage:', River%storage(i,j)
+               write(*,'(a,g30.20)')'lake_outflow:', River%lake_outflow(i,j)
+               write(*,'(a,g30.20)')'avail:', avail
+           endif
+           ! determine total water storage at end of step
+           if (River%reach_length(i,j) .gt. 0.) then
+              if (algor.eq.'linear') then   ! assume outflow = Q0+dQ_dV*dS
+                 if (River%storage(i,j) .le. 0.) then
+                    Q0 = 0.; dQ_dV = 0.
+                 else
+                    Q0=River%o_coef(i,j)*River%storage(i,j)**River%o_exp
+                    dQ_dV=River%o_exp*Q0/River%storage(i,j)
+                 endif
+                 if (.not.river_impedes_lake.or..not.lockstep) then
+                    River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
                       ((River%lake_outflow(i,j)-River%abst(i,j)*DENS_H2O)/(DENS_H2O*River%dt_slow)-Q0) &
-                      /(1.+dQ_dV*(River%dt_slow+lake_whole_area(i,j)*dh_dQ))
-                  endif
-               else if (algor.eq.'nonlin') then   ! assume all inflow at start of step
-                  if ((avail-River%abst(i,j)) .gt. 0.) then
-                     River%storage(i,j) = ((avail-River%abst(i,j))**(1.-River%o_exp) &
-                         + River%o_coef(i,j)*(River%o_exp-1.)*River%dt_slow) &
-                         **(1./(1.-River%o_exp))
-                  else
-                     River%storage(i,j) = avail-River%abst(i,j)
-                  endif
-               endif ! algorithm selection
-            endif ! River%reach_length(i,j) .gt. 0
+                      /(1.+River%dt_slow*dQ_dV)
+                 else
+                    if (River%storage(i,j) .le. 0.) then
+                       dh_dQ = 0.
+                    else
+                       dh_dQ = River%d_coef(i,j)*River%d_exp*Q0**(River%d_exp-1)
+                    endif
+                    River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
+                     ((River%lake_outflow(i,j)-River%abst(i,j)*DENS_H2O)/(DENS_H2O*River%dt_slow)-Q0) &
+                     /(1.+dQ_dV*(River%dt_slow+lake_whole_area(i,j)*dh_dQ))
+                 endif
+              else if (algor.eq.'nonlin') then   ! assume all inflow at start of step
+                 if ((avail-River%abst(i,j)) .gt. 0.) then
+                    River%storage(i,j) = ((avail-River%abst(i,j))**(1.-River%o_exp) &
+                        + River%o_coef(i,j)*(River%o_exp-1.)*River%dt_slow) &
+                        **(1./(1.-River%o_exp))
+                 else
+                    River%storage(i,j) = avail-River%abst(i,j)
+                 endif
+              endif ! algorithm selection
+           endif ! River%reach_length(i,j) .gt. 0
 
-            ! determine total water outflow during step
-            River%outflow(i,j) = (avail - River%abst(i,j) - River%storage(i,j)) / River%dt_slow !m3/s
-            if (is_watch_cell()) then
-                write(*,'(a,g30.20)') 'avail:', avail
-                write(*,'(a,g30.20)') 'abst:', River%abst(i,j)
-                write(*,'(a,g30.20)') 'storage:', River%storage(i,j)
-                write(*,'(a,g30.20)') 'River%dt_slow:', River%dt_slow
-                write(*,'(a,g30.20)') 'outflow:', River%outflow(i,j)
-            endif
-            if(use_reservoir.or.River%abst(i,j)>0.)then
-               if(River%outflow(i,j)<0.)then
-                  River%outflow(i,j) = 0.
-                  River%storage(i,j) = avail - River%abst(i,j)
-               endif
-            endif
-            ! given outflow, determine flow width, depth, velocity
-            if (River%outflow(i,j) .le. 0.) then
-               River%depth(i,j) = 0.
-               River%width(i,j) = 0.
-               River%vel(i,j)   = 0.
-            else
-               River%depth(i,j) = River%d_coef(i,j) &
-                    * River%outflow(i,j)**River%d_exp
-               River%width(i,j) = River%w_coef(i,j) &
-                    * River%outflow(i,j)**River%w_exp
-               River%vel(i,j) = River%outflow(i,j) /                   &
-                                   (River%width(i,j) * River%depth(i,j))
-            endif
-            ! given water outflow and storage, split other tracked stuff same way
-            out_frac = 0.; abst_frac = 0.
-            if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail !m3/s / m3
-            if (avail .gt. 0.) abst_frac = (River%abst(i,j)/River%dt_slow)/avail !m3/s / m3
-            ! ZMS:
-            out_frac = min(out_frac, 1.); abst_frac=min(abst_frac, 1.)
-            River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
-                                     +River%lake_outflow_c(i,j,:)/DENS_H2O) !m3/s, J m3/kg /s
-            River%abstflow_c(i,j,:) = abst_frac * (River%storage_c(i,j,:) &
-                                     +River%lake_outflow_c(i,j,:)/DENS_H2O)
+           ! determine total water outflow during step
+           River%outflow(i,j) = (avail - River%abst(i,j) - River%storage(i,j)) / River%dt_slow !m3/s
+           if (is_watch_cell()) then
+               write(*,'(a,g30.20)') 'avail:', avail
+               write(*,'(a,g30.20)') 'abst:', River%abst(i,j)
+               write(*,'(a,g30.20)') 'storage:', River%storage(i,j)
+               write(*,'(a,g30.20)') 'River%dt_slow:', River%dt_slow
+               write(*,'(a,g30.20)') 'outflow:', River%outflow(i,j)
+           endif
+           if(use_reservoir.or.River%abst(i,j)>0.)then
+              if(River%outflow(i,j)<0.)then
+                 River%outflow(i,j) = 0.
+                 River%storage(i,j) = avail - River%abst(i,j)
+              endif
+           endif
+           ! given outflow, determine flow width, depth, velocity
+           if (River%outflow(i,j) .le. 0.) then
+              River%depth(i,j) = 0.
+              River%width(i,j) = 0.
+              River%vel(i,j)   = 0.
+           else
+              River%depth(i,j) = River%d_coef(i,j) &
+                   * River%outflow(i,j)**River%d_exp
+              River%width(i,j) = River%w_coef(i,j) &
+                   * River%outflow(i,j)**River%w_exp
+              River%vel(i,j) = River%outflow(i,j) /                   &
+                                  (River%width(i,j) * River%depth(i,j))
+           endif
+           ! given water outflow and storage, split other tracked stuff same way
+           out_frac = 0.; abst_frac = 0.
+           if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail !m3/s / m3
+           if (avail .gt. 0.) abst_frac = (River%abst(i,j)/River%dt_slow)/avail !m3/s / m3
+           ! ZMS:
+           out_frac = min(out_frac, 1.); abst_frac=min(abst_frac, 1.)
+           River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
+                                    +River%lake_outflow_c(i,j,:)/DENS_H2O) !m3/s, J m3/kg /s
+           River%abstflow_c(i,j,:) = abst_frac * (River%storage_c(i,j,:) &
+                                    +River%lake_outflow_c(i,j,:)/DENS_H2O)
+           do tr = trs,tre
+              if (.not.trdata(tr)%do_abstraction) then
+                 River%abstflow_c(i,j,tr) = 0.0
+              endif
+           enddo
 
            ! 2011/05/13 PCM: fix ice outflow temperature bug
            if (prohibit_cold_ice_outflow) then
