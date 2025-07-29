@@ -3740,7 +3740,6 @@ subroutine irrigation_deficit()
                      __DEBUG1__(soil%w_fc(1))
                   end if
                   if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
-                     call check_var_range(tile%frac, 0.0, 0.5, 'irrigation_tile', 'tile%frac', WARNING)
                      soil_def = max(0., soil_target-theta_test) ! 1
                      time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)
                      irr_cohorts = soil_def*(dens_h2o*sum(dz(1:layer)))*time_fac ! kg/m3 * m = kg/m2

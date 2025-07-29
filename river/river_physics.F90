@@ -32,7 +32,8 @@ module river_physics_mod
   use diag_manager_mod,only : register_diag_field, send_data
   use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
-  use river_tracers_mod, only : num_phys, num_species, trdata, river_tracer_index
+  use river_tracers_mod, only : num_phys, num_species, trdata, river_tracer_index, &
+        TR_ICE, TR_HET
   use lake_mod,        only : large_dyn_small_stat, use_reservoir, lake_abstraction, ResMin, ResMax
   use lake_tile_mod,   only : num_l
   use constants_mod,   only : tfreeze, hlf, DENS_H2O
@@ -267,7 +268,7 @@ subroutine river_physics_step(River, cur_travel, &
            lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/tot_area
            lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
            lake_T (i,j,1) = tfreeze + &
-              (h+influx_c(2)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1)) !(J/m2)/(J/(kgK)*(kg/m2))= (J/m2)/(J/(Km2)) = K
+              (h+influx_c(TR_HET)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1)) !(J/m2)/(J/(kgK)*(kg/m2))= (J/m2)/(J/(Km2)) = K
            is_terminal = .True.
            call lake_abstraction( is_terminal, &
                                   irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
@@ -298,13 +299,12 @@ subroutine river_physics_step(River, cur_travel, &
                  write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
                  write(*,*) 'lake_T (1):', lake_T (i,j,1)
                  write(*,*) 'influx    :', influx
-                 write(*,*) 'influx_c(1):', influx_c(1)
-                 write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
-                 write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
-                 write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
-                 write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
-                 !  write(*,*) 'River%inflow_temp(i,j)', tfreeze+River%inflow_c(i,j,2)/(clw*(River%inflow(i,j)-River%inflow_c(i,j,1))+csw*River%inflow_c(i,j,1))
-                 write(*,*) 'River%infloc_temp(i,j)', tfreeze+River%infloc_c(i,j,2)/(clw*(River%infloc(i,j)-River%infloc_c(i,j,1))+csw*River%infloc_c(i,j,1))
+                 __DEBUG1__(influx_c(TR_ICE))
+                 __DEBUG2__(River%inflow(i,j), River%infloc(i,j))
+                 __DEBUG2__(River%inflow_c(i,j,TR_ICE), River%infloc_c(i,j,TR_ICE))
+                 call dpri('River%infloc_temp(i,j)', tfreeze+River%infloc_c(i,j,TR_HET) / &
+                      (clw*(River%infloc(i,j)-River%infloc_c(i,j,TR_ICE))+csw*River%infloc_c(i,j,TR_ICE)))
+                 write(*,*)
               endif
               h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
               if (is_watch_cell()) then
@@ -315,7 +315,7 @@ subroutine river_physics_step(River, cur_travel, &
               lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/tot_area
               lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
               lake_T (i,j,1) = tfreeze + &
-                 (h+influx_c(2)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
+                 (h+influx_c(TR_HET)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
               if (lake_T (i,j,1) .gt. 372.0)then
                  print*,'WARNING: Lake temperature was too high. But, not Adjusted.'
                  !lake_T (i,j,1) = 372.0
@@ -437,8 +437,8 @@ subroutine river_physics_step(River, cur_travel, &
                     if (liq_to_flow.eq.0..and.ice_to_flow.eq.0.) exit
                  enddo
                  River%lake_outflow  (i,j)   = qt !kg
-                 River%lake_outflow_c(i,j,1) = qs !kg
-                 River%lake_outflow_c(i,j,2) = qh !J
+                 River%lake_outflow_c(i,j,TR_ICE) = qs !kg
+                 River%lake_outflow_c(i,j,TR_HET) = qh !J
               endif !qt.gt.0.
               v1 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))*tot_area/DENS_H2O  !m3
               if (use_reservoir.and.Afrac_rsv(i,j)<1.) then
@@ -452,9 +452,9 @@ subroutine river_physics_step(River, cur_travel, &
                  rsv_outflow(i,j) = rsv_outflow(i,j) + (vr1_bak - vr1)*DENS_H2O !kg
               endif
               if(Afrac_rsv(i,j)>=1.) then !special case: only reservoir, no lake
-                 River%lake_outflow  (i,j)   = rsv_outflow(i,j) !kg
-                 River%lake_outflow_c(i,j,1) = rsv_outflow_s !kg
-                 River%lake_outflow_c(i,j,2) = rsv_outflow_h !J
+                 River%lake_outflow  (i,j)        = rsv_outflow(i,j) !kg
+                 River%lake_outflow_c(i,j,TR_ICE) = rsv_outflow_s !kg
+                 River%lake_outflow_c(i,j,TR_HET) = rsv_outflow_h !J
               endif
               if (is_watch_cell()) then
                  write(*,*) 'v1:', v1
@@ -470,8 +470,8 @@ subroutine river_physics_step(River, cur_travel, &
                   write(*,*) 'no lake in the gridcell'
               endif
               River%lake_outflow  (i,j  ) = influx
-              River%lake_outflow_c(i,j,1) = influx_c(1)
-              River%lake_outflow_c(i,j,2) = influx_c(2)
+              River%lake_outflow_c(i,j,TR_ICE) = influx_c(TR_ICE)
+              River%lake_outflow_c(i,j,TR_HET) = influx_c(TR_HET)
            endif ! tot_area.gt.0.
         endif ! terminal vs non-terminal cell
 
@@ -601,15 +601,16 @@ subroutine river_physics_step(River, cur_travel, &
               River%outflow_c(i,j,:) = max(River%outflow_c(i,j,:), 0.)
               River%abstflow_c(i,j,:) = max(River%abstflow_c(i,j,:), 0.)
            else
-              River%outflow_c(i,j,1) = max(River%outflow_c(i,j,1), 0.)
-              River%abstflow_c(i,j,1) = max(River%abstflow_c(i,j,1), 0.)
+              River%outflow_c (i,j,TR_ICE) = max(River%outflow_c (i,j,TR_ICE), 0.)
+              River%abstflow_c(i,j,TR_ICE) = max(River%abstflow_c(i,j,TR_ICE), 0.)
+              ! note that in this cae we do not limit heat
               if(tre.ge.trs) then
-                 River%outflow_c(i,j,trs:tre)  = max(River%outflow_c(i,j,trs:tre),  0.0)
+                 River%outflow_c (i,j,trs:tre) = max(River%outflow_c (i,j,trs:tre), 0.0)
                  River%abstflow_c(i,j,trs:tre) = max(River%abstflow_c(i,j,trs:tre), 0.0)
               endif
            endif
-           River%outflow_c(i,j,1) = min(River%outflow_c(i,j,1), River%outflow(i,j))
-           River%abstflow_c(i,j,1) = min(River%abstflow_c(i,j,1), River%abst(i,j)/River%dt_slow)
+           River%outflow_c (i,j,TR_ICE) = min(River%outflow_c(i,j,TR_ICE), River%outflow(i,j))
+           River%abstflow_c(i,j,TR_ICE) = min(River%abstflow_c(i,j,TR_ICE), River%abst(i,j)/River%dt_slow)
            River%storage_c(i,j,:) = River%storage_c(i,j,:)       &
                  + River%lake_outflow_c(i,j,:)/DENS_H2O       &
                  - River%outflow_c(i,j,:)*River%dt_slow       &
@@ -621,32 +622,32 @@ subroutine river_physics_step(River, cur_travel, &
            ! be stationary, thus a different species
 
            if (River%storage(i,j) .gt. storage_threshold_for_melt) then
-              conc(1) = River%storage_c(i,j,1)/River%storage(i,j)
-              conc(2) = tfreeze + River%storage_c(i,j,2) /  & !unit of River%storage_c(i,j,2): K * J/(kg K) * m3 = J m3/kg
-                 ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
-              if (River%storage_c(i,j,1).gt.0. .and. conc(2).gt.tfreeze) then
+              conc(TR_ICE) = River%storage_c(i,j,1)/River%storage(i,j)
+              conc(TR_HET) = tfreeze + River%storage_c(i,j,TR_HET) /  & !unit of River%storage_c(i,j,2): K * J/(kg K) * m3 = J m3/kg
+                 ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,TR_ICE))
+              if (River%storage_c(i,j,TR_ICE)>0 .and. conc(TR_HET)>tfreeze) then
 !                    if (River%storage_c(i,j,1).gt.0. .and. River%storage_c(i,j,2).gt.0.) then
-                 qmelt = min(hlf*River%storage_c(i,j,1), River%storage_c(i,j,2)) !J/kg * m3 = J m3/kg
+                 qmelt = min(hlf*River%storage_c(i,j,TR_ICE), River%storage_c(i,j,TR_HET)) !J/kg * m3 = J m3/kg
                  River%melt(i,j) = qmelt
-                 River%storage_c(i,j,1) = River%storage_c(i,j,1) - qmelt/hlf
-                 River%storage_c(i,j,2) = River%storage_c(i,j,2) - qmelt
+                 River%storage_c(i,j,TR_ICE) = River%storage_c(i,j,TR_ICE) - qmelt/hlf
+                 River%storage_c(i,j,TR_HET) = River%storage_c(i,j,TR_HET) - qmelt
 !                        conc(2) = tfreeze + River%storage_c(i,j,2) /  &
 !                           ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
               endif
            endif
 
            if (River%storage(i,j) .gt. storage_threshold_for_diag) then
-              conc(1) = River%storage_c(i,j,1)/River%storage(i,j)
-              conc(2) = tfreeze + River%storage_c(i,j,2) /  &
+              conc(TR_ICE) = River%storage_c(i,j,TR_ICE)/River%storage(i,j)
+              conc(TR_HET) = tfreeze + River%storage_c(i,j,TR_HET) /  &
                  ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
               diag_mask(i,j) = .TRUE.
            else
-              conc(1) = missing
-              conc(2) = missing
+              conc(TR_ICE) = missing
+              conc(TR_HET) = missing
            endif
 
-           ice(i,j)=conc(1)
-           temperature(i,j)=conc(2)
+           ice(i,j)=conc(TR_ICE)
+           temperature(i,j)=conc(TR_HET)
 
            if (i_age/=NO_TRACER) then
               River%removal_c(i,j,i_age) = -River%storage(i,j)/sec_in_day
@@ -662,11 +663,11 @@ subroutine river_physics_step(River, cur_travel, &
 
            do tr = trs,tre
               if (trdata(tr)%do_removal) then
-                 if (River%depth(i,j)>0 .and. conc(2)>100.0) then
-                    v_r_d = trdata(tr)%vf_ref * trdata(tr)%Q10**((conc(2)-trdata(tr)%t_ref)/10.0)&
+                 if (River%depth(i,j)>0 .and. conc(TR_HET)>100.0) then
+                    v_r_d = trdata(tr)%vf_ref * trdata(tr)%Q10**((conc(TR_HET)-trdata(tr)%t_ref)/10.0)&
                        / ((1+trdata(tr)%kinv*conc(tr)) * River%depth(i,j))
                     ! next should not be necessary if storage_c is positive, but maybe it's not.
-                    v_r_d = trdata(tr)%vf_ref * trdata(tr)%Q10**((conc(2)-trdata(tr)%t_ref)/10.)&
+                    v_r_d = trdata(tr)%vf_ref * trdata(tr)%Q10**((conc(TR_HET)-trdata(tr)%t_ref)/10.)&
                        / ((1+trdata(tr)%kinv*max(0.,conc(tr)))*River%depth(i,j))
                  else
                     v_r_d = 0.0
