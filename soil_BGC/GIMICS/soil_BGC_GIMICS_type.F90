@@ -306,6 +306,11 @@ integer, dimension(3) :: id_soilC, id_metabolicC, id_structuralC, id_protectedC,
    id_OxidMrCc, id_OxidMkCc, id_MrTau, id_MkTau, id_Resp, id_Desorb, id_thetaF, &
    ! input rates
    id_InputStrC, id_InputMtbC, id_InputExdC
+! diag fields for column-integrated soil carbon pools:
+integer :: id_clmn_metabolicC, id_clmn_structuralC, id_clmn_protectedC, &
+   id_clmn_chemResistantC, id_clmn_availableC, id_clmn_microbesR, id_clmn_microbesK, &
+   id_clmn_DOC, id_clmn_InputStrC, id_clmn_InputMtbC, id_clmn_InputExdC, &
+   id_clmn_Resp, id_clmn_Desorb, id_clmn_Decomp, id_clmn_Oxid, id_clmn_Turnover
 
 integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_thetaF, &
    id_litt_metabolicC, id_litt_structuralC, id_litt_chemResistantC, id_litt_availableC, &
@@ -313,6 +318,8 @@ integer, dimension(N_LITTER_POOLS) :: id_litt_total_C, id_litt_dz, id_litt_theta
    id_litt_DecompMrLm, id_litt_DecompMrLs, id_litt_DecompMrCa, id_litt_DecompMrDOC, &
    id_litt_DecompMkLm, id_litt_DecompMkLs, id_litt_DecompMkCa, id_litt_DecompMkDOC, &
    id_litt_OxidMrCc, id_litt_OxidMkCc, id_litt_MrTau, id_litt_MkTau, id_litt_Resp, &
+   ! aggregated terms
+   id_litt_Decomp, id_litt_Oxid, id_litt_Turnover, &
    ! input rates for surface litter pools
    id_litt_InputStrC, id_litt_InputMtbC, &
    ! turbation tendencies in surface litter pools
@@ -434,6 +441,23 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_DOC       = register_3_diag_fields ( diag_mod_name, 'DOC', axes(:),  &
        lnd%time, 'Volumetric density of DOC', 'kg C/m3', missing_value=-100.0 )
 
+  id_clmn_metabolicC = register_tiled_diag_field ( diag_mod_name, 'clmn_metabolicC', axes(1:1),  &
+       lnd%time, 'Column-integrated metabolic C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_structuralC = register_tiled_diag_field ( diag_mod_name, 'clmn_structuralC', axes(1:1),  &
+       lnd%time, 'Column-integrated structural C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_protectedC = register_tiled_diag_field ( diag_mod_name, 'clmn_protectedC', axes(1:1),  &
+       lnd%time, 'Column-integrated protected C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_chemResistantC = register_tiled_diag_field ( diag_mod_name, 'clmn_chemResistantC', axes(1:1),  &
+       lnd%time, 'Column-integrated chemically resistant C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_availableC = register_tiled_diag_field ( diag_mod_name, 'clmn_availableC', axes(1:1),  &
+       lnd%time, 'Column-integrated available C in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_microbesR = register_tiled_diag_field ( diag_mod_name, 'clmn_microbesR', axes(1:1),  &
+       lnd%time, 'Column-integrated copiotrophic (R) microbes in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_microbesK = register_tiled_diag_field ( diag_mod_name, 'clmn_microbesk', axes(1:1),  &
+       lnd%time, 'Column-integrated oligotrophic (K) microbes in soil', 'kg C/m2', missing_value=-100.0 )
+  id_clmn_DOC = register_tiled_diag_field ( diag_mod_name, 'clmn_DOC', axes(1:1),  &
+       lnd%time, 'Column-integrated DOC in soil', 'kg C/m2', missing_value=-100.0 )
+
   id_DecompMrLm = register_3_diag_fields ( diag_mod_name, 'DecompMrLm', axes(:),  &
        lnd%time, 'Rate of metabolic C decomposition by R microbes', 'kg C/m3/h', missing_value=-100.0 )
   id_DecompMrLs = register_3_diag_fields ( diag_mod_name, 'DecompMrLs', axes(:),  &
@@ -467,10 +491,28 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
   id_InputExdC = register_3_diag_fields ( diag_mod_name, 'InputExdC', axes(:),  &
        lnd%time, 'Rate of C exudate input', 'kg C/m3/h', missing_value=-100.0 )
 
+  id_clmn_InputStrC = register_tiled_diag_field ( diag_mod_name, 'clmn_InputStrC', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of input of structural C to soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_InputMtbC = register_tiled_diag_field ( diag_mod_name, 'clmn_InputMtbC', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of input of metabolic C to soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_InputExdC = register_tiled_diag_field ( diag_mod_name, 'clmn_InputExdC', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of exudate C input to soil', 'kg C/m2/h', missing_value=-100.0 )
+
   id_Resp = register_3_diag_fields ( diag_mod_name, 'Resp', axes(:),  &
        lnd%time, 'Rate of respiration', 'kg C/m3/h', missing_value=-100.0 )
   id_Desorb = register_3_diag_fields ( diag_mod_name, 'Desorb', axes(:),  &
        lnd%time, 'Rate of desorption', 'kg C/m3/h', missing_value=-100.0 )
+
+  id_clmn_Resp = register_tiled_diag_field ( diag_mod_name, 'clmn_Resp', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of respiration in soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_Desorb = register_tiled_diag_field ( diag_mod_name, 'clmn_Desorb', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of desorption in soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_Decomp = register_tiled_diag_field ( diag_mod_name, 'clmn_Decomp', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of decomposition in soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_Oxid = register_tiled_diag_field ( diag_mod_name, 'clmn_Oxid', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of oxidation in soil', 'kg C/m2/h', missing_value=-100.0 )
+  id_clmn_Turnover = register_tiled_diag_field ( diag_mod_name, 'clmn_Turnover', axes(1:1),  &
+       lnd%time, 'Column-integrated rate of turnover in soil', 'kg C/m2', missing_value=-100.0 )
 
   id_fRhiz = register_tiled_diag_field ( diag_mod_name, 'fRhiz', axes(:),  &
        lnd%time, 'Volumetric fraction of rhizosphere', 'm3/m3', missing_value=-100.0 )
@@ -528,6 +570,13 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Rate of chemically resistant C oxidation by K microbes in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
   id_litt_MkTau(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_MkTau', axes(1:1),  &
        lnd%time, 'Rate of K microbes overturning in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+
+  id_litt_Decomp(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_Decomp', axes(1:1),  &
+       lnd%time, 'Rate of decomposition in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_Oxid(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_Oxid', axes(1:1),  &
+       lnd%time, 'Rate of oxidation in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
+  id_litt_Turnover(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_Turnover', axes(1:1),  &
+       lnd%time, 'Rate of turnover in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
 
   id_litt_InputStrC(:) = register_litter_diag_fields ( diag_mod_name, '<ltype>litt_InputStrC', axes(1:1),  &
        lnd%time, 'Rate of input to structural C in <ltype> litter', 'kg C/m3/h', missing_value=-100.0 )
@@ -997,6 +1046,26 @@ real function total_C_GIMICS(soilc) result(answer)
   enddo
 
   answer = answer + soilc%total_soil_C()
+end function
+
+! ============================================================================
+! > @brief Given the fraction of rhizosphere in each layer and two arrays of
+!! the concentrations (for rhizosphere and bulk soil), calculate total
+!! amount in the entire soil
+real function total_amount(fRhiz, rhiz, bulk) result(answer)
+  real, intent(in) :: fRhiz(:) !< fraction of rhizosphere
+  real, intent(in) :: rhiz(:)  !< concentration in the rhizosphere
+  real, intent(in) :: bulk(:)  !< concentration in the bulk soil
+
+  integer :: k
+
+  answer = 0.0
+  do k = 1,num_l
+     answer = answer + &
+           ( rhiz(k) * fRhiz(k)     &
+           + bulk(k) * (1-fRhiz(k)) &
+           ) * dz(k)
+  enddo
 end function
 
 ! ============================================================================
@@ -1610,7 +1679,7 @@ subroutine step3_GIMICS(soilc, diag)
   ! NOTE that IDs in calls to send_3_tile_data are arrays, so protecting them
   !      with "if" statements would be more involved
 
-  ! carbon pools
+  ! vertical distribution of carbon pools
   call send_3_tile_data(id_metabolicC,     soilc%rhiz(:)%metabolicLitterC,  soilc%bulk(:)%metabolicLitterC,  soilc%fRhiz(:), diag)
   call send_3_tile_data(id_structuralC,    soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC, soilc%fRhiz(:), diag)
   call send_3_tile_data(id_protectedC,     soilc%rhiz(:)%protectedC,        soilc%bulk(:)%protectedC,        soilc%fRhiz(:), diag)
@@ -1619,6 +1688,40 @@ subroutine step3_GIMICS(soilc, diag)
   call send_3_tile_data(id_microbesR,      soilc%rhiz(:)%microbesR,         soilc%bulk(:)%microbesR,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_microbesK,      soilc%rhiz(:)%microbesK,         soilc%bulk(:)%microbesK,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_DOC,            soilc%rhiz(:)%DOC,               soilc%bulk(:)%DOC,               soilc%fRhiz(:), diag)
+
+  ! totals of carbon pools
+  if (id_clmn_metabolicC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%metabolicLitterC, soilc%bulk(:)%metabolicLitterC)
+     call send_tile_data(id_clmn_metabolicC, s, diag)
+  endif
+  if (id_clmn_structuralC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%structuralLitterC, soilc%bulk(:)%structuralLitterC)
+     call send_tile_data(id_clmn_structuralC, s, diag)
+  endif
+  if (id_clmn_protectedC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%protectedC, soilc%bulk(:)%protectedC)
+     call send_tile_data(id_clmn_protectedC, s, diag)
+  endif
+  if (id_clmn_chemResistantC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%chemResistantC, soilc%bulk(:)%chemResistantC)
+     call send_tile_data(id_clmn_chemResistantC, s, diag)
+  endif
+  if (id_clmn_availableC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC)
+     call send_tile_data(id_clmn_availableC, s, diag)
+  endif
+  if (id_clmn_microbesR > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR)
+     call send_tile_data(id_clmn_microbesR, s, diag)
+  endif
+  if (id_clmn_microbesK > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%microbesK, soilc%bulk(:)%microbesK)
+     call send_tile_data(id_clmn_microbesK, s, diag)
+  endif
+  if (id_clmn_DOC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%DOC, soilc%bulk(:)%DOC)
+     call send_tile_data(id_clmn_DOC, s, diag)
+  endif
 
   ! decomposition rates
   call send_3_tile_data(id_DecompMrLm,     soilc%rhiz(:)%DecompMrLm,        soilc%bulk(:)%DecompMrLm,        soilc%fRhiz(:), diag)
@@ -1642,6 +1745,55 @@ subroutine step3_GIMICS(soilc, diag)
   call send_3_tile_data(id_InputStrC,      soilc%rhiz(:)%InputStrC,         soilc%bulk(:)%InputStrC,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_InputMtbC,      soilc%rhiz(:)%InputMtbC,         soilc%bulk(:)%InputMtbC,         soilc%fRhiz(:), diag)
   call send_3_tile_data(id_InputExdC,      soilc%rhiz(:)%InputExdC,         soilc%bulk(:)%InputExdC,         soilc%fRhiz(:), diag)
+
+  if (id_clmn_Resp > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%Resp, soilc%bulk(:)%Resp)
+     call send_tile_data(id_clmn_Resp, s, diag)
+  endif
+  if (id_clmn_Desorb > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%Desorb, soilc%bulk(:)%Desorb)
+     call send_tile_data(id_clmn_Desorb, s, diag)
+  endif
+
+  if (id_clmn_InputStrC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%InputStrC, soilc%bulk(:)%InputStrC)
+     call send_tile_data(id_clmn_InputStrC, s, diag)
+  endif
+  if (id_clmn_InputMtbC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%InputMtbC, soilc%bulk(:)%InputMtbC)
+     call send_tile_data(id_clmn_InputMtbC, s, diag)
+  endif
+  if (id_clmn_InputExdC > 0) then
+     s = total_amount(soilc%fRhiz(:), soilc%rhiz(:)%InputExdC, soilc%bulk(:)%InputExdC)
+     call send_tile_data(id_clmn_InputExdC, s, diag)
+  endif
+
+  if (id_clmn_Decomp > 0) then
+     s = total_amount(soilc%fRhiz(:), &
+        soilc%rhiz(:)%DecompMrLm  + soilc%rhiz(:)%DecompMkLm + &
+        soilc%rhiz(:)%DecompMrLs  + soilc%rhiz(:)%DecompMkLs + &
+        soilc%rhiz(:)%DecompMrCa  + soilc%rhiz(:)%DecompMkCa + &
+        soilc%rhiz(:)%DecompMrDOC + soilc%rhiz(:)%DecompMkDOC, &
+
+        soilc%bulk(:)%DecompMrLm  + soilc%bulk(:)%DecompMkLm + &
+        soilc%bulk(:)%DecompMrLs  + soilc%bulk(:)%DecompMkLs + &
+        soilc%bulk(:)%DecompMrCa  + soilc%bulk(:)%DecompMkCa + &
+        soilc%bulk(:)%DecompMrDOC + soilc%bulk(:)%DecompMkDOC  )
+     call send_tile_data(id_clmn_Decomp, s, diag)
+  endif
+  if (id_clmn_Oxid > 0) then
+     s = total_amount(soilc%fRhiz(:), &
+        soilc%rhiz(:)%OxidMrCc + soilc%rhiz(:)%OxidMkCc, &
+        soilc%bulk(:)%OxidMrCc + soilc%bulk(:)%OxidMkCc  )
+     call send_tile_data(id_clmn_Oxid, s, diag)
+  endif
+  if (id_clmn_Turnover > 0) then
+     s = total_amount(soilc%fRhiz(:), &
+        soilc%rhiz(:)%MrTau + soilc%rhiz(:)%MkTau, &
+        soilc%bulk(:)%MrTau + soilc%bulk(:)%MkTau  )
+     call send_tile_data(id_clmn_Turnover, s, diag)
+  endif
+
   ! reset input accumulators for the next time step
   soilc%rhiz(:)%InputStrC = 0.0; soilc%bulk(:)%InputStrC = 0.0
   soilc%rhiz(:)%InputMtbC = 0.0; soilc%bulk(:)%InputMtbC = 0.0
@@ -1676,6 +1828,21 @@ subroutine step3_GIMICS(soilc, diag)
      call send_tile_data(id_litt_OxidMkCc(k),   soilc%litt(k)%OxidMkCc,   diag)
      call send_tile_data(id_litt_MkTau(k),      soilc%litt(k)%MkTau,      diag)
 
+     if (id_litt_Decomp(k) > 0) then
+        call send_tile_data(id_litt_Decomp(k), &
+           soilc%litt(k)%DecompMrLm  + soilc%litt(k)%DecompMkLm + &
+           soilc%litt(k)%DecompMrLs  + soilc%litt(k)%DecompMkLs + &
+           soilc%litt(k)%DecompMrCa  + soilc%litt(k)%DecompMkCa + &
+           soilc%litt(k)%DecompMrDOC + soilc%litt(k)%DecompMkDOC, diag)
+     endif
+     if (id_litt_Oxid(k) > 0) then
+        call send_tile_data(id_litt_Oxid(k), &
+           soilc%litt(k)%OxidMrCc + soilc%litt(k)%OxidMkCc, diag)
+     endif
+     if (id_litt_Turnover(k) > 0) then
+        call send_tile_data(id_litt_Turnover(k), &
+           soilc%litt(k)%MrTau + soilc%litt(k)%MkTau, diag)
+     endif
      call send_tile_data(id_litt_Resp(k),       soilc%litt(k)%Resp,       diag)
      call send_tile_data(id_litt_thetaF(k),     soilc%litt(k)%thetaF,     diag)
 
