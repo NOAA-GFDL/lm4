@@ -3,7 +3,6 @@ module snow_tile_mod
 #include "../shared/debug.inc"
 
 use mpp_mod, only: input_nml_file
-use mpp_mod, only: input_nml_file
 use fms_mod, only : check_nml_error, lowercase, stdlog, error_mesg, FATAL, NOTE
 use constants_mod,only: tfreeze
 use land_constants_mod, only : NBANDS, &
