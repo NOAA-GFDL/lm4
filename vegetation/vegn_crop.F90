@@ -1492,7 +1492,7 @@
  m = 0
  crossing_days(m) = modulo_no_zero(daybeg+1,365)
  crossing_days(1:num_m) = NO_DATE
-  day_loop: do dd=daybeg,daybeg+364
+  day_loop: do dd=daybeg,daybeg+363
    doy_today    = modulo_no_zero(dd,365)
    doy_tomorrow = modulo_no_zero(dd+1,365)
    if(aPTT(doy_today) > aPTTtH_range(2)) exit day_loop
