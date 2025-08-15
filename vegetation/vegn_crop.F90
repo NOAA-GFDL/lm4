@@ -1,4 +1,4 @@
- module vegn_crop_mod 
+ module vegn_crop_mod
 
 ! This module executes an algorithm that determines dates for planting and harvesting of four
 ! major agricultural crops as a function of local climate. These crops are: maize, soybean,
@@ -52,7 +52,7 @@
 
 #include "../shared/debug.inc"
  use mpp_mod, only: input_nml_file, mpp_clock_id, mpp_clock_begin, mpp_clock_end, CLOCK_ROUTINE
- use fms_mod, only: error_mesg, NOTE, FATAL, check_nml_error, stdlog, CLOCK_FLAG_DEFAULT
+ use fms_mod, only: string, error_mesg, NOTE, FATAL, check_nml_error, stdlog, CLOCK_FLAG_DEFAULT
  use time_manager_mod, only: time_type, set_date, get_date, operator(-), set_time, operator(+), length_of_year, operator(//), operator(<)
  use constants_mod, only: TFREEZE, SECONDS_PER_DAY, PI
  use land_tile_mod, only: land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles, land_tile_map
@@ -284,14 +284,14 @@
         else                                                                                                                   ! watchpoint_code
           text = ' subroutine compute_crop_calendars 2:'// &                                                                   ! watchpoint_code
                  ' planting date range for 1st season '//trim(crop_name(pot_crop))//' ='                                       ! watchpoint_code
-          nn = len_trim(text)                                                                                                  ! watchpoint_code 
+          nn = len_trim(text)                                                                                                  ! watchpoint_code
           write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(1,2:3,MAIN_SEASON,ipref)                                     ! watchpoint_code
           call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
           text = ' subroutine compute_crop_calendars 3:'// &                                                                   ! watchpoint_code
                  ' harvest  date range for 1st season '//trim(crop_name(pot_crop))//' ='                                       ! watchpoint_code
-          nn = len_trim(text)                                                                                                  ! watchpoint_code 
+          nn = len_trim(text)                                                                                                  ! watchpoint_code
           write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(2,2:3,MAIN_SEASON,ipref)                                     ! watchpoint_code
-          call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code 
+          call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
           if(vegn%Crop%crop_calendars(1,1,SECOND_SEASON,ipref) == NO_DATE) then                                                ! watchpoint_code
             text = ' subroutine compute_crop_calendars 4:'// &                                                                 ! watchpoint_code
                    ' The CCA has determined that conditions are unsuitable for a second season of '//trim(crop_name(pot_crop)) ! watchpoint_code
@@ -299,12 +299,12 @@
           else                                                                                                                 ! watchpoint_code
             text = ' subroutine compute_crop_calendars 5:'// &                                                                 ! watchpoint_code
                    ' planting date range for 2nd season '//trim(crop_name(pot_crop))//' ='                                     ! watchpoint_code
-            nn = len_trim(text)                                                                                                ! watchpoint_code 
+            nn = len_trim(text)                                                                                                ! watchpoint_code
             write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(1,2:3,SECOND_SEASON,ipref)                                 ! watchpoint_code
             call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
             text = ' subroutine compute_crop_calendars 6:'// &                                                                 ! watchpoint_code
                    ' harvest  date range for 2nd season '//trim(crop_name(pot_crop))//' ='                                     ! watchpoint_code
-            nn = len_trim(text)                                                                                                ! watchpoint_code 
+            nn = len_trim(text)                                                                                                ! watchpoint_code
             write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(2,2:3,SECOND_SEASON,ipref)                                 ! watchpoint_code
             call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
           endif                                                                                                                ! watchpoint_code
@@ -409,7 +409,11 @@
      ipref_beg = 6
      ipref_end = 10
    case default
-     call error_mesg('crop_selection','landuse argument must be LU_IRRIG or LU_RAINF', FATAL)
+!      call error_mesg('crop_selection','landuse argument must be LU_IRRIG or LU_RAINF: it is '//string(landuse), FATAL)
+     ! apparently crop_selection is called for every tile, not just crop tiles:
+     ! we are using the same range of crops as for the the rain-fed cropland
+     ipref_beg = 6
+     ipref_end = 10
    end select
  else
    ! Irrigated or rain-fed crops could be selected for any crop tile, regardless of water
@@ -854,7 +858,7 @@
  ! They are re-assigned every execution of flip_flop and passed back in on the subsequent execution.
 
  dble_cropping_calendar = NO_DATE ! Will be over-written if a non-overlapping pair of dates is found
- 
+
  equal_GP_1 = equal_GP(p_and_h_date_ranges_1)
  if(equal_GP_1) then
    GP_1 = p_and_h_date_ranges_1(2,1) - p_and_h_date_ranges_1(1,1)
@@ -911,7 +915,7 @@
    dend2 = p_and_h_date_ranges_2(1,3)
    period_loop_2: do iperiod=1,num_crop_periods
      pday1 = p_and_h_date_ranges_1(1,iperiod)
-     hday1 = p_and_h_date_ranges_1(2,iperiod) 
+     hday1 = p_and_h_date_ranges_1(2,iperiod)
      I2 = .false. ! Tells function flip_flop that it needs to initialize. Flipped to .true. after the first execution of flip_flop.
      loop2: do
        pday2 = flip_flop(NO_DATE, dopt2, dbeg2, dend2, K2, DE2, DO2, B2, E2, I2)
@@ -1016,7 +1020,7 @@
    before_beg = .false.
    after_end  = .false.
    initialized = .true.
- else 
+ else
    if(K == 0) then
      K = -1
    else if(K > 0) then
@@ -1281,13 +1285,13 @@
        if(is_watch_cell()) then                                                   ! watchpoint_code
          text = ' Pwatch doy='                                                    ! watchpoint_code
          text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+3),'(i3)') 5*k                            ! watchpoint_code 
+         write(text(text_len+1:text_len+3),'(i3)') 5*k                            ! watchpoint_code
          text = trim(text)//' crossing_point='                                    ! watchpoint_code
          text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+1),'(i1)') crossing_point                 ! watchpoint_code 
+         write(text(text_len+1:text_len+1),'(i1)') crossing_point                 ! watchpoint_code
          text = trim(text)//' crossing_day='                                      ! watchpoint_code
          text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+3),'(i3)') crossing_days(crossing_point)  ! watchpoint_code 
+         write(text(text_len+1:text_len+3),'(i3)') crossing_days(crossing_point)  ! watchpoint_code
          text = trim(text)//' Prec='                                              ! watchpoint_code
          text_len = len_trim(text)                                                ! watchpoint_code
          write(text(text_len+1:text_len+16),'(e16.8)') Prec                       ! watchpoint_code
@@ -1938,7 +1942,7 @@
  real,    intent(in)  :: MIRCA_crop_frac(num_crop_types)
  integer, intent(out) :: potential_crop(num_crop_types)
  real :: frac_tmp(num_crop_types), max_frac
- integer :: m, k, k_of_max_frac  
+ integer :: m, k, k_of_max_frac
 
  frac_tmp = MIRCA_crop_frac
  do m=1,num_crop_types
