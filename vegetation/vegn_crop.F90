@@ -61,7 +61,8 @@
                           IRRIGATED_MAIZE, IRRIGATED_SOYBEAN, IRRIGATED_RICE, IRRIGATED_SPRING_WHEAT, IRRIGATED_WINTER_WHEAT, &
                           RAINFED_MAIZE,   RAINFED_SOYBEAN,   RAINFED_RICE,   RAINFED_SPRING_WHEAT,   RAINFED_WINTER_WHEAT, &
                           crop_name, num_crop_types, num_crop_cal, num_crop_seasons, num_crop_periods, &
-                          landuse_name, water_source_name, landuse_longname, LU_IRRIG, LU_RAINF
+                          landuse_name, water_source_name, landuse_longname, &
+                          LU_IRRIG, LU_RAINF, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, LU_RANGE, LU_PSL, LU_PST, LU_CRP
  use land_data_mod, only: lnd
  use land_tile_io_mod, only: land_restart_type, init_land_restart, open_land_restart, save_land_restart, &
                              free_land_restart, add_restart_axis, add_tile_data, get_tile_data, field_exists, add_int_tile_data, get_int_tile_data
@@ -71,8 +72,6 @@
  use land_numerics_mod, only: ludcmp, lubksb
  use land_io_mod, only: init_cover_field, read_field
  use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
- use land_debug_mod, only: is_watch_cell     ! watchpoint_code
- use vegn_debug_crop_mod, only: debug_crop_2 ! watchpoint_code
 
  implicit none
  private
@@ -193,7 +192,7 @@
  type(vegn_tile_type), intent(inout) :: vegn
  type(diag_buff_type), intent(inout) :: diag
  integer, intent(in) :: L ! index of grid cell which contains this tile
- integer :: m, second, minute, hour, day0, day1, month0, month1, year0, year1, nn
+ integer :: m, second, minute, hour, day0, day1, month0, month1, year0, year1, text_len, itx
  integer :: iph, iseason, mth, iwater, ipref, pot_crop, iperiod, day_beg, day_opt, day_end
  logical :: new_month
  real, dimension(12) :: rhs
@@ -220,12 +219,6 @@
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%P_mid_mth)
     crop_loop_1: do ipref=1,num_crop_types
       pot_crop = vegn%Crop%potential_crop(ipref)
-      if(is_watch_cell()) then             ! watchpoint_code
-        text = ' subroutine compute_crop_calendars 0: ipref =   , pot_crop =    = '//trim(crop_name(pot_crop)) ! watchpoint_code
-        write(text(46:48),'(i3)') ipref    ! watchpoint_code
-        write(text(61:63),'(i3)') pot_crop ! watchpoint_code
-        call debug_crop_2(vegn, text)      ! watchpoint_code
-      endif                                ! watchpoint_code
       if(pot_crop == NO_CROP) exit crop_loop_1
       if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == RAINFED_SPRING_WHEAT) then
         aPTTtH_range = aPTTtH_range_SW
@@ -234,9 +227,6 @@
         aPTTtH_range = aPTTtH_range_WW
         Wheat_type = 'WW'
       endif
-
-      ! Two seasons of Wheat on the same land is rare. Assume it doesn't exist.
-      ! vegn%Crop%crop_calendars(:,:,SECOND_SEASON,ipref) = NO_DATE
 
       if(pot_crop == IRRIGATED_SPRING_WHEAT .or. pot_crop == IRRIGATED_WINTER_WHEAT) then
         call CCA_Wheat(L, vegn, Wheat_type, 'irrigated', central_T(:,pot_crop), variance_T(:,pot_crop), central_P(:,pot_crop), & ! intent(in)
@@ -276,57 +266,10 @@
         vegn%Crop%crop_calendars(:,3,MAIN_SEASON,  ipref) = (/ pday_end(1), hday_end(1)/)
         vegn%Crop%crop_calendars(:,3,SECOND_SEASON,ipref) = (/ pday_end(2), hday_end(2)/)
       endif
-      if(is_watch_cell()) then                                                                                                 ! watchpoint_code
-        if(vegn%Crop%crop_calendars(1,1,MAIN_SEASON,ipref) == NO_DATE) then                                                    ! watchpoint_code
-          text = ' subroutine compute_crop_calendars 1:'// &                                                                   ! watchpoint_code
-                 ' The CCA has determined that conditions are unsuitable for cultivation of '//trim(crop_name(pot_crop))       ! watchpoint_code
-          call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
-        else                                                                                                                   ! watchpoint_code
-          text = ' subroutine compute_crop_calendars 2:'// &                                                                   ! watchpoint_code
-                 ' planting date range for 1st season '//trim(crop_name(pot_crop))//' ='                                       ! watchpoint_code
-          nn = len_trim(text)                                                                                                  ! watchpoint_code
-          write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(1,2:3,MAIN_SEASON,ipref)                                     ! watchpoint_code
-          call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
-          text = ' subroutine compute_crop_calendars 3:'// &                                                                   ! watchpoint_code
-                 ' harvest  date range for 1st season '//trim(crop_name(pot_crop))//' ='                                       ! watchpoint_code
-          nn = len_trim(text)                                                                                                  ! watchpoint_code
-          write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(2,2:3,MAIN_SEASON,ipref)                                     ! watchpoint_code
-          call debug_crop_2(vegn, text)                                                                                        ! watchpoint_code
-          if(vegn%Crop%crop_calendars(1,1,SECOND_SEASON,ipref) == NO_DATE) then                                                ! watchpoint_code
-            text = ' subroutine compute_crop_calendars 4:'// &                                                                 ! watchpoint_code
-                   ' The CCA has determined that conditions are unsuitable for a second season of '//trim(crop_name(pot_crop)) ! watchpoint_code
-            call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
-          else                                                                                                                 ! watchpoint_code
-            text = ' subroutine compute_crop_calendars 5:'// &                                                                 ! watchpoint_code
-                   ' planting date range for 2nd season '//trim(crop_name(pot_crop))//' ='                                     ! watchpoint_code
-            nn = len_trim(text)                                                                                                ! watchpoint_code
-            write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(1,2:3,SECOND_SEASON,ipref)                                 ! watchpoint_code
-            call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
-            text = ' subroutine compute_crop_calendars 6:'// &                                                                 ! watchpoint_code
-                   ' harvest  date range for 2nd season '//trim(crop_name(pot_crop))//' ='                                     ! watchpoint_code
-            nn = len_trim(text)                                                                                                ! watchpoint_code
-            write(text(nn+1:nn+8),'(2i4)') vegn%Crop%crop_calendars(2,2:3,SECOND_SEASON,ipref)                                 ! watchpoint_code
-            call debug_crop_2(vegn, text)                                                                                      ! watchpoint_code
-          endif                                                                                                                ! watchpoint_code
-        endif                                                                                                                  ! watchpoint_code
-      endif                                                                                                                    ! watchpoint_code
     enddo crop_loop_1
 
     call crop_selection(vegn)
 
-    if(is_watch_cell()) then                                                                         ! watchpoint_code
-      text = ' subroutine compute_crop_calendars 7: chosen_crops = '// &                             ! watchpoint_code
-      trim(crop_name(vegn%Crop%chosen_crop(1)))//' '//trim(crop_name(vegn%Crop%chosen_crop(2)))      ! watchpoint_code
-      call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-      text = ' subroutine compute_crop_calendars 8: planting day = '                                 ! watchpoint_code
-      nn = len_trim(text)                                                                            ! watchpoint_code
-      write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(1,1),vegn%Crop%chosen_calendars(1,2) ! watchpoint_code
-      call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-      text = ' subroutine compute_crop_calendars 9: harvest  day = '                                 ! watchpoint_code
-      nn = len_trim(text)                                                                            ! watchpoint_code
-      write(text(nn+1:nn+8),'(2i4)') vegn%Crop%chosen_calendars(2,1),vegn%Crop%chosen_calendars(2,2) ! watchpoint_code
-      call debug_crop_2(vegn, text)                                                                  ! watchpoint_code
-    endif                                                                                            ! watchpoint_code
  endif ! if(new_month)
 
  call send_tile_data(id_T_ave, vegn%Crop%tc_av_climate,diag)
@@ -375,24 +318,12 @@
  integer, intent(in)  :: landuse
  integer, intent(out) :: chosen_crops(num_crop_seasons)
  integer, intent(out) :: chosen_calendars(2,num_crop_seasons)
- integer :: ipref, ipref_beg, ipref_end
+ integer :: ipref, icrop, icrop_beg, icrop_end
  integer, dimension(2,num_crop_seasons) :: dble_cropping_calendar
  character(len=256) :: text
  character(len=16) :: cn1, cn2
 
  integer :: vcal_1, vcal_2, vcal_3, vcal_4, vcal_5, vcal_6, vcal_7, vcal_8, vcal_9, vcal_10
-! vcal_1 = The highest crop preference among crops with valid crop calendars. Valid calendar number 1.
-! vcal_2 = The next highest. Valid calendar number 2.
-! vcal_3 = The next. And so on for vcal_4 through vcal_10
-! Example
-! potential_crop(1) = RAINFED_RICE           calendars(1,1,1,1) = NO_DATE
-! potential_crop(2) = IRRIGATED_SPRING_WHEAT calendars(1,1,1,2) = (a valid day of year)
-! potential_crop(3) = RAINFED_MAIZE          calendars(1,1,1,3) = NO_DATE
-! potential_crop(4) = RAINFED_SOYBEAN        calendars(1,1,1,4) = (a valid day of year)
-! potential_crop(icrop,icrop=5,num_crop_types) = NO_CROP
-
-! In the example above vcal_1 = 2, vcal_2 = 4, vcal_3 to vcal_10 = 0
-! potential_crop(vcal_1) = IRRIGATED_SPRING_WHEAT, potential_crop(vcal_2) = RAINFED_SOYBEAN
 
 ! Find the two crops of highest preference which have valid optimal planting dates for the 1st season.
 ! Valid optimal planting dates for the 1st season exist when the CCA has determined that conditions are suitable.
@@ -403,46 +334,48 @@
    ! the result of land use transitions that distinguish them.
    select case (landuse)
    case (LU_IRRIG) ! irrigated crop
-     ipref_beg = 1
-     ipref_end = 5
+     icrop_beg = 1
+     icrop_end = 5
    case (LU_RAINF) ! rain-fed crop
-     ipref_beg = 6
-     ipref_end = 10
+     icrop_beg = 6
+     icrop_end = 10
    case default
 !      call error_mesg('crop_selection','landuse argument must be LU_IRRIG or LU_RAINF: it is '//string(landuse), FATAL)
      ! apparently crop_selection is called for every tile, not just crop tiles:
      ! we are using the same range of crops as for the the rain-fed cropland
-     ipref_beg = 6
-     ipref_end = 10
+     icrop_beg = 6
+     icrop_end = 10
    end select
  else
    ! Irrigated or rain-fed crops could be selected for any crop tile, regardless of water
    ! source. NOTE: if do_irrigation is FALSE in transition, all crop tiles have LU_RAINF
    ! land use type.
-   ipref_beg = 1
-   ipref_end = 10
+   icrop_beg = 1
+   icrop_end = 10
  endif
- ipref_loop_1: do ipref=ipref_beg,ipref_end
-   if(calendars(1,1,1,ipref) == NO_DATE) cycle ipref_loop_1
-   if(vcal_1 == 0) then
+ ipref_loop_1: do ipref=1,num_crop_types
+   icrop = potential_crop(ipref)
+   if(icrop == NO_CROP) cycle ipref_loop_1
+   if(icrop < icrop_beg .or. icrop > icrop_end) cycle ipref_loop_1
+   if(vcal_1 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_1 = ipref
-   else if(vcal_2 == 0) then
+   else if(vcal_2 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_2 = ipref
-   else if(vcal_3 == 0) then
+   else if(vcal_3 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_3 = ipref
-   else if(vcal_4 == 0) then
+   else if(vcal_4 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_4 = ipref
-   else if(vcal_5 == 0) then
+   else if(vcal_5 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_5 = ipref
-   else if(vcal_6 == 0) then
+   else if(vcal_6 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_6 = ipref
-   else if(vcal_7 == 0) then
+   else if(vcal_7 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_7 = ipref
-   else if(vcal_8 == 0) then
+   else if(vcal_8 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_8 = ipref
-   else if(vcal_9 == 0) then
+   else if(vcal_9 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_9 = ipref
-   else if(vcal_10 == 0) then
+   else if(vcal_10 == 0 .and. calendars(1,1,1,ipref) /= NO_DATE) then
      vcal_10 = ipref
    endif
  enddo ipref_loop_1
@@ -487,6 +420,7 @@
    chosen_calendars(:,1) = (/calendars(1,1,1,vcal_1),calendars(2,1,1,vcal_1)/)
    chosen_crops(2) = NO_CROP
    chosen_calendars(:,2) = (/NO_DATE,NO_DATE/)
+   call error_mesg('crop_selection_sub','This line of code should never be executed', FATAL)
    return
  endif
 
@@ -1233,9 +1167,6 @@
  integer :: hday_list(num_test_days) ! Remember the values for each test date then choose the one that corresponds to the annual minimum suitability index.
  real :: aPTTtH_list(num_test_days)  ! Remember the values for each test date then choose the one that corresponds to the annual minimum suitability index.
  logical :: passes_other_criteria
- character(len=256) :: text              ! watchpoint_code
- real :: TSI_watch, PSI_watch, DSI_watch ! watchpoint_code
- integer :: text_len                     ! watchpoint_code
 
  pday = NO_DATE
  hday = NO_DATE
@@ -1249,30 +1180,11 @@
                        hday_list(k), aPTTtH_list(k), crossing_days) ! intent(out)
    if(any(crossing_days(:) == (/NO_DATE,NO_DATE,NO_DATE,NO_DATE,NO_DATE/))) then
      SI(k) = unsuitable ! Steps 2, 6 and planting day of Step 5
-     if(is_watch_cell()) then                                                                            ! watchpoint_code
-       text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype//' if planted on day' ! watchpoint_code
-       text_len = len_trim(text)                                                                         ! watchpoint_code
-       write(text(text_len+1:text_len+4),'(i4)') 5*k                                                     ! watchpoint_code
-       text = trim(text)//' because aPTT never reaches '                                                 ! watchpoint_code
-       text_len = len_trim(text)                                                                         ! watchpoint_code
-       write(text(text_len+1:text_len+4),'(i4)') nint(aPTTtH_range(1))                                   ! watchpoint_code
-       text = trim(text)//' or temperature drops below'                                                  ! watchpoint_code
-       text_len = len_trim(text)                                                                         ! watchpoint_code
-       write(text(text_len+1:text_len+4),'(i4)') nint(absolute_min_T_for_Wheat-TFREEZE)                  ! watchpoint_code
-       text = trim(text)//'C before'                                                                     ! watchpoint_code
-       text_len = len_trim(text)                                                                         ! watchpoint_code
-       write(text(text_len+1:text_len+4),'(i4)') nint(aPTTtH_range(1))                                   ! watchpoint_code
-       text = trim(text)//' units of aPTT is reached.'                                                   ! watchpoint_code
-       call debug_crop_2(vegn, text)                                                                     ! watchpoint_code
-     endif                                                                                               ! watchpoint_code
      cycle k_loop_1 ! cycle k loop if aPTT never reaches aPTTtH_range(1) or if the temperature drops
                     ! below absolute_min_T_for_Wheat before aPTTtH_range(1) units of aPTT is reached.
    endif
    crossing_day_400(k) = crossing_days(2)
    SI_test = 0.0
-   TSI_watch = 0.0 ! watchpoint_code
-   PSI_watch = 0.0 ! watchpoint_code
-   DSI_watch = 0.0 ! watchpoint_code
    do crossing_point=0,num_m ! Step 3
      doy = crossing_days(crossing_point)
      Temp = interp_between_mid_mths(doy, vegn%Crop%T_mid_mth)
@@ -1282,36 +1194,12 @@
        PSI_test = (max(Prec,central_P(crossing_point)) - central_P(crossing_point))**2/variance_P(crossing_point)
      else
        PSI_test = (Prec - central_P(crossing_point))**2/variance_P(crossing_point)
-       if(is_watch_cell()) then                                                   ! watchpoint_code
-         text = ' Pwatch doy='                                                    ! watchpoint_code
-         text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+3),'(i3)') 5*k                            ! watchpoint_code
-         text = trim(text)//' crossing_point='                                    ! watchpoint_code
-         text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+1),'(i1)') crossing_point                 ! watchpoint_code
-         text = trim(text)//' crossing_day='                                      ! watchpoint_code
-         text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+3),'(i3)') crossing_days(crossing_point)  ! watchpoint_code
-         text = trim(text)//' Prec='                                              ! watchpoint_code
-         text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+16),'(e16.8)') Prec                       ! watchpoint_code
-         text = trim(text)//' central_P='                                         ! watchpoint_code
-         text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+16),'(e16.8)') central_P(crossing_point)  ! watchpoint_code
-         text = trim(text)//' variance_P='                                        ! watchpoint_code
-         text_len = len_trim(text)                                                ! watchpoint_code
-         write(text(text_len+1:text_len+16),'(e16.8)') variance_P(crossing_point) ! watchpoint_code
-         call debug_crop_2(vegn, text)                                            ! watchpoint_code
-       endif                                                                      ! watchpoint_code
      endif
      km = doy/5
      kp = km+1 ! modulo_no_zero is not used here because kp is used to index day_length, which is dimensioned (0:num_test_days+1)
      dlen = .2*((doy-5*km)*day_length(kp,L) + (5*kp-doy)*day_length(km,L))
      DSI_test = (dlen - central_D(crossing_point))**2/variance_D(crossing_point)
      SI_test = SI_test + TSI_test + DSI_test + PSI_test
-     TSI_watch = TSI_watch + TSI_test ! watchpoint_code
-     PSI_watch = PSI_watch + PSI_test ! watchpoint_code
-     DSI_watch = DSI_watch + DSI_test ! watchpoint_code
      if(SI_test > SI_crit) then
        SI(k) = unsuitable
        cycle k_loop_1
@@ -1329,21 +1217,12 @@
      if(T_too_cold_during_GP(5*k, hday_list(k), vegn%Crop%T_mid_mth, min_T_GP_SW)) then
        SI(k) = unsuitable ! Step 8
        passes_other_criteria = .false.
-       text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &        ! watchpoint_code
-            ' if planted on day     because the climatological mean temperature'// &          ! watchpoint_code
-            ' drops below min_T_GP_SW during what would othwise be a suitable growing period' ! watchpoint_code
-       write(text(81:83),'(i3)') 5*k                                                          ! watchpoint_code
-       call debug_crop_2(vegn, text)                                                          ! watchpoint_code
      endif
    endif
    if(Wtype == 'WW') then
      if(.not.vernalization_is_possible(5*k, crossing_day_400(k), vegn%Crop%T_mid_mth, length_of_vernalization_period, max_T_for_vernalization)) then
        SI(k) = unsuitable ! Step 8
        passes_other_criteria = .false.
-       text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &                                           ! watchpoint_code
-              ' if planted on day     because the evolution of climatological mean temperature does not allow for vernalization' ! watchpoint_code
-       write(text(81:83),'(i3)') 5*k                                                                                             ! watchpoint_code
-       call debug_crop_2(vegn, text)                                                                                             ! watchpoint_code
      endif
    endif
  enddo k_loop_2
@@ -1355,10 +1234,6 @@
    if(Temp < min_T_planting) then
      SI(k) = unsuitable ! Step 7
      passes_other_criteria = .false.
-     text = ' Conditions are unsuitable for either irrigated or rainfed '//Wtype// &                                                  ! watchpoint_code
-    ' because the climatological mean temperature is below min_T_GP_SW on day    , which would otherwise be a suitable planting date' ! watchpoint_code
-     write(text(127:129),'(i3)') 5*k                                                                                                  ! watchpoint_code
-     call debug_crop_2(vegn, text)                                                                                                    ! watchpoint_code
    endif
  enddo k_loop_3
 
@@ -2058,7 +1933,7 @@
 !======================================================================================================================================================
  subroutine crop_diag_init(id_ug)
  integer, intent(in) :: id_ug
- integer :: id_month, mth, id_crop_num, ical, id_season, icrop, iseason, iph, ipref, iperiod, nn, id_plant_harvest
+ integer :: id_month, mth, id_crop_num, ical, id_season, icrop, iseason, iph, ipref, iperiod, text_len, id_plant_harvest
  character(len=256) :: diag_fieldname
 
  id_month = diag_axis_init('month', (/(float(mth),mth=1,12)/),'none','Z','month of year')
@@ -2086,12 +1961,12 @@
        do iph=1,2
          if(iph == 1) then
            diag_fieldname = trim(season_name(iseason))//'_'//trim(period_name(iperiod))//'_planting_date_for_crop_'
-           nn = len_trim(diag_fieldname)
-           write(diag_fieldname(nn+1:nn+2),'(i2.2)') ipref
+           text_len = len_trim(diag_fieldname)
+           write(diag_fieldname(text_len+1:text_len+2),'(i2.2)') ipref
          else
            diag_fieldname = trim(season_name(iseason))//'_'//trim(period_name(iperiod))//'_harvest_date_for_crop_'
-           nn = len_trim(diag_fieldname)
-           write(diag_fieldname(nn+1:nn+2),'(i2.2)') ipref
+           text_len = len_trim(diag_fieldname)
+           write(diag_fieldname(text_len+1:text_len+2),'(i2.2)') ipref
          endif
          id_crop_calendars(iph,iperiod,iseason,ipref) = register_tiled_diag_field(module_name,trim(diag_fieldname),(/id_ug/),lnd%time,trim(diag_fieldname),missing_value=0.0)
        enddo

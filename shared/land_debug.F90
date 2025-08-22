@@ -404,22 +404,22 @@ subroutine check_temp_range_0d(temp, tag, varname, value_OK)
   real, intent(in) :: temp ! temperature to check
   character(*), intent(in) :: tag ! tag to print
   character(*), intent(in) :: varname ! name of the variable for printout
-  logical, optional :: value_OK ! debug_pjp
+  logical, optional :: value_OK
 
-  if(temp == 0.0) return                           ! debug_pjp
+  if(temp == 0.0) return
 
   call check_var_range(temp,temp_lo,temp_hi,tag,varname,WARNING)
-  if(present(value_OK)) then                       ! debug_pjp
-    if(ieee_is_finite(temp)) then                  ! debug_pjp
-      if(temp_lo <= temp.and.temp <= temp_hi) then ! debug_pjp
-        value_OK = .true.                          ! debug_pjp
-      else                                         ! debug_pjp
-        value_OK = .false.                         ! debug_pjp
-      endif                                        ! debug_pjp
-    else                                           ! debug_pjp
-      value_OK = .false.                           ! debug_pjp
-    endif                                          ! debug_pjp
-  endif                                            ! debug_pjp
+  if(present(value_OK)) then
+    if(ieee_is_finite(temp)) then
+      if(temp_lo <= temp.and.temp <= temp_hi) then
+        value_OK = .true.
+      else
+        value_OK = .false.
+      endif
+    else
+      value_OK = .false.
+    endif
+  endif
 end subroutine check_temp_range_0d
 
 subroutine check_temp_range_1d(temp, tag, varname)
