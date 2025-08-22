@@ -212,6 +212,9 @@ logical :: reset_to_ntrl = .FALSE. ! if true, on model initialization any vegeta
   ! IC suitable for potential vegetation runs. Typically one would set this parameter to
   ! TRUE, run for zero time steps, and collect resulting restarts to be an IC for potential
   ! vegetation run.
+logical :: fog_qsat_fix = .TRUE. ! if FALSE, use old linearized equation for the threshold
+  ! specific humidity of fog formation. This should be set to FALSE only in attempts to
+  ! reproduce old results.
 
 namelist /land_model_nml/ use_old_conservation_equations, &
                           lm2, give_stock_details, &
@@ -225,7 +228,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           con_fac_large, con_fac_small, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
-                          layout, io_layout, npes_io_group, mask_table, reset_to_ntrl
+                          layout, io_layout, npes_io_group, mask_table, reset_to_ntrl, fog_qsat_fix
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -1690,6 +1693,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        grnd_E_max, &
        soil_E_min, &
        soil_E_max, &
+       fog_qsat, & ! threshold specific humidity for fog formation, kg/kg
        swdn(N,NBANDS),  & ! downward short-wave radiation on top of the each cohort canopy, W/m2
        swnet(N,NBANDS), & ! net short-wave radiation balance of each cohort canopy, W/m2
        con_g_h, con_g_v, & ! turbulent cond. between ground and canopy air, for heat and vapor respectively
@@ -2486,10 +2490,28 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            fog_step = fog_step + 1
            if (.not.do_fog)                                   exit ! from fog_step loop
            if (fog_step>max_fog_steps)                        exit ! from fog_step loop
-           if (cana_q+delta_qc < cana_qsat+DqsatDTc*delta_Tc) exit ! from fog_step loop
-           ! specific humidity at the end of the time step exceeds saturation
+
+           ! Calculate the saturated specific humidity at the end of the time step
+           ! and determine if fog formation is triggered.
+           if (fog_qsat_fix) then
+              call qscomp(max(cana_T+delta_Tc,120.0),p_surf,fog_qsat)
+              if (cana_q+delta_qc < fog_qsat) exit ! from fog_step loop
+              fog_form = fog_form_rate*(cana_q - cana_qsat)
+!               fog_form = fog_form_rate*max(cana_q - cana_qsat,0.0)
+!               fog_form = fog_form_rate*(cana_q+delta_qc - fog_qsat)
+           else
+              ! This linearized expression can easily result in negative values for
+              ! the fog threshold when the temperature tendency (delta_Tc)
+              ! is large and negative. For instance, if we assume a 7%/K temperature
+              ! dependence of qsat, a roughly 14.3 K decrease in Tc will produce
+              ! negative values. In general, this expression will result in lower
+              ! fog thresholds (compared to the precise qsat(Tc+delta_Tc)) and,
+              ! consequently, more frequent/intense fog formation.
+              if (cana_q+delta_qc < cana_qsat+DqsatDTc*delta_Tc) exit ! from fog_step loop
+              fog_form = fog_form_rate*(cana_q - cana_qsat)
+           endif
            if (is_watch_point()) write(*,*)'### fog formation triggered ###'
-           fog_form = fog_form_rate*(cana_q - cana_qsat)
+!            call check_var_range(fog_form, 0.0, HUGE(1.0), 'update_land_model_fat_0d', 'fog_form_rate', WARNING)
            fc0    =  fog_form - fog_diss
            DfcDqc =  fog_form_rate
            DfcDTc = -fog_form_rate*DqsatDTc
