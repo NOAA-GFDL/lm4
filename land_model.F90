@@ -289,6 +289,7 @@ integer :: &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
   id_water_cons, id_carbon_cons, id_nitrogen_cons, id_grnd_rh, id_cana_rh, id_cTot1, &
 
+  id_swdn_g_dif, id_swdn_g_dir, id_swup_g_dif, id_swup_g_dir,              &
   ! =============== EZSNOW New snowpack fields to add to diagnostics ===================
   id_wetdep_bc, id_wetdep_md, id_wetdep_om, id_drydep_bc, id_drydep_md, id_drydep_om, &
   id_snow_refl_dir, id_snow_refl_dif, id_snow_avrg_T, id_snow_depth
@@ -2782,6 +2783,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_fswv,    vegn_fsw,                           tile%diag)
   call send_tile_data(id_fsws,    snow_fsw,                           tile%diag)
   call send_tile_data(id_fswg,    subs_fsw,                           tile%diag)
+  call send_tile_data(id_swdn_g_dif,  ISa_dn_dif*tile%Sg_dn_dif + ISa_dn_dir*tile%Sg_dn_sctr,  tile%diag)
+  call send_tile_data(id_swdn_g_dir,  ISa_dn_dir*tile%Sg_dn_dir,                               tile%diag)
+  call send_tile_data(id_swup_g_dif,  ISa_dn_dif*tile%Sg_up_dif + ISa_dn_dir*tile%Sg_up_sctr,  tile%diag)
+  call send_tile_data(id_swup_g_dir,  ISa_dn_dir*tile%Sg_up_dir,                               tile%diag)
   call send_tile_data(id_flw,     vegn_flw+snow_flw+subs_flw,         tile%diag)
   call send_tile_data(id_flwv,    vegn_flw,                           tile%diag)
   call send_tile_data(id_flws,    snow_flw,                           tile%diag)
@@ -3423,7 +3428,9 @@ subroutine land_sw_balance ( &
   fswv, fswg, fswdn, &
   layer_refl_dif, layer_tran_dif, &
   layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
-  land_albedo_dif, land_albedo_dir )
+  land_albedo_dif, land_albedo_dir, &
+  swdn_g_dif, swdn_g_dir, &
+  swup_g_dif, swup_g_dir  )
   real, intent(in) :: swdn_dir ! downward direct radiation from atmos, W/m2
   real, intent(in) :: swdn_dif ! downward diffuse radiation from atmos, W/m2
   integer, intent(in) :: vegn_layer(:) ! layer number for each cohort, top-down
@@ -3449,8 +3456,13 @@ subroutine land_sw_balance ( &
      layer_tran_dir(:), & ! transmittances for direct beam
      layer_sctr_dir(:)    ! downward scattering coefficients for direct beam
 
-  real, intent(out),optional :: land_albedo_dir ! land albedo for direct light
-  real, intent(out),optional :: land_albedo_dif ! land albedo for diffuse light
+  real, intent(out), optional :: land_albedo_dir ! land albedo for direct light
+  real, intent(out), optional :: land_albedo_dif ! land albedo for diffuse light
+  real, intent(out), optional :: &
+     swdn_g_dif, & ! downward diffuse light at the ground
+     swdn_g_dir, & ! downward direct light at the ground
+     swup_g_dif, & ! downward diffuse light reflected by the ground
+     swup_g_dir    ! downward direct light reflected by the ground
 
   ! ---- local vars
   integer :: N ! number of canopy layers
@@ -3540,6 +3552,10 @@ subroutine land_sw_balance ( &
          + layer_tran_dif(i)*scale(i)*dif
      dir = layer_tran_dir(i)*dir
   enddo
+  if (present(swdn_g_dif)) swdn_g_dif = dif
+  if (present(swup_g_dif)) swup_g_dif = surf_refl_dif*dif
+  if (present(swdn_g_dir)) swdn_g_dir = dir
+  if (present(swup_g_dir)) swup_g_dir = surf_refl_dir*dir
   fswg = (1-surf_refl_dif)*dif + (1-surf_refl_dir)*dir
 
   ! deallocate local variables
@@ -3624,7 +3640,11 @@ subroutine land_sw_radiation (     &
      vegn_refl_dif, vegn_tran_dif, &
      vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
      ! output:
-     Sg_dir, Sg_dif, Sv_dir, Sv_dif, Sdn_dir, Sdn_dif, &
+     Sg_dir, Sg_dif, &
+     Sg_dn_dif,  Sg_up_dif, &
+     Sg_dn_dir,  Sg_up_dir, &
+     Sg_dn_sctr, Sg_up_sctr, &
+     Sv_dir, Sv_dif, Sdn_dir, Sdn_dif, &
      land_albedo_dir, land_albedo_dif, &
      diag )
 
@@ -3643,9 +3663,16 @@ subroutine land_sw_radiation (     &
   real, intent(in)    :: vegn_frac(:)  ! fractional crown area of each cohort
 
   real, intent(out) :: &
-     Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
-     Sv_dir(:,:),    Sv_dif(:,:),    & ! fraction of downward short-wave absorbed by vegetation (NCOHORTS,NBANDS)
-     Sdn_dir(:,:),   Sdn_dif(:,:),   & ! fraction of downward short-wave on top of each cohort (NCOHORTS,NBANDS)
+     ! in the following: "incident" means incident on the topof canopies
+     Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of incident downward short-wave absorbed by ground and snow
+     Sg_dn_dif(NBANDS),  & ! fraction of incident downward diffuse raching the ground
+     Sg_up_dif(NBANDS),  & ! fraction of incident downward diffuse reflected by the ground
+     Sg_dn_dir(NBANDS),  & ! fraction of incident downward direct raching the ground (as direct beam)
+     Sg_up_dir(NBANDS),  & ! fraction of incident downward direct reflected by the ground
+     Sg_dn_sctr(NBANDS), & ! fraction of incident downward direct raching the ground as scattered diffuse
+     Sg_up_sctr(NBANDS), & ! fraction of incident downward direct that reaches the ground as ascattered and reflected back
+     Sv_dir(:,:),    Sv_dif(:,:),    & ! fraction of incident downward short-wave absorbed by vegetation (NCOHORTS,NBANDS)
+     Sdn_dir(:,:),   Sdn_dif(:,:),   & ! fraction of incident downward short-wave on top of each cohort (NCOHORTS,NBANDS)
      land_albedo_dir(NBANDS), land_albedo_dif(NBANDS) ! land albedo for direct and diffuse light
 
   type(diag_buff_type), intent(inout) :: diag ! diagnostic data storage
@@ -3681,7 +3708,8 @@ subroutine land_sw_radiation (     &
         Sv_dif(:,band), Sg_dif(band), Sdn_dif(:,band), &
         layer_refl_dif, layer_tran_dif, &
         layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
-        land_albedo_dif=land_albedo_dif(band) )
+        land_albedo_dif=land_albedo_dif(band), &
+        swdn_g_dif=Sg_dn_dif(band), swup_g_dif=Sg_up_dif(band) )
      ! diagnostics: calculate overall black-background vegetation radiative properties
      ! for diffuse radiation
      if(id_vegn_refl_dif > 0 .or. id_vegn_tran_dif > 0) then
@@ -3704,7 +3732,9 @@ subroutine land_sw_radiation (     &
         Sv_dir(:,band), Sg_dir(band), Sdn_dir(:,band), &
         layer_refl_dif, layer_tran_dif, &
         layer_refl_dir, layer_tran_dir, layer_sctr_dir, &
-        land_albedo_dir=land_albedo_dir(band) )
+        land_albedo_dir=land_albedo_dir(band), &
+        swdn_g_dif=Sg_dn_sctr(band), swup_g_dif=Sg_up_sctr(band), &
+        swdn_g_dir=Sg_dn_dir(band),  swup_g_dir=Sg_up_dir(band)   )
      ! diagnostics: calculate overall black-background vegetation radiative properties
      ! for direct radiation
      if(id_vegn_refl_dir > 0 .or. id_vegn_tran_dir > 0 .or. id_vegn_sctr_dir > 0) then
@@ -3977,7 +4007,11 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
        vegn_refl_dif, vegn_tran_dif, &
        vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir,  &
        ! output:
-       tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, tile%Sdn_dir, tile%Sdn_dif, &
+       tile%Sg_dir, tile%Sg_dif, &
+       tile%Sg_dn_dif,  tile%Sg_up_dif, &
+       tile%Sg_dn_dir,  tile%Sg_up_dir, &
+       tile%Sg_dn_sctr, tile%Sg_up_sctr, &
+       tile%Sv_dir, tile%Sv_dif, tile%Sdn_dir, tile%Sdn_dif, &
        tile%land_refl_dir, tile%land_refl_dif, &
        tile%diag )
 
@@ -4703,6 +4737,15 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
   id_lwdn = register_tiled_diag_field ( module_name, 'lwdn', axes, time, &
        'downward long-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+  id_swdn_g_dif = register_tiled_diag_field ( module_name, 'swdn_g_dif', (/id_ug,id_band/), time, &
+             'downward diffuse sw radiation to the ground', 'W/m2', missing_value=-1.0e+20 )
+  id_swdn_g_dir = register_tiled_diag_field ( module_name, 'swdn_g_dir', (/id_ug,id_band/), time, &
+             'downward direct sw radiation to the ground', 'W/m2', missing_value=-1.0e+20 )
+  id_swup_g_dif = register_tiled_diag_field ( module_name, 'swup_g_dif', (/id_ug,id_band/), time, &
+             'diffuse raddiation reflected by the ground', 'W/m2', missing_value=-1.0e+20 )
+  id_swup_g_dir = register_tiled_diag_field ( module_name, 'swup_g_dir', (/id_ug,id_band/), time, &
+             'direct raddiation reflected by the ground', 'W/m2', missing_value=-1.0e+20 )
+
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
              'fraction covered by vegetation', missing_value=-1.0 )
   id_vegn_cover_1 = register_tiled_diag_field ( module_name, 'vegn_cover:C', axes, time, &
