@@ -4742,9 +4742,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_swdn_g_dir = register_tiled_diag_field ( module_name, 'swdn_g_dir', (/id_ug,id_band/), time, &
              'downward direct sw radiation to the ground', 'W/m2', missing_value=-1.0e+20 )
   id_swup_g_dif = register_tiled_diag_field ( module_name, 'swup_g_dif', (/id_ug,id_band/), time, &
-             'diffuse raddiation reflected by the ground', 'W/m2', missing_value=-1.0e+20 )
+             'diffuse radiation reflected by the ground', 'W/m2', missing_value=-1.0e+20 )
   id_swup_g_dir = register_tiled_diag_field ( module_name, 'swup_g_dir', (/id_ug,id_band/), time, &
-             'direct raddiation reflected by the ground', 'W/m2', missing_value=-1.0e+20 )
+             'direct radiation reflected by the ground', 'W/m2', missing_value=-1.0e+20 )
 
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
              'fraction covered by vegetation', missing_value=-1.0 )
