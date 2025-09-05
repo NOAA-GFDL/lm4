@@ -147,8 +147,15 @@ type :: land_tile_type
    type(diag_buff_type) :: diag ! diagnostic data storage
 
    ! data that are carried from update_land_bc_fast to update_land_fast:
-   real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and
-       ! diffuse short-wave radiation absorbed by ground and snow
+   real :: Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fractions of downward direct and
+     ! diffuse short-wave radiation absorbed by ground and snow
+     Sg_dn_dif(NBANDS),  & ! fraction of incident downward diffuse raching the ground
+     Sg_up_dif(NBANDS),  & ! fraction of incident downward diffuse reflected by the ground
+     Sg_dn_dir(NBANDS),  & ! fraction of incident downward direct raching the ground (as direct beam)
+     Sg_up_dir(NBANDS),  & ! fraction of incident downward direct reflected by the ground
+     Sg_dn_sctr(NBANDS), & ! fraction of incident downward direct raching the ground as scattered diffuse
+     Sg_up_sctr(NBANDS)    ! fraction of incident downward direct that reaches the ground as a scattered and reflected back
+
    ! fractions of downward direct and diffuse radiation absorbed by the
    ! vegetation; dimensions are (NCOHORTS,NBANDS).
    real, allocatable :: Sv_dir(:,:), Sv_dif(:,:)
