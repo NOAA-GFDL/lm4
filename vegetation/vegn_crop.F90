@@ -52,7 +52,7 @@
 
 #include "../shared/debug.inc"
  use mpp_mod, only: input_nml_file, mpp_clock_id, mpp_clock_begin, mpp_clock_end, CLOCK_ROUTINE
- use fms_mod, only: string, error_mesg, NOTE, FATAL, check_nml_error, stdlog, CLOCK_FLAG_DEFAULT
+ use fms_mod, only: string, error_mesg, NOTE, WARNING, FATAL, check_nml_error, stdlog, CLOCK_FLAG_DEFAULT
  use time_manager_mod, only: time_type, set_date, get_date, operator(-), set_time, operator(+), length_of_year, operator(//), operator(<)
  use constants_mod, only: TFREEZE, SECONDS_PER_DAY, PI
  use land_tile_mod, only: land_tile_type, land_tile_enum_type, first_elmt, loop_over_tiles, land_tile_map
@@ -61,9 +61,9 @@
                           IRRIGATED_MAIZE, IRRIGATED_SOYBEAN, IRRIGATED_RICE, IRRIGATED_SPRING_WHEAT, IRRIGATED_WINTER_WHEAT, &
                           RAINFED_MAIZE,   RAINFED_SOYBEAN,   RAINFED_RICE,   RAINFED_SPRING_WHEAT,   RAINFED_WINTER_WHEAT, &
                           crop_name, num_crop_types, num_crop_cal, num_crop_seasons, num_crop_periods, &
-                          landuse_name, water_source_name, landuse_longname, &
+                          landuse_name, landuse_longname, &
                           LU_IRRIG, LU_RAINF, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, LU_RANGE, LU_PSL, LU_PST, LU_CRP
- use land_data_mod, only: lnd
+ use land_data_mod, only: lnd, log_version
  use land_tile_io_mod, only: land_restart_type, init_land_restart, open_land_restart, save_land_restart, &
                              free_land_restart, add_restart_axis, add_tile_data, get_tile_data, field_exists, add_int_tile_data, get_int_tile_data
  use astronomy_mod, only: get_orbital_parameters, get_ref_date_of_ae
@@ -72,6 +72,7 @@
  use land_numerics_mod, only: ludcmp, lubksb
  use land_io_mod, only: init_cover_field, read_field
  use fms2_io_mod, only: close_file, FmsNetcdfFile_t, open_file
+use land_debug_mod, only : land_error_message, check_var_range
 
  implicit none
  private
@@ -88,6 +89,8 @@
  real, parameter :: aPTT_interval = 200. ! Wheat suitablity is tested at intervals of aPTT_interval units of photo-thermal time.
  character(len=5), parameter :: cseason(num_crop_seasons) = (/' main'," 2'nd"/)
  character(len=16), parameter :: restart_file_name = 'crop.nc'
+
+#include "../shared/version_variable.inc"
 
 !-----------------------------------------------------------
 ! used by routines that compute_day_length
@@ -217,6 +220,8 @@
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%T_mid_mth)
     vegn%Crop%P_mid_mth = 4*vegn%Crop%precip_av_climate ! 4*tcprecip_av_climate is the rhs. lubksb overwrites it with the solution.
     call lubksb(X_ludcmp, indx_ludcmp, vegn%Crop%P_mid_mth)
+
+    call check_var_range(real(vegn%Crop%potential_crop(:)), 0.0, 10.0, 'compute_crop_calendars', 'potential_crop', WARNING)
     crop_loop_1: do ipref=1,num_crop_types
       pot_crop = vegn%Crop%potential_crop(ipref)
       if(pot_crop == NO_CROP) exit crop_loop_1
@@ -252,11 +257,13 @@
         vegn%Crop%crop_calendars(:,:,SECOND_SEASON,ipref) = NO_DATE
       else
         if(pot_crop == IRRIGATED_MAIZE .or. pot_crop == IRRIGATED_SOYBEAN .or. pot_crop == IRRIGATED_RICE) then
-          iwater = 1
+          iwater = LU_IRRIG
         else if(pot_crop == RAINFED_MAIZE .or. pot_crop == RAINFED_SOYBEAN .or. pot_crop == RAINFED_RICE) then
-          iwater = 2
+          iwater = LU_RAINF
+        else
+          call land_error_message('compute_crop_calendars: pot_crop ('//string(pot_crop)//') is out of bounds', FATAL)
         endif
-        call CCA_Maize_Soybean_Rice(L, vegn, trim(water_source_name(iwater)), GP(pot_crop), central_T(:,pot_crop), variance_T(:,pot_crop), & ! intent(in)
+        call CCA_Maize_Soybean_Rice(L, vegn, iwater, GP(pot_crop), central_T(:,pot_crop), variance_T(:,pot_crop), & ! intent(in)
                       central_P(:,pot_crop), variance_P(:,pot_crop), central_D(:,pot_crop), variance_D(:,pot_crop), SI_crit(pot_crop), & ! intent(in)
                       pday, pday_beg, pday_end, hday, hday_beg, hday_end) ! intent(out)
         vegn%Crop%crop_calendars(:,1,MAIN_SEASON,  ipref) = (/ pday(1), hday(1)/)
@@ -1026,7 +1033,7 @@
                      central_D, variance_D, SI_crit, pday, pday_beg, pday_end, hday, hday_beg, hday_end)
  integer, intent(in) :: L
  type(vegn_tile_type), intent(in) :: vegn
- character(len=*), intent(in) :: water
+ integer, intent(in) :: water ! source of water, LU_IRRIG or LU_RAINF for irrigated and rain-fed crops, respectively
  integer, intent(in) :: GP_in
  real, intent(in) :: central_T(0:), variance_T(0:), central_P(0:), variance_P(0:), central_D(0:), variance_D(0:), SI_crit
  integer, dimension(num_crop_seasons), intent(out) :: pday, pday_beg, pday_end, hday, hday_beg, hday_end
@@ -1035,8 +1042,8 @@
  real :: TSI, DSI, PSI
  real, dimension(num_test_days) :: SI
 !---------------------------------------------------------------------
- if(trim(water) /= 'irrigated' .and. trim(water) /= 'rainfed') then
-   call error_mesg('CCA_Maize_Soybean_Rice ERROR: '//trim(water), 'is not a valid value of water', FATAL)
+ if(.not.(water == LU_IRRIG .or. water == LU_RAINF)) then
+   call error_mesg('CCA_Maize_Soybean_Rice ERROR: '//string(water), 'is not a valid value of water', FATAL)
  endif
  k_loop_1: do k=1,num_test_days ! Compute the suitability index at 5 day intervals, starting with Jan 5
    TSI = 0.0
@@ -1053,7 +1060,7 @@
      if(mths_after < 4) then
        ! Month 4 is not tested for precip or day length
        Prec = interp_between_mid_mths(doy, vegn%Crop%P_mid_mth)
-       if(trim(water) == 'irrigated') Prec = max(Prec,central_P(mths_after))
+       if(water == LU_IRRIG) Prec = max(Prec,central_P(mths_after))
        PSI = PSI + (Prec - central_P(mths_after))**2/variance_P(mths_after)
        dlen = .2*((doy-5*km)*day_length(kp,L) + (5*kp-doy)*day_length(km,L))
        DSI = DSI + (dlen - central_D(mths_after))**2/variance_D(mths_after)
@@ -1501,6 +1508,8 @@
 !======================================================================================================================================================
  subroutine read_crop_namelist
  integer :: logunit, io, ierr
+
+  call log_version(version, 'vegn_crop_mod', __FILE__)
 
   read(input_nml_file, nml=vegn_crop_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_crop_nml')
