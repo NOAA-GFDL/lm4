@@ -627,10 +627,12 @@ subroutine land_transitions (time)
         if (.not.associated(tile%vegn)) cycle
         select case (tile%vegn%landuse)
         case (LU_RAINF)
-           tile%vegn%Crop = saved_crop_rainf
+           if (n_rainf>0) tile%vegn%Crop = saved_crop_rainf
         case (LU_IRRIG)
-           tile%vegn%Crop = saved_crop_irrig
+           if (n_irrig>0) tile%vegn%Crop = saved_crop_irrig
         end select
+        ! if the number of existig rain-fed or rain-fed crop tiles was zero, then
+        ! the tile%vegn%crop remains unchanged from the parent tile
      enddo
   enddo
 
