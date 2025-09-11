@@ -59,6 +59,7 @@ public :: soil_ave_theta3
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta        ! returns array of soil moisture, for all layers
 public :: soil_porosity     ! returns array of soil porosity, for all layers
+public :: soil_water_ice_porosity  ! returns fraction of soil pores occupied by water and ice, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
 
 ! public data
@@ -1360,6 +1361,7 @@ end function soil_porosity
 
 ! ============================================================================
 ! Like soil_theta1 but for ice-filled porosity.
+! returns the fraction of soil pores occupied by ice for all soil layers
 function soil_ice_porosity(soil) result(ice_porosity)
     type(soil_tile_type), intent(in) :: soil
     real :: ice_porosity(num_l)
@@ -1370,6 +1372,15 @@ function soil_ice_porosity(soil) result(ice_porosity)
         ice_porosity(k) = min(max(soil%ws(k)/(dens_h2o*dz(k)),0.0)/(soil%pars%vwc_sat),1.0)
     enddo
 end function soil_ice_porosity
+
+! ============================================================================
+! returns the fraction of soil pores occupied by water and ice for all layers.
+function soil_water_ice_porosity(soil) result (water_ice_porosity)
+  type(soil_tile_type), intent(in) :: soil
+  real :: water_ice_porosity(num_l)
+
+  water_ice_porosity(:) = min(max((soil%wl(:)+soil%ws(:))/(dens_h2o*dz(1:num_l)),0.0)/(soil%pars%vwc_sat),1.0)
+end function soil_water_ice_porosity
 
 
 ! ============================================================================

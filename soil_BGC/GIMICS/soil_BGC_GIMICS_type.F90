@@ -25,7 +25,7 @@ use soil_BGC_type_mod, only : soil_BGC_t, deplete_pool, tracer_advection
 use soil_BGC_util_mod, only : register_soilc_diag_fields, register_litter_diag_fields, &
         register_litter_soilc_diag_fields
 use soil_tile_mod, only : soil_tile_type, gw_option, GW_TILED, &
-         num_l, dz, zhalf, zfull, soil_theta, soil_porosity, soil_pClay
+         num_l, dz, zhalf, zfull, soil_theta, soil_porosity, soil_pClay, SOIL_ICE_POROSITY, soil_water_ice_porosity
 use vegn_data_mod, only : spdata
 use vegn_tile_mod, only : vegn_tile_type
 use vegn_cohort_mod, only : cohort_root_litter_profile
@@ -214,8 +214,9 @@ real :: Desorb_kdp = 0.0
 real :: Desorb_clay = -1.5
 
 logical :: highT_limit = .FALSE.    ! if FALSE, no limitation on decomposition for high temperature
-logical :: lowT_limit  = .FALSE.    ! if FALSE, no limitation on decomposition for high temperature
+logical :: lowT_limit  = .FALSE.    ! if FALSE, no limitation on decomposition for low temperature
 logical :: DOC_cycling = .FALSE.    ! if FALSE, no doc cycling
+logical :: Km_theta    = .FALSE.    ! if FALSE, theta function (soil water dependence) does not affect Km
 
 real :: min_anaerobic_resp_factor = 0.05
 real :: theta_func_orchidee_min = 0.25
@@ -284,7 +285,7 @@ namelist /soil_BGC_GIMICS_nml/ &
     fI_Lm, eLm_Mr, eLs_Mr, eCa_Mr, eLm_Mk, eLs_Mk, eCa_Mk, e_slope, Kmod_oxid_Mr, Kmod_oxid_Mk, &
     w_Lm, w_Ls, w_Ca, &
     theta_func_litt, theta_func_soil, &
-    highT_limit,  lowT_limit, DOC_cycling, &
+    highT_limit,  lowT_limit, DOC_cycling, Km_theta, &
     min_anaerobic_resp_factor, min_dry_resp_factor, gas_diffusion_exp, substrate_diffusion_exp, theta_func_orchidee_min, theta_func_orchidee_max, &
     tau_calib, tau_beta, cw_r_cw, cw_z_cw, lf_f_cw, cw_r_lf, cw_z_lf, lf_f_lf, &
     fMrTau_DOC, fMkTau_DOC, fMrTau_Cp_a1, fMrTau_Cp_a2, fMrTau_Cc_a3, fMrTau_Cc_a4, fMrTau_Cc_a5, fMrTau_Cc_a3_litt, fMrTau_Cc_a4_litt, fMrTau_Cc_a5_litt, Desorb_kd, Desorb_kdp, Desorb_clay, &
@@ -330,7 +331,7 @@ integer :: id_surf_DOC_loss, id_total_DOC_div_loss, id_sadvec_DOC, id_ladvec_DOC
 
 ! CMIP/CMOR diag fields
 integer :: id_rh, id_cSoil, id_cSoilLevels, id_cLitter, id_cLitterCwd, id_cLitterLeaf, &
-   id_cSoilAbove1m, id_theta
+   id_cSoilAbove1m, id_theta, id_theta_ice
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
@@ -520,6 +521,8 @@ subroutine soil_BGC_diag_init_GIMICS(id_ug, id_zfull)
        lnd%time, 'Soil moisture related factor for decomposition', '-', missing_value=-100.0 )
 
   id_theta = register_tiled_diag_field ( diag_mod_name, 'Theta', axes(:),  &
+       lnd%time, 'Water-filled porosity (fraction of pores filled with water)', '-', missing_value=-100.0 )
+  id_theta_ice = register_tiled_diag_field ( diag_mod_name, 'Theta_ice', axes(:),  &
        lnd%time, 'Water-filled porosity (fraction of pores filled with water)', '-', missing_value=-100.0 )
 
   ! litter fields
@@ -1220,7 +1223,8 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   real                , intent(in)    :: soilt !< average soil temperature, deg K, [unused]
   real                , intent(in)    :: theta !< average soil moisture [unused]
 
-  real, dimension(num_l) :: decomp_T, decomp_theta, decomp_porosity, decomp_moist
+  real, dimension(num_l) :: decomp_T, decomp_theta, decomp_porosity, decomp_moist, &
+                            decomp_theta_ice, decomp_water_ice_porosity
   real, dimension(num_l) :: rhiz_frac
   real :: clay_frac ! fraction of clay, unitless in interval [0,1]. Should it be by-layer?
   integer :: k
@@ -1231,6 +1235,8 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   decomp_porosity = soil_porosity(soil)
   decomp_moist = decomp_theta * decomp_porosity
   decomp_T     = soil%T(1:num_l) - tfreeze
+  decomp_theta_ice = soil_ice_porosity(soil)
+  decomp_water_ice_porosity = soil_water_ice_porosity(soil)
 
   !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
@@ -1295,7 +1301,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   call turbation(soilc%litt(:)%availableC, soilc%rhiz(:)%availableC, soilc%bulk(:)%availableC, &
                  soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_availableC, id_lturb_availableC, diag, 'availableC')
   call turbation2(soilc%litt(:)%DOC, soilc%rhiz(:)%DOC, soilc%bulk(:)%DOC, &
-                 soilc%fRhiz, soilc%litt(:)%dz, K_diff, decomp_theta, decomp_porosity, decomp_moist, id_sturb_DOC, id_lturb_DOC, diag, 'DOC')
+                 soilc%fRhiz, soilc%litt(:)%dz, K_diff, decomp_theta, decomp_theta_ice, decomp_water_ice_porosity, decomp_porosity, decomp_moist, id_sturb_DOC, id_lturb_DOC, diag, 'DOC')
   if (do_microbe_turb) then
      call turbation(soilc%litt(:)%microbesR, soilc%rhiz(:)%microbesR, soilc%bulk(:)%microbesR, &
                     soilc%fRhiz, soilc%litt(:)%dz, K_turb, decomp_theta, decomp_porosity, decomp_moist, id_sturb_microbesR, id_lturb_microbesR, diag, 'microbesR', &
@@ -1333,6 +1339,7 @@ subroutine dsdt_GIMICS(soilc, soil, vegn, diag, soilt, theta)
   if (id_tot_negative_litter_C>0) call send_tile_data(id_tot_negative_litter_C,sum(soilc%neg_litt_C),diag)
 
   call send_tile_data(id_theta, decomp_theta, diag)
+  call send_tile_data(id_theta_ice, decomp_theta_ice, diag)
 
 end subroutine dsdt_GIMICS
 
@@ -1526,8 +1533,8 @@ end subroutine
 
 !DOC diffusion is not limited by soil water saturation
 ! ============================================================================
-!> @brief Update a soil carbon pools by crio/bio turbation processes in the soil
-subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity, moist, id_turb_tend, id_litt_tend, diag, tag, &
+!> @brief Update DOC diffusion processes in the soil
+subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, theta_ice, water_ice_porosity, porosity, moist, id_turb_tend, id_litt_tend, diag, tag, &
     allow_flux_to_sfc_litter)
   real, intent(inout) :: litt(N_LITTER_POOLS)  !< concentration in litter(s), [kg/m3]
   real, intent(inout) :: rhiz(:)  !< concentration in rhizosphere, [kg/m3]
@@ -1536,6 +1543,8 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
   real, intent(in)    :: dz_litt(N_LITTER_POOLS) !< litter thickness, [m]
   real, intent(in)    :: K_turb(:)
   real, intent(in)    :: theta(:)         !< volume of water per volume of air [m3/m3]
+  real, intent(in)    :: theta_ice(:)     !< volume of ice per volume of air [m3/m3]
+  real, intent(in)    :: water_ice_porosity(:)     !< volume of water and ice per volume of air [m3/m3]
   real, intent(in)    :: porosity(:)      !< volume of air per volume of soil [m3/m3]
   real, intent(in)    :: moist(:)         !< volume of water per volume of soil [m3/m3]
   integer, intent(in) :: id_turb_tend !< diagnostic id for turbation tendency field
@@ -1547,9 +1556,11 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
                       !! fitter to soil is allowed. Default if FALSE
 
   real, dimension(size(rhiz)) :: &
-     c,     & ! average concentration in layer, [kg/m3]
+     c,     & ! average concentration in water, [kg/m3]
+     cc,     & ! average concentration in layer, [kg/m3]
      tend,  & ! tendency due to turbation, [kg/(m3 yr)]
-     turb_limit, moist_op  !
+     turb_limit, moist_op, &  !
+     h2o, h2o2
 
 
   real :: f   ! proportionality factor for negative tendency application, unitless
@@ -1567,7 +1578,16 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
 
   ! calculate average concentration in soil
   do k = 1,size(rhiz)
-     c(k) = rhiz(k)*fRhiz(k) + bulk(k)*(1-fRhiz(k))
+     cc(k) = rhiz(k)*fRhiz(k) + bulk(k)*(1-fRhiz(k))
+
+     h2o(k) = theta(k) * porosity(k)
+     h2o2(k) = water_ice_porosity(k) * porosity(k)
+
+     if (h2o(k) .gt. 0.0) then
+        c(k) = rhiz(k)/h2o(k)*fRhiz(k) + bulk(k)/h2o(k)*(1-fRhiz(k))
+     else
+        c(k)=0
+     endif
   enddo
   ! calculate fluxes from litter to soil
   do k = 1,N_LITTER_POOLS
@@ -1577,19 +1597,28 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
      !      E.g., difusion from 20cm-thick liter would be almost 4 times slower than from
      !      5cm. Perhaps we should impose some maximum on d?
      d    = dz_litt(k)/2 + zfull(1) ! distance between centers of litter and top soil layer, [m]
-     sfcFlux(k) = K_sfc_turb*(litt(k)-c(1))/d ! flux from litter to soil, [kg/(m2 yr)]
-     if (.not.allow_flux_to_litt) then
-        sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+
+     !if ((h2o2(1) .gt. 0.0) .and. (h2o(1) .gt. 0.0)) then
+     if (h2o(1) .gt. 0.0) then
+        sfcFlux(k) = (   2*K_turb(1)/1.5 * (h2o(1)*h2o(1)/ (h2o(1)*dz_litt(k)+h2o(1)*dz(1)) )   )*(litt(k)/h2o(1)-c(1)) ! flux from litter to soil, [kg/(m2 yr)]
+        !(   2*K_turb(1)/1.5 * (h2o(1)*h2o(1)/ (h2o(1)*dz_litt(k)+h2o(1)*dz(1)) )   )
+
+        if (.not.allow_flux_to_litt) then
+           sfcFlux(k) = max(sfcFlux(k),0.0) ! disallow fluxes from soil to litter
+        endif
+        if (is_watch_point()) then
+           write(*,'(a20,"(",a3,"):")',advance='NO') trim(tag),trim(l_diagname(k))
+           __DEBUG5__(litt(k)/h2o(1),c(1),dz_litt(k),d,sfcFlux(k)*dt_fast_yr)
+           __DEBUG5__(h2o(1),h2o2(1),theta(1),theta_ice(1),water_ice_porosity(1))
+        endif
+        sfcFlux(k) = min(sfcFlux(k),litt(k)*dz_litt(k)/dt_fast_yr) ! to avoid depleting litter below zero
+     else
+        sfcFlux(k) = 0.0
      endif
-     if (is_watch_point()) then
-        write(*,'(a20,"(",a3,"):")',advance='NO') trim(tag),trim(l_diagname(k))
-        __DEBUG5__(litt(k),c(1),dz_litt(k),d,sfcFlux(k)*dt_fast_yr)
-     endif
-     sfcFlux(k) = min(sfcFlux(k),litt(k)*dz_litt(k)/dt_fast_yr) ! to avoid depleting litter below zero
   enddo
 
   ! diffusion in soil
-  call diffusion(c, K_turb, turb_limit, sum(sfcFlux), tend)
+  call diffusion2(c, h2o, h2o2, theta_ice, K_turb, turb_limit, sum(sfcFlux), tend)
 
   !do k = 1,size(rhiz)
   !tend(k) = tend(k)*turb_limit(k)
@@ -1614,7 +1643,7 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
         bulk(k) = bulk(k) + tend(k)*dt_fast_yr
      else
         ! negative tendency: reduce rhizosphere and bulk soil concentration proportionally
-        f = (c(k)+tend(k)*dt_fast_yr)/c(k)
+        f = (cc(k)+tend(k)*dt_fast_yr)/cc(k)
         rhiz(k) = rhiz(k)*f
         bulk(k) = bulk(k)*f
      endif
@@ -1641,7 +1670,7 @@ subroutine turbation2(litt, rhiz, bulk, fRhiz, dz_litt, K_turb, theta, porosity,
 end subroutine
 
 ! ============================================================================
-!> @brief Calculate tendency due to vertical diffusion
+!> @brief Calculate tendency due to vertical bioturbation
 subroutine diffusion(C,D,turb_limit,F0,tend)
   real, intent(in)  :: C(:) !< transported quantity, by layer, [kg/m3]
   real, intent(in)  :: D(:) !< coefficients of diffusion (at the layer's bottom), [m2/yr]
@@ -1661,6 +1690,48 @@ subroutine diffusion(C,D,turb_limit,F0,tend)
      tend(k) = ((flux(k-1)-flux(k))/dz(k))
   enddo
 end subroutine
+
+! ============================================================================
+!> @brief Calculate tendency due to vertical diffusion of DOC
+subroutine diffusion2(C,h2o,h2o2,theta_ice, D,turb_limit,F0,tend)
+  real, intent(in)  :: C(:) !< DOC per water, [kg/m3]
+  real, intent(in)  :: theta_ice(:) !< soil ice per air, by layer, [m3/m3]
+  real, intent(in)  :: h2o(:) !<soil water content, [m3/m3]
+  real, intent(in)  :: h2o2(:) !<soil water and ice content, [m3/m3]
+  real, intent(in)  :: D(:) !< coefficients of diffusion (at the layer's bottom), [m2/yr]
+  real, intent(in)  :: turb_limit(:) !<
+  real, intent(in)  :: F0   !< flux into the soil at the soil surface, [kg/(m2 yr)]
+  real, intent(out) :: tend(:) !< tendencies due to diffusion [kg/(m3 yr)]
+
+  integer :: k
+  real    :: flux(0:num_l) ! flux at the lower boundary of the soil layer [kg/(m2 yr)],
+      ! positive downward. flux(0) is on the top of the soil, flux(num_l) -- at the soil bottom
+  flux(0) = F0
+
+  do k = 1, num_l-1
+     !flux(k) = D(k)*(C(k)-C(k+1))/(zfull(k+1)-zfull(k))*turb_limit(k)
+
+     !if ((h2o2(k) .gt. 0.0) .and.  (h2o(k) .gt. 0.0)) then
+     if (h2o(k) .gt. 0.0) then
+
+     flux(k) = (   2*D(k)/1.5 * (h2o(k)*h2o(k+1)/ (h2o(k+1)*dz(k)+h2o(k)*dz(k+1)) )   )*(C(k)-C(k+1))*turb_limit(k)
+
+     else
+     flux(k) = 0.0
+
+     !(   2*D(k)/1.5 * (h2o(k)*h2o(k+1)/ (h2o(k+1)*dz(k)+h2o(k)*dz(k+1)) )   )
+     endif
+
+  enddo
+
+  flux(num_l) = 0.0
+  do k = 1,num_l
+     tend(k) = ((flux(k-1)-flux(k))/dz(k))
+  enddo
+end subroutine
+
+
+
 
 ! ============================================================================
 subroutine step3_GIMICS(soilc, diag)
@@ -2006,16 +2077,27 @@ subroutine update_GIMICS_pool(pool, T, theta, porosity, moist, fClay, cw_r, cw_z
   Vmax_Mk_Ca = Vmax_base * Vmod_Mk_Ca
   Vmax_Mk_DOC = Vmax_base * Vmod_Mk_DOC
 
-  Km_Mr_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mr_Lm ! kgC/m3
-  Km_Mr_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mr_Ls
-  Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca
-  Km_Mr_DOC = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(fClay)))
+  if (Km_theta) then
+     Km_Mr_Lm = exp(Kslope_Lm*T+Kint) * aK * pool%thetaF * Kmod_Mr_Lm ! kgC/m3
+     Km_Mr_Ls = exp(Kslope_Ls*T+Kint) * aK * pool%thetaF * Kmod_Mr_Ls
+     Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * pool%thetaF * Kmod_Mr_Ca
+     Km_Mr_DOC = exp(Kslope_Ca*T+Kint) * aK * pool%thetaF * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
-  Km_Mk_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mk_Lm
-  Km_Mk_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mk_Ls
-  Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca
-  Km_Mk_DOC = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
+     Km_Mk_Lm = exp(Kslope_Lm*T+Kint) * aK * pool%thetaF * Kmod_Mk_Lm
+     Km_Mk_Ls = exp(Kslope_Ls*T+Kint) * aK * pool%thetaF * Kmod_Mk_Ls
+     Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * pool%thetaF * Kmod_Mk_Ca
+     Km_Mk_DOC = exp(Kslope_Ca*T+Kint) * aK * pool%thetaF * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
+  else
+     Km_Mr_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mr_Lm ! kgC/m3
+     Km_Mr_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mr_Ls
+     Km_Mr_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca
+     Km_Mr_DOC = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mr_Ca / (2.0*exp(-2.0*sqrt(fClay)))
 
+     Km_Mk_Lm = exp(Kslope_Lm*T+Kint) * aK * Kmod_Mk_Lm
+     Km_Mk_Ls = exp(Kslope_Ls*T+Kint) * aK * Kmod_Mk_Ls
+     Km_Mk_Ca = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca
+     Km_Mk_DOC = exp(Kslope_Ca*T+Kint) * aK * Kmod_Mk_Ca / (2.0*exp(-2.0*sqrt(fClay)))
+  endif
 
   if (is_sfc_litter) then
      ! litter accessible by microbes for decomposition
