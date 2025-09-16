@@ -975,42 +975,50 @@ contains ! ===--------------------------------------------------------
     end if
 
     if (id_gw_s_abst > 0) then
-       gw_s_abst = gw_s_abst*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
+       where (River%land_area > 0) &
+            gw_s_abst = gw_s_abst*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
        used = send_data (id_gw_s_abst, gw_s_abst, River%time, mask=River%mask)
     end if
 
     if (id_gw_d_abst > 0) then
-       gw_d_abst = gw_d_abst*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
+       where (River%land_area > 0) &
+           gw_d_abst = gw_d_abst*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
        used = send_data (id_gw_d_abst, gw_d_abst, River%time, mask=River%mask)
     end if
 
     if (id_gw_s_habst > 0) then
-       gw_s_habst = gw_s_habst / (River%land_area*River%dt_slow)  ! J / (m2 s) = W/m2
+       where (River%land_area > 0) &
+           gw_s_habst = gw_s_habst / (River%land_area*River%dt_slow)  ! J / (m2 s) = W/m2
        used = send_data (id_gw_s_habst, gw_s_habst, River%time, mask=River%mask)
     end if
 
     if (id_gw_d_habst > 0) then
-       gw_d_habst = gw_d_habst / (River%land_area*River%dt_slow)  ! J / (m2 s) = W/m2
+       where (River%land_area > 0) &
+           gw_d_habst = gw_d_habst / (River%land_area*River%dt_slow)  ! J / (m2 s) = W/m2
        used = send_data (id_gw_d_habst, gw_d_habst, River%time, mask=River%mask)
     end if
 
     if (id_irr_full > 0) then
-       demand_full = demand_full*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
+       where (River%land_area > 0) &
+           demand_full = demand_full*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
        used = send_data (id_irr_full, demand_full, River%time, mask=River%mask)
     end if
 
     if (id_irr_met > 0) then
-       demand_met = demand_met*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
+       where (River%land_area > 0) &
+           demand_met = demand_met*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
        used = send_data (id_irr_met, demand_met, River%time, mask=River%mask)
     end if
 
     if (id_irr_unmet > 0) then
-       demand_unmet = demand_unmet*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
+       where (River%land_area > 0) &
+           demand_unmet = demand_unmet*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s)
        used = send_data (id_irr_unmet, demand_unmet, River%time, mask=River%mask)
     end if
 
     if (id_rsv_outflow > 0) then
-       rsv_outflow = rsv_outflow / (River%land_area*River%dt_slow)  ! kg / (m2 s) = kg/(m2 s)
+       where (River%land_area > 0) &
+           rsv_outflow = rsv_outflow / (River%land_area*River%dt_slow)  ! kg / (m2 s) = kg/(m2 s)
        used = send_data (id_rsv_outflow, rsv_outflow, River%time, mask=River%mask)
     end if
 
