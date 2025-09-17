@@ -14,7 +14,7 @@ use cana_tile_mod,      only: canopy_air_mass_for_tracers
 use snow_tile_mod,      only: N_SNOW_TRACERS, SNOW_TR_BC, SNOW_TR_MD, SNOW_TR_OM
 use land_constants_mod, only: d608,kin_visc_air,dyn_visc_air,N_LITTER_POOLS,LITT_LEAF
 use land_data_mod,      only: lnd, log_version
-use land_debug_mod,     only: is_watch_point, check_var_range
+use land_debug_mod,     only: is_watch_point, check_var_range, check_temp_range
 use land_dust_mod,      only: land_dust_init, land_dust_end, update_land_dust
 use land_tracers_mod,   only: ntcana, isphum, ico2
 use land_tile_mod,      only: land_tile_type, land_tile_grnd_T, loop_over_tiles, first_elmt, land_tile_enum_type, land_tile_map
@@ -907,6 +907,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
       gfrac_dry = max(1.-gfrac_wet-gfrac_frz,0.)
 
       !calculate rh
+      call check_temp_range(tile%cana%T, 'update_cana_tracers', 'cana_T')
       call compute_qs (tile%cana%T, pressure, rh, q=tile%cana%tr(isphum))
       RH = tile%cana%tr(isphum)/RH
       !cap RH
