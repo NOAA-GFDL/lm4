@@ -14,7 +14,8 @@ use land_constants_mod, only : NBANDS, BAND_NIR, BAND_VIS, dens_ice, &
     g_vol, g0_vol, g1_vol, g2_vol, &
     g_geo, g0_geo, g1_geo, g2_geo
 use land_data_mod, only : lnd, log_version
-use land_debug_mod, only : is_watch_point, land_error_message, check_temp_range
+use land_debug_mod, only : is_watch_point, land_error_message, check_temp_range, &
+    check_var_range
 
 use snicar_mod, only: compute_snicar_albedo
 use snowpack_mod, only : snowpack_t, snow_layer_type, LAI_ext, LAI_ssa, eps, &
@@ -862,7 +863,7 @@ subroutine metamorph_FlannerZender2006(ddopt, dopt, ws, wl, Ti, Gi, rho_i, &
     ! make sure vars are within bounds
     rho_i2 = min(max(50.0, rho_i), 400.0)
     Ti2 = max(223.0, Ti)
-    Gi2 = Gi
+    Gi2 = min(Gi, HUGE(iGG)*9.99) ! to avoid overflow in NINT conversion to integer
     ! irho =MAX( MIN( ABS( INT( (rho_i2 - 25.0) / 50.0       ) + 1 ), 8  ), 1)
     ! iGG = MAX( MIN( ABS( INT( (Gi2 - 5.0   ) / 10.0 + 2.0  )     ), 31 ), 1)
     ! iTT = MAX( MIN( ABS( INT( (Ti2-225.65   ) / 5.0 + 2.0  )     ), 11 ), 1)
