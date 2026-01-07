@@ -4,12 +4,13 @@ use mpp_mod, only : mpp_error
 use fms_mod, only : stdlog, stdout, string, FATAL, NOTE
 
 use field_manager_mod, only: fm_field_name_len, fm_string_len, &
-   fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
+   fm_type_name_len, fm_dump_list, fm_get_length, &
    fm_get_current_list, fm_loop_over_list, fm_change_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 use tracer_manager_mod, only : NO_TRACER
 use table_printer_mod
 use land_data_mod, only : log_version
+use platform_mod, only: FMS_PATH_LEN
 
 
 implicit none
@@ -158,8 +159,8 @@ subroutine read_river_tracer_data(name,tr)
   type(tracer_data_type), intent(inout) :: tr
 
   ! ---- local vars
-  character(fm_path_name_len)  :: listname
-  character(fm_path_name_len)  :: current_list
+  character(FMS_PATH_LEN)  :: listname
+  character(FMS_PATH_LEN)  :: current_list
 
   current_list = fm_get_current_list()
   if (current_list .eq. ' ') call mpp_error(FATAL, 'river_tracers_mod: Could not get the current list')
