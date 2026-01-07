@@ -4,9 +4,10 @@ use constants_mod, only : PI, TFREEZE
 use fms_mod, only : input_nml_file, check_nml_error, &
      stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
-     fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
+     fm_type_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
+use platform_mod, only: FMS_PATH_LEN
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, N_C_TYPES
 use land_data_mod, only : log_version
@@ -951,8 +952,8 @@ subroutine read_species_data(name, sp, errors_found)
 
   character(fm_field_name_len) :: str
   character(fm_type_name_len)  :: ftype ! type of the field table entry
-  character(fm_path_name_len)  :: listname  ! name of the field manager list for the vegetation species
-  character(fm_path_name_len)  :: current_list ! storage for current location in the fiels manager tree
+  character(FMS_PATH_LEN)  :: listname  ! name of the field manager list for the vegetation species
+  character(FMS_PATH_LEN)  :: current_list ! storage for current location in the fiels manager tree
   character(fm_field_name_len), allocatable :: known_names(:) ! names of all the parameters code attempts to read
   integer :: n_names ! number of parameters code attempts to read
   type(fm_list_iter_type) :: iter ! iterator over the list of species parameters
